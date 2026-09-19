@@ -97,5 +97,8 @@ function normalizar(salida) {
     respuesta,
     buscar: String(datos.buscar || "NADA").trim(),
     historial: String(datos.historial || "").trim(),
+    // Solo lo manda el prompt de visión. Sin esto, identificar.js no
+    // tiene con qué verificar y deja pasar "buscar" tal cual llegó.
+    rasgos: datos.rasgos && typeof datos.rasgos === "object" ? datos.rasgos : null,
   };
 }

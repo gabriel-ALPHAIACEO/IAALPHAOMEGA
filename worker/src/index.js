@@ -14,6 +14,7 @@ import { pideVerMas, fraseDeCatalogo } from "./catalogo.js";
 import { separarColor, filtrarPorColor, terminoDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
 import { ponerCampoManyChat } from "./manychat-campo.js";
+import { validarIdentificacion } from "./identificar.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
   firmaValida,
@@ -836,6 +837,21 @@ function sinBienvenida(respuesta) {
 // del webhook de Meta. Si se cambia aquí, cambia en los dos.
 async function decidir({ env, salida, texto, historialPrevio }) {
   const preguntoTalla = PREGUNTA_TALLA.test(texto);
+
+  // Antes que nada: si esto vino de una foto, se revisa que "buscar" sea
+  // coherente con los rasgos que la propia IA marcó. Si dijo "Air Max 270"
+  // pero ella misma marcó que no hay cámara de aire, esto lo corrige ACÁ
+  // —determinístico, sin IA de por medio— antes de que el resto del
+  // código llegue a buscarlo en Shopify o a mandarlo. Se modifica "salida"
+  // en el momento para que tanto lo que sigue en esta función como lo que
+  // el llamador guarda después (salida.respuesta, salida.historial) ya
+  // vean la versión corregida.
+  const verificacion = validarIdentificacion(salida);
+  if (verificacion.corregido) {
+    salida.buscar = verificacion.buscar;
+    salida.respuesta = verificacion.respuesta;
+    salida.historial = verificacion.historial;
+  }
 
   // El modelo cuela la talla en el término cuando el cliente la nombra, y eso
   // devuelve cero productos siempre. Se le quita antes de buscar.
