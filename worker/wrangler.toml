@@ -1,0 +1,53 @@
+name = "invictus-bot"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Permite importar los prompts como texto (import promptTexto from "./prompts/texto.txt")
+[[rules]]
+type = "Text"
+globs = ["**/*.txt"]
+fallthrough = true
+
+[vars]
+# Enlace que se le manda al cliente cuando no hay productos que mostrar
+URL_CATALOGO = "https://8vds1e-jw.myshopify.com/"
+
+# Número de WhatsApp de la tienda, para el botón "Comprar" de cada ficha.
+# En formato internacional, SIN el +, sin espacios y sin guiones:
+#   Venezuela  0412-123 45 67  ->  "584121234567"
+# Si lo dejas vacío, las fichas salen solo con "Ver producto".
+WHATSAPP = "+584262992111"
+
+# Dominio de tu tienda, el que termina en .myshopify.com (sin https://)
+SHOPIFY_TIENDA = "8vds1e-jw.myshopify.com"
+
+# ─── Conexión directa con Meta ───────────────────────────────────────
+# El webhook SOLO atiende imágenes y respuestas a historias. Todo lo
+# demás —los "visto", las reacciones, los ecos de nuestros propios
+# mensajes, el texto suelto— se descarta sin gastar nada.
+#
+# Eso es lo que se comió los créditos de Make: Meta manda cientos de
+# avisos al día y Make pagaba una operación por cada uno.
+#
+#   "imagenes"   fotos del cliente y respuestas a historias  ← por defecto
+#   "historias"  solo las respuestas a historias
+#   "off"        nada; el webhook queda desactivado
+#
+# El texto suelto NUNCA se atiende aquí: es trabajo de ManyChat.
+META_MODO = "imagenes"
+
+# El que TÚ te inventas y escribes igual en el panel de Meta, en la
+# casilla "Token de verificación" al dar de alta el webhook.
+META_VERIFY_TOKEN = "invictus2026"
+
+# Modelo de OpenAI. Tiene que ser uno que sepa mirar imágenes.
+OPENAI_MODELO = "gpt-4o-mini"
+
+# ─────────────────────────────────────────────────────────────────────
+# Los secretos NO van aquí. Se cargan uno por uno con:
+#
+#   npx wrangler secret put OPENAI_API_KEY
+#   npx wrangler secret put SHOPIFY_TOKEN
+#   npx wrangler secret put MANYCHAT_SECRET
+#   npx wrangler secret put SLACK_WEBHOOK
+# ─────────────────────────────────────────────────────────────────────
