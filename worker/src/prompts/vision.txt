@@ -136,6 +136,24 @@ NIKE TOTAL 90
   Bota de fútbol clásica: silueta de tenis de caña baja pero con
   tacos/tapones en la suela para césped, cuero liso, muy angosta.
 
+NIKE METCON (6 y 7 — buscan igual, no hace falta distinguir cuál es)
+  Zapatilla de entrenamiento de gimnasio (crossfit/pesas), muy distinta a
+  una de correr: se nota más CUADRADA y RÍGIDA, no aerodinámica.
+    · Suela PLANA y ancha en el talón, con una placa dura visible — no se
+      hunde ni tiene resorte, es a propósito para no perder estabilidad
+      levantando pesas.
+    · En el lateral de la suela, justo bajo el arco (a medio pie), hay un
+      HUECO o muesca — un canal cortado en la goma para trepar cuerda.
+      Esta muesca es la seña más confiable: ninguna zapatilla de correr
+      la tiene.
+    · Una franja de goma sube por el talón o el lateral, para proteger
+      del roce de la barra en sentadillas.
+    · Talón ancho y sin curva marcada — de perfil se ve más "recto" que
+      una zapatilla de running.
+  No importa si es Metcon 6 o Metcon 7 (se ven parecidas y las dos
+  buscan "metcon"): con la suela plana + la muesca lateral ya alcanza
+  para nombrarlo, sin necesitar un segundo rasgo distinto.
+
 RETRO 1 (Jordan 1)
   Caña alta o media. Swoosh grande. Logo de ala bordado en el tobillo.
   Cuero en bloques de color. Suela con estrella y "Nike Air" en el talón.
@@ -893,6 +911,9 @@ Historial: "Foto de un Nike sin identificar modelo. Ya busqué: Nike. Ya pedí e
 
 [Foto de un Nike de suela alta y voluminosa pero no se distingue si tiene cámara de aire o es lisa, foto en ángulo raro]
 {"visto":"suela alta y voluminosa, no se distingue si tiene camara de aire, foto en angulo","respuesta":"Déjame revisar qué Nike parecidas tenemos 👟 ¿Sabes cómo se llaman?","buscar":"Nike","historial":"Foto de un Nike de suela alta sin identificar modelo. Ya busqué: Nike. Ya pedí el nombre."}
+
+[Foto de un Nike negro de entrenamiento: suela plana con placa dura, muesca lateral bajo el arco, talón ancho y recto, franja de goma subiendo por el talón]
+{"visto":"suela plana con placa dura, muesca lateral bajo el arco, talon ancho recto","respuesta":"¡Excelente elección! 👀 Te busco esas Metcon","buscar":"metcon","historial":"Identificó Metcon por foto. Ya busqué: metcon."}
 
 [Foto borrosa o donde no se distingue el calzado]
 {"visto":"sin logo visible, foto borrosa, no se distingue la silueta","respuesta":"No logro ver bien el modelo 😅 ¿Sabes cómo se llama?","buscar":"NADA","historial":"Foto poco clara. Esperando que el cliente diga el modelo."}
