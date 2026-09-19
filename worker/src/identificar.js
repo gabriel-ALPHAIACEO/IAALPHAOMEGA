@@ -25,6 +25,27 @@
 // vayan apareciendo más casos reales — igual que se fue ampliando el
 // prompt hasta ahora.
 
+// Las 15 claves que tiene que traer "rasgos". Única fuente de verdad:
+// ia.js la importa para armar el schema JSON estricto que le exige a
+// OpenAI esta forma exacta — así el prompt y el código nunca se desalinean.
+export const RASGOS_CLAVE = [
+  "camaraAireTalon",
+  "camaraAireCompleta",
+  "suelaTransparente",
+  "suelaRedondeadaSinAire",
+  "suelaPlanaPlacaDura",
+  "muescaLateralArco",
+  "suelaNubesHuecas",
+  "mallaPlasticaCuadros",
+  "alasPlasticasCordones",
+  "jumpman",
+  "swooshGrandeRecto",
+  "piezaMetalicaOjal",
+  "tresFranjas",
+  "punteraGamuzaT",
+  "punteraGomaConcha",
+];
+
 // term: con qué tiene que EMPEZAR "buscar" (sin distinguir mayúsculas)
 //   para que esta regla aplique.
 // requiere: rasgos que la IA tiene que haber marcado en true.
