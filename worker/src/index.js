@@ -390,16 +390,21 @@ async function atenderMeta(env, mensaje) {
   // ── EL RELEVO: le paso la imagen a ManyChat y me callo ──────────────
   //
   // Meta manda este MISMO webhook a dos apps: la de ManyChat y esta. Si
-  // las dos le responden al cliente, recibe el mensaje duplicado — que es
-  // justo el bug que esto arregla. ManyChat ya está llevando la
-  // conversación y ya llama a /manychat con cada mensaje, así que la
+  // las dos le responden al cliente, recibe el mensaje duplicado. La
   // solución no es que esta app conteste mejor: es que deje de contestar,
   // y en su lugar le pase la URL de la imagen a ManyChat por un campo del
   // subscriber. Cuando ManyChat llame a /manychat con esa imagen, entra
-  // por el camino normal de abajo (atenderManyChat) como si el cliente la
-  // hubiera mandado directo — y esa es la ÚNICA respuesta que sale.
+  // por el camino normal de abajo (atenderManyChat) — y esa es la ÚNICA
+  // respuesta que sale.
   //
-  // Ver manychat-campo.js para el setup que hace falta en ManyChat.
+  // AVISO (19-sep-2026): esto hoy casi siempre falla. La API de ManyChat
+  // pide su "contact_id" interno para escribir un campo, y ese NO es el
+  // mismo número que el igsid que entrega Meta — no hay endpoint público
+  // para traducir uno al otro directamente. Se deja el intento igual
+  // porque no cuesta nada probarlo, y el día que se resuelva el mapeo de
+  // IDs (ver README) esto empieza a funcionar solo, sin tocar más código.
+  //
+  // Ver manychat-campo.js para el detalle y el setup que falta en ManyChat.
   if (env.MANYCHAT_API_TOKEN && env.MANYCHAT_CAMPO_IMAGEN) {
     const puesto = await ponerCampoManyChat(env, mensaje.igsid, imagen);
     if (puesto) {
@@ -409,17 +414,32 @@ async function atenderMeta(env, mensaje) {
       );
       return;
     }
-    console.error(
-      "No pude pasarle la imagen a ManyChat: respondo yo directo, como " +
-        "respaldo. Revisa MANYCHAT_API_TOKEN y MANYCHAT_CAMPO_IMAGEN."
-    );
+    console.error("No pude pasarle la imagen a ManyChat (ver AVISO arriba).");
   }
 
-  // ── CAMINO DE RESPALDO: si el relevo no está configurado o falló ────
+  // ── NUNCA respondo directo mientras ManyChat sea el canal (crítico) ──
   //
-  // Sin esto, un token vencido o un campo mal escrito dejaría al cliente
-  // sin ninguna respuesta, que es peor que una duplicada. Responder acá
-  // directo es el comportamiento de antes de este arreglo.
+  // Antes, si el relevo fallaba, esta app respondía ella misma como
+  // "respaldo" — y como el relevo casi siempre falla (ver AVISO arriba),
+  // eso significaba responder SIEMPRE, exactamente igual que antes del
+  // arreglo: por eso el cliente seguía recibiendo el mensaje duplicado.
+  //
+  // Mientras MANYCHAT_SECRET esté cargado, ManyChat es quien lleva la
+  // conversación y quien YA le va a responder al cliente por su cuenta
+  // (con o sin la imagen). Que esta app responda TAMBIÉN nunca es
+  // correcto en ese caso — ni como respaldo — así que se calla siempre.
+  // El costo: mientras no se resuelva el mapeo de IDs, las respuestas a
+  // HISTORIAS pierden la visión automática (ManyChat le pregunta el
+  // modelo al cliente, en vez de reconocerlo solo) — pero eso es muchísimo
+  // mejor que dos respuestas contradictorias. El camino de abajo solo
+  // corre si NO hay ManyChat de por medio (bot standalone).
+  if (env.MANYCHAT_SECRET) {
+    console.log("ManyChat es el canal activo: me callo, no respondo directo.");
+    return;
+  }
+
+  // ── CAMINO DE RESPALDO: solo para cuando este Worker es el único canal,
+  // sin ManyChat de por medio ────────────────────────────────────────
   const nombre = primerNombre(await obtenerNombre(env, mensaje.igsid));
 
   // Sin base de datos no hay historial que recuperar: para el Worker esta
@@ -435,23 +455,11 @@ async function atenderMeta(env, mensaje) {
 
   // La foto se descarga aquí y viaja dentro de la petición. Pasarle a
   // OpenAI el enlace del CDN de Instagram no funciona: le responde 403.
+  //
+  // A partir de aquí ya sabemos que NO hay ManyChat de por medio (si lo
+  // hubiera, ya se devolvió arriba): este Worker es el único canal, así
+  // que si no se puede ver la imagen, igual hay que responder algo.
   const { uri: foto, motivo: porQueNo } = await comoDataUri(env, imagen);
-
-  // SI NO PUDIMOS VER LA HISTORIA, AQUÍ NO HAY NADA QUE APORTAR.
-  //
-  // Lo único que este camino tiene y ManyChat no es la imagen de la historia.
-  // Sin ella, los dos tenemos exactamente el mismo texto del cliente… salvo
-  // que ManyChat además tiene su historial y su nombre. Su respuesta es
-  // mejor que la nuestra.
-  //
-  // Y si contestamos igual, el cliente recibe DOS respuestas: la suya y la
-  // nuestra. Así que nos callamos y le dejamos el turno.
-  if (!foto && env.MANYCHAT_SECRET) {
-    console.log(
-      `Historia sin imagen (${porQueNo}): se la dejo a ManyChat, que tiene el historial`
-    );
-    return;
-  }
 
   // Si no se puede mirar, NO es el final del camino. La mayoría de las
   // historias son vídeo, y el cliente que responde a una historia es el que
@@ -471,7 +479,7 @@ async function atenderMeta(env, mensaje) {
 
   // Y si además el modelo falla, la pregunta se la hacemos nosotros, que es
   // infinitamente mejor que decirle que el sistema se trabó.
-  if (!salida && !foto && !env.MANYCHAT_SECRET) {
+  if (!salida && !foto) {
     const frase = HISTORIA_SIN_VER[Math.floor(Math.random() * HISTORIA_SIN_VER.length)];
     console.log(`Historia sin ver (${porQueNo}) → pregunto: ${JSON.stringify(frase)}`);
     await enviarBotonCatalogo(env, mensaje.igsid, frase);
