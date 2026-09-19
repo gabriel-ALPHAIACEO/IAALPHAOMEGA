@@ -43,6 +43,18 @@ META_VERIFY_TOKEN = "invictus2026"
 # Modelo de OpenAI. Tiene que ser uno que sepa mirar imágenes.
 OPENAI_MODELO = "gpt-4o-mini"
 
+# ─── Relevo a ManyChat (arregla el mensaje duplicado en historias) ────
+# Cuando el cliente responde a una historia con imagen, Meta entrega el
+# mismo webhook a la app de ManyChat Y a esta. Si las dos contestan, el
+# cliente recibe el mensaje dos veces. Con esto puesto, esta app deja de
+# contestarle directo: le pasa la URL de la imagen a ManyChat por un campo
+# del subscriber, y es ManyChat —que ya lleva la conversación— quien
+# contesta una sola vez. Ver manychat-campo.js para el setup completo.
+#
+# El nombre EXACTO del campo personalizado que creaste en ManyChat
+# (sensible a mayúsculas, igual que "historial" vs "Historial"):
+MANYCHAT_CAMPO_IMAGEN = "imagen_historia_url"
+
 # ─────────────────────────────────────────────────────────────────────
 # Los secretos NO van aquí. Se cargan uno por uno con:
 #
@@ -50,4 +62,9 @@ OPENAI_MODELO = "gpt-4o-mini"
 #   npx wrangler secret put SHOPIFY_TOKEN
 #   npx wrangler secret put MANYCHAT_SECRET
 #   npx wrangler secret put SLACK_WEBHOOK
+#   npx wrangler secret put MANYCHAT_API_TOKEN
+#     (el token de ManyChat → Configuración → API. Distinto de
+#     MANYCHAT_SECRET: ese verifica que la petición A este Worker viene
+#     de ManyChat; este otro es para que el Worker pueda llamar A la API
+#     de ManyChat y escribir el campo de la imagen.)
 # ─────────────────────────────────────────────────────────────────────

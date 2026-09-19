@@ -13,6 +13,7 @@ import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideVerMas, fraseDeCatalogo } from "./catalogo.js";
 import { separarColor, filtrarPorColor, terminoDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
+import { ponerCampoManyChat } from "./manychat-campo.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
   firmaValida,
@@ -100,6 +101,41 @@ export default {
         status: 200,
         headers: { "content-type": "text/plain; charset=utf-8" },
       });
+    }
+
+    // Prueba el relevo a ManyChat sin esperar a que llegue una historia de
+    // verdad: /probar-manychat-campo?igsid=123456&url=https://ejemplo.com/foto.jpg
+    // Sirve para confirmar el token y el nombre del campo ANTES de confiar
+    // en que el camino de las historias se calle y deje responder a
+    // ManyChat. Si esto falla, el bug de los dos mensajes sigue ahí.
+    if (url.pathname === "/probar-manychat-campo") {
+      const igsid = url.searchParams.get("igsid") || "";
+      const imagen = url.searchParams.get("url") || "";
+
+      if (!igsid || !urlValida(imagen)) {
+        return texto200(
+          "Pásame un igsid real y una imagen así:\n" +
+            "  /probar-manychat-campo?igsid=123456789&url=https://ejemplo.com/foto.jpg\n"
+        );
+      }
+
+      if (!env.MANYCHAT_API_TOKEN || !env.MANYCHAT_CAMPO_IMAGEN) {
+        return texto200(
+          "Falta configurar el relevo:\n" +
+            `  MANYCHAT_API_TOKEN   ${env.MANYCHAT_API_TOKEN ? "cargado" : "FALTA — npx wrangler secret put MANYCHAT_API_TOKEN"}\n` +
+            `  MANYCHAT_CAMPO_IMAGEN ${env.MANYCHAT_CAMPO_IMAGEN || "FALTA — ponlo en wrangler.toml"}\n`
+        );
+      }
+
+      const puesto = await ponerCampoManyChat(env, igsid, imagen);
+      return texto200(
+        puesto
+          ? `Listo: el campo "${env.MANYCHAT_CAMPO_IMAGEN}" del subscriber ${igsid} quedó con esa URL.\n` +
+              "Revísalo en ManyChat (pestaña del contacto) para confirmar que llegó.\n"
+          : "ManyChat rechazó la llamada. El motivo exacto sale en `wrangler tail`: \n" +
+              "casi siempre es el token vencido, el nombre del campo mal escrito\n" +
+              "(sensible a mayúsculas) o un igsid que no es subscriber de ManyChat.\n"
+      );
     }
 
     /* ── El camino directo con Meta ─────────────────────────────────
@@ -218,6 +254,7 @@ export default {
           `  META_APP_SECRET     ${secreto("META_APP_SECRET")}   (la de Facebook)`,
           `  META_APP_SECRET_IG  ${secreto("META_APP_SECRET_IG")}   (la de Instagram ← es esta)`,
           `  IG_TOKEN            ${secreto("IG_TOKEN")}`,
+          `  MANYCHAT_API_TOKEN  ${secreto("MANYCHAT_API_TOKEN")}   (para el relevo de imágenes de historia)`,
           "",
           "CONFIGURACIÓN (wrangler.toml)",
           `  META_MODO           ${env.META_MODO || "imagenes (por defecto)"}`,
@@ -225,6 +262,15 @@ export default {
           `  SHOPIFY_TIENDA      ${env.SHOPIFY_TIENDA || "FALTA"}`,
           `  URL_CATALOGO        ${env.URL_CATALOGO || "FALTA"}`,
           `  WHATSAPP            ${String(env.WHATSAPP || "").replace(/\D/g, "") ? "puesto" : "sin poner (no sale el botón Comprar)"}`,
+          `  MANYCHAT_CAMPO_IMAGEN ${env.MANYCHAT_CAMPO_IMAGEN || "sin poner"}`,
+          "",
+          env.MANYCHAT_API_TOKEN && env.MANYCHAT_CAMPO_IMAGEN
+            ? "Relevo a ManyChat: ACTIVO. Las respuestas a historias con imagen\n" +
+              "ya NO las contesta esta app — se las pasa a ManyChat por el campo\n" +
+              `"${env.MANYCHAT_CAMPO_IMAGEN}" y se calla. Pruébalo con /probar-manychat-campo`
+            : "Relevo a ManyChat: APAGADO (falta MANYCHAT_API_TOKEN o\n" +
+              "MANYCHAT_CAMPO_IMAGEN). Mientras tanto esta app sigue respondiendo\n" +
+              "directo a las historias — y por eso puede seguir el mensaje duplicado.",
           "",
           "Los webhooks de Instagram se firman con la clave del producto",
           "Instagram, no con la de Configuración → Básica. Si el registro",
@@ -340,6 +386,39 @@ async function atenderMeta(env, mensaje) {
 
   if (!imagen) return;
 
+  // ── EL RELEVO: le paso la imagen a ManyChat y me callo ──────────────
+  //
+  // Meta manda este MISMO webhook a dos apps: la de ManyChat y esta. Si
+  // las dos le responden al cliente, recibe el mensaje duplicado — que es
+  // justo el bug que esto arregla. ManyChat ya está llevando la
+  // conversación y ya llama a /manychat con cada mensaje, así que la
+  // solución no es que esta app conteste mejor: es que deje de contestar,
+  // y en su lugar le pase la URL de la imagen a ManyChat por un campo del
+  // subscriber. Cuando ManyChat llame a /manychat con esa imagen, entra
+  // por el camino normal de abajo (atenderManyChat) como si el cliente la
+  // hubiera mandado directo — y esa es la ÚNICA respuesta que sale.
+  //
+  // Ver manychat-campo.js para el setup que hace falta en ManyChat.
+  if (env.MANYCHAT_API_TOKEN && env.MANYCHAT_CAMPO_IMAGEN) {
+    const puesto = await ponerCampoManyChat(env, mensaje.igsid, imagen);
+    if (puesto) {
+      console.log(
+        `Imagen pasada a ManyChat (campo "${env.MANYCHAT_CAMPO_IMAGEN}"): ` +
+          "me callo, responde ManyChat."
+      );
+      return;
+    }
+    console.error(
+      "No pude pasarle la imagen a ManyChat: respondo yo directo, como " +
+        "respaldo. Revisa MANYCHAT_API_TOKEN y MANYCHAT_CAMPO_IMAGEN."
+    );
+  }
+
+  // ── CAMINO DE RESPALDO: si el relevo no está configurado o falló ────
+  //
+  // Sin esto, un token vencido o un campo mal escrito dejaría al cliente
+  // sin ninguna respuesta, que es peor que una duplicada. Responder acá
+  // directo es el comportamiento de antes de este arreglo.
   const nombre = primerNombre(await obtenerNombre(env, mensaje.igsid));
 
   // Sin base de datos no hay historial que recuperar: para el Worker esta
