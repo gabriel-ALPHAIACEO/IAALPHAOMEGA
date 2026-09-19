@@ -1,8 +1,10 @@
 // Memoria del bot: quién es cada cliente, qué se habló y si un asesor tomó
 // la conversación. Vive en D1, la base de datos de Cloudflare.
 //
-// Solo se usa en el modo Instagram directo. En el modo ManyChat, ManyChat ya
-// guarda el historial en sus propios campos.
+// Antes esto quedaba sin usar: el historial vivía en los campos de
+// ManyChat. Con ManyChat retirado (19-sep-2026), esta es la ÚNICA memoria
+// del bot entre un mensaje y el siguiente — hace falta la tabla creada
+// (ver migrations/0001_contactos.sql) y el binding "DB" en wrangler.toml.
 
 const MAX_MIDS = 20;
 

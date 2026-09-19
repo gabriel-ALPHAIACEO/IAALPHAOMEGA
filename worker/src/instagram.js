@@ -1,5 +1,7 @@
 // Hablar con Instagram: comprobar que el webhook es auténtico y mandar
-// mensajes. Solo se usa en el modo Instagram directo.
+// mensajes. Es el único canal del bot (19-sep-2026: se retiró ManyChat,
+// ver README — el problema de fondo era que dos apps atendían el mismo
+// webhook de Meta por separado; con una sola app ese problema no existe).
 
 const GRAFO = "https://graph.instagram.com/v23.0";
 
@@ -157,18 +159,21 @@ function recortar(texto, limite) {
 // AQUÍ SE CORTA LA INUNDACIÓN.
 //
 // Meta manda un webhook por CADA cosa que ocurre en la cuenta: cada "visto",
-// cada "está escribiendo", cada reacción con un corazón, cada comentario, y
-// un eco de CADA mensaje que mandamos nosotros. En un día normal eso son
-// cientos de avisos, y casi ninguno necesita respuesta. Eso fue lo que se
-// comió los créditos de Make: pagaba una operación por cada uno.
+// cada "está escribiendo", cada reacción con un corazón, cada comentario. En
+// un día normal eso son cientos de avisos, y ninguno necesita respuesta. Eso
+// fue lo que se comió los créditos de Make: pagaba una operación por cada uno.
 //
-// Esta función devuelve null para todo lo que no sea una persona
-// mandándonos una imagen o respondiendo a una historia. Devolver null aquí
-// significa que el Worker no llama a OpenAI, no llama a Shopify y no manda
-// nada: solo responde 200 y se olvida.
+// Esta función devuelve null para todo lo que no sea (a) una persona
+// mandándonos texto, una imagen o respondiendo a una historia, o (b) el eco
+// de un mensaje que salió de la cuenta —el nuestro o el de un asesor
+// escribiendo a mano—, que se usa para la pausa automática. Devolver null
+// aquí significa que el Worker no llama a OpenAI, no llama a Shopify y no
+// manda nada: solo responde 200 y se olvida.
 
-// Lo que SÍ nos interesa, y nada más.
-const ACEPTADOS = new Set(["historia", "imagen"]);
+// Ahora que esta es la única app que atiende el webhook (sin ManyChat de
+// por medio), el texto suelto SÍ se atiende aquí: ya no hay un segundo
+// sistema que lo reciba y responda por su cuenta.
+const ACEPTADOS = new Set(["historia", "imagen", "texto", "eco"]);
 
 export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
   const entrada = cuerpo?.entry?.[0];
@@ -184,15 +189,28 @@ export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
   if (evento.read) return descartar("un 'visto'");
   if (evento.delivery) return descartar("un 'entregado'");
   if (evento.reaction) return descartar("una reacción");
-  if (evento.postback) return descartar("un botón de ManyChat");
+  if (evento.postback) return descartar("un botón de plantilla");
 
   const mensaje = evento.message;
   if (!mensaje) return descartar("un evento que no lleva mensaje");
 
-  // El eco es la copia de lo que acabamos de mandar NOSOTROS. Sin este
-  // filtro el bot se lee a sí mismo y se contesta, y cada respuesta genera
-  // otro eco: el bucle no para hasta que se acaba el saldo.
-  if (mensaje.is_echo) return descartar("el eco de un mensaje nuestro");
+  // El eco es la copia de CUALQUIER mensaje que sale de la cuenta: el
+  // nuestro (el bot respondiendo) o el de un asesor escribiendo a mano
+  // desde la app de Instagram. Ya no se descarta sin más: index.js lo usa
+  // para la pausa automática —si el mid no es de los que mandó el bot,
+  // fue una persona, y hay que apartarse—. Ojo: en un eco el cliente es
+  // el "recipient", no el "sender" (el sender ahí es la propia cuenta).
+  if (mensaje.is_echo) {
+    if (!aceptar.has("eco")) return descartar("el eco de un mensaje nuestro");
+    return {
+      tipo: "eco",
+      igsid: evento.recipient?.id || "",
+      mid: mensaje.mid || "",
+      texto: "",
+      foto: "",
+      historia: { url: "", id: "" },
+    };
+  }
   if (mensaje.is_deleted) return descartar("un mensaje borrado");
   if (mensaje.is_unsupported) return descartar("un mensaje que Meta no entiende");
 
@@ -201,9 +219,6 @@ export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
   const foto = primeraImagen(adjuntos);
 
   const tipo = historia.url ? "historia" : foto ? "imagen" : "texto";
-
-  // Un mensaje de solo texto es trabajo de ManyChat. Aquí se descarta, que
-  // es justo lo que evita responder dos veces y gastar de más.
   if (!aceptar.has(tipo)) return descartar(`un mensaje de ${tipo}`);
 
   return {

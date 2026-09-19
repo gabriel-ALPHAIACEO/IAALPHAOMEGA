@@ -8,6 +8,21 @@ type = "Text"
 globs = ["**/*.txt"]
 fallthrough = true
 
+# ─── Base de datos (D1) — la memoria del bot entre mensajes ───────────
+# 19-sep-2026: se retiró ManyChat, así que el historial de cada
+# conversación ya no vive en sus campos — vive acá. Sin esto el bot no
+# recuerda nada de un mensaje al siguiente (vuelve a saludar siempre,
+# pierde el hilo de "y en negro?", etc.)
+#
+# Antes de desplegar, hace falta crear la base y correr la migración:
+#   npx wrangler d1 create invictus-bot-db
+#   (el comando anterior imprime un database_id: pégalo abajo)
+#   npx wrangler d1 migrations apply invictus-bot-db --remote
+[[d1_databases]]
+binding = "DB"
+database_name = "invictus-bot-db"
+database_id = "PENDIENTE — pega aquí el database_id que imprime `wrangler d1 create`"
+
 [vars]
 # Enlace que se le manda al cliente cuando no hay productos que mostrar
 URL_CATALOGO = "https://8vds1e-jw.myshopify.com/"
@@ -21,20 +36,17 @@ WHATSAPP = "+584262992111"
 # Dominio de tu tienda, el que termina en .myshopify.com (sin https://)
 SHOPIFY_TIENDA = "8vds1e-jw.myshopify.com"
 
-# ─── Conexión directa con Meta ───────────────────────────────────────
-# El webhook SOLO atiende imágenes y respuestas a historias. Todo lo
-# demás —los "visto", las reacciones, los ecos de nuestros propios
-# mensajes, el texto suelto— se descarta sin gastar nada.
+# ─── Meta es el único canal ────────────────────────────────────────────
+# El webhook atiende texto, fotos, respuestas a historias y ecos (para la
+# pausa automática). Todo lo demás —los "visto", las reacciones, los
+# comentarios— se descarta sin gastar nada.
 #
 # Eso es lo que se comió los créditos de Make: Meta manda cientos de
 # avisos al día y Make pagaba una operación por cada uno.
 #
-#   "imagenes"   fotos del cliente y respuestas a historias  ← por defecto
-#   "historias"  solo las respuestas a historias
-#   "off"        nada; el webhook queda desactivado
-#
-# El texto suelto NUNCA se atiende aquí: es trabajo de ManyChat.
-META_MODO = "imagenes"
+#   "todo"   atiende todo tipo de mensaje  ← por defecto
+#   "off"    nada; el webhook queda desactivado
+META_MODO = "todo"
 
 # El que TÚ te inventas y escribes igual en el panel de Meta, en la
 # casilla "Token de verificación" al dar de alta el webhook.
@@ -43,28 +55,20 @@ META_VERIFY_TOKEN = "invictus2026"
 # Modelo de OpenAI. Tiene que ser uno que sepa mirar imágenes.
 OPENAI_MODELO = "gpt-4o-mini"
 
-# ─── Relevo a ManyChat (arregla el mensaje duplicado en historias) ────
-# Cuando el cliente responde a una historia con imagen, Meta entrega el
-# mismo webhook a la app de ManyChat Y a esta. Si las dos contestan, el
-# cliente recibe el mensaje dos veces. Con esto puesto, esta app deja de
-# contestarle directo: le pasa la URL de la imagen a ManyChat por un campo
-# del subscriber, y es ManyChat —que ya lleva la conversación— quien
-# contesta una sola vez. Ver manychat-campo.js para el setup completo.
-#
-# El nombre EXACTO del campo personalizado que creaste en ManyChat
-# (sensible a mayúsculas, igual que "historial" vs "Historial"):
-MANYCHAT_CAMPO_IMAGEN = "imagen_historia_url"
+# Cuántas horas se calla el bot después de que un asesor le escribe a un
+# cliente a mano desde la app de Instagram (para no hablar por encima).
+PAUSA_HORAS = "4"
 
 # ─────────────────────────────────────────────────────────────────────
 # Los secretos NO van aquí. Se cargan uno por uno con:
 #
 #   npx wrangler secret put OPENAI_API_KEY
 #   npx wrangler secret put SHOPIFY_TOKEN
-#   npx wrangler secret put MANYCHAT_SECRET
 #   npx wrangler secret put SLACK_WEBHOOK
-#   npx wrangler secret put MANYCHAT_API_TOKEN
-#     (el token de ManyChat → Configuración → API. Distinto de
-#     MANYCHAT_SECRET: ese verifica que la petición A este Worker viene
-#     de ManyChat; este otro es para que el Worker pueda llamar A la API
-#     de ManyChat y escribir el campo de la imagen.)
+#   npx wrangler secret put META_APP_SECRET_IG
+#   npx wrangler secret put IG_TOKEN
+#
+# MANYCHAT_SECRET, MANYCHAT_API_TOKEN y MANYCHAT_CAMPO_IMAGEN ya NO hacen
+# falta — ManyChat está retirado. Si los tenías cargados no pasa nada por
+# dejarlos, simplemente no se usan.
 # ─────────────────────────────────────────────────────────────────────

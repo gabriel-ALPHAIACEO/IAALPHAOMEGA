@@ -1,21 +1,35 @@
 // Cerebro del bot de ventas de INVICTUS SHOES.
 //
-// ManyChat es el canal y llama aquí por contenido dinámico. La memoria de
-// cada conversación vive en los campos de ManyChat, no aquí: el Worker no
-// guarda nada entre mensajes, solo recibe el historial, responde y devuelve
-// el historial actualizado.
+// 19-sep-2026: se retiró ManyChat. Antes había DOS apps recibiendo el mismo
+// webhook de Meta —la de ManyChat y esta— y cada una respondía por su
+// cuenta, lo que mandaba el mensaje duplicado al cliente. Intentar
+// coordinarlas (que una le pasara datos a la otra) chocó con que la API de
+// ManyChat no acepta el igsid de Instagram para identificar a un
+// subscriber, así que no había forma confiable de avisarle "ya contesté
+// yo". La solución de fondo es que haya una sola app: este Worker habla
+// directo con la API de Instagram, de punta a punta, y guarda su propia
+// memoria de cada conversación en D1 (ver estado.js) en vez de depender de
+// los campos de otro sistema.
+//
+// Los archivos manychat.js y manychat-campo.js quedan en el repo sin
+// usarse, por si hace falta volver atrás — no los borré.
 
 import { responderTexto, responderImagen } from "./ia.js";
 import { buscarProductos } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
-import { respuestaManyChat } from "./manychat.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideVerMas, fraseDeCatalogo } from "./catalogo.js";
 import { separarColor, filtrarPorColor, terminoDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
-import { ponerCampoManyChat } from "./manychat-campo.js";
 import { validarIdentificacion } from "./identificar.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
+import {
+  cargarContacto,
+  guardarContacto,
+  pausar,
+  estaPausado,
+  esEcoPropio,
+} from "./estado.js";
 import {
   firmaValida,
   leerMensaje,
@@ -24,13 +38,6 @@ import {
   enviarBotonCatalogo,
   obtenerNombre,
 } from "./instagram.js";
-import {
-  MAXIMO_DE_VECES,
-  vecesUsado,
-  sinMarca,
-  conMarca,
-  contarEn,
-} from "./nombre.js";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -82,13 +89,6 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    if (url.pathname === "/manychat") {
-      if (request.method !== "POST") {
-        return new Response("método no permitido", { status: 405 });
-      }
-      return atenderManyChat(env, request);
-    }
-
     // Dispara un aviso de prueba y enseña lo que respondió Slack. Sirve para
     // saber si el problema está en el aviso o en lo que pasa antes.
     if (url.pathname === "/probar-aviso") {
@@ -104,51 +104,13 @@ export default {
       });
     }
 
-    // Prueba el relevo a ManyChat sin esperar a que llegue una historia de
-    // verdad: /probar-manychat-campo?igsid=123456&url=https://ejemplo.com/foto.jpg
-    // Sirve para confirmar el token y el nombre del campo ANTES de confiar
-    // en que el camino de las historias se calle y deje responder a
-    // ManyChat. Si esto falla, el bug de los dos mensajes sigue ahí.
-    if (url.pathname === "/probar-manychat-campo") {
-      const igsid = url.searchParams.get("igsid") || "";
-      const imagen = url.searchParams.get("url") || "";
-
-      if (!igsid || !urlValida(imagen)) {
-        return texto200(
-          "Pásame un igsid real y una imagen así:\n" +
-            "  /probar-manychat-campo?igsid=123456789&url=https://ejemplo.com/foto.jpg\n"
-        );
-      }
-
-      if (!env.MANYCHAT_API_TOKEN || !env.MANYCHAT_CAMPO_IMAGEN) {
-        return texto200(
-          "Falta configurar el relevo:\n" +
-            `  MANYCHAT_API_TOKEN   ${env.MANYCHAT_API_TOKEN ? "cargado" : "FALTA — npx wrangler secret put MANYCHAT_API_TOKEN"}\n` +
-            `  MANYCHAT_CAMPO_IMAGEN ${env.MANYCHAT_CAMPO_IMAGEN || "FALTA — ponlo en wrangler.toml"}\n`
-        );
-      }
-
-      const puesto = await ponerCampoManyChat(env, igsid, imagen);
-      return texto200(
-        puesto
-          ? `Listo: el campo "${env.MANYCHAT_CAMPO_IMAGEN}" del subscriber ${igsid} quedó con esa URL.\n` +
-              "Revísalo en ManyChat (pestaña del contacto) para confirmar que llegó.\n"
-          : "ManyChat rechazó la llamada. El motivo exacto sale en `wrangler tail`: \n" +
-              "casi siempre es el token vencido, el nombre del campo mal escrito\n" +
-              "(sensible a mayúsculas) o un igsid que no es subscriber de ManyChat.\n"
-      );
-    }
-
-    /* ── El camino directo con Meta ─────────────────────────────────
-       ManyChat sigue llevando la conversación. Esto es solo para lo que
-       ManyChat no puede dar: la IMAGEN de la historia a la que el cliente
-       respondió. Meta la adjunta al mensaje; ManyChat no la reenvía.
-
-       Y por eso el webhook SOLO atiende imágenes y respuestas a historias.
-       Todo lo demás —los "visto", las reacciones, los ecos de nuestros
-       propios mensajes, el texto suelto— se descarta sin gastar nada. Ese
-       aluvión fue el que se comió los créditos de Make: pagaba una
-       operación por cada aviso, y Meta manda cientos al día.
+    /* ── El único camino: Meta directo ──────────────────────────────
+       El webhook atiende texto, fotos y respuestas a historias, además de
+       los ecos (para la pausa automática cuando un asesor toma la
+       conversación a mano). Todo lo demás —los "visto", las reacciones,
+       los comentarios— se descarta sin gastar nada. Ese aluvión fue el
+       que se comió los créditos de Make: pagaba una operación por cada
+       aviso, y Meta manda cientos al día.
        ──────────────────────────────────────────────────────────────── */
 
     // Meta comprueba que la URL es tuya antes de mandarte nada: te pide el
@@ -200,7 +162,7 @@ export default {
         // A Meta se le responde 200 IGUAL. Parece raro, pero es lo correcto:
         // un 401 le dice "no te llegó" y lo reintenta, y el reintento vuelve
         // a fallar, y otra vez. Eso multiplica por tres o por diez cada
-        // evento, agota la cuota del Worker y tumba también a ManyChat.
+        // evento y agota la cuota del Worker.
         //
         // El mensaje se descarta igual: no se mira, no se responde. Solo se
         // le quita a Meta el motivo para insistir.
@@ -250,28 +212,25 @@ export default {
           "SECRETOS",
           `  OPENAI_API_KEY      ${secreto("OPENAI_API_KEY")}`,
           `  SHOPIFY_TOKEN       ${secreto("SHOPIFY_TOKEN")}`,
-          `  MANYCHAT_SECRET     ${secreto("MANYCHAT_SECRET")}`,
           `  SLACK_WEBHOOK       ${secreto("SLACK_WEBHOOK")}`,
           `  META_APP_SECRET     ${secreto("META_APP_SECRET")}   (la de Facebook)`,
           `  META_APP_SECRET_IG  ${secreto("META_APP_SECRET_IG")}   (la de Instagram ← es esta)`,
           `  IG_TOKEN            ${secreto("IG_TOKEN")}`,
-          `  MANYCHAT_API_TOKEN  ${secreto("MANYCHAT_API_TOKEN")}   (para el relevo de imágenes de historia)`,
           "",
           "CONFIGURACIÓN (wrangler.toml)",
-          `  META_MODO           ${env.META_MODO || "imagenes (por defecto)"}`,
+          `  META_MODO           ${env.META_MODO || "todo (por defecto)"}`,
           `  META_VERIFY_TOKEN   ${env.META_VERIFY_TOKEN ? "puesto" : "FALTA"}`,
           `  SHOPIFY_TIENDA      ${env.SHOPIFY_TIENDA || "FALTA"}`,
           `  URL_CATALOGO        ${env.URL_CATALOGO || "FALTA"}`,
           `  WHATSAPP            ${String(env.WHATSAPP || "").replace(/\D/g, "") ? "puesto" : "sin poner (no sale el botón Comprar)"}`,
-          `  MANYCHAT_CAMPO_IMAGEN ${env.MANYCHAT_CAMPO_IMAGEN || "sin poner"}`,
+          `  PAUSA_HORAS         ${env.PAUSA_HORAS || "4 (por defecto)"}`,
           "",
-          env.MANYCHAT_API_TOKEN && env.MANYCHAT_CAMPO_IMAGEN
-            ? "Relevo a ManyChat: ACTIVO. Las respuestas a historias con imagen\n" +
-              "ya NO las contesta esta app — se las pasa a ManyChat por el campo\n" +
-              `"${env.MANYCHAT_CAMPO_IMAGEN}" y se calla. Pruébalo con /probar-manychat-campo`
-            : "Relevo a ManyChat: APAGADO (falta MANYCHAT_API_TOKEN o\n" +
-              "MANYCHAT_CAMPO_IMAGEN). Mientras tanto esta app sigue respondiendo\n" +
-              "directo a las historias — y por eso puede seguir el mensaje duplicado.",
+          "BASE DE DATOS (D1) — la memoria del bot entre mensajes",
+          `  DB                  ${env.DB ? "conectada" : "FALTA — sin esto el bot no recuerda nada de un mensaje al siguiente"}`,
+          "",
+          "ManyChat está retirado. Este Worker es el único canal: habla",
+          "directo con la API de Instagram y guarda su propia memoria en D1.",
+          "manychat.js / manychat-campo.js quedan sin usar en el repo.",
           "",
           "Los webhooks de Instagram se firman con la clave del producto",
           "Instagram, no con la de Configuración → Básica. Si el registro",
@@ -283,7 +242,7 @@ export default {
     }
 
     // Prueba la vista del bot con una imagen cualquiera, sin depender de
-    // ManyChat ni de Meta: /probar-imagen?url=https://...
+    // un webhook real: /probar-imagen?url=https://...
     if (url.pathname === "/probar-imagen") {
       const imagen = url.searchParams.get("url") || "";
       if (!urlValida(imagen)) {
@@ -343,21 +302,18 @@ export default {
 };
 
 /* ════════════════════════════════════════════════════════════════════
-   Webhook de Meta
+   Webhook de Meta — es el bot entero, de punta a punta
    ════════════════════════════════════════════════════════════════════ */
 
 // Decide si un webhook merece trabajo, sin hacer ninguno. Es lo que frena
 // la inundación: todo lo que devuelva null no cuesta absolutamente nada.
 //
-// META_MODO dice qué se acepta:
-//   "imagenes"  fotos del cliente y respuestas a historias   (por defecto)
-//   "historias" solo las respuestas a historias
-//   "off"       nada; el webhook queda desactivado
-//
-// El texto suelto NUNCA se atiende por aquí: es de ManyChat. Atenderlo
-// significaría responder dos veces al mismo cliente.
+// META_MODO:
+//   "todo"  (por defecto) atiende texto, fotos, historias y ecos — el bot
+//           completo, sin ningún otro sistema de por medio.
+//   "off"   nada; el webhook queda desactivado.
 function queAtender(env, crudo) {
-  const modo = (env.META_MODO || "imagenes").toLowerCase();
+  const modo = (env.META_MODO || "todo").toLowerCase();
   if (modo === "off") return null;
 
   let cuerpo;
@@ -368,130 +324,137 @@ function queAtender(env, crudo) {
     return null;
   }
 
-  const aceptar =
-    modo === "historias" ? new Set(["historia"]) : new Set(["historia", "imagen"]);
-
-  return leerMensaje(cuerpo, { aceptar });
+  return leerMensaje(cuerpo);
 }
 
 async function atenderMeta(env, mensaje) {
-  const esHistoria = mensaje.tipo === "historia";
+  // El eco de un mensaje que salió de la cuenta: el nuestro (el bot
+  // respondiendo) o el de un asesor escribiendo a mano desde la app de
+  // Instagram. Si el mid no es de los que mandó el bot, fue una persona —
+  // y el bot se aparta unas horas para no hablar por encima de ella.
+  if (mensaje.tipo === "eco") {
+    if (!mensaje.igsid || !mensaje.mid) return;
+    const contacto = await cargarContacto(env.DB, mensaje.igsid);
+    if (!esEcoPropio(contacto, mensaje.mid)) {
+      const horas = Number(env.PAUSA_HORAS) || 4;
+      await pausar(env.DB, mensaje.igsid, horas);
+      console.log(`Asesor humano le escribió a ${mensaje.igsid}: bot pausado ${horas}h`);
+    }
+    return;
+  }
 
-  // Aquí ya solo llegan imágenes e historias: queAtender() descartó el
-  // resto sin gastar nada. Así que siempre hay algo que mirar.
-  const imagen = mensaje.historia.url || mensaje.foto;
   console.log(
     `Meta → ATIENDO ${mensaje.tipo} de:${mensaje.igsid} ` +
       `texto:${JSON.stringify(mensaje.texto.slice(0, 60))}`
   );
 
-  if (!imagen) return;
+  const contacto = await cargarContacto(env.DB, mensaje.igsid);
 
-  // ── EL RELEVO: le paso la imagen a ManyChat y me callo ──────────────
-  //
-  // Meta manda este MISMO webhook a dos apps: la de ManyChat y esta. Si
-  // las dos le responden al cliente, recibe el mensaje duplicado. La
-  // solución no es que esta app conteste mejor: es que deje de contestar,
-  // y en su lugar le pase la URL de la imagen a ManyChat por un campo del
-  // subscriber. Cuando ManyChat llame a /manychat con esa imagen, entra
-  // por el camino normal de abajo (atenderManyChat) — y esa es la ÚNICA
-  // respuesta que sale.
-  //
-  // AVISO (19-sep-2026): esto hoy casi siempre falla. La API de ManyChat
-  // pide su "contact_id" interno para escribir un campo, y ese NO es el
-  // mismo número que el igsid que entrega Meta — no hay endpoint público
-  // para traducir uno al otro directamente. Se deja el intento igual
-  // porque no cuesta nada probarlo, y el día que se resuelva el mapeo de
-  // IDs (ver README) esto empieza a funcionar solo, sin tocar más código.
-  //
-  // Ver manychat-campo.js para el detalle y el setup que falta en ManyChat.
-  if (env.MANYCHAT_API_TOKEN && env.MANYCHAT_CAMPO_IMAGEN) {
-    const puesto = await ponerCampoManyChat(env, mensaje.igsid, imagen);
-    if (puesto) {
-      console.log(
-        `Imagen pasada a ManyChat (campo "${env.MANYCHAT_CAMPO_IMAGEN}"): ` +
-          "me callo, responde ManyChat."
-      );
-      return;
-    }
-    console.error("No pude pasarle la imagen a ManyChat (ver AVISO arriba).");
-  }
-
-  // ── NUNCA respondo directo mientras ManyChat sea el canal (crítico) ──
-  //
-  // Antes, si el relevo fallaba, esta app respondía ella misma como
-  // "respaldo" — y como el relevo casi siempre falla (ver AVISO arriba),
-  // eso significaba responder SIEMPRE, exactamente igual que antes del
-  // arreglo: por eso el cliente seguía recibiendo el mensaje duplicado.
-  //
-  // Mientras MANYCHAT_SECRET esté cargado, ManyChat es quien lleva la
-  // conversación y quien YA le va a responder al cliente por su cuenta
-  // (con o sin la imagen). Que esta app responda TAMBIÉN nunca es
-  // correcto en ese caso — ni como respaldo — así que se calla siempre.
-  // El costo: mientras no se resuelva el mapeo de IDs, las respuestas a
-  // HISTORIAS pierden la visión automática (ManyChat le pregunta el
-  // modelo al cliente, en vez de reconocerlo solo) — pero eso es muchísimo
-  // mejor que dos respuestas contradictorias. El camino de abajo solo
-  // corre si NO hay ManyChat de por medio (bot standalone).
-  if (env.MANYCHAT_SECRET) {
-    console.log("ManyChat es el canal activo: me callo, no respondo directo.");
+  if (estaPausado(contacto)) {
+    console.log(`Bot pausado para ${mensaje.igsid}: no respondo`);
     return;
   }
 
-  // ── CAMINO DE RESPALDO: solo para cuando este Worker es el único canal,
-  // sin ManyChat de por medio ────────────────────────────────────────
-  const nombre = primerNombre(await obtenerNombre(env, mensaje.igsid));
+  const esHistoria = mensaje.tipo === "historia";
+  const imagenCruda = mensaje.historia.url || mensaje.foto || "";
 
-  // Sin base de datos no hay historial que recuperar: para el Worker esta
-  // es la primera vez que habla con esta persona. Da igual, porque la
-  // respuesta a una historia SIEMPRE abre la conversación.
+  // El nombre se busca una sola vez por cliente y se guarda: no hace falta
+  // gastar una llamada a la Graph API en cada mensaje.
+  let nombre = contacto.nombre;
+  if (!nombre) {
+    nombre = primerNombre(await obtenerNombre(env, mensaje.igsid));
+  }
+
+  const historialPrevio = contacto.historial;
+  const textoCliente =
+    mensaje.texto || (imagenCruda ? (esHistoria ? "(respondió a una historia)" : "(mandó una foto)") : "");
+
+  // Quien ya escribió antes y vuelve con un "hola" suelto no necesita al
+  // modelo: no hay nada que buscar. La primera vez de cada cliente NO entra
+  // aquí: esa bienvenida la escribe el modelo con el tono del prompt.
+  if (historialPrevio && !imagenCruda && esSoloSaludo(mensaje.texto)) {
+    const respuesta = saludoDeVuelta(nombre, mensaje.texto);
+    console.log(`Saludo de vuelta → ${JSON.stringify(respuesta)}`);
+    const mid = await enviarTexto(env, mensaje.igsid, respuesta);
+    await guardarContacto(env.DB, {
+      ...contacto,
+      nombre,
+      mids_enviados: agregarMid(contacto.mids_enviados, mid),
+    });
+    return;
+  }
+
+  // "¿Qué más tienen?" no lleva nada que buscar: quiere pasearse por la
+  // tienda. Se le manda el catálogo sin gastar una llamada al modelo.
+  //
+  // La talla va PRIMERO a propósito: "¿tienen más tallas?" lleva un "más",
+  // pero es una pregunta para el asesor, no un paseo por el catálogo.
+  if (!imagenCruda && !PREGUNTA_TALLA.test(mensaje.texto) && pideVerMas(mensaje.texto)) {
+    const respuesta = fraseDeCatalogo(nombre);
+    console.log(`Pidió ver más → ${JSON.stringify(respuesta)}`);
+    const mid = await enviarBotonCatalogo(env, mensaje.igsid, respuesta);
+    await guardarContacto(env.DB, {
+      ...contacto,
+      nombre,
+      historial: conNota(historialPrevio, "Pidió ver más y le pasé el catálogo."),
+      mids_enviados: agregarMid(contacto.mids_enviados, mid),
+    });
+    return;
+  }
+
   const entrada = contexto(
     nombre,
-    "",
-    mensaje.texto || "(respondió a una historia)",
+    historialPrevio,
+    textoCliente,
     esHistoria ? "[EL CLIENTE RESPONDIÓ A UNA HISTORIA — la imagen que ves ES la historia]" : "",
     esHistoria
   );
 
   // La foto se descarga aquí y viaja dentro de la petición. Pasarle a
   // OpenAI el enlace del CDN de Instagram no funciona: le responde 403.
-  //
-  // A partir de aquí ya sabemos que NO hay ManyChat de por medio (si lo
-  // hubiera, ya se devolvió arriba): este Worker es el único canal, así
-  // que si no se puede ver la imagen, igual hay que responder algo.
-  const { uri: foto, motivo: porQueNo } = await comoDataUri(env, imagen);
+  let foto = "";
+  let porQueNo = "";
+  if (imagenCruda) {
+    ({ uri: foto, motivo: porQueNo } = await comoDataUri(env, imagenCruda));
+  }
 
   // Si no se puede mirar, NO es el final del camino. La mayoría de las
   // historias son vídeo, y el cliente que responde a una historia es el que
   // más cerca está de comprar: se le atiende por lo que escribió.
   const salida = foto
     ? await responderImagen(env, foto, entrada)
-    : await responderTexto(
-        env,
-        contexto(
-          nombre,
-          "",
-          mensaje.texto || "(respondió a una historia)",
-          marcarSinVer(porQueNo),
-          esHistoria
+    : imagenCruda
+      ? await responderTexto(
+          env,
+          contexto(nombre, historialPrevio, textoCliente, marcarSinVer(porQueNo), esHistoria)
         )
-      );
+      : await responderTexto(env, entrada);
 
   // Y si además el modelo falla, la pregunta se la hacemos nosotros, que es
   // infinitamente mejor que decirle que el sistema se trabó.
-  if (!salida && !foto) {
+  if (!salida && imagenCruda && !foto) {
     const frase = HISTORIA_SIN_VER[Math.floor(Math.random() * HISTORIA_SIN_VER.length)];
     console.log(`Historia sin ver (${porQueNo}) → pregunto: ${JSON.stringify(frase)}`);
-    await enviarBotonCatalogo(env, mensaje.igsid, frase);
+    const mid = await enviarBotonCatalogo(env, mensaje.igsid, frase);
+    await guardarContacto(env.DB, {
+      ...contacto,
+      nombre,
+      mids_enviados: agregarMid(contacto.mids_enviados, mid),
+    });
     return;
   }
 
   if (!salida) {
-    await enviarTexto(env, mensaje.igsid, FALLO_TECNICO);
+    const mid = await enviarTexto(env, mensaje.igsid, FALLO_TECNICO);
+    await guardarContacto(env.DB, {
+      ...contacto,
+      nombre,
+      mids_enviados: agregarMid(contacto.mids_enviados, mid),
+    });
     await avisarAsesor(env, {
       nombre,
       igsid: mensaje.igsid,
-      mensaje: mensaje.texto || "(respondió a una historia)",
+      mensaje: textoCliente,
       respuesta: "EL MODELO FALLÓ — nadie le respondió",
       motivo: "EL MODELO NO RESPONDIÓ",
       historia: esHistoria ? "respuesta a una historia" : "",
@@ -500,13 +463,14 @@ async function atenderMeta(env, mensaje) {
   }
 
   const { productos, respuestaCliente, termino, preguntoTalla, buscoSinExito } =
-    await decidir({ env, salida, texto: mensaje.texto, historialPrevio: "" });
+    await decidir({ env, salida, texto: mensaje.texto, historialPrevio });
 
+  let mids = contacto.mids_enviados;
   if (productos.length) {
-    await enviarTexto(env, mensaje.igsid, respuestaCliente);
-    await enviarFichas(env, mensaje.igsid, productos);
+    mids = agregarMid(mids, await enviarTexto(env, mensaje.igsid, respuestaCliente));
+    mids = agregarMid(mids, await enviarFichas(env, mensaje.igsid, productos));
   } else {
-    await enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente);
+    mids = agregarMid(mids, await enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente));
   }
 
   const escalada = hayEscalada({
@@ -520,7 +484,7 @@ async function atenderMeta(env, mensaje) {
     await avisarAsesor(env, {
       nombre,
       igsid: mensaje.igsid,
-      mensaje: mensaje.texto || "(respondió a una historia)",
+      mensaje: textoCliente,
       respuesta: respuestaCliente,
       motivo: motivo({ preguntoTalla }),
       historial: salida.historial,
@@ -529,6 +493,18 @@ async function atenderMeta(env, mensaje) {
       historia: esHistoria ? "respuesta a una historia" : "",
     });
   }
+
+  await guardarContacto(env.DB, {
+    id: mensaje.igsid,
+    nombre,
+    historial: recortarHistorial(salida.historial || historialPrevio),
+    pausado_hasta: contacto.pausado_hasta,
+    mids_enviados: mids,
+  });
+}
+
+function agregarMid(lista, mid) {
+  return mid ? [...lista, mid] : lista;
 }
 
 function texto200(cuerpo) {
@@ -538,231 +514,13 @@ function texto200(cuerpo) {
   });
 }
 
-async function atenderManyChat(env, request) {
-  // Si defines el secreto, exigimos la cabecera. Si no, se salta el control.
-  if (env.MANYCHAT_SECRET) {
-    const cabecera = request.headers.get("authorization") || "";
-    if (cabecera !== `Bearer ${env.MANYCHAT_SECRET}`) {
-      return json({ version: "v2", content: { type: "instagram", messages: [] } }, 401);
-    }
-  }
-
-  const datos = await request.json().catch(() => null);
-  if (!datos) return json(fallo(env), 200);
-
-  // ManyChat nombra los campos como quien los creó: unas veces "historial",
-  // otras "Historial", y la foto puede llegar como image_url o img_url. Se
-  // acepta cualquiera de las formas en vez de romperse por una mayúscula.
-  const texto = leer(datos, ["product_query", "last_input_text", "mensaje", "texto"]);
-  // Cuando ManyChat no resuelve una variable, manda el texto literal
-  // "{{cuf_...}}". Si lo tratáramos como foto, el modelo fallaría y el cliente
-  // recibiría el mensaje de avería en vez de una respuesta.
-  const foto = urlValida(leer(datos, ["image_url", "img_url", "imagen", "foto"]));
-  const historialCrudo = leer(datos, ["historial", "Historial"]);
-  const nombre = leer(datos, ["nombre_cliente", "Nombre", "nombre", "first_name"]);
-  const historia = leer(datos, ["origen_historia", "Origen_historia", "origen"]);
-
-  // El historial trae pegada al final la cuenta de cuántas veces le hemos
-  // dicho su nombre. Se separa aquí: el modelo y el asesor ven el historial
-  // limpio, y la marca se vuelve a poner al guardar.
-  const vecesNombre = vecesUsado(historialCrudo);
-  const historialPrevio = sinMarca(historialCrudo);
-
-  // El nombre solo se le pasa a las frases mientras no se haya gastado el
-  // cupo. Al llegar al tope, saludo.js y catalogo.js usan sus variantes sin
-  // nombre, que dicen lo mismo sin sonar a insistencia.
-  const nombreCorto = primerNombre(nombre);
-  const nombreUsable = vecesNombre < MAXIMO_DE_VECES ? nombreCorto : "";
-
-  // Con esto, un vistazo a `wrangler tail` dice si ManyChat está mandando el
-  // historial o llega vacío, que es de donde salen casi todos los fallos.
-  console.log(
-    `ManyChat → texto:${JSON.stringify(texto.slice(0, 60))} ` +
-      `historial:${resumir(historialPrevio)} ` +
-      `nombre:${JSON.stringify(nombre)} ` +
-      `foto:${foto ? "si" : "no"} historia:${JSON.stringify(historia)}`
-  );
-
-  if (!texto && !foto) return json(fallo(env), 200);
-
-  // Quien ya escribió antes y vuelve con un "hola" suelto no necesita al
-  // modelo: no hay nada que buscar. Se le devuelve el saludo con su nombre,
-  // variando la frase. La primera vez de cada cliente NO entra aquí: esa
-  // bienvenida la escribe el modelo con el tono del prompt.
-  if (historialPrevio && !foto && esSoloSaludo(texto)) {
-    const respuesta = saludoDeVuelta(nombreUsable, texto);
-    console.log(`Saludo de vuelta → ${JSON.stringify(respuesta)}`);
-    return responder(env, {
-      respuesta,
-      // El historial se devuelve igual que vino: un "hola" no añade nada
-      // que valga la pena recordar.
-      historial: historialPrevio,
-      // Sin botón: es un saludo, no un empujón a comprar.
-      conBoton: false,
-      nombreCorto,
-      vecesNombre,
-    });
-  }
-
-  // "¿Qué más tienen?" no lleva nada que buscar: quiere pasearse por la
-  // tienda. Se le manda el catálogo con ganas, sin gastar una llamada al
-  // modelo para que redacte lo mismo.
-  //
-  // La talla va PRIMERO a propósito: "¿tienen más tallas?" lleva un "más",
-  // pero no es un paseo por el catálogo, es una pregunta para el asesor y
-  // tiene que seguir su camino.
-  if (!foto && !PREGUNTA_TALLA.test(texto) && pideVerMas(texto)) {
-    const respuesta = fraseDeCatalogo(nombreUsable);
-    console.log(`Pidió ver más → ${JSON.stringify(respuesta)}`);
-    return responder(env, {
-      respuesta,
-      historial: conNota(historialPrevio, "Pidió ver más y le pasé el catálogo."),
-      nombreCorto,
-      vecesNombre,
-    });
-  }
-
-  // Se le pasa nombreUsable, no el nombre a secas: pasado el tope, el modelo
-  // recibe el nombre vacío y no puede escribirlo aunque quiera.
-  const entrada = contexto(
-    nombreUsable,
-    historialPrevio,
-    texto || "(mandó una foto)",
-    marcarHistoria(historia),
-    Boolean(historia) // viene de una historia nueva: lo de antes ya no manda
-  );
-
-  // Igual que en el camino de Meta: si viene foto, se descarga aquí. Las
-  // de ManyChat salen del mismo CDN protegido.
-  const { uri: fotoLista } = foto ? await comoDataUri(env, foto) : { uri: "" };
-  if (foto && !fotoLista) {
-    console.error("Llegó una foto pero no se pudo descargar: sigo solo con el texto");
-  }
-
-  const salida = fotoLista
-    ? await responderImagen(env, fotoLista, entrada)
-    : await responderTexto(env, entrada);
-
-  if (!salida) {
-    await avisarAsesor(env, {
-      nombre,
-      igsid: datos.subscriber_id || "",
-      mensaje: texto || "(mandó una foto)",
-      respuesta: "EL MODELO FALLÓ — nadie le respondió",
-      historial: historialPrevio,
-      historia,
-    });
-    return json(fallo(env), 200);
-  }
-
-  const {
-    preguntoTalla,
-    termino,
-    productos,
-    buscoSinExito,
-    respuestaCliente,
-  } = await decidir({ env, salida, texto, historialPrevio });
-
-  const escalada = hayEscalada({
-    respuesta: respuestaCliente,
-    productos,
-    preguntoTalla,
-    buscoSinExito,
-  });
-
-  if (escalada) {
-    await avisarAsesor(env, {
-      nombre,
-      igsid: datos.subscriber_id || "",
-      mensaje: texto || "(mandó una foto)",
-      respuesta: respuestaCliente,
-      motivo: motivo({ preguntoTalla }),
-      // El historial que acaba de escribir el modelo, que ya incluye este
-      // mensaje: es el resumen de la conversación hasta ahora.
-      historial: salida.historial || historialPrevio,
-      busco: termino,
-      productos,
-      historia,
-    });
-  }
-
-  return responder(env, {
-    respuesta: respuestaCliente,
-    productos,
-    historial: salida.historial || historialPrevio,
-    escalada,
-    nombreCorto,
-    vecesNombre,
-  });
-}
-
-// Toda respuesta al cliente sale por aquí. Cuenta los nombres que lleva de
-// verdad el texto —los que puso el código y los que puso el modelo por su
-// cuenta— y guarda el total pegado al historial.
-function responder(env, { respuesta, productos = [], historial, escalada = false, conBoton = true, nombreCorto, vecesNombre }) {
-  const veces = vecesNombre + contarEn(respuesta, nombreCorto);
-  if (veces !== vecesNombre) {
-    console.log(`Nombre usado ${veces}/${MAXIMO_DE_VECES}`);
-  }
-  return json(
-    respuestaManyChat({
-      respuesta,
-      productos,
-      historial: conMarca(recortarHistorial(historial), veces),
-      escalada,
-      conBoton,
-      urlCatalogo: env.URL_CATALOGO,
-      whatsapp: env.WHATSAPP,
-    }),
-    200
-  );
-}
-
-function fallo(env) {
-  return respuestaManyChat({
-    respuesta: FALLO_TECNICO,
-    historial: "",
-    escalada: true,
-    urlCatalogo: env.URL_CATALOGO,
-  });
-}
-
 // Añade una nota al historial sin repetirla si ya está al final: si alguien
-// escribe "más" cinco veces seguidas, el campo de ManyChat no se llena de
-// copias de la misma frase.
+// escribe "más" cinco veces seguidas, el historial no se llena de copias.
 function conNota(historial, nota) {
   const previo = String(historial || "").trim();
   if (!previo) return nota;
   if (previo.endsWith(nota)) return previo;
   return `${previo} ${nota}`;
-}
-
-function json(objeto, status) {
-  return new Response(JSON.stringify(objeto), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
-
-// Para el registro: corta por palabras y lo dice, en vez de partir una a la
-// mitad y parecer que el dato llegó roto.
-function resumir(texto, limite = 80) {
-  const limpio = String(texto || "").trim();
-  if (!limpio) return "VACIO";
-  if (limpio.length <= limite) return JSON.stringify(limpio);
-  const corte = limpio.slice(0, limite);
-  const hastaPalabra = corte.slice(0, corte.lastIndexOf(" "));
-  return JSON.stringify(`${hastaPalabra}…`) + ` (+${limpio.length - hastaPalabra.length} car.)`;
-}
-
-// Primer nombre de la lista que traiga algo. Descarta las variables que
-// ManyChat no resolvió: llegan como el texto literal "{{algo}}".
-function leer(datos, nombres) {
-  for (const nombre of nombres) {
-    const valor = String(datos?.[nombre] ?? "").trim();
-    if (valor && !/^\{\{.*\}\}$/.test(valor)) return valor;
-  }
-  return "";
 }
 
 function urlValida(valor) {
@@ -788,14 +546,6 @@ function marcarSinVer(motivo) {
   );
 }
 
-// El producto de la historia viene ya escrito en el campo, puesto por la
-// automatización de cada historia en ManyChat.
-function marcarHistoria(valor) {
-  if (!valor || valor.toLowerCase() === "generico") return "";
-  return `[EL CLIENTE RESPONDIÓ A UNA HISTORIA]\n[PRODUCTO DE LA HISTORIA: ${valor}]`;
-}
-
-// Lo que ve el modelo antes del mensaje del cliente.
 // Lo que ve el modelo antes del mensaje del cliente. La construcción vive en
 // historial.js, que es donde está la regla de separar pasado y presente.
 function contexto(nombre, historial, texto, marca = "", esHistoriaNueva = false) {
@@ -840,9 +590,6 @@ function sinBienvenida(respuesta) {
 // De lo que escribió el modelo a lo que se le manda al cliente: se le quita
 // la talla al término, se separa el color, se busca en Shopify y se decide
 // si la respuesta del modelo sirve o hay que sustituirla.
-//
-// Vive aparte porque la usan los dos caminos de entrada: el de ManyChat y el
-// del webhook de Meta. Si se cambia aquí, cambia en los dos.
 async function decidir({ env, salida, texto, historialPrevio }) {
   const preguntoTalla = PREGUNTA_TALLA.test(texto);
 
@@ -923,7 +670,6 @@ async function decidir({ env, salida, texto, historialPrevio }) {
       ? SIN_RESULTADOS
       : respuestaFinal;
 
-
   return {
     preguntoTalla,
     termino,
@@ -944,8 +690,6 @@ async function decidir({ env, salida, texto, historialPrevio }) {
 //   · Va a cerrar la compra. Lo dice la respuesta de ESTE mensaje: las
 //     frases de cierre del prompt llevan "en un momento", y la oferta "¿Te
 //     paso con un asesor?" no, porque el cliente aún no ha dicho que sí.
-//     Antes esto miraba el historial, que arrastra "Escalado a asesor" para
-//     siempre, y por eso avisaba en todos los mensajes posteriores.
 //
 // No se avisa mientras el bot esté mostrando calzados: la venta sigue viva.
 // Tampoco cuando una búsqueda no da resultados — eso queda en los registros,
