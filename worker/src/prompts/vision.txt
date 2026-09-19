@@ -100,6 +100,42 @@ NIKE UPLIFT
   suela es alta y redondeada mostrando pero NO tiene cámara de aire, NI
   jumpman, NI tres franjas, NI forma de nube, casi seguro es un Uplift.
 
+NIKE HUARACHE
+  Muy ajustado al pie, como un calcetín de neopreno sin lengüeta
+  tradicional. Tira tipo "arnés" que envuelve el talón (esa tira es la
+  seña de identidad: sin ella no es un Huarache). Suela ancha y plana
+  que sobresale del contorno del zapato. Swoosh chico, a veces solo
+  visible en la suela.
+
+NIKE CORTEZ
+  Silueta baja, plana y muy simple, look retro de los 70. Suela de goma
+  con una franja ondulada en el lateral y goma color crema/marfil
+  expuesta en el borde. Cuero o nylon liso, swoosh grande a los lados.
+
+NIKE M2K TEKNO
+  El "zapato feo" (dad shoe): muchas capas de malla y piezas sintéticas
+  superpuestas en distintos colores, sin un patrón claro. Suela muy
+  gruesa, ancha, con varios niveles de espuma visibles unos sobre otros.
+
+NIKE VAPORMAX
+  La suela ENTERA es una cámara de aire transparente: no hay goma
+  tradicional bajo el pie, se ve el aire de punta a punta. Parte
+  superior tipo calcetín (Flyknit), sin costuras duras. Es la silueta
+  más fácil de distinguir de todo Nike — si la suela parece una bolsa
+  de aire transparente, es Vapormax, no hay con qué confundirla.
+
+NIKE WAFFLE TRAINER
+  Corredora retro simple: suela con el dibujo clásico de waffle (cuadros
+  en relieve), silueta baja, colores sobrios, sin piezas llamativas.
+
+NIKE WILDHORSE / TRAIL
+  Zapatilla de montaña: suela con tacos grandes y agresivos, parte
+  superior reforzada, aspecto técnico. Colores tierra o llamativos.
+
+NIKE TOTAL 90
+  Bota de fútbol clásica: silueta de tenis de caña baja pero con
+  tacos/tapones en la suela para césped, cuero liso, muy angosta.
+
 RETRO 1 (Jordan 1)
   Caña alta o media. Swoosh grande. Logo de ala bordado en el tobillo.
   Cuero en bloques de color. Suela con estrella y "Nike Air" en el talón.
@@ -113,6 +149,9 @@ NEW BALANCE (550, 9060, 530)
   Letra N grande en el lateral, siempre. La 550 es de caña baja, cuero
   perforado, aire retro de basquet. La 9060 tiene suela gruesa ondulada y
   paneles curvos. La 530 mezcla malla y sintético, silueta más redondeada.
+  La variante "Miu Miu" (NB 530) se ve más envejecida o "deconstruida": el
+  forro interior queda visible en el talón como si el cuero exterior
+  estuviera despegado a propósito, con acentos plateados o metálicos.
 
 ADIDAS SUPERSTAR
   Puntera de goma con ranuras, tipo concha. Tres bandas perforadas en el
@@ -131,6 +170,17 @@ ADIDAS YEEZY
   Suela moteada, como espuma con puntos. Tejido de una sola pieza sin
   costuras. Colores tierra. Sin logos visibles.
 
+ADIDAS SL 72
+  Silueta baja y muy angosta, de gamuza, parecida a una Samba pero más
+  estrecha y alargada. Lengüeta con las tres franjas bien marcadas. Aire
+  retro de atletismo de pista, no de basquet.
+
+ADIDAS BAD BUNNY (Forum)
+  Basada en la Adidas Forum: caña media o alta con una correa ancha de
+  velcro sobre el tobillo (esa correa es la seña clave). Colores pastel
+  o beige, gamuza envejecida o con textura "peluda". A veces el nombre
+  "Benito" bordado o impreso.
+
 ON CLOUD
   Suela hecha de cápsulas huecas, como nubes recortadas. Silueta limpia y
   estrecha. Logo pequeño en el lateral y en la lengüeta.
@@ -141,8 +191,11 @@ VANS
   Sk8-Hi es de caña alta con raya.
 
 PUMA
-  Logo del puma corriendo, o una raya curva en el lateral. Los modelos
-  RS-X tienen suela gruesa y voluminosa.
+  Logo del puma corriendo, o una raya curva en el lateral (el
+  "formstrip"). Los modelos RS-X tienen suela gruesa y voluminosa. La
+  Palermo es lo opuesto: muy baja y simple, de gamuza suave, suela
+  plana color crema, aire retro-casual parecido a una Samba pero SIN
+  las tres franjas de Adidas.
 
 FIRMAS VISUALES — MARCAS DE UN SOLO RASGO (crítico, no te la saltes)
 
@@ -190,10 +243,12 @@ existe.
   ASICS · MIZUNO · REEBOK · SKECHERS · MERRELL · SALOMON · THE NORTH FACE
   · VEJA
     Deportiva o de outdoor con el logo de marca bien visible: franja
-    lateral curva (Asics), ala o pájaro (Mizuno), banderines/vector
-    (Reebok), "S" grande y suela muy gruesa (Skechers), suela de tacos
-    grandes (Merrell), cierre rápido sin ojales tradicionales (Salomon
-    XT-6), montañas (The North Face), "V" pequeña lateral (Veja).
+    lateral curva (Asics — la GT-2160 además es voluminosa, con el gel
+    marcado en el talón y bloques de malla y gamuza), ala o pájaro
+    (Mizuno), banderines/vector (Reebok), "S" grande y suela muy gruesa
+    (Skechers), suela de tacos grandes (Merrell), cierre rápido sin
+    ojales tradicionales (Salomon XT-6), montañas (The North Face), "V"
+    pequeña lateral (Veja).
 
   BOTA TÁCTICA
     Bota militar o táctica de caña alta, cordones gruesos, suela dentada.
@@ -376,6 +431,17 @@ productos y el cliente cree que no hay stock.
   Paul George               Paul George
   Ja Morant                 Morant
   Damian Lillard            lillard
+  Nike Huarache             Huarache
+  Nike Cortez               Cortez
+  Nike Vapormax             Vapormax
+  Nike M2K                  M2K
+  Nike Waffle Trainer       Waffle
+  Nike Wildhorse            Wildhorse
+  Nike Total 90             total 90
+  Puma Palermo              Palermo
+  Adidas SL 72              SL 72
+  Adidas Bad Bunny          Bad Bunny
+  NB 530 Miu Miu            Miu Miu
 
 TRAMPAS DE ESTA TIENDA (memorízalas, son las que más ventas cuestan)
 
