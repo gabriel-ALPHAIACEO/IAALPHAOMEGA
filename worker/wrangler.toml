@@ -8,59 +8,59 @@ type = "Text"
 globs = ["**/*.txt"]
 fallthrough = true
 
-# ─── Base de datos (D1) — la memoria del bot entre mensajes ───────────
-# 19-sep-2026: se retiró ManyChat, así que el historial de cada
-# conversación ya no vive en sus campos — vive acá. Sin esto el bot no
+# --- Base de datos (D1) - la memoria del bot entre mensajes -----------
+# 19-sep-2026: se retiro ManyChat, asi que el historial de cada
+# conversacion ya no vive en sus campos - vive aca. Sin esto el bot no
 # recuerda nada de un mensaje al siguiente (vuelve a saludar siempre,
 # pierde el hilo de "y en negro?", etc.)
 #
-# Antes de desplegar, hace falta crear la base y correr la migración:
+# Antes de desplegar, hace falta crear la base y correr la migracion:
 #   npx wrangler d1 create invictus-bot-db
-#   (el comando anterior imprime un database_id: pégalo abajo)
+#   (el comando anterior imprime un database_id: pegalo abajo)
 #   npx wrangler d1 migrations apply invictus-bot-db --remote
 [[d1_databases]]
 binding = "DB"
 database_name = "invictus-bot-db"
-database_id = "PENDIENTE — pega aquí el database_id que imprime `wrangler d1 create`"
+database_id = "PENDIENTE_pega_aqui_el_database_id_que_imprime_wrangler_d1_create"
 
 [vars]
 # Enlace que se le manda al cliente cuando no hay productos que mostrar
 URL_CATALOGO = "https://8vds1e-jw.myshopify.com/"
 
-# Número de WhatsApp de la tienda, para el botón "Comprar" de cada ficha.
+# Numero de WhatsApp de la tienda, para el boton "Comprar" de cada ficha.
 # En formato internacional, SIN el +, sin espacios y sin guiones:
 #   Venezuela  0412-123 45 67  ->  "584121234567"
-# Si lo dejas vacío, las fichas salen solo con "Ver producto".
+# Si lo dejas vacio, las fichas salen solo con "Ver producto".
 WHATSAPP = "+584262992111"
 
 # Dominio de tu tienda, el que termina en .myshopify.com (sin https://)
 SHOPIFY_TIENDA = "8vds1e-jw.myshopify.com"
 
-# ─── Meta es el único canal ────────────────────────────────────────────
+# --- Meta es el unico canal --------------------------------------------
 # El webhook atiende texto, fotos, respuestas a historias y ecos (para la
-# pausa automática). Todo lo demás —los "visto", las reacciones, los
-# comentarios— se descarta sin gastar nada.
+# pausa automatica). Todo lo demas -los "visto", las reacciones, los
+# comentarios- se descarta sin gastar nada.
 #
-# Eso es lo que se comió los créditos de Make: Meta manda cientos de
-# avisos al día y Make pagaba una operación por cada uno.
+# Eso es lo que se comio los creditos de Make: Meta manda cientos de
+# avisos al dia y Make pagaba una operacion por cada uno.
 #
-#   "todo"   atiende todo tipo de mensaje  ← por defecto
+#   "todo"   atiende todo tipo de mensaje  <- por defecto
 #   "off"    nada; el webhook queda desactivado
 META_MODO = "todo"
 
-# El que TÚ te inventas y escribes igual en el panel de Meta, en la
-# casilla "Token de verificación" al dar de alta el webhook.
+# El que TU te inventas y escribes igual en el panel de Meta, en la
+# casilla "Token de verificacion" al dar de alta el webhook.
 META_VERIFY_TOKEN = "invictus2026"
 
-# Modelo de OpenAI. Tiene que ser uno que sepa mirar imágenes.
+# Modelo de OpenAI. Tiene que ser uno que sepa mirar imagenes.
 OPENAI_MODELO = "gpt-4o-mini"
 
-# Cuántas horas se calla el bot después de que un asesor le escribe a un
+# Cuantas horas se calla el bot despues de que un asesor le escribe a un
 # cliente a mano desde la app de Instagram (para no hablar por encima).
 PAUSA_HORAS = "4"
 
-# ─────────────────────────────────────────────────────────────────────
-# Los secretos NO van aquí. Se cargan uno por uno con:
+# ------------------------------------------------------------------------
+# Los secretos NO van aqui. Se cargan uno por uno con:
 #
 #   npx wrangler secret put OPENAI_API_KEY
 #   npx wrangler secret put SHOPIFY_TOKEN
@@ -69,6 +69,6 @@ PAUSA_HORAS = "4"
 #   npx wrangler secret put IG_TOKEN
 #
 # MANYCHAT_SECRET, MANYCHAT_API_TOKEN y MANYCHAT_CAMPO_IMAGEN ya NO hacen
-# falta — ManyChat está retirado. Si los tenías cargados no pasa nada por
+# falta - ManyChat esta retirado. Si los tenias cargados no pasa nada por
 # dejarlos, simplemente no se usan.
-# ─────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------
