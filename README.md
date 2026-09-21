@@ -111,6 +111,20 @@ worker/
    - **Nota de diagnóstico, para la próxima.** Antes del `wrangler tail` yo señalé `META_APP_SECRET_IG FALTA` en `/estado` como la causa. Era falso: el log dijo `Firma válida con META_APP_SECRET`, o sea que para esta app la clave de Facebook SÍ es la que firma los webhooks de Instagram, y la de Instagram nunca hizo falta. **No borres `META_APP_SECRET` pensando que es la equivocada.** El texto de `/estado` que dice "la de Instagram ← es esta" induce a ese error y conviene reescribirlo.
    - **La ventana de 90 s de `envioReciente()` se dejó como estaba.** Se valoró ampliarla para reducir pausas falsas, y se descartó: un asesor que ve el aviso de Slack y contesta a los dos minutos es un caso real y frecuente, y con una ventana más ancha el bot le seguiría hablando por encima. 90 s cubre la carrera del eco propio sin tragarse a una persona.
 
+3a. **La pausa falsa NO estaba corregida: seguía saltando con cada respuesta que mostraba producto (21-sep-2026).** El dueño lo acotó él solo, y su observación era la pista entera: *"cuando coloco me recomiendas algún calzado, el bot me pausa"*. Un mensaje del cliente no puede pausar nada — solo lo hace un eco. Lo que pasaba es que el bot se pausaba **por su propio mensaje**:
+
+   ```
+   enviarTexto(...)    ← sale el texto, su eco ya viene de camino
+   enviarFichas(...)   ← uno o dos segundos armando el carrusel
+   marcarEnvio(...)    ← recién AQUÍ se guardaba el mid del primero
+   ```
+
+   El eco del texto llegaba en esa ventana, como petición nueva y en paralelo, no encontraba su mid en D1, y como `ultimo_envio` era el del turno anterior tampoco lo salvaba `envioReciente()`. Resultado: el bot se tomaba por un asesor humano y se pausaba solo. **Por eso pasaba con las preguntas que muestran producto y no con un "hola": son las únicas que mandan DOS mensajes seguidos.** El arreglo del 21-sep había movido `marcarEnvio` "antes de Slack", que era la ventana equivocada — la de verdad estaba entre los dos envíos.
+
+   Dos arreglos, y cada uno cierra la carrera por su cuenta (comprobado simulando las dos peticiones en paralelo):
+   - **`mandar()`**: enviar y anotar son ahora una sola operación. Cada mid se guarda en el momento, antes de hacer nada más. Son dos escrituras en D1 por turno en vez de una.
+   - **Segundo vistazo antes de pausar**: si el eco no se reconoce, se esperan 4 s y se vuelve a leer el contacto. Retrasar una pausa legítima 4 s no le cuesta nada al asesor; pausar de más cuesta una hora de silencio.
+
 3c. **La pausa bajó de 4 h a 1 h, y el cliente ya no se queda a oscuras (21-sep-2026).** El dueño preguntó por qué no bajarla a "1 o 2 minutos" y avisar al cliente. Lo segundo era buena idea y está hecho; lo primero no, y conviene dejar escrito el motivo:
    - **La pausa se cuenta desde el ÚLTIMO mensaje del asesor, no desde el primero.** `pausar()` reescribe `pausado_hasta` en cada eco suyo, así que el reloj se reinicia cada vez que escribe. Una conversación activa sigue protegida por mucho que dure — el dato que hacía parecer que 4 h era una eternidad fija.
    - **Con dos minutos el bot se mete en medio del cierre.** El asesor está hablando de tallas, envíos, pagos y descuentos, que es exactamente lo que el bot tiene prohibido responder. Aparecer ahí con un carrusel no es un detalle feo: rompe la venta que una persona estaba cerrando.

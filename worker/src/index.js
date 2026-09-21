@@ -156,6 +156,11 @@ const AVISO_PAUSA_CADA_MS = 10 * 60 * 1000;
 // en wrangler.toml sin tocar el código, y admite decimales: 0.5 = 30 min.
 const PAUSA_HORAS_POR_DEFECTO = 1;
 
+// Cuánto se espera antes de dar por bueno que un eco no es nuestro. Es el
+// tiempo que le damos a la otra petición —la que está respondiendo al
+// cliente en paralelo— para terminar de anotar sus mids en D1.
+const ESPERA_ANTES_DE_PAUSAR_MS = 4000;
+
 // Y a partir de cuánto silencio del asesor se entiende que se distrajo y
 // hay que llamarlo por Slack. Si está contestando ahí mismo, avisarle de
 // que "hay un cliente esperando" sobra y molesta.
@@ -476,11 +481,39 @@ async function atenderConRed(env, mensaje) {
 }
 
 async function atenderMeta(env, mensaje, rastro = {}) {
-  // Deja constancia de que algo SÍ le llegó al cliente. Un mid vacío es un
-  // envío que falló, y eso no cuenta como responder.
-  const anotar = (lista, mid) => {
-    if (mid) rastro.respondio = true;
-    return agregarMid(lista, mid);
+  // ENVIAR Y ANOTAR TIENEN QUE SER UNA SOLA COSA (crítico).
+  //
+  // EL FALLO QUE ESTO ARREGLA. Meta devuelve un eco de cada mensaje que
+  // sale de la cuenta, y ese eco llega como una petición NUEVA al webhook,
+  // atendida en paralelo. El eco solo se reconoce como nuestro si su mid ya
+  // está guardado en D1. Y antes se guardaban todos juntos, al final:
+  //
+  //     enviarTexto(...)      ← sale el mensaje, su eco ya viene de camino
+  //     enviarFichas(...)     ← un segundo o dos armando el carrusel
+  //     marcarEnvio(...)      ← recién AQUÍ se guardaba el mid del primero
+  //
+  // En esa ventana el eco del texto llegaba, no encontraba su mid, lo
+  // tomaba por un asesor humano y pausaba el bot. Por eso pasaba justo con
+  // las preguntas que muestran producto —"¿me recomiendas algún calzado?"—
+  // y no con un "hola": son las únicas que mandan DOS mensajes seguidos.
+  //
+  // Ahora cada envío se guarda en el momento, antes de hacer nada más. Son
+  // dos escrituras en D1 por turno en vez de una; una pausa falsa cuesta
+  // una hora de silencio con un cliente.
+  // Se rellena en cuanto se carga el contacto, más abajo: el eco se atiende
+  // antes y no manda nada.
+  let mids = [];
+  let enviadoEn = 0;
+
+  const mandar = async (hacer) => {
+    const mid = await hacer();
+    if (!mid) return "";
+
+    rastro.respondio = true;
+    mids = agregarMid(mids, mid);
+    enviadoEn = Date.now();
+    await marcarEnvio(env.DB, mensaje.igsid, mids, enviadoEn);
+    return mid;
   };
   // El eco de un mensaje que salió de la cuenta: el nuestro (el bot
   // respondiendo) o el de un asesor escribiendo a mano desde la app de
@@ -500,6 +533,25 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       console.log(
         `Eco sin mid conocido de ${mensaje.igsid}, pero el bot envió hace ` +
           "un momento: lo cuento como propio, no pauso."
+      );
+      return;
+    }
+
+    // ÚLTIMA OPORTUNIDAD ANTES DE PAUSAR.
+    //
+    // Nada de lo de arriba es concluyente cuando el bot está a mitad de
+    // responder: el mid puede no estar guardado TODAVÍA y ultimo_envio
+    // puede ser el del turno anterior. Esta lectura se hace unos segundos
+    // después, cuando al otro lado ya terminó de escribir en D1.
+    //
+    // Retrasar la pausa unos segundos no cuesta nada: el asesor sigue
+    // escribiendo igual. Pausar de más cuesta una hora de silencio.
+    await new Promise((seguir) => setTimeout(seguir, ESPERA_ANTES_DE_PAUSAR_MS));
+    const alSegundoVistazo = await cargarContacto(env.DB, mensaje.igsid);
+
+    if (esEcoPropio(alSegundoVistazo, mensaje.mid) || envioReciente(alSegundoVistazo)) {
+      console.log(
+        `Eco de ${mensaje.igsid}: al segundo vistazo era del propio bot, no pauso.`
       );
       return;
     }
@@ -535,10 +587,11 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   );
 
   const contacto = await cargarContacto(env.DB, mensaje.igsid);
+  mids = contacto.mids_enviados;
 
   if (estaPausado(contacto)) {
     console.log(`Bot pausado para ${mensaje.igsid}: no respondo`);
-    await avisarQueYaLoAtienden(env, mensaje, contacto, anotar);
+    await avisarQueYaLoAtienden(env, mensaje, contacto, mandar);
     return;
   }
 
@@ -562,12 +615,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (historialPrevio && !imagenCruda && esSoloSaludo(mensaje.texto)) {
     const respuesta = saludoDeVuelta(nombre, mensaje.texto);
     console.log(`Saludo de vuelta → ${JSON.stringify(respuesta)}`);
-    const mid = await enviarTexto(env, mensaje.igsid, respuesta);
+    await mandar(() => enviarTexto(env, mensaje.igsid, respuesta));
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
-      mids_enviados: anotar(contacto.mids_enviados, mid),
-      ultimo_envio: Date.now(),
+      mids_enviados: mids,
+      ultimo_envio: enviadoEn || Date.now(),
     });
     return;
   }
@@ -588,13 +641,13 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (!imagenCruda && !PREGUNTA_TALLA.test(mensaje.texto) && pideElCatalogo(mensaje.texto)) {
     const respuesta = fraseDeCatalogo(nombre);
     console.log(`Pidió el catálogo → ${JSON.stringify(respuesta)}`);
-    const mid = await enviarBotonCatalogo(env, mensaje.igsid, respuesta);
+    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuesta));
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
       historial: conNota(historialPrevio, "Pidió el catálogo y se lo pasé."),
-      mids_enviados: anotar(contacto.mids_enviados, mid),
-      ultimo_envio: Date.now(),
+      mids_enviados: mids,
+      ultimo_envio: enviadoEn || Date.now(),
     });
     return;
   }
@@ -642,23 +695,23 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (!salida && imagenCruda && !foto) {
     const frase = HISTORIA_SIN_VER[Math.floor(Math.random() * HISTORIA_SIN_VER.length)];
     console.log(`Historia sin ver (${porQueNo}) → pregunto: ${JSON.stringify(frase)}`);
-    const mid = await enviarTexto(env, mensaje.igsid, frase);
+    await mandar(() => enviarTexto(env, mensaje.igsid, frase));
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
-      mids_enviados: anotar(contacto.mids_enviados, mid),
-      ultimo_envio: Date.now(),
+      mids_enviados: mids,
+      ultimo_envio: enviadoEn || Date.now(),
     });
     return;
   }
 
   if (!salida) {
-    const mid = await enviarTexto(env, mensaje.igsid, FALLO_TECNICO);
+    await mandar(() => enviarTexto(env, mensaje.igsid, FALLO_TECNICO));
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
-      mids_enviados: anotar(contacto.mids_enviados, mid),
-      ultimo_envio: Date.now(),
+      mids_enviados: mids,
+      ultimo_envio: enviadoEn || Date.now(),
     });
     await avisarAsesor(env, {
       nombre,
@@ -701,27 +754,24 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // El botón sale en UN solo caso: buscamos lo que pidió y no apareció. Ahí
   // sí ayuda, porque el cliente no encontró lo suyo y el catálogo es la
   // alternativa honesta mientras el asesor confirma.
-  let mids = contacto.mids_enviados;
+  //
+  // ESTE es el bloque donde nacía la pausa falsa: manda DOS mensajes
+  // seguidos —el texto y luego el carrusel— y antes el mid del primero no
+  // se guardaba hasta después del segundo. Su eco llegaba en medio y el bot
+  // se pausaba solo. Por eso pasaba con "¿me recomiendas algún calzado?" y
+  // no con un "hola": solo estas respuestas mandan dos cosas. mandar()
+  // guarda cada envío en el momento y cierra esa ventana.
   if (productos.length) {
-    mids = anotar(mids, await enviarTexto(env, mensaje.igsid, respuestaCliente));
-    mids = anotar(mids, await enviarFichas(env, mensaje.igsid, productos));
+    await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
+    await mandar(() => enviarFichas(env, mensaje.igsid, productos));
   } else if (buscoSinExito || seAcabaron) {
     // Dos motivos distintos, misma salida: el cliente quería ver algo y no
     // hay nada que enseñarle. Ahí el enlace de la tienda sí es una ayuda.
-    mids = anotar(mids, await enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente));
+    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente));
   } else {
     // Conversación: preguntas, dudas, cortesías. Texto limpio, sin botón.
-    mids = anotar(mids, await enviarTexto(env, mensaje.igsid, respuestaCliente));
+    await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
   }
-
-  // AQUÍ, y no al final. Entre el envío y el guardado solía haber una
-  // llamada a Slack, y en esa ventana llegaba el eco de lo que acabábamos
-  // de mandar: el bot no reconocía su propio mid, lo tomaba por un asesor
-  // humano y se pausaba solo durante horas. Anotar el envío de inmediato
-  // cierra esa carrera; envioReciente() en estado.js la cubre por si el
-  // eco llega igual de rápido.
-  const enviadoEn = Date.now();
-  await marcarEnvio(env.DB, mensaje.igsid, mids, enviadoEn);
 
   const escalada = hayEscalada({
     respuesta: respuestaCliente,
@@ -757,7 +807,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     ),
     pausado_hasta: contacto.pausado_hasta,
     mids_enviados: mids,
-    ultimo_envio: enviadoEn,
+    // Si TODOS los envíos fallaron, enviadoEn sigue en 0 y no hay que pisar
+    // la marca anterior con un cero: eso apagaría la red de envioReciente().
+    ultimo_envio: enviadoEn || contacto.ultimo_envio,
     // Lo que acaba de ver queda anotado para no volver a mandárselo cuando
     // pida más. Es lo que evita el "son los mismos".
     mostrados: conProductosMostrados(contacto.mostrados, productos),
@@ -769,7 +821,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 // Se le confirma que lo tienen, sin contestar lo que preguntó. Y si el
 // asesor lleva un rato largo sin decir nada, se le da un toque por Slack:
 // un cliente esperando con el asesor distraído es una venta que se enfría.
-async function avisarQueYaLoAtienden(env, mensaje, contacto, anotar) {
+async function avisarQueYaLoAtienden(env, mensaje, contacto, mandar) {
   // Se deduce de la propia pausa: pausado_hasta se fijó en "ahora + horas"
   // en el momento en que el asesor escribió, y se vuelve a fijar con cada
   // mensaje suyo. Restando las horas se sabe cuándo fue el último.
@@ -784,9 +836,9 @@ async function avisarQueYaLoAtienden(env, mensaje, contacto, anotar) {
     return;
   }
 
-  const mid = await enviarTexto(env, mensaje.igsid, alAzar(YA_TE_ATIENDEN));
-  const mids = anotar(contacto.mids_enviados, mid);
-  await marcarEnvio(env.DB, mensaje.igsid, mids);
+  // mandar() ya lo anota en D1 en el momento: el eco de este mismo aviso
+  // no puede volver y parecer el mensaje de otro asesor.
+  await mandar(() => enviarTexto(env, mensaje.igsid, alAzar(YA_TE_ATIENDEN)));
 
   const silencio = Date.now() - ultimoDelAsesor;
   if (silencio < ASESOR_CALLADO_MS) return;
