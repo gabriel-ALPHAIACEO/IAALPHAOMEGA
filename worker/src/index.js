@@ -39,6 +39,7 @@ import {
   envioReciente,
   yaLoVio,
   conProductosMostrados,
+  revisarBase,
 } from "./estado.js";
 import {
   firmaValida,
@@ -48,6 +49,12 @@ import {
   enviarBotonCatalogo,
   obtenerNombre,
 } from "./instagram.js";
+
+// Se sube a mano en cada entrega, y sale en /estado. Existe por una razón
+// muy concreta: los archivos se copian a mano a la carpeta de despliegue,
+// así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
+// comprueba en diez segundos cuál de las dos cosas pasó.
+const VERSION = "2026-09-21 · no repetir productos + red de seguridad";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -240,7 +247,7 @@ export default {
       // A Meta se le responde 200 siempre y rápido. Si tarda o falla, lo
       // reintenta y el cliente acaba recibiendo la misma respuesta varias
       // veces; y si falla mucho, Meta desactiva el webhook.
-      if (mensaje) ctx.waitUntil(atenderMeta(env, mensaje));
+      if (mensaje) ctx.waitUntil(atenderConRed(env, mensaje));
       return new Response("ok", { status: 200 });
     }
 
@@ -253,8 +260,16 @@ export default {
         return valor ? `cargado (${String(valor).length} caracteres)` : "FALTA";
       };
 
+      // Que el binding esté puesto no significa que la tabla exista ni que
+      // tenga las columnas de hoy. Eso se comprueba de verdad, aquí.
+      const base = await revisarBase(env.DB);
+
       return texto200(
         [
+          `CÓDIGO DESPLEGADO   ${VERSION}`,
+          "  Si esta línea no coincide con la última versión que pegaste,",
+          "  el despliegue no llegó: vuelve a correr `wrangler deploy`.",
+          "",
           "SECRETOS",
           `  OPENAI_API_KEY      ${secreto("OPENAI_API_KEY")}`,
           `  SHOPIFY_TOKEN       ${secreto("SHOPIFY_TOKEN")}`,
@@ -272,7 +287,7 @@ export default {
           `  PAUSA_HORAS         ${env.PAUSA_HORAS || "4 (por defecto)"}`,
           "",
           "BASE DE DATOS (D1) — la memoria del bot entre mensajes",
-          `  DB                  ${env.DB ? "conectada" : "FALTA — sin esto el bot no recuerda nada de un mensaje al siguiente"}`,
+          ...base.lineas,
           "",
           "ManyChat está retirado. Este Worker es el único canal: habla",
           "directo con la API de Instagram y guarda su propia memoria en D1.",
@@ -372,7 +387,60 @@ function queAtender(env, crudo) {
   return leerMensaje(cuerpo);
 }
 
-async function atenderMeta(env, mensaje) {
+// EL CLIENTE NUNCA SE QUEDA EN SILENCIO (crítico).
+//
+// atenderMeta corre dentro de ctx.waitUntil, fuera de la respuesta a Meta.
+// Si algo revienta ahí —la base sin migrar, Shopify caído, un fallo de
+// red— la excepción se la traga el runtime: Meta ya recibió su 200, el
+// Worker no se entera y el cliente se queda mirando la pantalla. Es el
+// peor de los fallos porque NO SE VE: no hay mensaje de error, no hay
+// aviso, solo una conversación muerta. Pasó, y el dueño lo describió
+// como "ahora no responde".
+//
+// Así que el fallo se convierte en dos cosas visibles: un mensaje para el
+// cliente y un aviso al asesor. Y solo se le escribe al cliente si NO le
+// había llegado nada todavía, para no soltarle un "se me trabó el sistema"
+// justo debajo del carrusel que sí recibió.
+async function atenderConRed(env, mensaje) {
+  const rastro = { respondio: false };
+
+  try {
+    await atenderMeta(env, mensaje, rastro);
+  } catch (error) {
+    const detalle = error?.stack || error?.message || String(error);
+    console.error(`ATENDER FALLÓ para ${mensaje.igsid}:`, detalle);
+
+    // Un eco es un mensaje NUESTRO que nos rebota: el cliente no escribió
+    // nada y no está esperando respuesta. Si falla el manejo del eco, lo
+    // último que hay que hacer es escribirle "se me trabó el sistema" de la
+    // nada, cuando él no ha dicho ni hola.
+    if (!rastro.respondio && mensaje.tipo !== "eco") {
+      try {
+        await enviarTexto(env, mensaje.igsid, FALLO_TECNICO);
+      } catch (otro) {
+        console.error("Tampoco se pudo avisar al cliente:", otro?.message || otro);
+      }
+    }
+
+    await avisarAsesor(env, {
+      igsid: mensaje.igsid,
+      mensaje: mensaje.texto || "(sin texto)",
+      respuesta: rastro.respondio
+        ? "Se le respondió, pero algo falló después"
+        : "EL BOT NO PUDO RESPONDER — nadie le escribió",
+      motivo: "FALLO TÉCNICO",
+      historial: detalle.slice(0, 400),
+    }).catch((otro) => console.error("Ni el aviso salió:", otro?.message || otro));
+  }
+}
+
+async function atenderMeta(env, mensaje, rastro = {}) {
+  // Deja constancia de que algo SÍ le llegó al cliente. Un mid vacío es un
+  // envío que falló, y eso no cuenta como responder.
+  const anotar = (lista, mid) => {
+    if (mid) rastro.respondio = true;
+    return agregarMid(lista, mid);
+  };
   // El eco de un mensaje que salió de la cuenta: el nuestro (el bot
   // respondiendo) o el de un asesor escribiendo a mano desde la app de
   // Instagram. Si el mid no es de los que mandó el bot, fue una persona —
@@ -437,7 +505,7 @@ async function atenderMeta(env, mensaje) {
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
-      mids_enviados: agregarMid(contacto.mids_enviados, mid),
+      mids_enviados: anotar(contacto.mids_enviados, mid),
       ultimo_envio: Date.now(),
     });
     return;
@@ -464,7 +532,7 @@ async function atenderMeta(env, mensaje) {
       ...contacto,
       nombre,
       historial: conNota(historialPrevio, "Pidió el catálogo y se lo pasé."),
-      mids_enviados: agregarMid(contacto.mids_enviados, mid),
+      mids_enviados: anotar(contacto.mids_enviados, mid),
       ultimo_envio: Date.now(),
     });
     return;
@@ -517,7 +585,7 @@ async function atenderMeta(env, mensaje) {
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
-      mids_enviados: agregarMid(contacto.mids_enviados, mid),
+      mids_enviados: anotar(contacto.mids_enviados, mid),
       ultimo_envio: Date.now(),
     });
     return;
@@ -528,7 +596,7 @@ async function atenderMeta(env, mensaje) {
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
-      mids_enviados: agregarMid(contacto.mids_enviados, mid),
+      mids_enviados: anotar(contacto.mids_enviados, mid),
       ultimo_envio: Date.now(),
     });
     await avisarAsesor(env, {
@@ -574,15 +642,15 @@ async function atenderMeta(env, mensaje) {
   // alternativa honesta mientras el asesor confirma.
   let mids = contacto.mids_enviados;
   if (productos.length) {
-    mids = agregarMid(mids, await enviarTexto(env, mensaje.igsid, respuestaCliente));
-    mids = agregarMid(mids, await enviarFichas(env, mensaje.igsid, productos));
+    mids = anotar(mids, await enviarTexto(env, mensaje.igsid, respuestaCliente));
+    mids = anotar(mids, await enviarFichas(env, mensaje.igsid, productos));
   } else if (buscoSinExito || seAcabaron) {
     // Dos motivos distintos, misma salida: el cliente quería ver algo y no
     // hay nada que enseñarle. Ahí el enlace de la tienda sí es una ayuda.
-    mids = agregarMid(mids, await enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente));
+    mids = anotar(mids, await enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente));
   } else {
     // Conversación: preguntas, dudas, cortesías. Texto limpio, sin botón.
-    mids = agregarMid(mids, await enviarTexto(env, mensaje.igsid, respuestaCliente));
+    mids = anotar(mids, await enviarTexto(env, mensaje.igsid, respuestaCliente));
   }
 
   // AQUÍ, y no al final. Entre el envío y el guardado solía haber una

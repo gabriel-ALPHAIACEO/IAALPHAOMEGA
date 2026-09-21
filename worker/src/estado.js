@@ -113,28 +113,65 @@ export async function guardarContacto(db, contacto) {
 
   const mostrados = (contacto.mostrados || []).slice(-MAX_MOSTRADOS);
 
-  await db
-    .prepare(
-      `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, ultimo_envio, mostrados)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         nombre = excluded.nombre,
-         historial = excluded.historial,
-         pausado_hasta = excluded.pausado_hasta,
-         mids_enviados = excluded.mids_enviados,
-         ultimo_envio = excluded.ultimo_envio,
-         mostrados = excluded.mostrados`
-    )
-    .bind(
-      contacto.id,
-      contacto.nombre || "",
-      contacto.historial || "",
-      Number(contacto.pausado_hasta) || 0,
-      JSON.stringify(mids),
-      Number(contacto.ultimo_envio) || 0,
-      JSON.stringify(mostrados)
-    )
-    .run();
+  const datos = [
+    contacto.id,
+    contacto.nombre || "",
+    contacto.historial || "",
+    Number(contacto.pausado_hasta) || 0,
+    JSON.stringify(mids),
+    Number(contacto.ultimo_envio) || 0,
+  ];
+
+  try {
+    await db
+      .prepare(
+        `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, ultimo_envio, mostrados)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           nombre = excluded.nombre,
+           historial = excluded.historial,
+           pausado_hasta = excluded.pausado_hasta,
+           mids_enviados = excluded.mids_enviados,
+           ultimo_envio = excluded.ultimo_envio,
+           mostrados = excluded.mostrados`
+      )
+      .bind(...datos, JSON.stringify(mostrados))
+      .run();
+    return;
+  } catch (error) {
+    // SI FALTA LA MIGRACIÓN, EL BOT NO SE QUEDA MUDO NI PIERDE LA MEMORIA.
+    //
+    // El dueño copia los archivos a mano, así que es perfectamente posible
+    // desplegar este código sin haber corrido migrations/0003. Sin este
+    // rescate, ESTE guardado falla y con él se pierde el historial entero:
+    // el bot vuelve a saludar en cada mensaje y pierde el hilo. Un fallo
+    // mucho peor que el que la columna venía a arreglar.
+    //
+    // Así que se reintenta sin esa columna y se avisa a gritos en el
+    // registro. Se pierde el "no repetir productos", nada más.
+    if (!/mostrados/i.test(String(error?.message || ""))) throw error;
+
+    console.error(
+      'FALTA LA MIGRACIÓN: la tabla "contactos" no tiene la columna ' +
+        '"mostrados". El bot sigue atendiendo, pero va a repetir productos ' +
+        "cuando el cliente pida ver más. Para arreglarlo, una sola vez:\n" +
+        "  npx wrangler d1 migrations apply invictus-bot-db --remote"
+    );
+
+    await db
+      .prepare(
+        `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, ultimo_envio)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           nombre = excluded.nombre,
+           historial = excluded.historial,
+           pausado_hasta = excluded.pausado_hasta,
+           mids_enviados = excluded.mids_enviados,
+           ultimo_envio = excluded.ultimo_envio`
+      )
+      .bind(...datos)
+      .run();
+  }
 }
 
 // Cuando un asesor escribe desde la app de Instagram, el bot se aparta unas
@@ -153,6 +190,99 @@ export async function pausar(db, id, horas) {
 
 export function estaPausado(contacto) {
   return Number(contacto.pausado_hasta) > Date.now();
+}
+
+// Revisión de la base para /estado.
+//
+// POR QUÉ HACE FALTA. El binding puede estar puesto y aun así la tabla no
+// existir, o existir sin las columnas que el código de hoy necesita —pasa
+// cada vez que se despliega código nuevo sin correr la migración—. "DB
+// conectada" no lo detecta, y el síntoma que ve el dueño es "el bot dejó
+// de recordar" o "el bot no responde", que no se parecen en nada a la
+// causa. Esto lo dice con nombre y apellido, y con el comando exacto.
+const COLUMNAS = [
+  ["id", "0001_contactos"],
+  ["nombre", "0001_contactos"],
+  ["historial", "0001_contactos"],
+  ["pausado_hasta", "0001_contactos"],
+  ["mids_enviados", "0001_contactos"],
+  ["ultimo_envio", "0002_ultimo_envio"],
+  ["mostrados", "0003_mostrados"],
+];
+
+export async function revisarBase(db) {
+  if (!db) {
+    return {
+      ok: false,
+      lineas: [
+        "  DB                  FALTA el binding",
+        "  Sin esto el bot no recuerda nada de un mensaje al siguiente.",
+        "  Revisa [[d1_databases]] en wrangler.toml.",
+      ],
+    };
+  }
+
+  let columnas;
+  try {
+    const { results } = await db.prepare("PRAGMA table_info(contactos)").all();
+    columnas = (results || []).map((fila) => String(fila.name));
+  } catch (error) {
+    return {
+      ok: false,
+      lineas: [
+        "  DB                  conectada, pero NO PUDE LEER LA TABLA",
+        `  Error: ${error?.message || error}`,
+        "  Corre la migración una sola vez:",
+        "    npx wrangler d1 migrations apply invictus-bot-db --remote",
+      ],
+    };
+  }
+
+  if (!columnas.length) {
+    return {
+      ok: false,
+      lineas: [
+        '  DB                  conectada, pero la tabla "contactos" NO EXISTE',
+        "  El bot no puede recordar nada. Corre, una sola vez:",
+        "    npx wrangler d1 migrations apply invictus-bot-db --remote",
+      ],
+    };
+  }
+
+  const faltan = COLUMNAS.filter(([nombre]) => !columnas.includes(nombre));
+
+  const lineas = ["  DB                  conectada", `  Tabla contactos     ${columnas.length} columnas`];
+
+  if (faltan.length) {
+    const migraciones = [...new Set(faltan.map(([, m]) => m))];
+    lineas.push(
+      `  FALTAN COLUMNAS     ${faltan.map(([n]) => n).join(", ")}`,
+      `  Migración pendiente ${migraciones.join(", ")}`,
+      "  Corre, una sola vez:",
+      "    npx wrangler d1 migrations apply invictus-bot-db --remote"
+    );
+  } else {
+    lineas.push("  Migraciones         al día");
+  }
+
+  // Un bot pausado atiende perfectamente y no contesta a nadie. Es el fallo
+  // que más se parece a "está roto" sin estarlo, así que se enseña aquí.
+  try {
+    const fila = await db
+      .prepare("SELECT COUNT(*) AS cuantos FROM contactos WHERE pausado_hasta > ?")
+      .bind(Date.now())
+      .first();
+    const pausados = Number(fila?.cuantos) || 0;
+    lineas.push(
+      pausados
+        ? `  PAUSADOS AHORA      ${pausados} conversación(es) — a esas el bot NO les responde`
+        : "  Pausados ahora      ninguno"
+    );
+  } catch {
+    // Si la tabla está a medias, lo de arriba ya lo dijo.
+  }
+
+  return { ok: !faltan.length, lineas };
 }
 
 // Instagram nos avisa de TODO mensaje que sale de la cuenta, incluidos los que
