@@ -68,7 +68,9 @@ PAUSA_HORAS = "4"
 #   npx wrangler secret put META_APP_SECRET_IG
 #   npx wrangler secret put IG_TOKEN
 #
-# MANYCHAT_SECRET, MANYCHAT_API_TOKEN y MANYCHAT_CAMPO_IMAGEN ya NO hacen
-# falta - ManyChat esta retirado. Si los tenias cargados no pasa nada por
-# dejarlos, simplemente no se usan.
+# ManyChat esta retirado (21-sep-2026). Si todavia tienes cargados
+# MANYCHAT_SECRET, MANYCHAT_API_TOKEN o MANYCHAT_CAMPO_IMAGEN, puedes
+# borrarlos cuando quieras con:
+#   npx wrangler secret delete MANYCHAT_SECRET
+# Dejarlos tampoco rompe nada: el codigo ya no los lee.
 # ------------------------------------------------------------------------

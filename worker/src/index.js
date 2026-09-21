@@ -11,8 +11,13 @@
 // memoria de cada conversación en D1 (ver estado.js) en vez de depender de
 // los campos de otro sistema.
 //
-// Los archivos manychat.js y manychat-campo.js quedan en el repo sin
-// usarse, por si hace falta volver atrás — no los borré.
+// 21-sep-2026: se borraron manychat.js y manychat-campo.js, ya sin uso.
+//
+// OJO si aparecen archivos extraños en la carpeta de despliegue: existió en
+// paralelo otra versión de ESTE MISMO bot (repo estherzzerpa/
+// challenge-javascript) donde ManyChat seguía siendo el canal y la memoria
+// vivía en KV. Si ves un memoria.js o un nombre.js sueltos, son de esa otra
+// versión y NO van con este código — mezclarlos rompe el arranque.
 
 import { responderTexto, responderImagen } from "./ia.js";
 import { buscarProductos } from "./shopify.js";
@@ -230,7 +235,6 @@ export default {
           "",
           "ManyChat está retirado. Este Worker es el único canal: habla",
           "directo con la API de Instagram y guarda su propia memoria en D1.",
-          "manychat.js / manychat-campo.js quedan sin usar en el repo.",
           "",
           "Los webhooks de Instagram se firman con la clave del producto",
           "Instagram, no con la de Configuración → Básica. Si el registro",

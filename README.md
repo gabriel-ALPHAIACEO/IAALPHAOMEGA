@@ -19,13 +19,30 @@ Chatbot vendedor de calzado por Instagram (carrusel de productos vía Shopify).
 - El webhook ya atiende **texto suelto** también (antes se descartaba a propósito, "eso es trabajo de ManyChat").
 - La memoria de cada conversación (`historial`, `nombre`) ya no vive en los campos de otro sistema — vive en D1 (`estado.js`, que existía pero estaba desconectado; ver tabla `contactos` en `migrations/0001_contactos.sql`).
 - Pausa automática cuando un asesor responde a mano desde la app de Instagram: se detecta por el **eco** del mensaje (Meta avisa de todo lo que sale de la cuenta) — si el `mid` no es de los que mandó el bot, fue una persona, y el bot se aparta `PAUSA_HORAS` (por defecto 4h). Antes esto era solo una intención en los comentarios de `estado.js`; ahora está conectado.
-- `manychat.js` y `manychat-campo.js` quedan en el repo sin usarse (no se borraron, por si hace falta volver atrás), pero `index.js` ya no los importa ni expone `/manychat`.
+- `manychat.js` y `manychat-campo.js` se borraron el 21-sep-2026, ya sin uso; `index.js` tampoco expone `/manychat`.
 - Se resolvió de paso el bloqueo de `src/nombre.js` (nunca llegó a este repo): la lógica que dependía de él —no repetir el nombre del cliente en cada mensaje, con un marcador pegado al historial de ManyChat— ya no hace falta, porque ahora el nombre vive en su propia columna de D1 en vez de mezclado con el historial como texto. El prompt ya le pide al modelo no repetir el nombre después del saludo; se confía en eso.
 
 **Qué se pierde, y qué no:**
 - Tu equipo deja de ver las conversaciones en la bandeja de ManyChat — pasa a usar la bandeja nativa de Instagram (la app o Business Suite). Confirmado con el dueño que está bien.
 - Las respuestas a video no cambian: siguen sin poder verse (Meta no entrega el fotograma), y el bot sigue preguntando el modelo con naturalidad en vez de decir que hubo un error.
 - El reconocimiento por foto en respuestas a historias **debería funcionar mejor que antes**, no peor: ya no depende de ningún relevo entre sistemas — la imagen llega directo del webhook de Meta a la IA, siempre.
+
+### ⚠️ Existe una versión bifurcada de ESTE MISMO bot (21-sep-2026)
+
+En paralelo a este repo, el dueño trabajó el mismo bot en otra cuenta de Claude, sobre el repo **`estherzzerpa/challenge-javascript`**, carpeta `invictus-bot/`, rama `claude/shopify-make-manychat-json-63v9hl` (con ~45 commits locales sin subir). Un resumen de esa sesión afirmaba que era "un codebase completamente distinto, no relacionado" — **es falso**: mismo Worker (`invictus-bot`), misma tienda, mismos nombres de archivo, mismos quirks documentados (sensibilidad a mayúsculas de ManyChat, los dos secretos de Meta, el 403 del CDN en `imagen.js`, "nunca devolver 401", `META_MODO`).
+
+Las dos ramas divergieron a arquitecturas **incompatibles**:
+
+| | Esa rama | Esta rama (la buena) |
+|---|---|---|
+| Canal | ManyChat + Meta como apoyo | Meta directo, único canal |
+| Memoria | Cloudflare KV (`memoria.js`) | D1 (`estado.js`) |
+| Nombre del cliente | `nombre.js` + marca de tiempo oculta en el campo de ManyChat | columna propia en D1 |
+| Reconocimiento por foto | solo prompt | prompt + `identificar.js` + JSON schema estricto |
+
+**Decisión del dueño (21-sep-2026): se queda esta rama.** La otra se descarta.
+
+**Riesgo concreto a vigilar:** hay UNA sola carpeta de despliegue (`C:\Users\ivoo\Documents\invictus-bot`) y UN solo Worker, y las dos sesiones le mandaron archivos para pegar ahí. Si aparecen `memoria.js`, `nombre.js` o un `index.js` que los importe, son de la otra rama y rompen el arranque de esta. Mezclar las dos es la hipótesis principal de por qué una prueba de respuesta a historia no devolvió nada después del despliegue del 19-sep.
 
 ### Setup que falta para desplegar esto (no es código, es configuración)
 
@@ -61,8 +78,6 @@ worker/
     catalogo.js              detecta "quiero ver más" y responde con el catálogo sin pasar por el modelo
     saludo.js                detecta saludos sueltos de clientes que ya escribieron antes
     aviso.js                 notificación a Slack cuando hay que escalar a un asesor
-    manychat.js               [SIN USAR — ManyChat retirado, se deja por si hace falta volver atrás]
-    manychat-campo.js         [SIN USAR — ídem]
     prompts/
       texto.txt              prompt de conversación/ventas
       vision.txt              prompt de análisis de fotos (respuestas a historias / fotos directas)
