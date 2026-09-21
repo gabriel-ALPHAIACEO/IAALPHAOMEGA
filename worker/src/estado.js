@@ -15,7 +15,14 @@ export async function cargarContacto(db, id) {
     .first();
 
   if (!fila) {
-    return { id, nombre: "", historial: "", pausado_hasta: 0, mids_enviados: [] };
+    return {
+      id,
+      nombre: "",
+      historial: "",
+      pausado_hasta: 0,
+      mids_enviados: [],
+      ultimo_envio: 0,
+    };
   }
 
   return {
@@ -24,7 +31,44 @@ export async function cargarContacto(db, id) {
     historial: fila.historial || "",
     pausado_hasta: Number(fila.pausado_hasta) || 0,
     mids_enviados: leerLista(fila.mids_enviados),
+    ultimo_envio: Number(fila.ultimo_envio) || 0,
   };
+}
+
+// Deja constancia de que el bot ACABA de mandar algo, en el momento exacto
+// en que lo mandó — no al final de atender el mensaje.
+//
+// POR QUÉ EXISTE ESTO APARTE. Meta devuelve un "eco" de cada mensaje que
+// sale de la cuenta, y ese eco llega como una petición nueva al webhook,
+// en paralelo. Si para cuando llega todavía no habíamos anotado el mid,
+// el bot no reconoce su propio mensaje, cree que lo escribió un asesor
+// humano y se pausa a sí mismo. Pasó en producción: cinco de siete
+// conversaciones quedaron mudas. Por eso el mid se guarda inmediatamente
+// después de enviar, antes de Slack y antes de cualquier otra cosa lenta.
+export async function marcarEnvio(db, id, mids, cuando = Date.now()) {
+  await db
+    .prepare(
+      `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, ultimo_envio)
+       VALUES (?, '', '', 0, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         mids_enviados = excluded.mids_enviados,
+         ultimo_envio = excluded.ultimo_envio`
+    )
+    .bind(id, JSON.stringify(mids.slice(-MAX_MIDS)), cuando)
+    .run();
+}
+
+// La red de seguridad del párrafo de arriba: aunque el mid no aparezca en
+// la lista (porque el eco ganó la carrera de todas formas), si el bot
+// mandó algo hace nada, ese eco es casi con certeza suyo. Un asesor humano
+// que justo escribe en esa misma ventana solo retrasa la pausa hasta su
+// mensaje siguiente; confundir el eco propio, en cambio, deja al cliente
+// sin atención durante horas.
+const VENTANA_ECO_PROPIO_MS = 90 * 1000;
+
+export function envioReciente(contacto, ahora = Date.now()) {
+  const ultimo = Number(contacto.ultimo_envio) || 0;
+  return ultimo > 0 && ahora - ultimo < VENTANA_ECO_PROPIO_MS;
 }
 
 export async function guardarContacto(db, contacto) {
@@ -34,20 +78,22 @@ export async function guardarContacto(db, contacto) {
 
   await db
     .prepare(
-      `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, ultimo_envio)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          nombre = excluded.nombre,
          historial = excluded.historial,
          pausado_hasta = excluded.pausado_hasta,
-         mids_enviados = excluded.mids_enviados`
+         mids_enviados = excluded.mids_enviados,
+         ultimo_envio = excluded.ultimo_envio`
     )
     .bind(
       contacto.id,
       contacto.nombre || "",
       contacto.historial || "",
       Number(contacto.pausado_hasta) || 0,
-      JSON.stringify(mids)
+      JSON.stringify(mids),
+      Number(contacto.ultimo_envio) || 0
     )
     .run();
 }

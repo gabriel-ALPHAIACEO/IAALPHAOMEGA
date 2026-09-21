@@ -31,9 +31,11 @@ import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
   cargarContacto,
   guardarContacto,
+  marcarEnvio,
   pausar,
   estaPausado,
   esEcoPropio,
+  envioReciente,
 } from "./estado.js";
 import {
   firmaValida,
@@ -339,11 +341,24 @@ async function atenderMeta(env, mensaje) {
   if (mensaje.tipo === "eco") {
     if (!mensaje.igsid || !mensaje.mid) return;
     const contacto = await cargarContacto(env.DB, mensaje.igsid);
-    if (!esEcoPropio(contacto, mensaje.mid)) {
-      const horas = Number(env.PAUSA_HORAS) || 4;
-      await pausar(env.DB, mensaje.igsid, horas);
-      console.log(`Asesor humano le escribió a ${mensaje.igsid}: bot pausado ${horas}h`);
+
+    if (esEcoPropio(contacto, mensaje.mid)) return; // eco nuestro, ya anotado
+
+    // El mid no aparece, pero el bot acaba de mandar algo: es su propio eco
+    // que ganó la carrera contra el guardado. Pausar aquí sería dejar al
+    // cliente sin atención durante horas por un mensaje que mandamos
+    // nosotros — pasó en producción, ver estado.js.
+    if (envioReciente(contacto)) {
+      console.log(
+        `Eco sin mid conocido de ${mensaje.igsid}, pero el bot envió hace ` +
+          "un momento: lo cuento como propio, no pauso."
+      );
+      return;
     }
+
+    const horas = Number(env.PAUSA_HORAS) || 4;
+    await pausar(env.DB, mensaje.igsid, horas);
+    console.log(`Asesor humano le escribió a ${mensaje.igsid}: bot pausado ${horas}h`);
     return;
   }
 
@@ -384,6 +399,7 @@ async function atenderMeta(env, mensaje) {
       ...contacto,
       nombre,
       mids_enviados: agregarMid(contacto.mids_enviados, mid),
+      ultimo_envio: Date.now(),
     });
     return;
   }
@@ -402,16 +418,20 @@ async function atenderMeta(env, mensaje) {
       nombre,
       historial: conNota(historialPrevio, "Pidió ver más y le pasé el catálogo."),
       mids_enviados: agregarMid(contacto.mids_enviados, mid),
+      ultimo_envio: Date.now(),
     });
     return;
   }
+
+  const minutosCallado = minutosDesde(contacto.ultimo_envio);
 
   const entrada = contexto(
     nombre,
     historialPrevio,
     textoCliente,
     esHistoria ? "[EL CLIENTE RESPONDIÓ A UNA HISTORIA — la imagen que ves ES la historia]" : "",
-    esHistoria
+    esHistoria,
+    minutosCallado
   );
 
   // La foto se descarga aquí y viaja dentro de la petición. Pasarle a
@@ -430,7 +450,14 @@ async function atenderMeta(env, mensaje) {
     : imagenCruda
       ? await responderTexto(
           env,
-          contexto(nombre, historialPrevio, textoCliente, marcarSinVer(porQueNo), esHistoria)
+          contexto(
+            nombre,
+            historialPrevio,
+            textoCliente,
+            marcarSinVer(porQueNo),
+            esHistoria,
+            minutosCallado
+          )
         )
       : await responderTexto(env, entrada);
 
@@ -444,6 +471,7 @@ async function atenderMeta(env, mensaje) {
       ...contacto,
       nombre,
       mids_enviados: agregarMid(contacto.mids_enviados, mid),
+      ultimo_envio: Date.now(),
     });
     return;
   }
@@ -454,6 +482,7 @@ async function atenderMeta(env, mensaje) {
       ...contacto,
       nombre,
       mids_enviados: agregarMid(contacto.mids_enviados, mid),
+      ultimo_envio: Date.now(),
     });
     await avisarAsesor(env, {
       nombre,
@@ -476,6 +505,15 @@ async function atenderMeta(env, mensaje) {
   } else {
     mids = agregarMid(mids, await enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente));
   }
+
+  // AQUÍ, y no al final. Entre el envío y el guardado solía haber una
+  // llamada a Slack, y en esa ventana llegaba el eco de lo que acabábamos
+  // de mandar: el bot no reconocía su propio mid, lo tomaba por un asesor
+  // humano y se pausaba solo durante horas. Anotar el envío de inmediato
+  // cierra esa carrera; envioReciente() en estado.js la cubre por si el
+  // eco llega igual de rápido.
+  const enviadoEn = Date.now();
+  await marcarEnvio(env.DB, mensaje.igsid, mids, enviadoEn);
 
   const escalada = hayEscalada({
     respuesta: respuestaCliente,
@@ -504,6 +542,7 @@ async function atenderMeta(env, mensaje) {
     historial: recortarHistorial(salida.historial || historialPrevio),
     pausado_hasta: contacto.pausado_hasta,
     mids_enviados: mids,
+    ultimo_envio: enviadoEn,
   });
 }
 
@@ -552,14 +591,30 @@ function marcarSinVer(motivo) {
 
 // Lo que ve el modelo antes del mensaje del cliente. La construcción vive en
 // historial.js, que es donde está la regla de separar pasado y presente.
-function contexto(nombre, historial, texto, marca = "", esHistoriaNueva = false) {
+//
+// "minutosCallado" es cuánto tiempo pasó desde que el bot le escribió por
+// última vez a esta persona. historial.js lo usa para avisarle al modelo
+// que no dé por hecho que se sigue hablando del mismo producto. Estuvo sin
+// conectar hasta el 21-sep-2026: el parámetro existía en historial.js pero
+// nadie se lo pasaba, así que siempre valía 0 y esa protección nunca se
+// activaba — el cliente que volvía a los tres días recibía el precio del
+// zapato de la vez pasada.
+function contexto(nombre, historial, texto, marca = "", esHistoriaNueva = false, minutosCallado = 0) {
   return contextoParaElModelo({
     nombre: primerNombre(nombre),
     historial,
     texto,
     marca,
     esHistoriaNueva,
+    minutosDesdeElUltimo: minutosCallado,
   });
+}
+
+// De la marca de tiempo del último envío a minutos, para contexto().
+function minutosDesde(ultimoEnvio) {
+  const ultimo = Number(ultimoEnvio) || 0;
+  if (!ultimo) return 0;
+  return Math.max(0, Math.round((Date.now() - ultimo) / 60000));
 }
 
 // Deja solo el primer nombre, y lo descarta si parece un usuario de Instagram
