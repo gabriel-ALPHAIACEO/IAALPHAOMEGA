@@ -57,7 +57,21 @@ OPENAI_MODELO = "gpt-4o-mini"
 
 # Cuantas horas se calla el bot despues de que un asesor le escribe a un
 # cliente a mano desde la app de Instagram (para no hablar por encima).
-PAUSA_HORAS = "4"
+#
+# SE CUENTA DESDE EL ULTIMO MENSAJE DEL ASESOR, no desde el primero: cada
+# vez que el asesor escribe, el reloj vuelve a empezar. Mientras este
+# atendiendo, la conversacion sigue siendo suya por mas que dure.
+#
+# Mientras dura la pausa el cliente NO se queda a oscuras: si escribe, el
+# bot le confirma que ya lo atienden (una vez cada 10 minutos, no mas), y
+# si el asesor lleva 15 minutos callado le llega un aviso a Slack.
+#
+# Admite decimales:  0.5 = 30 minutos   0.25 = 15 minutos
+#
+# CUIDADO CON BAJARLO MUCHO. El asesor esta hablando de tallas, envios,
+# pagos y descuentos, que es justo lo que el bot NO puede responder. Si la
+# pausa es de dos minutos, el bot se mete en medio del cierre de la venta.
+PAUSA_HORAS = "1"
 
 # ------------------------------------------------------------------------
 # Los secretos NO van aqui. Se cargan uno por uno con:

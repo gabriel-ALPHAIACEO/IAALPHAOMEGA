@@ -120,6 +120,47 @@ const HISTORIA_SIN_VER = [
 const FALLO_TECNICO =
   "Disculpa, se me trabó el sistema 😅 Un asesor te atiende en un momento";
 
+// EL CLIENTE NO TIENE POR QUÉ NOTAR LA PAUSA.
+//
+// Mientras un asesor lleva la conversación, el bot se calla. Bien. Pero
+// hasta hoy se callaba del todo: el cliente escribía y no pasaba NADA, ni
+// un "ya te leo". Desde su lado eso no se distingue de que lo estén
+// ignorando, y es cuando la gente se va.
+//
+// Esto no contesta lo que preguntó —eso es del asesor, y meterse ahí es
+// justo lo que la pausa evita— pero le confirma que alguien lo tiene.
+const YA_TE_ATIENDEN = [
+  "¡Hola! Un asesor ya está viendo tu mensaje y te responde en un momento 😊",
+  "Un asesor tiene tu conversación y te escribe enseguida 😊",
+  "¡Gracias por escribir! Un asesor te atiende en un momento 😊",
+  "Ya un asesor está pendiente de ti, te responde enseguida 😊",
+];
+
+// Cada cuánto se le puede repetir. Si escribe cinco mensajes seguidos no
+// recibe cinco veces lo mismo: eso sí parecería un robot averiado.
+const AVISO_PAUSA_CADA_MS = 10 * 60 * 1000;
+
+// CUÁNTO DURA LA PAUSA, Y POR QUÉ NO SON DOS MINUTOS.
+//
+// Se cuenta desde el ÚLTIMO mensaje del asesor, no desde el primero: cada
+// vez que escribe, el reloj vuelve a empezar. Así que mientras esté
+// atendiendo, la conversación sigue siendo suya por más que dure.
+//
+// Con una pausa muy corta el bot se mete en medio de la venta. Y justo en
+// lo que no puede: el asesor está hablando de tallas, envíos, pagos y
+// descuentos —lo único que el bot tiene PROHIBIDO responder— así que
+// aparecer ahí con un carrusel no es un detalle feo, es reventar el cierre.
+//
+// Una hora después del último mensaje del asesor es tiempo de sobra para
+// que termine, y poco para que el cliente se quede tirado. Se puede tocar
+// en wrangler.toml sin tocar el código, y admite decimales: 0.5 = 30 min.
+const PAUSA_HORAS_POR_DEFECTO = 1;
+
+// Y a partir de cuánto silencio del asesor se entiende que se distrajo y
+// hay que llamarlo por Slack. Si está contestando ahí mismo, avisarle de
+// que "hay un cliente esperando" sobra y molesta.
+const ASESOR_CALLADO_MS = 15 * 60 * 1000;
+
 // Las tallas las confirma una persona, y es de lo que más se pregunta justo
 // antes de comprar. Se detecta en el mensaje del cliente y no en la respuesta
 // del modelo: el aviso tiene que salir aunque el modelo redacte distinto.
@@ -284,7 +325,7 @@ export default {
           `  SHOPIFY_TIENDA      ${env.SHOPIFY_TIENDA || "FALTA"}`,
           `  URL_CATALOGO        ${env.URL_CATALOGO || "FALTA"}`,
           `  WHATSAPP            ${String(env.WHATSAPP || "").replace(/\D/g, "") ? "puesto" : "sin poner (no sale el botón Comprar)"}`,
-          `  PAUSA_HORAS         ${env.PAUSA_HORAS || "4 (por defecto)"}`,
+          `  PAUSA_HORAS         ${env.PAUSA_HORAS || `${PAUSA_HORAS_POR_DEFECTO} (por defecto)`}   (se cuenta desde el ULTIMO mensaje del asesor)`,
           "",
           "BASE DE DATOS (D1) — la memoria del bot entre mensajes",
           ...base.lineas,
@@ -463,7 +504,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       return;
     }
 
-    const horas = Number(env.PAUSA_HORAS) || 4;
+    const horas = Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO;
     await pausar(env.DB, mensaje.igsid, horas);
     console.log(`Asesor humano le escribió a ${mensaje.igsid}: bot pausado ${horas}h`);
 
@@ -477,7 +518,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     await avisarAsesor(env, {
       igsid: mensaje.igsid,
       mensaje: "(un asesor escribió a mano desde Instagram)",
-      respuesta: `El bot no le responderá a este cliente durante ${horas} horas.`,
+      respuesta:
+        `El bot no le responderá durante ${horas}h desde tu último mensaje. ` +
+        "Si el cliente escribe, solo le confirma que ya lo atiendes.",
       motivo: "BOT EN PAUSA — la conversación es tuya",
       historial:
         "Si fue sin querer y quieres que el bot siga atendiendo, en /estado " +
@@ -495,6 +538,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   if (estaPausado(contacto)) {
     console.log(`Bot pausado para ${mensaje.igsid}: no respondo`);
+    await avisarQueYaLoAtienden(env, mensaje, contacto, anotar);
     return;
   }
 
@@ -717,6 +761,43 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     // Lo que acaba de ver queda anotado para no volver a mandárselo cuando
     // pida más. Es lo que evita el "son los mismos".
     mostrados: conProductosMostrados(contacto.mostrados, productos),
+  });
+}
+
+// El cliente escribió mientras un asesor lleva la conversación.
+//
+// Se le confirma que lo tienen, sin contestar lo que preguntó. Y si el
+// asesor lleva un rato largo sin decir nada, se le da un toque por Slack:
+// un cliente esperando con el asesor distraído es una venta que se enfría.
+async function avisarQueYaLoAtienden(env, mensaje, contacto, anotar) {
+  // Se deduce de la propia pausa: pausado_hasta se fijó en "ahora + horas"
+  // en el momento en que el asesor escribió, y se vuelve a fijar con cada
+  // mensaje suyo. Restando las horas se sabe cuándo fue el último.
+  const horas = Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO;
+  const ultimoDelAsesor = Number(contacto.pausado_hasta) - horas * 60 * 60 * 1000;
+
+  // ultimo_envio, durante una pausa, solo lo mueve este mismo aviso: el bot
+  // no manda nada más. Así que sirve de reloj para no repetirse.
+  const desdeElUltimoAviso = Date.now() - (Number(contacto.ultimo_envio) || 0);
+  if (desdeElUltimoAviso < AVISO_PAUSA_CADA_MS) {
+    console.log(`Ya le avisé hace poco a ${mensaje.igsid}: no repito`);
+    return;
+  }
+
+  const mid = await enviarTexto(env, mensaje.igsid, alAzar(YA_TE_ATIENDEN));
+  const mids = anotar(contacto.mids_enviados, mid);
+  await marcarEnvio(env.DB, mensaje.igsid, mids);
+
+  const silencio = Date.now() - ultimoDelAsesor;
+  if (silencio < ASESOR_CALLADO_MS) return;
+
+  await avisarAsesor(env, {
+    nombre: contacto.nombre,
+    igsid: mensaje.igsid,
+    mensaje: mensaje.texto || "(mandó una foto)",
+    respuesta: "El bot está en pausa: solo le dijo que ya lo atienden.",
+    motivo: "TE ESTÁN ESPERANDO",
+    historial: `Tomaste esta conversación hace ${Math.round(silencio / 60000)} min y el cliente volvió a escribir.`,
   });
 }
 
