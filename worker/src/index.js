@@ -23,7 +23,7 @@ import { responderTexto, responderImagen } from "./ia.js";
 import { buscarProductos } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
-import { pideVerMas, fraseDeCatalogo } from "./catalogo.js";
+import { pideElCatalogo, fraseDeCatalogo } from "./catalogo.js";
 import { separarColor, filtrarPorColor, terminoDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
@@ -59,15 +59,19 @@ const SOLO_TALLA = "Eso te lo confirma un asesor en un momento 😊";
 // Cuando la historia es un vídeo no se puede mirar, y eso pasa a diario: la
 // mayoría de las historias son vídeo. NO es una avería, así que el cliente
 // no puede recibir el mensaje de avería. Se le pregunta como preguntaría una
-// vendedora, y se le deja el catálogo a mano.
+// vendedora: en corto y pidiendo UN dato, para seguir la conversación.
+//
+// Sin catálogo. El cliente que responde a una historia es el que más cerca
+// está de comprar; mandarlo a la tienda online en ese momento es soltarle
+// la mano justo cuando más atención pide.
 //
 // Solo se usan si el modelo tampoco responde: mientras haya modelo, la
 // pregunta la escribe él con el contexto de lo que dijo el cliente.
 const HISTORIA_SIN_VER = [
-  "¡Claro que sí! 😊 Dime cuál de los que salen en la historia te gustó y te paso el precio 👇",
-  "¡Con gusto! ¿Cuál te llamó la atención de la historia? Dime el modelo y te cuento todo 😊",
-  "¡Por supuesto! 👟 Dime cuál te gustó y te paso precio y fotos enseguida",
-  "¡Claro! ¿De cuál quieres saber? Dime el modelo o mira el catálogo completo aquí 👇",
+  "¡Claro que sí! 😊 Dime cuál de los que salen en la historia te gustó y te lo muestro",
+  "¡Con gusto! ¿Cuál te llamó la atención? Dime el modelo y te lo enseño enseguida 👟",
+  "¡Por supuesto! 👟 Dime cuál te gustó y te lo muestro con todo",
+  "¡Claro! ¿De cuál quieres saber? Dime el modelo o la marca y te enseño lo que tengo 😊",
 ];
 
 // Si el modelo falla, el cliente no se queda sin nada y el asesor se entera.
@@ -404,19 +408,27 @@ async function atenderMeta(env, mensaje) {
     return;
   }
 
-  // "¿Qué más tienen?" no lleva nada que buscar: quiere pasearse por la
-  // tienda. Se le manda el catálogo sin gastar una llamada al modelo.
+  // El cliente PIDIÓ el catálogo por su nombre: "mándame el catálogo", "¿me
+  // pasas el link de la tienda?". Eso sí es un atajo legítimo — quiere el
+  // enlace, no una conversación — y se resuelve sin gastar una llamada al
+  // modelo.
   //
-  // La talla va PRIMERO a propósito: "¿tienen más tallas?" lleva un "más",
-  // pero es una pregunta para el asesor, no un paseo por el catálogo.
-  if (!imagenCruda && !PREGUNTA_TALLA.test(mensaje.texto) && pideVerMas(mensaje.texto)) {
+  // OJO CON LO QUE YA NO ENTRA AQUÍ. "¿Qué más tienen?", "¿eso es todo?",
+  // "¿no hay otros?" ANTES caían aquí y se llevaban el catálogo de vuelta.
+  // Era el error que hacía que el bot pareciera un repartidor de enlaces en
+  // vez de un vendedor: el cliente pedía ver más zapatos y recibía un link.
+  // Ahora eso va al modelo, que ofrece una marca y le MUESTRA calzado.
+  //
+  // La talla va PRIMERO a propósito: "¿tienen más tallas?" es una pregunta
+  // para el asesor, no un pedido de catálogo.
+  if (!imagenCruda && !PREGUNTA_TALLA.test(mensaje.texto) && pideElCatalogo(mensaje.texto)) {
     const respuesta = fraseDeCatalogo(nombre);
-    console.log(`Pidió ver más → ${JSON.stringify(respuesta)}`);
+    console.log(`Pidió el catálogo → ${JSON.stringify(respuesta)}`);
     const mid = await enviarBotonCatalogo(env, mensaje.igsid, respuesta);
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
-      historial: conNota(historialPrevio, "Pidió ver más y le pasé el catálogo."),
+      historial: conNota(historialPrevio, "Pidió el catálogo y se lo pasé."),
       mids_enviados: agregarMid(contacto.mids_enviados, mid),
       ultimo_envio: Date.now(),
     });
@@ -466,7 +478,7 @@ async function atenderMeta(env, mensaje) {
   if (!salida && imagenCruda && !foto) {
     const frase = HISTORIA_SIN_VER[Math.floor(Math.random() * HISTORIA_SIN_VER.length)];
     console.log(`Historia sin ver (${porQueNo}) → pregunto: ${JSON.stringify(frase)}`);
-    const mid = await enviarBotonCatalogo(env, mensaje.igsid, frase);
+    const mid = await enviarTexto(env, mensaje.igsid, frase);
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
@@ -498,12 +510,26 @@ async function atenderMeta(env, mensaje) {
   const { productos, respuestaCliente, termino, preguntoTalla, buscoSinExito } =
     await decidir({ env, salida, texto: mensaje.texto, historialPrevio });
 
+  // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO (crítico).
+  //
+  // Antes, TODA respuesta sin productos salía con el botón del catálogo
+  // pegado debajo. Eso convertía cada pregunta de vendedora —"¿es para ti o
+  // para regalo?", "¿lo prefieres deportivo o casual?"— en un empujón a la
+  // tienda online, que es justo lo contrario de vender: el cliente que se
+  // va al catálogo se va de la conversación.
+  //
+  // El botón sale en UN solo caso: buscamos lo que pidió y no apareció. Ahí
+  // sí ayuda, porque el cliente no encontró lo suyo y el catálogo es la
+  // alternativa honesta mientras el asesor confirma.
   let mids = contacto.mids_enviados;
   if (productos.length) {
     mids = agregarMid(mids, await enviarTexto(env, mensaje.igsid, respuestaCliente));
     mids = agregarMid(mids, await enviarFichas(env, mensaje.igsid, productos));
-  } else {
+  } else if (buscoSinExito) {
     mids = agregarMid(mids, await enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente));
+  } else {
+    // Conversación: preguntas, dudas, cortesías. Texto limpio, sin botón.
+    mids = agregarMid(mids, await enviarTexto(env, mensaje.igsid, respuestaCliente));
   }
 
   // AQUÍ, y no al final. Entre el envío y el guardado solía haber una

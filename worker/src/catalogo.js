@@ -1,113 +1,102 @@
-// "¿Tienen más?"
+// "¿Me pasas el catálogo?"
 //
-// Cuando el cliente pide ver más sin nombrar nada concreto, no hay término
-// que buscar: quiere pasearse por la tienda. Se le responde aquí mismo, con
-// ganas y con el botón al catálogo, sin pasar por el modelo.
+// Este archivo cubre UN solo caso: el cliente pide el catálogo o el enlace
+// de la tienda POR SU NOMBRE. Ahí no hay nada que buscar ni nada que
+// conversar — quiere el link — y se le responde aquí mismo, sin gastar una
+// llamada al modelo.
 //
-// OJO CON LO QUE *NO* ENTRA AQUÍ. "¿Tienen más tallas?" no es pedir el
+// LO QUE ANTES ESTABA AQUÍ Y YA NO (21-sep-2026, importante).
+//
+// Esto atrapaba también "¿qué más tienen?", "¿hay otros?", "¿eso es todo?"
+// y los mandaba al catálogo. Parecía razonable y era el peor error de venta
+// del bot: el cliente pedía ver MÁS ZAPATOS y recibía un enlace. Un
+// vendedor no contesta "mira la vitrina"; saca otro par y lo enseña.
+//
+// Esos casos ahora van al modelo, que elige una marca, la busca y le pone
+// producto delante (ver "VER MÁS" y "NO SABE QUÉ QUIERE" en el prompt de
+// texto). El catálogo quedó para cuando de verdad ayuda: cuando el cliente
+// lo pide, y cuando buscamos lo suyo y no apareció (eso lo decide
+// index.js con buscoSinExito, no este archivo).
+//
+// OJO CON LO QUE TAMPOCO ENTRA AQUÍ. "¿Tienen más tallas?" no es pedir el
 // catálogo, es una pregunta para el asesor, y quien llama a esto tiene que
-// descartar antes las preguntas de talla. "¿Tienen más Jordan?" tampoco:
-// eso nombra un modelo y va al buscador como cualquier otra búsqueda.
+// descartar antes las preguntas de talla.
 
-// Con que aparezca una de estas, el cliente está pidiendo ver más.
+// Tiene que aparecer una de estas, o no es un pedido de catálogo. Son las
+// palabras con las que se nombra la tienda online, nada más.
 const NUCLEO = new Set([
-  "mas", "otro", "otros", "otra", "otras", "demas",
-  "catalogo", "catalogos", "variedad", "surtido", "opciones",
-  "disponible", "disponibles", "existencia", "existencias",
+  "catalogo", "catalogos",
+  "link", "enlace", "url",
+  "tienda", "pagina", "web", "sitio", "online",
 ]);
 
-// Palabras que acompañan al pedido sin cambiarlo: "¿qué más tienen?",
-// "mándame el catálogo por favor", "quiero ver otros modelos".
+// Palabras que acompañan al pedido sin cambiarlo: "mándame el catálogo por
+// favor", "¿tienes el link de la tienda?", "quiero ver la página".
+//
+// Aquí siguen "mas", "otros" y compañía A PROPÓSITO: así "¿hay más?" se
+// reconoce como una frase entendida —todas sus palabras son conocidas— pero
+// no dispara nada, porque no lleva ninguna palabra del NÚCLEO. Sin ellas
+// daría igual, pero con ellas queda claro en el código que ese caso se
+// consideró y se dejó fuera.
 const ACOMPANAN = new Set([
+  "mas", "otro", "otros", "otra", "otras", "demas",
+  "variedad", "surtido", "opciones",
+  "disponible", "disponibles", "existencia", "existencias",
   "que", "cual", "cuales", "hay", "tienen", "tiene", "tienes", "tenes",
   "quiero", "quisiera", "deseo", "puedo", "puedes", "podes", "puede",
   "ver", "veo", "mostrar", "muestra", "muestras", "muestrame", "mostrarme",
   "ensenar", "ensename", "ensenas", "manda", "mandame", "mandar", "envia",
-  "enviame", "enviar", "pasa", "pasame", "pasar", "dame", "tener",
+  "enviame", "enviar", "pasa", "pasame", "pasas", "pasar", "dame", "tener",
   "modelo", "modelos", "zapato", "zapatos", "calzado", "calzados",
   "par", "pares", "cosa", "cosas", "articulo", "articulos", "producto",
-  "productos", "tienda", "link", "enlace", "foto", "fotos",
+  "productos", "foto", "fotos",
   "algo", "todo", "todos", "toda", "todas", "completo", "completa",
   "por", "favor", "porfa", "porfavor", "gracias",
   "me", "te", "le", "lo", "los", "las", "la", "el", "un", "una", "unos",
   "unas", "de", "del", "y", "o", "en", "a", "con", "para", "su", "sus",
   "tu", "tus", "mi", "mis", "si", "no", "ahi", "ahora",
-  // Referencias a lo que acaba de ver: "¿y solo tienen esos?", "¿eso es todo?"
   "es", "son", "eso", "esos", "esa", "esas", "esto", "estos", "ese",
   "ya", "queda", "quedan", "nada", "ninguno", "ninguna", "mismo", "mismos",
   "solo", "solamente", "unicamente", "nomas",
 ]);
 
-// Más de esto y ya no es un "¿qué más tienen?", es alguien explicando algo.
+// Más de esto y ya no es un "pásame el catálogo", es alguien explicando algo.
 const MAXIMO_DE_PALABRAS = 8;
-
-// Pedir más también se dice desilusionado: "¿y solo tienen esos?", "¿eso es
-// todo?", "¿no hay más?". Ahí el cliente no está pidiendo, está a punto de
-// irse — y es justo cuando hay que enseñarle el catálogo. Estas formas no
-// encajan en el reparto de palabras de arriba, así que van aparte.
-//
-// Se comparan contra el mensaje ya despejado: sin tildes y en minúscula.
-const ESO_ES_TODO = [
-  // "¿eso es todo?", "¿es todo lo que tienen?"
-  /\bes\s+todo\b/,
-  // "¿y solo tienen esos?", "¿solo eso?", "¿solo queda eso?"
-  /\bsolo\s+(tienen|tienes|hay|queda|quedan|eso|esos|esto|estos|ese|esa|esas)\b/,
-  // "¿no hay más?", "¿no tienen otros?", "¿no queda nada?"
-  /\bno\s+(hay|tienen|tienes|queda|quedan)\s+(mas|otros|otras|nada|ninguno)\b/,
-  /\bnada\s+mas\b/,
-  // "¿ya no hay?", "¿ya no queda?"
-  /\bya\s+no\s+(hay|tienen|tienes|queda|quedan)\b/,
-];
 
 // Se turnan para no sonar a grabación con quien pregunta varias veces.
 //
-// No son un "claro, aquí tienes": son el empujón al catálogo. Todas hacen
-// lo mismo en tres pasos — le dicen que lo que vio es poco, le pican la
-// curiosidad y lo mandan al catálogo. Cambia estas frases y cambias cómo
-// vende tu tienda.
-//
-// Ninguna promete stock ni apartar nada: eso lo decide una persona.
+// Son una entrega, no un empujón: el cliente pidió el enlace y se le da,
+// pero la última frase deja la puerta abierta para que vuelva a escribir.
+// Ahí es donde se cierra la venta, no en la tienda online.
 const FRASES = [
-  "Eso es apenas una parte 👀 En el catálogo está todo lo que tenemos, entra y míralo 👇",
-  "Tenemos muchísimo más de lo que cabe por aquí 🔥 Date una vuelta por el catálogo completo 👇",
-  "Lo bueno está en el catálogo 😍 Ahí ves todos los modelos con sus precios 👇",
-  "Te falta ver lo mejor 👟 Mira el catálogo completo y me dices cuál te gustó 👇",
-  "Eso que viste es una muestra pequeña 😊 En el catálogo está el resto, te invito a verlo 👇",
-  "Hay bastante más esperándote 🔥 Aquí tienes el catálogo completo, elige el tuyo 👇",
-  "Lo que te mostré es apenas el comienzo 😍 Entra al catálogo y escoge con calma 👇",
-  "Ahí está lo que buscas 👀 Este es el catálogo completo, dime cuál te llamó la atención 👇",
+  "¡Claro que sí! Aquí tienes el catálogo completo 👇 Cuando veas uno que te guste, dime cuál y te cuento todo 😊",
+  "¡Con gusto! Este es el catálogo con todo lo que tenemos 👇 Dime cuál te llamó la atención y seguimos por aquí",
+  "¡Por supuesto! Aquí lo tienes 👇 Si ves alguno que te guste, escríbeme el nombre y te lo muestro mejor 😊",
+  "Aquí está el catálogo completo 👇 Échale un ojo con calma y me dices cuál te gustó 👟",
+  "¡Enseguida! Este es el catálogo 👇 Cualquier modelo que te llame la atención, me lo dices y te ayudo 😊",
 ];
 
 // Con nombre suena a que te están atendiendo a ti, no a cualquiera. Se usa
 // con cuentagotas: index.js deja de pasarlo a las tres veces.
 const FRASES_CON_NOMBRE = [
-  "{n}, eso es apenas una parte 👀 En el catálogo está todo lo que tenemos 👇",
-  "{n}, te falta ver lo mejor 🔥 Aquí tienes el catálogo completo 👇",
-  "Hay mucho más, {n} 😍 Date una vuelta por el catálogo y me dices cuál te gustó 👇",
-  "{n}, lo que te mostré es apenas el comienzo 👟 Mira el catálogo completo 👇",
+  "¡Claro, {n}! Aquí tienes el catálogo completo 👇 Dime cuál te gustó y te cuento todo 😊",
+  "Con gusto, {n} 👇 Este es el catálogo entero, y si ves alguno que te guste me lo dices",
+  "Aquí lo tienes, {n} 👇 Échale un ojo y me dices cuál te llamó la atención 👟",
 ];
 
-// ¿Está pidiendo ver más, sin nombrar ningún producto?
-export function pideVerMas(texto) {
+// ¿Está pidiendo el catálogo o el enlace de la tienda, por su nombre?
+export function pideElCatalogo(texto) {
   const palabras = despejar(texto);
   if (!palabras.length || palabras.length > MAXIMO_DE_PALABRAS) return false;
 
   // Esta es la condición que lo sostiene todo: TODAS las palabras tienen que
   // ser del pedido o de las que lo acompañan. En cuanto aparece una palabra
-  // desconocida —"Jordan", "colores", "negras"— deja de ser un pedido de
-  // catálogo y pasa a ser una búsqueda concreta.
-  //
-  // Va antes que nada, también antes de los patrones de "¿eso es todo?": si
-  // no, "¿solo tienen Jordan?" acabaría mandando el catálogo en vez de
-  // buscar Jordan, que es justo lo contrario de lo que pide el cliente.
+  // desconocida —"Jordan", "negras", "gym"— deja de ser un pedido de
+  // catálogo y pasa a ser una búsqueda concreta, que es trabajo del modelo.
   if (!palabras.every((p) => NUCLEO.has(p) || ACOMPANAN.has(p))) return false;
 
-  // "¿Eso es todo?", "¿y solo tienen esos?": el cliente se está quedando
-  // frío. No lo dice con un "más", pero pide exactamente lo mismo.
-  if (ESO_ES_TODO.some((patron) => patron.test(palabras.join(" ")))) return true;
-
-  // Y si no, al menos una palabra tiene que pedir "más" de verdad, para que
-  // un "quiero ver" suelto no acabe mandando el catálogo.
+  // Y tiene que nombrar el catálogo. Sin esto, un "quiero ver" suelto o un
+  // "¿hay más?" acabarían mandando el enlace en vez de enseñar zapatos.
   return palabras.some((p) => NUCLEO.has(p));
 }
 
@@ -118,7 +107,7 @@ export function fraseDeCatalogo(nombre) {
 }
 
 // Mismo despiece que en saludo.js: sin emojis, sin signos, sin tildes y sin
-// las letras estiradas de "masss".
+// las letras estiradas de "catalogooo".
 function despejar(texto) {
   return String(texto || "")
     .normalize("NFD")
