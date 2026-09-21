@@ -23,7 +23,8 @@ import { responderTexto, responderImagen } from "./ia.js";
 import { buscarProductos } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
-import { pideElCatalogo, fraseDeCatalogo } from "./catalogo.js";
+import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo } from "./catalogo.js";
+import { alternativasPara } from "./parecidos.js";
 import { separarColor, filtrarPorColor, terminoDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
@@ -36,6 +37,8 @@ import {
   estaPausado,
   esEcoPropio,
   envioReciente,
+  yaLoVio,
+  conProductosMostrados,
 } from "./estado.js";
 import {
   firmaValida,
@@ -55,6 +58,38 @@ const SIN_RESULTADOS =
 
 // La talla la confirma una persona: el catálogo no guarda qué tallas quedan.
 const SOLO_TALLA = "Eso te lo confirma un asesor en un momento 😊";
+
+// Cuando el cliente pide ver más y ya vio TODO lo que hay de ese modelo.
+//
+// Esto sí se puede decir sin mentir, y es la diferencia con SIN_RESULTADOS:
+// aquí no estamos adivinando si el producto existe — se lo mandamos
+// nosotros hace dos mensajes. Lo que se acabó es lo que queda por enseñar.
+//
+// Ninguna lleva "en un momento": eso dispararía el aviso al asesor, y aquí
+// no hay nada que un asesor tenga que hacer.
+
+// Hay un modelo parecido que enseñarle: van con fichas debajo.
+const TE_OFREZCO_PARECIDOS = [
+  "Esos son todos los que tengo de ese modelo 😊 Pero mira estos, que se parecen mucho 👇",
+  "De ese ya te mostré todo lo que hay 👟 Échale un ojo a estos, que te pueden gustar 👇",
+  "Ya te enseñé todos los de ese 😊 Te muestro otros parecidos, a ver qué te parecen 👇",
+  "No me queda ninguno más de ese modelo 👀 Pero estos van por el mismo estilo, mira 👇",
+];
+
+// No quedó nada nuevo ni parecido: ahí sí el catálogo ayuda de verdad.
+const YA_TE_MOSTRE_TODO = [
+  "Esos son todos los que tengo de ese modelo 😊 En el catálogo completo está todo lo demás 👇",
+  "De ese ya te mostré todo lo que hay 👟 Aquí tienes el catálogo completo por si quieres ver otra cosa 👇",
+  "Ya te enseñé todo lo de ese modelo 😊 Mira el catálogo completo y dime cuál te gusta 👇",
+];
+
+// Cuántos términos parecidos se prueban antes de rendirse. Cada uno es una
+// llamada más a Shopify: con dos ya se cubren casi todos los casos.
+const MAXIMO_ALTERNATIVAS = 2;
+
+function alAzar(frases) {
+  return frases[Math.floor(Math.random() * frases.length)];
+}
 
 // Cuando la historia es un vídeo no se puede mirar, y eso pasa a diario: la
 // mayoría de las historias son vídeo. NO es una avería, así que el cliente
@@ -507,8 +542,24 @@ async function atenderMeta(env, mensaje) {
     return;
   }
 
-  const { productos, respuestaCliente, termino, preguntoTalla, buscoSinExito } =
-    await decidir({ env, salida, texto: mensaje.texto, historialPrevio });
+  const {
+    productos,
+    respuestaCliente,
+    termino,
+    preguntoTalla,
+    buscoSinExito,
+    seAcabaron,
+    alternativa,
+  } = await decidir({
+    env,
+    salida,
+    texto: mensaje.texto,
+    historialPrevio,
+    mostrados: contacto.mostrados,
+    // Solo si pide algo DISTINTO se descarta lo que ya vio. Una foto no
+    // cuenta: quien manda una foto está pidiendo ESE zapato, no otro.
+    pideMas: !imagenCruda && pideMasVariedad(mensaje.texto),
+  });
 
   // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO (crítico).
   //
@@ -525,7 +576,9 @@ async function atenderMeta(env, mensaje) {
   if (productos.length) {
     mids = agregarMid(mids, await enviarTexto(env, mensaje.igsid, respuestaCliente));
     mids = agregarMid(mids, await enviarFichas(env, mensaje.igsid, productos));
-  } else if (buscoSinExito) {
+  } else if (buscoSinExito || seAcabaron) {
+    // Dos motivos distintos, misma salida: el cliente quería ver algo y no
+    // hay nada que enseñarle. Ahí el enlace de la tienda sí es una ayuda.
     mids = agregarMid(mids, await enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente));
   } else {
     // Conversación: preguntas, dudas, cortesías. Texto limpio, sin botón.
@@ -565,10 +618,20 @@ async function atenderMeta(env, mensaje) {
   await guardarContacto(env.DB, {
     id: mensaje.igsid,
     nombre,
-    historial: recortarHistorial(salida.historial || historialPrevio),
+    // Si al final le enseñamos un modelo distinto del que escribió el
+    // modelo en "buscar", el historial tiene que decirlo: si no, el próximo
+    // "¿cuánto cuestan?" le da el precio del zapato que NO está viendo.
+    historial: recortarHistorial(
+      alternativa
+        ? conNota(salida.historial || historialPrevio, `Ya busqué: ${alternativa}.`)
+        : salida.historial || historialPrevio
+    ),
     pausado_hasta: contacto.pausado_hasta,
     mids_enviados: mids,
     ultimo_envio: enviadoEn,
+    // Lo que acaba de ver queda anotado para no volver a mandárselo cuando
+    // pida más. Es lo que evita el "son los mismos".
+    mostrados: conProductosMostrados(contacto.mostrados, productos),
   });
 }
 
@@ -675,7 +738,7 @@ function sinBienvenida(respuesta) {
 // De lo que escribió el modelo a lo que se le manda al cliente: se le quita
 // la talla al término, se separa el color, se busca en Shopify y se decide
 // si la respuesta del modelo sirve o hay que sustituirla.
-async function decidir({ env, salida, texto, historialPrevio }) {
+async function decidir({ env, salida, texto, historialPrevio, mostrados = [], pideMas = false }) {
   const preguntoTalla = PREGUNTA_TALLA.test(texto);
 
   // Antes que nada: si esto vino de una foto, se revisa que "buscar" sea
@@ -733,11 +796,64 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     }
   }
 
+  // NO LE MANDES DOS VECES EL MISMO CARRUSEL (crítico).
+  //
+  // Pasó en producción, y el propio cliente lo dijo:
+  //
+  //   "Nike vapormax"        →  le mandó 2 Vapormax
+  //   "no mas mas de esos?"  →  le mandó los MISMOS 2 Vapormax
+  //   "son los mismos"
+  //
+  // La búsqueda no tiene la culpa: de ese modelo había dos y devolvió los
+  // dos, las dos veces. Lo que faltaba era memoria de lo ya enseñado.
+  //
+  // OJO CON EL "pideMas". Esto SOLO se aplica cuando el cliente pide algo
+  // distinto. Si pregunta "¿cuánto cuestan?" sobre lo mismo, hay que
+  // volver a mostrárselo: ahí repetir es la respuesta correcta.
+  let repetidos = false;
+  let alternativa = "";
+  if (pideMas && productos.length) {
+    const nuevos = productos.filter((p) => !yaLoVio(mostrados, p.titulo));
+
+    if (nuevos.length) {
+      console.log(`Pidió más: de ${productos.length} le quedan ${nuevos.length} sin ver`);
+      productos = nuevos;
+    } else {
+      // Ya vio todo lo que hay de eso. En vez de repetirse o de soltarle el
+      // enlace, se le busca un modelo parecido — que es lo que haría un
+      // vendedor: sacar otro par del estante.
+      repetidos = true;
+      console.log(`Ya vio los ${productos.length} de "${aBuscar}"; busco parecidos`);
+
+      for (const otro of alternativasPara(aBuscar).slice(0, MAXIMO_ALTERNATIVAS)) {
+        const encontrados = await buscarProductos(env, otro);
+        const sinVer = encontrados.filter((p) => !yaLoVio(mostrados, p.titulo));
+        if (sinVer.length) {
+          productos = sinVer;
+          alternativa = otro;
+          console.log(`Le ofrezco "${otro}" (${sinVer.length} sin ver)`);
+          break;
+        }
+      }
+
+      if (!alternativa) {
+        productos = [];
+        console.log(`Sin alternativas nuevas para "${aBuscar}"`);
+      }
+    }
+  }
+
+  // Ya vio todo lo de ese modelo y tampoco quedaba nada nuevo parecido.
+  // NO es lo mismo que "no encontré nada", y por eso se separa: aquí SÍ
+  // sabemos que el producto existe —se lo mandamos nosotros— y podemos
+  // decírselo de frente sin inventar nada.
+  const seAcabaron = repetidos && !alternativa;
+
   // Si buscó y no encontró nada, no le damos la respuesta optimista del
   // modelo: pasamos al asesor sin afirmar que el producto no existe. Vale
   // igual si el modelo sí estaba pero no en ese color: el cliente pidió ese
   // color, y decirle que sí mostrándole otro es engañarlo.
-  const buscoSinExito = Boolean(aBuscar) && !productos.length;
+  const buscoSinExito = Boolean(aBuscar) && !productos.length && !seAcabaron;
 
   // Preguntó la talla y no quedó nada que buscar: la talla la confirma una
   // persona, así que no se le da largas ni se le muestra el catálogo entero.
@@ -749,11 +865,19 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     ? sinBienvenida(salida.respuesta)
     : salida.respuesta;
 
-  const respuestaCliente = soloTalla
-    ? SOLO_TALLA
-    : buscoSinExito
-      ? SIN_RESULTADOS
-      : respuestaFinal;
+  // El orden importa: de lo más concreto a lo más general. La respuesta que
+  // escribió el modelo es la última opción porque él no vio el resultado de
+  // la búsqueda — no sabe que se repitió ni que no había nada.
+  let respuestaCliente = respuestaFinal;
+  if (soloTalla) {
+    respuestaCliente = SOLO_TALLA;
+  } else if (seAcabaron) {
+    respuestaCliente = alAzar(YA_TE_MOSTRE_TODO);
+  } else if (repetidos && alternativa) {
+    respuestaCliente = alAzar(TE_OFREZCO_PARECIDOS);
+  } else if (buscoSinExito) {
+    respuestaCliente = SIN_RESULTADOS;
+  }
 
   return {
     preguntoTalla,
@@ -762,6 +886,8 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     colores,
     productos,
     buscoSinExito,
+    seAcabaron,
+    alternativa,
     respuestaCliente,
   };
 }

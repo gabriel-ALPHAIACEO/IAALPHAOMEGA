@@ -65,6 +65,8 @@ worker/
   wrangler.toml          configuración del Worker (vars, binding de D1, binding de prompts .txt)
   migrations/
     0001_contactos.sql   crea la tabla de memoria en D1
+    0002_ultimo_envio.sql  cuándo mandó el bot su último mensaje
+    0003_mostrados.sql     qué productos ya vio cada cliente
   src/
     index.js             entrypoint y bot completo: /webhook (Meta, único canal), /estado, /probar-imagen, /probar-aviso
     ia.js                 llamadas a OpenAI (texto y visión; la visión usa JSON schema estricto)
@@ -75,7 +77,8 @@ worker/
     shopify.js              búsqueda de productos (Admin GraphQL API)
     color.js                separa el color del término de búsqueda y filtra por color
     historial.js            arma el contexto que ve el modelo (separa pasado/presente, recorta historial)
-    catalogo.js              detecta que piden el catálogo POR SU NOMBRE y responde con el enlace sin pasar por el modelo
+    catalogo.js              detecta que piden el catálogo POR SU NOMBRE, y que piden ver algo distinto de lo ya visto
+    parecidos.js            tabla de modelos parecidos: qué ofrecer cuando ya vio todo lo de uno
     saludo.js                detecta saludos sueltos de clientes que ya escribieron antes
     aviso.js                 notificación a Slack cuando hay que escalar a un asesor
     prompts/
@@ -110,4 +113,8 @@ worker/
 
 5. **Respuestas a historias — sin verificar después del arreglo.** El síntoma original ("respondí a una historia y no llegó nada") es consistente con la pausa falsa, que ya está corregida, pero no se volvió a probar ese caso específicamente. El 21-sep se le añadió además a `vision.txt` la sección que le explica qué es una historia (ver arriba); eso también está sin probar contra una historia real.
 
-6. **El botón del catálogo ya no se pega a todas las respuestas — a probar en conversación real (21-sep-2026).** Antes, TODA respuesta sin productos salía con el botón de la tienda debajo: una pregunta de vendedora ("¿es para ti o para regalo?") llegaba con un empujón a irse del chat. Ahora el botón sale en un solo caso, `buscoSinExito` (buscamos lo que pidió y no apareció), más cuando el cliente pide el catálogo por su nombre. Y `catalogo.js` dejó de interceptar "¿qué más tienen?" / "¿eso es todo?": eso va al modelo, que ofrece otra marca y muestra calzado. **Qué mirar en la prueba:** que "¿qué más tienen?" devuelva fichas de producto y no un enlace; que "mándame el catálogo" siga devolviendo el botón; que una pregunta suelta ("¿son cómodas?") llegue como texto limpio, sin botón.
+6. **Carrusel repetido — corregido el 21-sep-2026, requiere migración.** Capturado en producción por el propio cliente: `"Nike vapormax"` → 2 fichas; `"no mas mas de esos?"` → **las mismas 2 fichas**; `"son los mismos"` → mensaje de asesor + catálogo. La búsqueda hacía lo correcto (de ese modelo había dos y devolvía los dos); lo que faltaba era memoria de lo ya enseñado. Se agregó la columna `mostrados` (`migrations/0003_mostrados.sql`), y cuando el cliente pide algo distinto se descartan los títulos que ya vio. Si no queda ninguno nuevo, el bot lo dice de frente y le busca un modelo parecido con `parecidos.js` (tabla determinista de términos que existen en el catálogo — una alternativa inventada por la IA devolvería cero productos). Solo si tampoco hay parecidos nuevos aparece el catálogo. **Antes de desplegar hace falta correr `npx wrangler d1 migrations apply invictus-bot-db --remote`.**
+   - **El filtro solo se aplica cuando el cliente pide variedad** (`pideMasVariedad()` en `catalogo.js`: "más", "otros", "son los mismos", "ya los vi", "eso es todo"). A propósito: un `"¿cuánto cuestan?"` sobre el mismo zapato TIENE que volver a mostrarlo.
+   - **`seAcabaron` no es `buscoSinExito`.** Se separaron porque el mensaje honesto solo se puede dar en el primer caso: ahí sabemos que el producto existe porque lo mandamos nosotros. Cuando la búsqueda vuelve vacía no sabemos si es que no hay o si el término estaba mal armado, y por eso ese caso sigue diciendo "déjame confirmarte con un asesor" en vez de "no tenemos".
+
+7. **El botón del catálogo ya no se pega a todas las respuestas — a probar en conversación real (21-sep-2026).** Antes, TODA respuesta sin productos salía con el botón de la tienda debajo: una pregunta de vendedora ("¿es para ti o para regalo?") llegaba con un empujón a irse del chat. Ahora el botón sale en un solo caso, `buscoSinExito` (buscamos lo que pidió y no apareció), más cuando el cliente pide el catálogo por su nombre. Y `catalogo.js` dejó de interceptar "¿qué más tienen?" / "¿eso es todo?": eso va al modelo, que ofrece otra marca y muestra calzado. **Qué mirar en la prueba:** que "¿qué más tienen?" devuelva fichas de producto y no un enlace; que "mándame el catálogo" siga devolviendo el botón; que una pregunta suelta ("¿son cómodas?") llegue como texto limpio, sin botón.

@@ -84,6 +84,50 @@ const FRASES_CON_NOMBRE = [
   "Aquí lo tienes, {n} 👇 Échale un ojo y me dices cuál te llamó la atención 👟",
 ];
 
+// Palabras con las que se pide VARIEDAD: otra cosa, algo distinto, más.
+//
+// No sirven para mandar el catálogo —eso se acabó— sino para saber que hay
+// que descartar lo que el cliente YA vio antes de enseñarle nada. Repetirle
+// el mismo carrusel es lo que le hizo escribir "son los mismos".
+const PEDIR_MAS = new Set([
+  "mas", "otro", "otros", "otra", "otras", "demas",
+  "distinto", "distintos", "distinta", "distintas",
+  "diferente", "diferentes", "nuevo", "nuevos", "nueva", "nuevas",
+  "variedad", "surtido", "opciones",
+]);
+
+// Y las formas en que se dice sin usar ninguna de esas palabras. Van por
+// separado porque son frases hechas, no palabras sueltas. Se comparan contra
+// el mensaje ya despejado: sin tildes y en minúscula.
+const PEDIR_MAS_EN_FRASE = [
+  // "son los mismos", "es el mismo", "ya los vi", "están repetidos"
+  /\b(son|es|estan|esta)\s+(los\s+|las\s+|el\s+|la\s+)?mism/,
+  /\bya\s+(los|las|lo|la)\s+(vi|viste|mostraste|habias|mande)/,
+  /\brepetid/,
+  /\blo\s+mismo\b/,
+  // "¿eso es todo?", "¿es todo lo que tienen?"
+  /\bes\s+todo\b/,
+  // "¿y solo tienen esos?", "¿solo eso?"
+  /\bsolo\s+(tienen|tienes|hay|queda|quedan|eso|esos|esto|estos|ese|esa|esas)\b/,
+  // "¿no hay más?", "¿no tienen otros?"
+  /\bno\s+(hay|tienen|tienes|queda|quedan)\s+(mas|otros|otras|nada|ninguno)\b/,
+  /\bnada\s+mas\b/,
+  /\bya\s+no\s+(hay|tienen|tienes|queda|quedan)\b/,
+];
+
+// ¿Está pidiendo ver algo DISTINTO de lo que ya le enseñamos?
+//
+// Se usa para una sola cosa: activar el filtro de repetidos. Cuando da
+// false no se filtra nada, y eso es a propósito — "¿cuánto cuestan?" sobre
+// el mismo zapato TIENE que volver a mostrarlo, no decirle que ya lo vio.
+export function pideMasVariedad(texto) {
+  const palabras = despejar(texto);
+  if (!palabras.length) return false;
+
+  if (palabras.some((p) => PEDIR_MAS.has(p))) return true;
+  return PEDIR_MAS_EN_FRASE.some((patron) => patron.test(palabras.join(" ")));
+}
+
 // ¿Está pidiendo el catálogo o el enlace de la tienda, por su nombre?
 export function pideElCatalogo(texto) {
   const palabras = despejar(texto);

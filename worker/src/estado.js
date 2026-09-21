@@ -8,6 +8,10 @@
 
 const MAX_MIDS = 20;
 
+// Cuántos títulos de producto se recuerdan por cliente. Con esto cubre una
+// conversación larga sin repetirse; más que esto solo engorda la fila.
+const MAX_MOSTRADOS = 40;
+
 export async function cargarContacto(db, id) {
   const fila = await db
     .prepare("SELECT * FROM contactos WHERE id = ?")
@@ -22,6 +26,7 @@ export async function cargarContacto(db, id) {
       pausado_hasta: 0,
       mids_enviados: [],
       ultimo_envio: 0,
+      mostrados: [],
     };
   }
 
@@ -32,7 +37,37 @@ export async function cargarContacto(db, id) {
     pausado_hasta: Number(fila.pausado_hasta) || 0,
     mids_enviados: leerLista(fila.mids_enviados),
     ultimo_envio: Number(fila.ultimo_envio) || 0,
+    // Los títulos que este cliente YA vio. Sin esto, pedir "más" le devuelve
+    // el mismo carrusel (ver migrations/0003_mostrados.sql).
+    mostrados: leerLista(fila.mostrados),
   };
+}
+
+// ¿Este producto ya se lo mandamos? Se compara sin tildes, sin mayúsculas y
+// sin espacios de más: el mismo título vuelve de Shopify siempre igual, pero
+// no cuesta nada blindarlo.
+export function yaLoVio(mostrados, titulo) {
+  const clave = normalizar(titulo);
+  if (!clave) return false;
+  return mostrados.some((visto) => normalizar(visto) === clave);
+}
+
+// Añade títulos sin duplicar y dejando los últimos.
+export function conProductosMostrados(mostrados, productos) {
+  const lista = [...mostrados];
+  for (const producto of productos) {
+    if (!yaLoVio(lista, producto.titulo)) lista.push(producto.titulo);
+  }
+  return lista.slice(-MAX_MOSTRADOS);
+}
+
+function normalizar(titulo) {
+  return String(titulo || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // Deja constancia de que el bot ACABA de mandar algo, en el momento exacto
@@ -76,16 +111,19 @@ export async function guardarContacto(db, contacto) {
   // no para ser un archivo histórico.
   const mids = contacto.mids_enviados.slice(-MAX_MIDS);
 
+  const mostrados = (contacto.mostrados || []).slice(-MAX_MOSTRADOS);
+
   await db
     .prepare(
-      `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, ultimo_envio)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, ultimo_envio, mostrados)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          nombre = excluded.nombre,
          historial = excluded.historial,
          pausado_hasta = excluded.pausado_hasta,
          mids_enviados = excluded.mids_enviados,
-         ultimo_envio = excluded.ultimo_envio`
+         ultimo_envio = excluded.ultimo_envio,
+         mostrados = excluded.mostrados`
     )
     .bind(
       contacto.id,
@@ -93,7 +131,8 @@ export async function guardarContacto(db, contacto) {
       contacto.historial || "",
       Number(contacto.pausado_hasta) || 0,
       JSON.stringify(mids),
-      Number(contacto.ultimo_envio) || 0
+      Number(contacto.ultimo_envio) || 0,
+      JSON.stringify(mostrados)
     )
     .run();
 }
