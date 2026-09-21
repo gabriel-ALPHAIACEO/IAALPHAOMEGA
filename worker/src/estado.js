@@ -61,6 +61,14 @@ export function conProductosMostrados(mostrados, productos) {
   return lista.slice(-MAX_MOSTRADOS);
 }
 
+function cuantoFalta(ms) {
+  const minutos = Math.round(ms / 60000);
+  if (minutos < 60) return `le quedan ${minutos} min de pausa`;
+  const horas = Math.floor(minutos / 60);
+  const resto = minutos % 60;
+  return `le quedan ${horas}h ${resto}min de pausa`;
+}
+
 function normalizar(titulo) {
   return String(titulo || "")
     .normalize("NFD")
@@ -265,19 +273,51 @@ export async function revisarBase(db) {
     lineas.push("  Migraciones         al día");
   }
 
-  // Un bot pausado atiende perfectamente y no contesta a nadie. Es el fallo
-  // que más se parece a "está roto" sin estarlo, así que se enseña aquí.
+  // UN BOT PAUSADO ATIENDE PERFECTAMENTE Y NO CONTESTA A NADIE.
+  //
+  // Es el fallo que más se parece a "está roto" sin estarlo, y el dueño ya
+  // lo vivió dos veces: mandaba "Hola" desde otra cuenta, no pasaba nada, y
+  // en los registros solo salía "Bot pausado: no respondo" — que hay que
+  // estar mirando `wrangler tail` en ese momento para verlo.
+  //
+  // Así que se enseñan aquí, con quién, hasta cuándo, y CON EL COMANDO YA
+  // ESCRITO para reanudar. El dueño no escribe SQL: se lo copia y lo pega.
   try {
-    const fila = await db
-      .prepare("SELECT COUNT(*) AS cuantos FROM contactos WHERE pausado_hasta > ?")
-      .bind(Date.now())
-      .first();
-    const pausados = Number(fila?.cuantos) || 0;
-    lineas.push(
-      pausados
-        ? `  PAUSADOS AHORA      ${pausados} conversación(es) — a esas el bot NO les responde`
-        : "  Pausados ahora      ninguno"
-    );
+    const ahora = Date.now();
+    const { results } = await db
+      .prepare(
+        "SELECT id, pausado_hasta FROM contactos WHERE pausado_hasta > ? ORDER BY pausado_hasta DESC LIMIT 20"
+      )
+      .bind(ahora)
+      .all();
+
+    const pausados = results || [];
+
+    if (!pausados.length) {
+      lineas.push("  Pausados ahora      ninguno");
+    } else {
+      lineas.push(
+        "",
+        `  PAUSADOS AHORA      ${pausados.length} — a estos el bot NO les responde`,
+        "  Pasa cuando un asesor escribe a mano desde Instagram. Es",
+        "  a propósito: el bot se aparta para no hablar por encima."
+      );
+
+      for (const fila of pausados) {
+        lineas.push(`    ${fila.id}   ${cuantoFalta(Number(fila.pausado_hasta) - ahora)}`);
+      }
+
+      lineas.push(
+        "",
+        "  Para que el bot vuelva a atender AHORA (copia y pega):",
+        "    npx wrangler d1 execute invictus-bot-db --remote --command " +
+          `"UPDATE contactos SET pausado_hasta = 0 WHERE id = '${pausados[0].id}'"`,
+        "",
+        "  O para reanudarlos todos de golpe:",
+        "    npx wrangler d1 execute invictus-bot-db --remote --command " +
+          '"UPDATE contactos SET pausado_hasta = 0"'
+      );
+    }
   } catch {
     // Si la tabla está a medias, lo de arriba ya lo dijo.
   }

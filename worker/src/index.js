@@ -466,6 +466,23 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     const horas = Number(env.PAUSA_HORAS) || 4;
     await pausar(env.DB, mensaje.igsid, horas);
     console.log(`Asesor humano le escribió a ${mensaje.igsid}: bot pausado ${horas}h`);
+
+    // Y SE AVISA. Una pausa deja al bot mudo durante horas con ese cliente,
+    // y hasta hoy eso no se veía en ninguna parte: ni en Slack, ni en
+    // Instagram, ni en /estado. El dueño lo vivió dos veces como "el bot se
+    // rompió" cuando en realidad estaba haciendo exactamente su trabajo.
+    //
+    // Si un día son demasiados avisos porque los asesores contestan mucho,
+    // se quita este bloque y ya: la pausa sigue funcionando igual.
+    await avisarAsesor(env, {
+      igsid: mensaje.igsid,
+      mensaje: "(un asesor escribió a mano desde Instagram)",
+      respuesta: `El bot no le responderá a este cliente durante ${horas} horas.`,
+      motivo: "BOT EN PAUSA — la conversación es tuya",
+      historial:
+        "Si fue sin querer y quieres que el bot siga atendiendo, en /estado " +
+        "sale el comando para reanudarlo.",
+    });
     return;
   }
 
