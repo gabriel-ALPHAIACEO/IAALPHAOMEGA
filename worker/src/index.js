@@ -1,4 +1,5 @@
-// Cerebro del bot de ventas de INVICTUS SHOES.
+// Cerebro del bot de ventas. El MISMO código atiende a varias tiendas:
+// cuál, lo dice la variable TIENDA en wrangler.toml (ver tienda.js).
 //
 // 19-sep-2026: se retiró ManyChat. Antes había DOS apps recibiendo el mismo
 // webhook de Meta —la de ManyChat y esta— y cada una respondía por su
@@ -25,6 +26,7 @@ import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo } from "./catalogo.js";
 import { alternativasPara } from "./parecidos.js";
+import { tiendaDe } from "./tienda.js";
 import { separarColor, filtrarPorColor, terminoDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
@@ -54,7 +56,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-22 · la columna mostrados se crea sola";
+const VERSION = "2026-09-22 · multi-tienda (Invictus + El Emperador)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -308,10 +310,15 @@ export default {
 
       // Que el binding esté puesto no significa que la tabla exista ni que
       // tenga las columnas de hoy. Eso se comprueba de verdad, aquí.
-      const base = await revisarBase(env.DB);
+      const base = await revisarBase(env.DB, env.D1_NOMBRE);
 
       return texto200(
         [
+          `TIENDA              ${tiendaDe(env).nombre}   (TIENDA = "${env.TIENDA || "invictus"}")`,
+          "  El mismo código atiende varias tiendas. Si aquí sale la que no",
+          "  es, el bot se presenta con el nombre de otro negocio y busca en",
+          "  el catálogo equivocado: revisa TIENDA en wrangler.toml.",
+          "",
           `CÓDIGO DESPLEGADO   ${VERSION}`,
           "  Si esta línea no coincide con la última versión que pegaste,",
           "  el despliegue no llegó: vuelve a correr `wrangler deploy`.",
@@ -403,7 +410,7 @@ export default {
       );
     }
 
-    return new Response("invictus-bot", { status: 200 });
+    return new Response(`bot de ${tiendaDe(env).nombre}\n`, { status: 200 });
   },
 };
 
@@ -943,7 +950,7 @@ function primerNombre(nombre) {
 // quita la presentación antes de que salga hacia el cliente. Solo se aplica
 // cuando hay historial, así que nunca toca la bienvenida de verdad.
 const PRESENTACION =
-  /^\s*[¡!]*\s*hola\b[^\n]{0,25}?\bsoy\s+la\s+asistente(\s+virtual)?(\s+de\s+la\s+tienda|\s+de\s+invictus(\s+shoes)?)?\s*[👋😊🙌]*\s*[.!,]*\s*/i;
+  /^\s*[¡!]*\s*hola\b[^\n]{0,25}?\bsoy\s+la\s+asistente(\s+virtual)?(\s+de\s+[^\n,.!]{0,30})?\s*[👋😊🙌]*\s*[.!,]*\s*/i;
 
 function sinBienvenida(respuesta) {
   const recortado = respuesta.replace(PRESENTACION, "").trim();

@@ -1,0 +1,93 @@
+# ---------------------------------------------------------------------
+# EL EMPERADOR
+#
+# RENOMBRA ESTE ARCHIVO A "wrangler.toml" dentro de la carpeta de El
+# Emperador. Cloudflare solo lee un archivo con ese nombre.
+#
+# ESTE ARCHIVO ES LO UNICO QUE CAMBIA respecto a Invictus. Todo lo que hay
+# en src/ es IDENTICO en las dos carpetas: los mismos archivos, sin tocar
+# ni una linea. Cuando se arregle un fallo, se pegan en las dos y ya.
+#
+# Las lineas marcadas con PENDIENTE hay que rellenarlas antes de desplegar.
+# ---------------------------------------------------------------------
+
+# El nombre del Worker. Tiene que ser DISTINTO al de Invictus, o el
+# despliegue pisaria el bot que ya funciona.
+name = "emperador-bot"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Permite importar los prompts como texto
+[[rules]]
+type = "Text"
+globs = ["**/*.txt"]
+fallthrough = true
+
+# --- Base de datos (D1) - la memoria del bot entre mensajes -----------
+# TIENE QUE SER UNA BASE PROPIA. Compartirla con Invictus mezclaria las
+# conversaciones de las dos tiendas: un cliente de una veria el historial
+# de la otra, y las pausas de asesor se pisarian entre si.
+#
+# Creala una sola vez:
+#   npx wrangler d1 create emperador-bot-db
+#   (el comando imprime un database_id: pegalo abajo)
+#
+# No hace falta correr migraciones: la tabla y las columnas se crean solas
+# con el primer mensaje que atienda el bot.
+[[d1_databases]]
+binding = "DB"
+database_name = "emperador-bot-db"
+database_id = "PENDIENTE_pega_aqui_el_database_id_que_imprime_wrangler_d1_create"
+
+[vars]
+# QUE TIENDA ATIENDE ESTE WORKER. Tiene que coincidir con un archivo de
+# src/tiendas/. De aqui salen el nombre con el que el bot se presenta, sus
+# horarios, lo que responde sobre la calidad, su catalogo y sus terminos.
+TIENDA = "emperador"
+
+# Solo para que /estado imprima el comando correcto cuando algo falla.
+D1_NOMBRE = "emperador-bot-db"
+
+# PENDIENTE: enlace de la tienda online de El Emperador. Es el que se le
+# manda al cliente cuando no hay nada que mostrarle.
+URL_CATALOGO = "https://PENDIENTE.myshopify.com/"
+
+# PENDIENTE: WhatsApp de El Emperador, para el boton "Comprar" de cada
+# ficha. Formato internacional, SIN el +, sin espacios y sin guiones:
+#   Venezuela  0412-123 45 67  ->  "584121234567"
+# Si lo dejas vacio, las fichas salen solo con "Ver producto".
+WHATSAPP = ""
+
+# PENDIENTE: el dominio .myshopify.com de El Emperador, sin https://
+SHOPIFY_TIENDA = "PENDIENTE.myshopify.com"
+
+# --- Meta ------------------------------------------------------------
+#   "todo"   atiende todo tipo de mensaje  <- por defecto
+#   "off"    nada; el webhook queda desactivado
+META_MODO = "todo"
+
+# El que TU te inventas y escribes igual en el panel de Meta al dar de alta
+# el webhook. Puede ser distinto al de Invictus, no importa.
+META_VERIFY_TOKEN = "emperador2026"
+
+# Modelo de OpenAI. Tiene que ser uno que sepa mirar imagenes.
+OPENAI_MODELO = "gpt-4o-mini"
+
+# Horas que se calla el bot despues de que un asesor le escribe a mano a un
+# cliente. Se cuenta desde el ULTIMO mensaje del asesor. Admite decimales:
+#   0.5 = 30 minutos    0.25 = 15 minutos
+PAUSA_HORAS = "1"
+
+# ------------------------------------------------------------------------
+# SECRETOS - se cargan uno por uno, desde LA CARPETA DE EL EMPERADOR:
+#
+#   npx wrangler secret put OPENAI_API_KEY      (puede ser la misma)
+#   npx wrangler secret put SLACK_WEBHOOK       (puede ser la misma)
+#   npx wrangler secret put SHOPIFY_TOKEN       <- PROPIO de esta tienda
+#   npx wrangler secret put META_APP_SECRET     <- PROPIO de esta tienda
+#   npx wrangler secret put IG_TOKEN            <- PROPIO de esta tienda
+#
+# OJO: los secretos van por Worker, no por carpeta. Corre estos comandos
+# estando dentro de la carpeta de El Emperador, o se los cargarias a
+# Invictus por error.
+# ------------------------------------------------------------------------

@@ -1,3 +1,14 @@
+# ---------------------------------------------------------------------
+# ESTE ARCHIVO ES LO UNICO QUE CAMBIA ENTRE UNA TIENDA Y OTRA.
+#
+# Todo lo que hay en src/ es IDENTICO en las dos carpetas de despliegue.
+# Cuando se arregla un fallo, se pegan los mismos archivos de src/ en las
+# dos y listo: no hay que acordarse de aplicar el arreglo dos veces.
+#
+# Para El Emperador: usa wrangler.emperador.toml (renombralo a
+# wrangler.toml en SU carpeta).
+# ---------------------------------------------------------------------
+
 name = "invictus-bot"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
@@ -24,6 +35,15 @@ database_name = "invictus-bot-db"
 database_id = "PENDIENTE_pega_aqui_el_database_id_que_imprime_wrangler_d1_create"
 
 [vars]
+# QUE TIENDA ATIENDE ESTE WORKER. Tiene que coincidir con un archivo de
+# src/tiendas/ (invictus.js, emperador.js). De aqui salen el nombre con el
+# que el bot se presenta, sus horarios, lo que responde sobre la calidad,
+# su catalogo de productos y su tabla de terminos de busqueda.
+TIENDA = "invictus"
+
+# Solo para que /estado imprima el comando correcto cuando algo falla.
+D1_NOMBRE = "invictus-bot-db"
+
 # Enlace que se le manda al cliente cuando no hay productos que mostrar
 URL_CATALOGO = "https://8vds1e-jw.myshopify.com/"
 

@@ -22,6 +22,14 @@
 // SI AGREGAS UNA ENTRADA: la clave va en minúscula y sin tildes (así llega
 // después de normalizar); los valores van escritos como en la TABLA DE
 // TÉRMINOS VERIFICADOS del prompt, porque van directos a Shopify.
+//
+// ESTA TABLA LA COMPARTEN TODAS LAS TIENDAS, y a propósito: el parecido
+// entre un Vapormax y un TN es de los zapatos, no de quién los venda. Lo
+// que sí es de cada tienda son los TÉRMINOS de la derecha, que tienen que
+// existir en SU catálogo. Si una tienda no maneja "Campus", esa búsqueda
+// devuelve cero y el bot pasa a la siguiente alternativa o al catálogo —
+// se degrada bien, no se rompe. Aun así, cuando una tienda nueva ya tenga
+// su lista de productos, conviene repasar que estos nombres existan ahí.
 
 const PARECIDOS = {
   // Suela de aire a la vista

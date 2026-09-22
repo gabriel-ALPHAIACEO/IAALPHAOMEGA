@@ -238,7 +238,7 @@ const COLUMNAS = [
   ["mostrados", "0003_mostrados"],
 ];
 
-export async function revisarBase(db) {
+export async function revisarBase(db, base = "tu-base-d1") {
   if (!db) {
     return {
       ok: false,
@@ -261,7 +261,7 @@ export async function revisarBase(db) {
         "  DB                  conectada, pero NO PUDE LEER LA TABLA",
         `  Error: ${error?.message || error}`,
         "  Corre la migración una sola vez:",
-        "    npx wrangler d1 migrations apply invictus-bot-db --remote",
+        `    npx wrangler d1 migrations apply ${base} --remote`,
       ],
     };
   }
@@ -272,7 +272,7 @@ export async function revisarBase(db) {
       lineas: [
         '  DB                  conectada, pero la tabla "contactos" NO EXISTE',
         "  El bot no puede recordar nada. Corre, una sola vez:",
-        "    npx wrangler d1 migrations apply invictus-bot-db --remote",
+        `    npx wrangler d1 migrations apply ${base} --remote`,
       ],
     };
   }
@@ -298,7 +298,7 @@ export async function revisarBase(db) {
       lineas.push(
         `  Migración pendiente ${migraciones.join(", ")}`,
         "  Corre, una sola vez:",
-        "    npx wrangler d1 migrations apply invictus-bot-db --remote"
+        `    npx wrangler d1 migrations apply ${base} --remote`
       );
     }
   } else {
@@ -342,11 +342,11 @@ export async function revisarBase(db) {
       lineas.push(
         "",
         "  Para que el bot vuelva a atender AHORA (copia y pega):",
-        "    npx wrangler d1 execute invictus-bot-db --remote --command " +
+        `    npx wrangler d1 execute ${base} --remote --command ` +
           `"UPDATE contactos SET pausado_hasta = 0 WHERE id = '${pausados[0].id}'"`,
         "",
         "  O para reanudarlos todos de golpe:",
-        "    npx wrangler d1 execute invictus-bot-db --remote --command " +
+        `    npx wrangler d1 execute ${base} --remote --command ` +
           '"UPDATE contactos SET pausado_hasta = 0"'
       );
     }

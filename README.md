@@ -58,6 +58,19 @@ Las dos ramas divergieron a arquitecturas **incompatibles**:
 3. **Confirmar en el panel de Meta Developers** que el webhook de Instagram está suscrito al campo `message_echoes` además de `messages` — sin eso, la pausa automática cuando un asesor responde a mano no funciona (nunca le llega el eco al Worker).
 4. Revisar `GET /estado` después de desplegar: tiene que decir "DB conectada". Si dice "FALTA", el paso 1 no se completó.
 
+### Multi-tienda (22-sep-2026)
+
+El mismo código atiende a varias tiendas. Lo que cambia por tienda son dos archivos: `wrangler.toml` (credenciales, Shopify, WhatsApp, y `TIENDA = "..."`) y `src/tiendas/<tienda>.js` (nombre, horarios, calidad, catálogo, términos de búsqueda). **Todo lo que hay en `src/` es idéntico en las dos carpetas de despliegue**, así que un arreglo se aplica pegando los mismos archivos en las dos.
+
+- `src/tienda.js` — elige la tienda según `env.TIENDA` y rellena los marcadores de los prompts. Si `TIENDA` no existe, **lanza** en vez de seguir: con la tienda equivocada el bot se presentaría con el nombre de otro negocio y buscaría en el catálogo que no es.
+- `src/tiendas/invictus.js`, `src/tiendas/emperador.js` — los datos de cada una.
+- Los prompts (`texto.txt`, `vision.txt`) quedaron **sin marca**: `{{TIENDA}}`, `{{CALIDAD}}`, `{{CATALOGO}}`, `{{TERMINOS}}`, `{{HORARIOS}}`. Se rellenan una vez por arranque en `ia.js` y se guardan en memoria. Así las ~1000 líneas de tono, reglas y ejemplos —lo que más costó afinar— valen para cualquier tienda.
+- **Comprobado que Invictus no cambia:** el prompt reconstruido difiere del anterior en 8 líneas, todas intencionales (el nombre fijo que se quitó, un salto de línea y un ejemplo con la frase de calidad completa).
+- Una tienda **sin catálogo todavía** no rompe: `tienda.js` mete en su lugar un texto que le dice al modelo que use las palabras exactas del cliente y no invente nombres de modelos. Conversa y vende; busca peor hasta que se cargue la lista.
+- `parecidos.js` se comparte a propósito: el parecido entre un Vapormax y un TN es de los zapatos, no de quién los venda. Si una tienda no maneja un término, la búsqueda devuelve cero y se pasa a la siguiente alternativa.
+- **El Emperador vende doble A y triple A**, no 1.1 como Invictus. Como son dos gamas y el bot no puede saber de cuál es un par concreto (ve el título y la foto, no la gama), su sección de calidad nombra las dos y manda al asesor cuando preguntan por un modelo en particular. Decir "triple A" de un par que es doble A es la equivocación más cara que podría cometer.
+- Guía de montaje paso a paso: `MONTAR-OTRA-TIENDA.md`.
+
 ### Estructura
 
 ```
