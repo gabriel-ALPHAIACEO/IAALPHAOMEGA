@@ -1,3 +1,31 @@
+# ═══════════════════════════════════════════════════════════════════════
+#  CUATRO COSAS QUE TIENES QUE CAMBIAR ANTES DE QUE ESTO FUNCIONE
+#  Todas estan marcadas abajo con MAYUSCULAS, asi no se pasan por alto.
+#
+#   1. database_id   <- SIN ESTO EL DEPLOY NI ARRANCA (es el error que da
+#                       "binding DB of type d1 must have a valid
+#                       database_id specified"). Se saca creando la base:
+#
+#                         npx.cmd wrangler d1 create bot-telefonos-db
+#
+#                       Ese comando imprime el id. Si falla por red
+#                       (ETIMEDOUT / ENETUNREACH), creala desde
+#                       dash.cloudflare.com -> Storage & Databases -> D1,
+#                       con el nombre bot-telefonos-db, y copia su
+#                       Database ID de ahi.
+#
+#                       Con el id puesto, ademas hay que correr una vez:
+#                         npx.cmd wrangler d1 migrations apply bot-telefonos-db --remote
+#
+#   2. SHEET_ID      <- el catalogo. Sin esto despliega pero no encuentra
+#                       ningun producto.
+#   3. URL_CATALOGO  <- el enlace que se le manda al cliente.
+#   4. WHATSAPP      <- si lo dejas vacio, las fichas salen sin el boton
+#                       "Comprar" (funciona igual, pero vendes menos).
+#
+#  Y aparte, los secretos, que NO van en este archivo. Estan al final.
+# ═══════════════════════════════════════════════════════════════════════
+
 # Nombre del Worker. Es parte de su direccion:
 #   https://NOMBRE.tu-subdominio.workers.dev
 #
@@ -27,25 +55,25 @@ fallthrough = true
 [[d1_databases]]
 binding = "DB"
 database_name = "bot-telefonos-db"
-database_id = "PENDIENTE_pega_aqui_el_database_id_que_imprime_wrangler_d1_create"
+database_id = "PEGA_AQUI_EL_DATABASE_ID"   # <-- (1) SIN ESTO EL DEPLOY FALLA
 
 [vars]
 # El id de tu hoja de Google. Esta en la direccion de la hoja, entre /d/ y /edit:
 #   https://docs.google.com/spreadsheets/d/AQUI_ESTA_EL_ID/edit
-SHEET_ID = "PEGA_AQUI_EL_ID_DE_TU_HOJA"
+SHEET_ID = "PEGA_AQUI_EL_ID_DE_TU_HOJA"   # <-- (2)
 
 # El nombre de la pestana donde esta el catalogo, tal como se ve abajo en la
 # hoja. Si no la renombraste, suele ser "Hoja 1" o "Sheet1".
 SHEET_NOMBRE = "Hoja 1"
 
 # Enlace que se le manda al cliente cuando no hay productos que mostrar.
-URL_CATALOGO = "https://CAMBIA-ESTO.com"
+URL_CATALOGO = "https://CAMBIA-ESTO.com"   # <-- (3)
 
 # Numero de WhatsApp de la tienda, para el boton "Comprar" de cada ficha.
 # En formato internacional, SIN el +, sin espacios y sin guiones:
 #   Venezuela  0412-123 45 67  ->  "584121234567"
 # Si lo dejas vacio, las fichas salen solo con "Ver producto".
-WHATSAPP = "PON_AQUI_TU_NUMERO"
+WHATSAPP = "PON_AQUI_TU_NUMERO"   # <-- (4)
 
 # --- Meta es el unico canal ---------------------------------------------
 # El webhook atiende texto, fotos, respuestas a historias y ecos (para la
