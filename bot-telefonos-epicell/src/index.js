@@ -63,6 +63,7 @@ import {
   guardarPerfil,
   comoSeLlama,
   revisarBase,
+  listarContactos,
 } from "./estado.js";
 import {
   firmaValida,
@@ -75,7 +76,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-22 (7) · muéstrame esos enseña los que el bot nombró";
+const VERSION = "2026-09-22 (8) · /contactos para ver y descargar tus clientes";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -445,6 +446,87 @@ export default {
           "la de Configuración → Básica. Si el registro dice que la firma no",
           "cuadra, carga la otra:",
           "  npx wrangler secret put META_APP_SECRET_IG",
+          "",
+        ].join("\n")
+      );
+    }
+
+    // LOS CONTACTOS QUE EL BOT FUE GUARDANDO.
+    //
+    // No hay que hacer nada para que se guarden: en cuanto un cliente
+    // escribe por primera vez, el bot le pide el perfil a Instagram y lo
+    // anota. Esta ruta es para VERLOS, que es lo que faltaba.
+    //
+    //   /contactos             la lista, para leerla
+    //   /contactos?csv=si      el mismo archivo para abrir en Excel o
+    //                          subir a donde lleves tus clientes
+    //
+    // Lo que Instagram NO da, y por lo tanto aquí no está: el teléfono y
+    // el correo. Lo que sí está es el @, que es con lo que se le escribe.
+    if (url.pathname === "/contactos") {
+      if (!env.DB) {
+        return texto200("No hay base de datos conectada: mira /estado.\n");
+      }
+
+      const contactos = await listarContactos(env.DB, {
+        cuantos: Math.min(Number(url.searchParams.get("cuantos")) || 500, 2000),
+      });
+
+      if (!contactos.length) {
+        return texto200(
+          "Todavía no hay contactos guardados.\n\n" +
+            "Se guardan solos: el primero aparecerá en cuanto un cliente\n" +
+            "escriba por Instagram.\n"
+        );
+      }
+
+      if (url.searchParams.get("csv") === "si") {
+        const filas = [
+          "usuario,nombre,nombre_completo,id_instagram,ultimo_contacto,pausado",
+          ...contactos.map((c) =>
+            [
+              c.usuario ? `@${c.usuario}` : "",
+              c.nombre,
+              c.nombre_completo,
+              c.id,
+              c.ultimo_envio ? new Date(c.ultimo_envio).toISOString() : "",
+              c.pausado ? "si" : "no",
+            ]
+              .map(paraCsv)
+              .join(",")
+          ),
+        ];
+
+        return new Response(filas.join("\n"), {
+          status: 200,
+          headers: {
+            "content-type": "text/csv; charset=utf-8",
+            "content-disposition": 'attachment; filename="contactos.csv"',
+          },
+        });
+      }
+
+      const lineas = contactos.map((c) => {
+        const quien = comoSeLlama(c) || "(sin nombre)";
+        const arroba = c.usuario ? `@${c.usuario}` : "(sin @)";
+        const cuando = c.ultimo_envio
+          ? `hace ${minutosDesde(c.ultimo_envio)} min`
+          : "todavía sin respuesta";
+        return `  ${quien}  ·  ${arroba}  ·  ${cuando}${c.pausado ? "  ·  EN PAUSA (lo lleva un asesor)" : ""}`;
+      });
+
+      return texto200(
+        [
+          `CONTACTOS GUARDADOS: ${contactos.length}`,
+          "  Del más reciente al más antiguo.",
+          "",
+          ...lineas,
+          "",
+          "Para descargarlos y abrirlos en Excel:",
+          "  /contactos?csv=si",
+          "",
+          "Instagram no entrega el teléfono ni el correo de nadie, así que",
+          "eso no está y no puede estar. Con el @ sí les puedes escribir.",
           "",
         ].join("\n")
       );
@@ -1379,4 +1461,13 @@ function hayEscalada({ respuesta, productos, esConsultaDeAsesor, buscoSinExito }
 // contestar antes de abrir la conversación.
 function motivo({ esConsultaDeAsesor }) {
   return esConsultaDeAsesor ? "PREGUNTA PARA EL ASESOR" : "QUIERE CERRAR LA COMPRA";
+}
+
+// Una celda de CSV: si trae comas, comillas o saltos de línea, va entre
+// comillas y las comillas de dentro se duplican. Sin esto, un nombre como
+// "Ana, la de Valencia" parte la fila en dos columnas.
+function paraCsv(valor) {
+  const texto = String(valor ?? "");
+  if (!/[",\n]/.test(texto)) return texto;
+  return `"${texto.replace(/"/g, '""')}"`;
 }

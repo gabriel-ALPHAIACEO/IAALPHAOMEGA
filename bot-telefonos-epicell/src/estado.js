@@ -531,3 +531,39 @@ function leerLista(valor) {
     return [];
   }
 }
+
+// LOS CONTACTOS QUE EL BOT FUE GUARDANDO, para verlos o descargarlos.
+//
+// El bot los guarda solo: en cuanto un cliente escribe por primera vez, le
+// pide el perfil a Instagram y anota su nombre, su nombre completo y su @.
+// Pero hasta ahora eso vivía en D1 sin forma de mirarlo, y una lista de
+// clientes que nadie puede abrir no le sirve a nadie (ver /contactos en
+// index.js).
+//
+// Ojo con lo que NO hay y no puede haber: Instagram no da el teléfono ni
+// el correo de nadie. Lo que hay es el @, que es con lo que se le escribe.
+export async function listarContactos(db, { cuantos = 500 } = {}) {
+  if (!db) return [];
+
+  await asegurarColumnas(db);
+
+  const { results } = await db
+    .prepare(
+      `SELECT id, nombre, nombre_completo, usuario, historial, ultimo_envio, pausado_hasta
+         FROM contactos
+        ORDER BY ultimo_envio DESC
+        LIMIT ?`
+    )
+    .bind(cuantos)
+    .all();
+
+  return (results || []).map((fila) => ({
+    id: String(fila.id || ""),
+    nombre: fila.nombre || "",
+    nombre_completo: fila.nombre_completo || "",
+    usuario: fila.usuario || "",
+    historial: fila.historial || "",
+    ultimo_envio: Number(fila.ultimo_envio) || 0,
+    pausado: Number(fila.pausado_hasta) > Date.now(),
+  }));
+}

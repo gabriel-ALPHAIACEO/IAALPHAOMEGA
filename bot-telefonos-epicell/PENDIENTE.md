@@ -82,6 +82,42 @@ Cuidado con los números: `capacidad.js` acepta "256" suelto como capacidad
 pero **nunca** 12, 13 o 16, que son nombres de modelo ("iPhone 16" no es
 dieciséis gigas). Con unidad escrita —"16GB"— sí vale.
 
+## Los campos del webhook en Meta (22-sep-2026)
+
+**Solo hacen falta DOS**, y los dos están en el producto **Instagram**, no en
+el de WhatsApp Business:
+
+| Campo | Para qué | ¿Obligatorio? |
+|---|---|---|
+| `messages` | Que lleguen los mensajes y las respuestas a historias | **Sí**, sin esto el bot no recibe nada |
+| `message_echoes` | La pausa automática cuando un asesor contesta a mano | **Sí**, sin esto el bot habla encima del asesor |
+
+Todo lo demás se deja **sin suscribir**. Cada campo suscrito son cientos de
+avisos al día que el Worker tiene que recibir y descartar: se paga por cada
+uno y no aportan nada. El bot ya descarta los "visto", las reacciones y los
+comentarios en cuanto llegan.
+
+Cuidado con la pantalla de **WhatsApp Business** (la que tiene
+`phone_number_quality_update`, `template_category_update`,
+`smb_message_echoes`…). Esos campos son de otro producto y no los usa este
+bot. `smb_message_echoes` **no** es el `message_echoes` de Instagram.
+
+## Los contactos se guardan solos
+
+No hay que configurar nada. En cuanto un cliente escribe por primera vez, el
+bot le pide el perfil a Instagram y guarda en D1 su nombre, su nombre
+completo y su @.
+
+Para verlos:
+
+```
+/contactos          la lista, del más reciente al más antiguo
+/contactos?csv=si   el archivo para abrir en Excel
+```
+
+**Lo que Instagram no entrega, y por lo tanto no está: el teléfono y el
+correo.** Con el @ sí se les puede escribir.
+
 ## Falta: configuración (no es código)
 
 1. **Crear la base de datos y correr la migración:**
