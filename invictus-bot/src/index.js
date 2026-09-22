@@ -68,7 +68,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-22 · cotejo visual por rasgos + despausar desde el chat + nombres de clientes";
+const VERSION = "2026-09-22 (3) · cotejo visual que verifica + despausar desde el chat + nombres de clientes";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -465,8 +465,9 @@ export default {
         );
       }
 
-      const { buscar, pedirNombreExacto, corregido } = validarIdentificacion(identificacion);
-      const marca = marcarIdentificacion(buscar, pedirNombreExacto, false);
+      const { buscar, pedirNombreExacto, corregido, confirmar } =
+        validarIdentificacion(identificacion);
+      const marca = marcarIdentificacion(buscar, pedirNombreExacto, false, confirmar);
 
       const salida = await responderTexto(env, contexto("", "", "(mandó una foto)", marca));
       if (!salida) {
@@ -476,16 +477,23 @@ export default {
         );
       }
 
+      // Con la foto y los rasgos, para que esta ruta pruebe TAMBIÉN el
+      // cotejo visual y no solo la identificación: es la única forma de
+      // ver qué elige sin tener que escribirle al bot por Instagram.
       const { productos, respuestaCliente, termino } = await decidir({
         env,
         salida,
         texto: "",
         historialPrevio: "",
+        foto: descargada,
+        rasgos: identificacion.rasgos,
+        porConfirmar: Boolean(confirmar),
       });
 
       return texto200(
         `La IA de visión vio: ${identificacion.buscar}` +
-          (corregido ? ` (corregido a "${buscar}" porque sus rasgos no cuadraban)` : "") +
+          (corregido ? ` (corregido a "${buscar}" porque sus rasgos lo contradecían)` : "") +
+          (confirmar ? " (sin confirmar: falta ver un detalle, lo verifica el cotejo)" : "") +
           `\nLe diría al cliente: ${respuestaCliente}\n` +
           `Buscó: ${termino || "(nada)"}\n` +
           `Encontró: ${productos.length}\n` +
@@ -786,12 +794,18 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // productos comparar, en vez de contra los primeros que devuelva
   // Shopify (ver cotejo.js).
   let rasgosFoto = null;
+  // El modelo se nombró pero el detalle que lo confirmaría no se ve en la
+  // foto (ver identificar.js). Se busca igual, y el cotejo visual lo
+  // verifica contra la foto real del catálogo — incluso si hay un solo
+  // resultado, que es cuando más falta hace.
+  let porConfirmar = false;
   if (foto) {
     const identificacion = await identificarEnImagen(env, foto);
     if (identificacion) {
-      const { buscar, pedirNombreExacto } = validarIdentificacion(identificacion);
-      marcaFoto = marcarIdentificacion(buscar, pedirNombreExacto, esHistoria);
+      const { buscar, pedirNombreExacto, confirmar } = validarIdentificacion(identificacion);
+      marcaFoto = marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar);
       rasgosFoto = identificacion.rasgos;
+      porConfirmar = Boolean(confirmar);
     } else {
       console.error(
         "La IA de visión no respondió: trato la foto como si no se hubiera podido ver"
@@ -864,6 +878,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     pideMas: !imagenCruda && pideMasVariedad(mensaje.texto),
     foto,
     rasgos: rasgosFoto,
+    porConfirmar,
   });
 
   // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO (crítico).
@@ -1074,7 +1089,7 @@ function marcarSinVer(motivo) {
 // lo que se le pasa a la IA de texto es el dato ya corregido — ella no
 // tiene que desconfiar de él, solo redactar con su propio tono, exactamente
 // como con cualquier otro mensaje.
-function marcarIdentificacion(buscar, pedirNombreExacto, esHistoria) {
+function marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar = false) {
   const encabezado = esHistoria
     ? "[EL CLIENTE RESPONDIÓ A UNA HISTORIA — la imagen que ves ES la historia. "
     : "[EL CLIENTE MANDÓ UNA FOTO DE UN CALZADO. ";
@@ -1087,6 +1102,20 @@ function marcarIdentificacion(buscar, pedirNombreExacto, esHistoria) {
       "vendedora. NUNCA le pidas que mande otra foto" +
       (esHistoria ? ": ya tienes la imagen delante." : ".") +
       "]"
+    );
+  }
+
+  // Se reconoció el modelo pero un detalle suyo no se alcanza a ver, así
+  // que no se afirma: se le muestra y se le pregunta si es ese. Si el
+  // cotejo visual lo confirma después contra la foto del catálogo, esta
+  // respuesta se reemplaza por una segura antes de salir.
+  if (confirmar) {
+    return (
+      encabezado +
+      `SE VE UN "${buscar}", PERO NO SE PUDO CONFIRMAR DEL TODO: un detalle ` +
+      "del modelo no se alcanza a ver en la foto. Muéstraselo Y pregúntale " +
+      "si es ese el que le gustó, las dos cosas en el mismo mensaje. NO " +
+      "afirmes con seguridad que es ese.]"
     );
   }
 
@@ -1175,6 +1204,9 @@ async function decidir({
   // Lo que la IA de visión marcó que VE en esa foto. El cotejo elige por
   // ahí contra qué productos comparar.
   rasgos = null,
+  // El modelo se identificó pero sin confirmar del todo: el cotejo pasa a
+  // verificar, no solo a desempatar.
+  porConfirmar = false,
 }) {
   const preguntoTalla = PREGUNTA_TALLA.test(texto);
 
@@ -1244,6 +1276,7 @@ async function decidir({
       productos,
       termino: aBuscar,
       rasgos,
+      verificar: porConfirmar,
     });
 
     if (cotejo) {

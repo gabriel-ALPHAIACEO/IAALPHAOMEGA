@@ -49,11 +49,29 @@ const MAXIMO_CANDIDATOS = 8;
 // compatibles a la vez.
 const MAXIMO_TERMINOS = 2;
 
-export async function cotejoPorImagen({ env, foto, textoCliente, productos, termino, rasgos }) {
+export async function cotejoPorImagen({
+  env,
+  foto,
+  textoCliente,
+  productos,
+  termino,
+  rasgos,
+  // El modelo se nombró pero su detalle distintivo no se ve en la foto
+  // (ver identificar.js). Entonces el cotejo ya no está desempatando
+  // entre varios: está VERIFICANDO que el que se encontró sea el de la
+  // foto. Por eso corre aunque haya uno solo — es justo el caso en que
+  // hace falta una segunda opinión.
+  verificar = false,
+} = {}) {
   if (!foto) return null;
 
-  // Un solo resultado: no hay elección que hacer.
-  if (productos.length === 1) return null;
+  // Un solo resultado y nada que verificar: no hay elección que hacer, y
+  // descartarlo por una duda del modelo sería cambiar un resultado bueno
+  // por ninguno.
+  if (productos.length === 1 && !verificar) return null;
+
+  // Cuántos candidatos hacen falta para que valga la pena la llamada.
+  const minimo = verificar ? 1 : 2;
 
   // LOS CANDIDATOS SE ELIGEN POR LOS RASGOS, NO POR EL ORDEN DEL
   // CATÁLOGO (esto es lo que decide si el cotejo sirve o no).
@@ -73,8 +91,8 @@ export async function cotejoPorImagen({ env, foto, textoCliente, productos, term
   // llena, que lo llenen los que tienen motivo para parecerse.
   const pila = unir(porRasgos, productos);
 
-  if (pila.length >= 2) {
-    const elegido = await cotejar(env, foto, pila, textoCliente);
+  if (pila.length >= minimo) {
+    const elegido = await cotejar(env, foto, pila, textoCliente, minimo);
     if (elegido) return resultado(elegido, productos);
   }
 
@@ -92,7 +110,7 @@ export async function cotejoPorImagen({ env, foto, textoCliente, productos, term
 
   console.log(`Sin resultados para "${termino}": cotejo la foto contra "${marca}"`);
   const { productos: deLaMarca } = await buscarProductos(env, marca, MAXIMO_CANDIDATOS);
-  const elegido = await cotejar(env, foto, unir(pila, deLaMarca), textoCliente);
+  const elegido = await cotejar(env, foto, unir(pila, deLaMarca), textoCliente, minimo);
   if (!elegido) return null;
 
   return resultado(elegido, productos);
@@ -155,12 +173,12 @@ function unir(...listas) {
   return juntos;
 }
 
-async function cotejar(env, foto, productos, textoCliente) {
+async function cotejar(env, foto, productos, textoCliente, minimo = 2) {
   // Sin foto no hay nada que comparar, y un producto sin imagen en el
   // catálogo dejaría al modelo eligiendo por el título — que es
   // justamente lo que este archivo evita.
   const candidatos = productos.filter((p) => p.imagen).slice(0, MAXIMO_CANDIDATOS);
-  if (candidatos.length < 2) return null;
+  if (candidatos.length < minimo) return null;
 
   return cotejarConCatalogo(env, foto, candidatos, textoCliente);
 }

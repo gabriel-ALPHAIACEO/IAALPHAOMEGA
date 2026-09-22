@@ -2,6 +2,29 @@
 
 Repositorio de trabajo para los chatbots de IA de los distintos clientes. Punto de partida: **Invictus Shoes**.
 
+## Dónde está cada cosa (22-sep-2026)
+
+| Carpeta | Qué es |
+|---|---|
+| `invictus-bot/` | **Producción.** El código que atiende clientes hoy. Todo cambio para Invictus va acá. |
+| `worker/` | Rama **multi-tienda sin fusionar** (`tienda.js`, `tiendas/*.js`, prompts con `{{TIENDA}}`). Base más vieja: sin visión en dos pasos, sin `hayMas`, sin despausar, sin nombres de clientes. No copiar sus archivos a la carpeta de despliegue. |
+
+Lo que sigue describe el bot en general; donde hay diferencia, manda `invictus-bot/`.
+
+### Reconocimiento por foto: cómo quedó (lo más importante)
+
+Tres capas, y cada una arregla el fallo de la anterior:
+
+1. **`identificarEnImagen` (gpt-4o)** mira la foto y devuelve el modelo + 15 rasgos sí/no de lo que VE. Schema estricto: los rasgos no pueden faltar.
+2. **`identificar.js`** verifica ese nombre contra esos rasgos, sin IA de por medio. Y desde el 22-sep distingue dos cosas que antes trataba igual:
+   - **Un rasgo lo CONTRADICE** (la IA dijo "Air Max 270" y ella misma marcó suela redondeada sin cámara de aire) → se rechaza y se baja a la marca. Es el caso del Uplift, el fallo que originó todo esto.
+   - **Falta el rasgo que lo CONFIRMA, pero nada lo contradice** (dijo "Air Force One" y no marcó la pieza metálica del ojal, que es diminuta y en media foto no se ve) → **ya no se tira el nombre**. Se busca igual, marcado como *sin confirmar*, y lo verifica la capa 3. Tirar un nombre correcto por un detalle invisible era la contradicción que se veía a simple vista: "si sabe que es un AF1, ¿por qué no lo buscó?".
+3. **`cotejo.js` (cotejo visual)** compara la foto del cliente contra las fotos reales del catálogo de Shopify. Tiene dos modos:
+   - **Desempatar** — hay varios candidatos y hay que saber cuál es. Los candidatos se eligen **por los rasgos** (`terminosCompatibles`, la tabla de `identificar.js` leída al revés), no por el orden del catálogo.
+   - **Verificar** — la identificación venía sin confirmar. Ahí corre **aunque haya un solo resultado**, porque la pregunta no es "cuál" sino "¿es este?".
+
+   Solo la confianza **"alta"** llega al cliente. Si no confirma, no descarta nada: el bot muestra lo que encontró preguntando si es ese, que es lo honesto.
+
 ## Proyecto actual: Invictus Shoes
 
 Chatbot vendedor de calzado por Instagram (carrusel de productos vía Shopify).

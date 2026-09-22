@@ -161,29 +161,88 @@ export function validarIdentificacion({ buscar, rasgos, pedirNombreExacto }) {
     // Sin rasgos no hay con qué verificar: pasa tal cual. Así un cambio
     // de modelo de OpenAI que deje de mandar "rasgos" no rompe nada, solo
     // apaga esta red de seguridad hasta que se note en los registros.
-    return { buscar, pedirNombreExacto: Boolean(pedirNombreExacto), corregido: false };
+    return {
+      buscar,
+      pedirNombreExacto: Boolean(pedirNombreExacto),
+      corregido: false,
+      confirmar: false,
+    };
   }
 
   const buscarNormalizado = String(buscar || "").trim().toLowerCase();
   const regla = REGLAS.find((r) => buscarNormalizado.startsWith(r.term));
   if (!regla) {
-    return { buscar, pedirNombreExacto: Boolean(pedirNombreExacto), corregido: false };
+    return {
+      buscar,
+      pedirNombreExacto: Boolean(pedirNombreExacto),
+      corregido: false,
+      confirmar: false,
+    };
   }
 
   const faltantes = regla.requiere.filter((r) => rasgos[r] !== true);
   const sobrantes = regla.prohibe.filter((r) => rasgos[r] === true);
 
   if (!faltantes.length && !sobrantes.length) {
-    return { buscar, pedirNombreExacto: Boolean(pedirNombreExacto), corregido: false };
+    return {
+      buscar,
+      pedirNombreExacto: Boolean(pedirNombreExacto),
+      corregido: false,
+      confirmar: false,
+    };
+  }
+
+  // NO ES LO MISMO "FALTA LO QUE LO CONFIRMA" QUE "HAY ALGO QUE LO
+  // CONTRADICE" (22-sep-2026, a raíz de un caso real).
+  //
+  // Un cliente respondió a una historia preguntando el precio. La IA dijo
+  // "Air Force One" y esto lo bajó a "Nike" porque no había marcado la
+  // pieza metálica del ojal. Pero la pieza metálica de un AF1 es diminuta
+  // y en media foto no se ve: que NO se vea no significa que no esté.
+  // Tirar el nombre entero por un detalle invisible es exactamente la
+  // contradicción que saltaba a la vista — "si sabe que es un AF1, ¿por
+  // qué no lo buscó?".
+  //
+  // Los dos casos que la tabla detecta son muy distintos:
+  //
+  //   · SOBRANTES — la IA marcó un rasgo que ese modelo NO puede tener.
+  //     Es el caso del Uplift que salía como "Air Max 270": suela
+  //     redondeada sin cámara de aire Y "Air Max 270" no pueden ser
+  //     verdad a la vez. Eso es una contradicción y se rechaza, igual
+  //     que antes.
+  //
+  //   · SOLO FALTANTES — el rasgo que lo confirmaría no se marcó. Puede
+  //     ser que no esté... o que no se vea. Es una duda, no una
+  //     contradicción, y ahora se trata como tal: se conserva el nombre
+  //     y se BUSCA, pero marcado como "sin confirmar" para que el cotejo
+  //     visual lo verifique contra las fotos reales del catálogo y el
+  //     cliente confirme si es ese. Comparar la foto con el producto es
+  //     mejor juez que la ausencia de un detalle.
+  if (!sobrantes.length) {
+    console.log(
+      `Sin confirmar: la IA dijo "buscar":"${buscar}" y no se ve lo que lo ` +
+        `confirmaría (${faltantes.join(", ")}), pero nada lo contradice. ` +
+        "Lo busco igual y que lo verifique el cotejo visual."
+    );
+
+    return {
+      buscar,
+      pedirNombreExacto: Boolean(pedirNombreExacto),
+      corregido: false,
+      // Lo que cambia el resto del flujo: el cotejo visual verifica
+      // aunque haya un solo resultado, y la respuesta se escribe
+      // preguntando si es ese en vez de afirmándolo.
+      confirmar: true,
+    };
   }
 
   const marca = regla.marcaFallback;
   const esNada = marca.toUpperCase() === "NADA";
 
   console.log(
-    `Corrección determinista: la IA dijo "buscar":"${buscar}" pero sus ` +
-      `propios rasgos lo contradicen (faltan: ${faltantes.join(", ") || "—"}; ` +
-      `sobran: ${sobrantes.join(", ") || "—"}). Bajo a "${esNada ? "NADA" : marca}".`
+    `Corrección determinista: la IA dijo "buscar":"${buscar}" pero ella ` +
+      `misma marcó un rasgo que ese modelo NO puede tener ` +
+      `(${sobrantes.join(", ")}). Bajo a "${esNada ? "NADA" : marca}".`
   );
 
   return {
@@ -192,6 +251,7 @@ export function validarIdentificacion({ buscar, rasgos, pedirNombreExacto }) {
     // el modelo exacto — por eso se fuerza en true.
     pedirNombreExacto: !esNada,
     corregido: true,
+    confirmar: false,
   };
 }
 
