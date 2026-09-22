@@ -23,7 +23,15 @@ Tres capas, y cada una arregla el fallo de la anterior:
    - **Desempatar** — hay varios candidatos y hay que saber cuál es. Los candidatos se eligen **por los rasgos** (`terminosCompatibles`, la tabla de `identificar.js` leída al revés), no por el orden del catálogo.
    - **Verificar** — la identificación venía sin confirmar. Ahí corre **aunque haya un solo resultado**, porque la pregunta no es "cuál" sino "¿es este?".
 
-   Y si con eso no aparece, **barre el catálogo entero** (`traerCatalogoCompleto` en `shopify.js`): trae todos los productos activos de Shopify —250 por llamada, un par de llamadas— y compara la foto contra todos, en lotes de 20 imágenes, de a 4 lotes en paralelo, parando en cuanto uno acierta. Los títulos que comparten palabra con lo que se buscó van primero, así que lo normal es que caiga en el primer lote. Es el único paso caro del bot y solo corre cuando lo barato ya falló; se apaga con `COTEJO_BARRIDO = "no"`.
+   Y si con eso no aparece, **barre el catálogo** (`traerCatalogoCompleto` en `shopify.js`): trae todos los productos activos de Shopify —250 por llamada, un par de llamadas— y compara la foto contra todos, en lotes de 20 imágenes, de a 4 lotes en paralelo, parando en cuanto uno acierta. Los títulos que comparten palabra con lo que se buscó van primero, así que lo normal es que caiga en el primer lote. Es el único paso caro del bot y solo corre cuando lo barato ya falló; se apaga con `COTEJO_BARRIDO = "no"`.
+
+   **El techo del barrido no es el catálogo: es el cupo de OpenAI.** Primera prueba real (22-sep): catálogo de 400+, lotes de 20 fotos, y OpenAI devolvió `429 — Limit 30000 TPM, Used 13868, Requested 16908` desde el segundo lote. El cliente se quedó **sin respuesta**, porque Cloudflare cortó la tarea en segundo plano. La cuenta: un lote de 20 fotos son ~17.000 tokens y el cupo son 30.000 por minuto — no entran ni dos seguidos, y barrer 400 productos tardaría once minutos.
+
+   Por eso el barrido es ahora una pasada **corta y con presupuesto**: lotes de 10, de a 2, un tope de lotes por mensaje (`COTEJO_LOTES`, por defecto 2 = 20 productos) y un reloj de 15 s. Si OpenAI devuelve 429, `ia.js` lo anota y el barrido **se corta solo** en vez de insistir. La respuesta al cliente sale siempre.
+
+   **Para barrer el catálogo COMPLETO de verdad hay dos caminos, los dos fuera de este código:**
+   - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
+   - **Indexar el catálogo una sola vez.** Pasar el modelo de visión por cada producto UNA vez, guardar sus rasgos en D1, y después filtrar por rasgos (sin gastar modelo) para mirar solo los 10 que valen la pena. Cuesta una indexación inicial y deja el costo por mensaje en una llamada. Es la solución buena si no se quiere subir de tier. **Sin construir todavía.**
 
    Solo la confianza **"alta"** llega al cliente. Si no confirma, no descarta nada: el bot muestra lo que encontró preguntando si es ese, que es lo honesto.
 

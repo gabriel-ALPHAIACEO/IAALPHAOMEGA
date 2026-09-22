@@ -23,6 +23,35 @@ import { RASGOS_CLAVE } from "./identificar.js";
 
 const API = "https://api.openai.com/v1/chat/completions";
 
+// HASTA CUÁNDO NO VALE LA PENA VOLVER A PEDIRLE NADA AL MODELO DE VISIÓN.
+//
+// OpenAI limita los tokens por minuto de cada organización (TPM). Cuando
+// se pasa, responde 429 — y seguir mandando llamadas que ya se sabe que
+// van a fallar solo gasta tiempo del cliente, que está esperando.
+//
+// El barrido del catálogo (cotejo.js) es lo único que consulta esto: en
+// cuanto ve que hay límite, deja de barrer y devuelve lo que tenga. Las
+// llamadas imprescindibles —identificar la foto y redactar la respuesta—
+// se intentan SIEMPRE, con límite o sin él: mejor un 429 en una de ellas
+// que dejar al cliente sin respuesta por prudencia.
+let limitadoHasta = 0;
+
+export function estaLimitado() {
+  return Date.now() < limitadoHasta;
+}
+
+// Del mensaje de OpenAI ("Please try again in 22.538s") sale cuánto
+// esperar. Si no se puede leer, 30 segundos, que es la ventana del
+// límite por minuto.
+function anotarLimite(texto) {
+  const segundos = Number(/try again in ([\d.]+)s/i.exec(texto || "")?.[1]);
+  const espera = Number.isFinite(segundos) ? Math.ceil(segundos) * 1000 : 30000;
+  limitadoHasta = Date.now() + espera;
+  console.error(
+    `OpenAI puso límite de tokens por minuto: no insisto por ${Math.round(espera / 1000)}s`
+  );
+}
+
 // Se puede cambiar desde wrangler.toml sin tocar el código.
 const MODELO_POR_DEFECTO = "gpt-4o-mini";
 
@@ -131,7 +160,17 @@ async function llamar(
   }
 
   if (!respuesta.ok) {
-    console.error("El modelo respondió", respuesta.status, await respuesta.text());
+    const detalle = await respuesta.text();
+
+    // 429 = límite de tokens por minuto de la organización. No es un
+    // fallo del código ni de la petición: es que no queda cupo en este
+    // minuto. Se anota para que el barrido no siga machacando.
+    if (respuesta.status === 429) {
+      anotarLimite(detalle);
+    } else {
+      console.error("El modelo respondió", respuesta.status, detalle);
+    }
+
     return null;
   }
 
@@ -243,7 +282,10 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
 
   const datos = extraerJson(salida);
   if (!datos) {
-    console.error("El cotejo visual no devolvió JSON válido");
+    // Si fue el límite de tokens, ya se avisó arriba con el motivo real.
+    // Repetir "no devolvió JSON válido" por cada lote solo llena el
+    // registro de ruido y esconde la causa.
+    if (!estaLimitado()) console.error("El cotejo visual no devolvió JSON válido");
     return null;
   }
 

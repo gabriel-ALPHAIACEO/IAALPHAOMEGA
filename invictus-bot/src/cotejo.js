@@ -34,7 +34,7 @@
 // seguiría sin este archivo.
 
 import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
-import { cotejarConCatalogo } from "./ia.js";
+import { cotejarConCatalogo, estaLimitado } from "./ia.js";
 import { terminosCompatibles } from "./identificar.js";
 
 // Cuántas fotos del catálogo se le mandan al modelo. Con 8 se cubre de
@@ -63,12 +63,42 @@ const MAXIMO_TERMINOS = 2;
 // fácil es que se conforme con la más parecida. Los lotes van de a
 // varios en paralelo para que el cliente no espere dos minutos, y en
 // cuanto uno dice "alta" se para: los demás ya no hacen falta.
-const POR_LOTE = 20;
-const LOTES_EN_PARALELO = 4;
+// EL LÍMITE REAL NO ES EL CATÁLOGO: ES EL CUPO DE OPENAI.
+//
+// Primera prueba en producción del barrido, 22-sep: catálogo de 400+
+// productos, 20 lotes de 20 fotos. OpenAI empezó a devolver 429 en el
+// segundo lote —"Limit 30000 TPM, Used 13868, Requested 16908"— y el
+// cliente se quedó SIN RESPUESTA, porque el Worker se pasó del tiempo
+// que Cloudflare le da a las tareas en segundo plano.
+//
+// La cuenta que importa: cada lote de 20 fotos son ~17.000 tokens para
+// el contador de OpenAI, y el cupo de esta organización son 30.000 por
+// minuto. O sea que no entran ni dos lotes seguidos. Barrer 400
+// productos así tardaría once minutos; ningún cliente espera eso.
+//
+// Así que el barrido pasa a ser una pasada CORTA y con presupuesto:
+// lotes más chicos, de a dos, un tope de lotes por mensaje y un reloj.
+// Se mira lo más prometedor y se contesta. Si hace falta barrer el
+// catálogo entero de verdad, la solución no es insistir acá — es subir
+// de tier en OpenAI o indexar el catálogo una sola vez (ver README).
+const POR_LOTE = 10;
+const LOTES_EN_PARALELO = 2;
 
-// Tope de productos a barrer. Se puede subir o bajar desde
-// wrangler.toml con COTEJO_MAXIMO sin tocar el código.
-const MAXIMO_CATALOGO = 400;
+// Cuántos lotes como máximo por mensaje. Con 2 lotes de 10 el barrido
+// entra en el cupo aun contando la identificación de la foto. Se sube
+// desde wrangler.toml con COTEJO_LOTES cuando la cuenta de OpenAI
+// aguante más.
+const LOTES_POR_MENSAJE = 2;
+
+// Cuánto se le permite tardar al barrido, en total. Cloudflare corta las
+// tareas en segundo plano, y una respuesta tarde es una venta perdida:
+// pasado esto se contesta con lo que haya.
+const PRESUPUESTO_MS = 15000;
+
+// Cuántos productos se traen de Shopify para ordenarlos y elegir a quién
+// mirar. Traerlos es barato (no gasta modelo), así que conviene tenerlos
+// todos aunque después solo se miren los primeros.
+const MAXIMO_CATALOGO = 600;
 
 export async function cotejoPorImagen({
   env,
@@ -164,6 +194,13 @@ export async function cotejoPorImagen({
 
 // Compara la foto contra TODO el catálogo, en lotes y en paralelo.
 async function barrerCatalogo(env, foto, textoCliente, { termino, yaMirados }) {
+  // Si OpenAI ya dijo que no hay cupo, ni se empieza: serían llamadas
+  // que se sabe que van a fallar, y el cliente esperando.
+  if (estaLimitado()) {
+    console.log("Barrido: OpenAI sin cupo en este minuto, no lo intento");
+    return null;
+  }
+
   const maximo = Number(env.COTEJO_MAXIMO) || MAXIMO_CATALOGO;
   const { productos } = await traerCatalogoCompleto(env, maximo);
 
@@ -177,16 +214,24 @@ async function barrerCatalogo(env, foto, textoCliente, { termino, yaMirados }) {
   // No es una apuesta: si el término acierta la marca, el par está ahí, y
   // encontrarlo en el primer lote ahorra todos los demás.
   const ordenados = porParecidoDeTitulo(pendientes, termino);
-  const lotes = enLotes(ordenados, POR_LOTE);
+  const tope = Number(env.COTEJO_LOTES) || LOTES_POR_MENSAJE;
+  const lotes = enLotes(ordenados, POR_LOTE).slice(0, tope);
+  const mirados = lotes.flat().length;
 
   console.log(
-    `Barrido del catálogo: ${ordenados.length} productos sin mirar, ` +
-      `${lotes.length} lote(s) de ${POR_LOTE}`
+    `Barrido del catálogo: miro ${mirados} de ${ordenados.length} sin mirar ` +
+      `(${lotes.length} lote(s) de ${POR_LOTE}; el resto no entra en el cupo de OpenAI)`
   );
 
-  // De a varios lotes a la vez, y se corta en cuanto uno acierta. En
-  // serie, un catálogo grande haría esperar al cliente más de un minuto.
+  const hasta = Date.now() + PRESUPUESTO_MS;
+
+  // De a dos lotes a la vez, y se corta en cuanto uno acierta.
   for (let i = 0; i < lotes.length; i += LOTES_EN_PARALELO) {
+    if (Date.now() > hasta) {
+      console.log("Barrido: se acabó el tiempo, contesto con lo que hay");
+      break;
+    }
+
     const tanda = lotes.slice(i, i + LOTES_EN_PARALELO);
     const resultados = await Promise.all(
       tanda.map((lote) => cotejarConCatalogo(env, foto, lote, textoCliente))
@@ -200,9 +245,16 @@ async function barrerCatalogo(env, foto, textoCliente, { termino, yaMirados }) {
       console.log(`Barrido: encontrado en el lote ${i + resultados.indexOf(elegido) + 1}`);
       return elegido;
     }
+
+    // Se quedó sin cupo a mitad del barrido: lo que siga va a fallar
+    // igual, así que se corta acá y se contesta.
+    if (estaLimitado()) {
+      console.log("Barrido: OpenAI se quedó sin cupo, corto el barrido");
+      break;
+    }
   }
 
-  console.log(`Barrido: ninguno de los ${ordenados.length} del catálogo es el de la foto`);
+  console.log(`Barrido: no encontré el de la foto entre los ${mirados} que miré`);
   return null;
 }
 
