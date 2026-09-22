@@ -67,7 +67,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-22 (3) · los gigas se responden con el catálogo delante";
+const VERSION = "2026-09-22 (4) · los gigas salen del título o los confirma un asesor";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -101,6 +101,28 @@ const SIN_ESA_CAPACIDAD = [
   "En {pedida} no lo tengo ahora mismo 😅 Pero me queda en {otras}, mira 👇",
   "De ese no me queda en {pedida}, pero sí en {otras} 😊 Míralos 👇",
   "Justo en {pedida} no lo tengo 😅 Lo que sí tengo es en {otras} 👇",
+];
+
+// EL TÍTULO NO DICE LOS GIGAS (crítico).
+//
+// Caso real: el cliente preguntó "¿me dices la capacidad?" sobre un
+// Samsung A57 y el bot contestó "tienen 128GB de almacenamiento". El
+// título del catálogo dice "Samsung A57" y NADA más — esos 128GB los
+// puso el modelo de su propia cosecha, porque es lo que sabe de ese
+// equipo por fuera de esta tienda.
+//
+// Y ahí está el problema: no vendemos "un A57 en general", vendemos el
+// que está en la hoja. Si el título no dice la capacidad, no la sabemos
+// — igual que no sabemos el color. Decirla es la misma equivocación que
+// con los colores, con el mismo final: el cliente llega al mostrador
+// esperando algo que nadie le prometió de verdad.
+//
+// Así que cuando los títulos no traen gigas, esto NO deja hablar al
+// modelo: responde el código y se avisa a un asesor.
+const SIN_DATO_DE_CAPACIDAD = [
+  "La capacidad exacta te la confirma un asesor en un momento 😊",
+  "Déjame que un asesor te confirme la capacidad exacta en un momento 😊",
+  "Eso te lo confirma un asesor en un momento, para no darte un dato equivocado 😊",
 ];
 
 const CAPACIDADES_QUE_HAY = [
@@ -1148,6 +1170,17 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     otrasCapacidades = capacidadesDe(productos);
   }
 
+  // Preguntó por los gigas y los títulos no los dicen. El modelo sí
+  // "sabe" cuántos trae un A57 de fábrica, y por eso hay que quitarle la
+  // palabra: lo que sabe no es de ESTA tienda.
+  const capacidadSinDato = Boolean(quiereSaberCapacidades) && !otrasCapacidades.length;
+  if (capacidadSinDato) {
+    console.log(
+      `Preguntó por la capacidad y ningún título de "${termino}" la trae: ` +
+        "no dejo que el modelo la invente, va al asesor."
+    );
+  }
+
   // Si buscó y no encontró nada, no le damos la respuesta optimista del
   // modelo: no afirmamos que el producto no existe.
   const buscoSinExito = Boolean(termino) && !productos.length;
@@ -1176,6 +1209,10 @@ async function decidir({ env, salida, texto, historialPrevio }) {
       "{otras}",
       comoSeDicen(otrasCapacidades)
     );
+  } else if (capacidadSinDato) {
+    // Los equipos se le muestran igual: lo único que no sabemos es la
+    // capacidad, no el producto.
+    respuestaCliente = alAzar(SIN_DATO_DE_CAPACIDAD);
   } else if (buscoSinExito) {
     respuestaCliente = SIN_RESULTADOS;
   }
@@ -1184,7 +1221,9 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     productos,
     respuestaCliente,
     termino,
-    esConsultaDeAsesor,
+    // Una capacidad que el catálogo no trae es un dato que solo sabe una
+    // persona, igual que la garantía: va al asesor.
+    esConsultaDeAsesor: esConsultaDeAsesor || capacidadSinDato,
     buscoSinExito,
     hayMas,
   };
