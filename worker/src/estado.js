@@ -147,38 +147,58 @@ export async function guardarContacto(db, contacto) {
       .run();
     return;
   } catch (error) {
-    // SI FALTA LA MIGRACIÓN, EL BOT NO SE QUEDA MUDO NI PIERDE LA MEMORIA.
+    // SI FALTA LA COLUMNA, SE CREA Y SE SIGUE. NO SE PIDE NADA A NADIE.
     //
-    // El dueño copia los archivos a mano, así que es perfectamente posible
-    // desplegar este código sin haber corrido migrations/0003. Sin este
-    // rescate, ESTE guardado falla y con él se pierde el historial entero:
-    // el bot vuelve a saludar en cada mensaje y pierde el hilo. Un fallo
-    // mucho peor que el que la columna venía a arreglar.
+    // La versión anterior de esto se limitaba a guardar sin la columna y a
+    // dejar un aviso en el registro diciendo "corre la migración". Eso
+    // parecía prudente y fue peor que inútil: el bot seguía funcionando,
+    // nadie leía el registro, y el fallo que la columna venía a arreglar
+    // —mandar dos veces el mismo carrusel— volvió tal cual, ya "arreglado"
+    // dos veces sobre el papel. Un arreglo que depende de que alguien
+    // recuerde un comando no es un arreglo.
     //
-    // Así que se reintenta sin esa columna y se avisa a gritos en el
-    // registro. Se pierde el "no repetir productos", nada más.
+    // Los archivos se copian a mano a la carpeta de despliegue, así que el
+    // código nuevo y la base vieja van a convivir SIEMPRE. Que el código se
+    // encargue: D1 acepta ALTER TABLE desde el Worker, cuesta una vez, y
+    // deja el sistema entero en el archivo que sí se copia.
     if (!/mostrados/i.test(String(error?.message || ""))) throw error;
 
-    console.error(
-      'FALTA LA MIGRACIÓN: la tabla "contactos" no tiene la columna ' +
-        '"mostrados". El bot sigue atendiendo, pero va a repetir productos ' +
-        "cuando el cliente pida ver más. Para arreglarlo, una sola vez:\n" +
-        "  npx wrangler d1 migrations apply invictus-bot-db --remote"
-    );
+    console.log('Falta la columna "mostrados": la creo y sigo.');
+    await crearColumnaMostrados(db);
 
     await db
       .prepare(
-        `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, ultimo_envio)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, ultimo_envio, mostrados)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            nombre = excluded.nombre,
            historial = excluded.historial,
            pausado_hasta = excluded.pausado_hasta,
            mids_enviados = excluded.mids_enviados,
-           ultimo_envio = excluded.ultimo_envio`
+           ultimo_envio = excluded.ultimo_envio,
+           mostrados = excluded.mostrados`
       )
-      .bind(...datos)
+      .bind(...datos, JSON.stringify(mostrados))
       .run();
+  }
+}
+
+// Crea la columna que falta. Se llama sola, desde el rescate de arriba.
+//
+// Dos peticiones en paralelo pueden intentarlo a la vez y una de las dos se
+// va a encontrar con que ya existe. Eso no es un fallo: es exactamente el
+// resultado que buscábamos, así que se traga y se sigue.
+async function crearColumnaMostrados(db) {
+  try {
+    await db
+      .prepare("ALTER TABLE contactos ADD COLUMN mostrados TEXT NOT NULL DEFAULT '[]'")
+      .run();
+    console.log('Columna "mostrados" creada. El bot ya no repetirá productos.');
+  } catch (error) {
+    const mensaje = String(error?.message || "");
+    if (/duplicate column/i.test(mensaje)) return; // se nos adelantó otra petición
+    console.error('No se pudo crear la columna "mostrados":', mensaje);
+    throw error;
   }
 }
 
@@ -262,13 +282,25 @@ export async function revisarBase(db) {
   const lineas = ["  DB                  conectada", `  Tabla contactos     ${columnas.length} columnas`];
 
   if (faltan.length) {
+    const nombres = faltan.map(([n]) => n);
     const migraciones = [...new Set(faltan.map(([, m]) => m))];
-    lineas.push(
-      `  FALTAN COLUMNAS     ${faltan.map(([n]) => n).join(", ")}`,
-      `  Migración pendiente ${migraciones.join(", ")}`,
-      "  Corre, una sola vez:",
-      "    npx wrangler d1 migrations apply invictus-bot-db --remote"
-    );
+
+    lineas.push(`  FALTAN COLUMNAS     ${nombres.join(", ")}`);
+
+    // "mostrados" se crea sola en cuanto el bot atienda un mensaje, así que
+    // verla aquí no es un problema que haya que resolver a mano.
+    if (nombres.length === 1 && nombres[0] === "mostrados") {
+      lineas.push(
+        "  Esta se crea sola con el primer mensaje que atienda el bot.",
+        "  No hay que hacer nada."
+      );
+    } else {
+      lineas.push(
+        `  Migración pendiente ${migraciones.join(", ")}`,
+        "  Corre, una sola vez:",
+        "    npx wrangler d1 migrations apply invictus-bot-db --remote"
+      );
+    }
   } else {
     lineas.push("  Migraciones         al día");
   }
