@@ -28,7 +28,12 @@
 // vivía en KV. Si ves un memoria.js o un nombre.js sueltos, son de esa otra
 // versión y NO van con este código — mezclarlos rompe el arranque.
 
-import { responderTexto, identificarEnImagen, estaLimitado } from "./ia.js";
+import {
+  responderTexto,
+  identificarEnImagen,
+  esperarCupo,
+  modeloDeIndice,
+} from "./ia.js";
 import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
@@ -69,7 +74,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-22 (6) · catálogo indexado en D1: el cotejo mira todo en una llamada";
+const VERSION = "2026-09-22 (7) · el cupo se cuenta por modelo: la indexación ya no se corta sola";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -505,13 +510,20 @@ export default {
 
       const tanda = pendientes.slice(0, cuantos);
       const indexados = [];
-      const modelo = env.OPENAI_MODELO_INDICE || "gpt-4o-mini";
+      const modelo = modeloDeIndice(env);
+      let corto = "";
 
       // De a POCOS a la vez: el cupo por minuto de OpenAI es el techo de
       // todo esto, y reventarlo acá solo hace que la tanda falle entera.
+      //
+      // Si se acaba el cupo NO se abandona: acá no hay ningún cliente
+      // esperando, así que se espera a que vuelva y se sigue. Solo se
+      // corta si la espera es tan larga que conviene que la persona
+      // recargue la página.
       for (let i = 0; i < tanda.length; i += 4) {
-        if (estaLimitado()) {
-          console.log("Indexación: OpenAI sin cupo, corto la tanda acá");
+        if (!(await esperarCupo(modelo))) {
+          corto = "Me quedé sin cupo de OpenAI a mitad de la tanda.";
+          console.log("Indexación: sin cupo y la espera es larga, corto la tanda");
           break;
         }
 
@@ -523,6 +535,21 @@ export default {
         );
 
         indexados.push(...resultados.filter(Boolean));
+      }
+
+      // Ni uno solo. Casi siempre es la clave de OpenAI (sin saldo, o sin
+      // permiso para este modelo), y decirlo acá ahorra media hora de
+      // recargar la página esperando que cambie algo.
+      if (tanda.length && !indexados.length) {
+        return texto200(
+          `No pude indexar NINGUNO de los ${tanda.length} que intenté, con ${modelo}.\n\n` +
+            (corto ? `${corto}\n\n` : "") +
+            "El motivo exacto sale en `wrangler tail`. Los dos habituales:\n" +
+            "  · la cuenta de OpenAI se quedó sin saldo\n" +
+            `  · la clave no tiene permiso para "${modelo}"\n\n` +
+            "Si en el registro ves 429 con \"tokens per min\", es solo cupo:\n" +
+            "espera un minuto y vuelve a abrir esta dirección.\n"
+        );
       }
 
       await guardarIndexados(env.DB, indexados);

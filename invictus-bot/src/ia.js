@@ -34,30 +34,72 @@ const API = "https://api.openai.com/v1/chat/completions";
 // llamadas imprescindibles —identificar la foto y redactar la respuesta—
 // se intentan SIEMPRE, con límite o sin él: mejor un 429 en una de ellas
 // que dejar al cliente sin respuesta por prudencia.
-let limitadoHasta = 0;
-
-export function estaLimitado() {
-  return Date.now() < limitadoHasta;
-}
-
-// Del mensaje de OpenAI ("Please try again in 22.538s") sale cuánto
-// esperar. Si no se puede leer, 30 segundos, que es la ventana del
-// límite por minuto.
-function anotarLimite(texto) {
-  const segundos = Number(/try again in ([\d.]+)s/i.exec(texto || "")?.[1]);
-  const espera = Number.isFinite(segundos) ? Math.ceil(segundos) * 1000 : 30000;
-  limitadoHasta = Date.now() + espera;
-  console.error(
-    `OpenAI puso límite de tokens por minuto: no insisto por ${Math.round(espera / 1000)}s`
-  );
-}
-
 // Se puede cambiar desde wrangler.toml sin tocar el código.
 const MODELO_POR_DEFECTO = "gpt-4o-mini";
 
 // La identificación corre en un modelo aparte, normalmente más fuerte que
 // el de texto: ya no tiene que redactar nada, solo mirar bien la foto.
 const MODELO_VISION_POR_DEFECTO = "gpt-4o";
+
+// Con el que se indexa el catálogo. Son cientos de fotos, así que va el
+// mini: su cupo por minuto es mucho más alto y para una foto de producto
+// limpia, sobre fondo liso, alcanza de sobra.
+const MODELO_INDICE_POR_DEFECTO = "gpt-4o-mini";
+
+// EL LÍMITE ES DE CADA MODELO, NO DE LA CUENTA ENTERA.
+//
+// Esto empezó siendo un solo número y estaba mal: OpenAI da un cupo por
+// minuto A CADA MODELO por separado. gpt-4o anda justo (30.000 tokens) y
+// gpt-4o-mini tiene muchísimo más. Con un número compartido, un 429 del
+// modelo grande apagaba también la indexación, que corre con el mini y
+// tenía cupo de sobra — y la indexación terminaba guardando CERO
+// productos sin que se entendiera por qué.
+const limitados = new Map();
+
+export function estaLimitado(modelo) {
+  return Date.now() < (limitados.get(modelo) || 0);
+}
+
+// Espera a que vuelva el cupo de ese modelo, hasta un máximo. Devuelve
+// true si hay cupo al salir. Lo usa la indexación del catálogo, que no
+// tiene a nadie esperando del otro lado y puede permitirse esperar unos
+// segundos en vez de rendirse. En cambio la respuesta a un cliente NUNCA
+// espera: ahí se contesta con lo que haya.
+export async function esperarCupo(modelo, maximoMs = 25000) {
+  const hasta = limitados.get(modelo) || 0;
+  const falta = hasta - Date.now();
+
+  if (falta <= 0) return true;
+  if (falta > maximoMs) return false;
+
+  console.log(`Espero ${Math.ceil(falta / 1000)}s a que vuelva el cupo de ${modelo}`);
+  await new Promise((seguir) => setTimeout(seguir, falta + 250));
+  return true;
+}
+
+// Los nombres de modelo en un solo lugar, para que quien pregunta por el
+// límite pregunte por el mismo modelo con el que después va a llamar.
+export function modeloDeVision(env) {
+  return env.OPENAI_MODELO_VISION || MODELO_VISION_POR_DEFECTO;
+}
+
+export function modeloDeIndice(env) {
+  return env.OPENAI_MODELO_INDICE || MODELO_INDICE_POR_DEFECTO;
+}
+
+// Del mensaje de OpenAI ("Please try again in 22.538s") sale cuánto
+// esperar. Si no se puede leer, 30 segundos, que es la ventana del
+// límite por minuto.
+function anotarLimite(modelo, texto) {
+  const segundos = Number(/try again in ([\d.]+)s/i.exec(texto || "")?.[1]);
+  const espera = Number.isFinite(segundos) ? Math.ceil(segundos) * 1000 : 30000;
+  limitados.set(modelo, Date.now() + espera);
+  console.error(
+    `OpenAI puso límite de tokens por minuto en ${modelo}: ` +
+      `no insisto por ${Math.round(espera / 1000)}s`
+  );
+}
+
 
 // SCHEMA ESTRICTO PARA LA IDENTIFICACIÓN (crítico).
 //
@@ -166,7 +208,7 @@ async function llamar(
     // fallo del código ni de la petición: es que no queda cupo en este
     // minuto. Se anota para que el barrido no siga machacando.
     if (respuesta.status === 429) {
-      anotarLimite(detalle);
+      anotarLimite(cuerpo.model, detalle);
     } else {
       console.error("El modelo respondió", respuesta.status, detalle);
     }
@@ -205,7 +247,7 @@ export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) 
       // indexa con el mini —que tiene un cupo mucho más alto— mientras
       // que la foto del cliente, que es una sola y decide la venta,
       // sigue yendo al modelo bueno.
-      modelo: modelo || env.OPENAI_MODELO_VISION || MODELO_VISION_POR_DEFECTO,
+      modelo: modelo || modeloDeVision(env),
     }
   );
 
@@ -282,7 +324,7 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
   const salida = await llamar(env, promptCotejo, contenido, {
     maxTokens: 300,
     schema: ESQUEMA_COTEJO,
-    modelo: env.OPENAI_MODELO_VISION || MODELO_VISION_POR_DEFECTO,
+    modelo: modeloDeVision(env),
   });
 
   const datos = extraerJson(salida);
@@ -290,7 +332,9 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
     // Si fue el límite de tokens, ya se avisó arriba con el motivo real.
     // Repetir "no devolvió JSON válido" por cada lote solo llena el
     // registro de ruido y esconde la causa.
-    if (!estaLimitado()) console.error("El cotejo visual no devolvió JSON válido");
+    if (!estaLimitado(modeloDeVision(env))) {
+      console.error("El cotejo visual no devolvió JSON válido");
+    }
     return null;
   }
 

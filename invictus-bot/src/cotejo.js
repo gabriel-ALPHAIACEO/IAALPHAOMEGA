@@ -34,7 +34,7 @@
 // seguiría sin este archivo.
 
 import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
-import { cotejarConCatalogo, estaLimitado } from "./ia.js";
+import { cotejarConCatalogo, estaLimitado, modeloDeVision } from "./ia.js";
 import { terminosCompatibles } from "./identificar.js";
 import { leerIndice, mejoresPorRasgos } from "./indice.js";
 
@@ -246,7 +246,7 @@ async function candidatosDelIndice(env, rasgos, yaMirados) {
 async function barrerCatalogo(env, foto, textoCliente, { termino, yaMirados }) {
   // Si OpenAI ya dijo que no hay cupo, ni se empieza: serían llamadas
   // que se sabe que van a fallar, y el cliente esperando.
-  if (estaLimitado()) {
+  if (estaLimitado(modeloDeVision(env))) {
     console.log("Barrido: OpenAI sin cupo en este minuto, no lo intento");
     return null;
   }
@@ -298,7 +298,7 @@ async function barrerCatalogo(env, foto, textoCliente, { termino, yaMirados }) {
 
     // Se quedó sin cupo a mitad del barrido: lo que siga va a fallar
     // igual, así que se corta acá y se contesta.
-    if (estaLimitado()) {
+    if (estaLimitado(modeloDeVision(env))) {
       console.log("Barrido: OpenAI se quedó sin cupo, corto el barrido");
       break;
     }
