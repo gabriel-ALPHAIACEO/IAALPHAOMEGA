@@ -71,6 +71,30 @@ El mismo código atiende a varias tiendas. Lo que cambia por tienda son dos arch
 - **El Emperador vende doble A y triple A**, no 1.1 como Invictus. Como son dos gamas y el bot no puede saber de cuál es un par concreto (ve el título y la foto, no la gama), su sección de calidad nombra las dos y manda al asesor cuando preguntan por un modelo en particular. Decir "triple A" de un par que es doble A es la equivocación más cara que podría cometer.
 - Guía de montaje paso a paso: `MONTAR-OTRA-TIENDA.md`.
 
+### Cotejo visual contra el catálogo (22-sep-2026)
+
+Hasta ahora **todo** el reconocimiento por foto terminaba en un nombre: la IA miraba la imagen, decía "Vapormax", y ese texto se buscaba en Shopify. Cuando el nombre no acertaba, no había búsqueda que valiera — y fallaba seguido (el Uplift saliendo como "Air Max 270", tres veces documentadas arriba). Es el fallo más caro del bot: quien responde a una historia ya vio el zapato y lo quiere, y recibía un "¿sabes cómo se llama?".
+
+`src/cotejo.js` + `src/prompts/cotejo.txt` cambian la pregunta. En vez de adivinar el nombre, se le ponen al modelo **la foto del cliente al lado de las fotos reales del catálogo** (Shopify ya devuelve `featuredImage` en cada resultado) y se le pregunta cuál es el mismo par. Comparar dos imágenes es mucho más fácil que recordar un nombre, y lo que sale es un producto REAL de la tienda —título exacto, precio y enlace— en vez de un término que ojalá exista.
+
+**Cuándo corre.** Cada cotejo es una llamada de visión más, así que no corre en cada mensaje. Solo con foto, y solo cuando la vía normal no dejó una respuesta buena:
+
+| Lo que devolvió la búsqueda por nombre | Qué hace el cotejo |
+|---|---|
+| **Nada** | Busca por la marca (la primera palabra del término) y cotea esos. Es el caso que más duele y el que más gana. |
+| **Varios** (típico cuando `identificar.js` bajó a nivel marca: "Nike" trae diez) | Los cotea y pone el acertado **primero**, sin descartar el resto. |
+| **Uno solo** | No corre. No hay nada que elegir, y descartarlo por una duda sería cambiar un resultado bueno por ninguno. |
+
+**Las decisiones que lo hacen seguro:**
+- **Se elige por número, no por título.** Si se le pidiera el nombre, el modelo lo parafrasearía ("Air Max 97 plateadas" por el título real) y habría que adivinar a cuál se refería. Con un índice, o es uno de los que se le mandaron o es 0. Garantizado con `json_schema` + `strict`, igual que la visión.
+- **Solo pasa la confianza "alta".** Lo que sale de aquí se convierte en una ficha con precio y botón de compra: con una corazonada no se manda. El prompt dice explícitamente que **"ninguno" (eleccion 0) es una respuesta correcta**, y prohíbe elegir "el más parecido" por no quedarse sin respuesta.
+- **El color se mira el último.** El mismo modelo existe en veinte colores, y una historia trae filtro, luz de tienda y stickers encima. Decide la suela, después el corte.
+- **Nunca empeora.** Si no está seguro, si el modelo falla o si Shopify no responde, devuelve `null` y el bot sigue exactamente igual que sin este archivo.
+
+**Costo.** La foto del cliente va en `detail:"high"` (hay que leerla al detalle); las del catálogo en `detail:"low"`, porque son fotos de producto limpias sobre fondo liso donde la silueta y la suela se leen igual de bien. Máximo 8 candidatos — subirlo además empeora la comparación: cuantos más pares mira, más fácil es que se conforme con el más parecido.
+
+**Pendiente de prueba real:** no hay acceso a la tienda desde este entorno, así que el cotejo está comprobado en su lógica de ramas (cuándo corre, cuándo no, qué manda) pero **no contra fotos reales del catálogo**. La primera prueba en vivo debería ser una respuesta a una historia de un modelo que el bot venía fallando.
+
 ### Estructura
 
 ```
@@ -87,6 +111,7 @@ worker/
     instagram.js           firma del webhook, envío de mensajes/fichas, lectura de eventos (incluye ecos)
     estado.js               memoria en D1: historial, nombre, pausa por asesor humano
     identificar.js          red de seguridad determinista para lo que identifica la IA en una foto
+    cotejo.js               compara la foto del cliente con las fotos del catálogo y saca el par exacto
     shopify.js              búsqueda de productos (Admin GraphQL API)
     color.js                separa el color del término de búsqueda y filtra por color
     historial.js            arma el contexto que ve el modelo (separa pasado/presente, recorta historial)
@@ -97,6 +122,7 @@ worker/
     prompts/
       texto.txt              prompt de conversación/ventas
       vision.txt              prompt de análisis de fotos (respuestas a historias / fotos directas)
+      cotejo.txt              prompt del cotejo visual: cuál del catálogo es el de la foto
 ```
 
 ### Prompts

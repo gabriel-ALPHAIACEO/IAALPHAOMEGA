@@ -30,6 +30,7 @@ import { tiendaDe } from "./tienda.js";
 import { separarColor, filtrarPorColor, terminoDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
+import { cotejoPorImagen } from "./cotejo.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
   cargarContacto,
@@ -56,7 +57,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-22 · multi-tienda (Invictus + El Emperador)";
+const VERSION = "2026-09-22 · cotejo visual contra el catálogo de Shopify";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -76,6 +77,19 @@ const SOLO_TALLA = "Eso te lo confirma un asesor en un momento 😊";
 //
 // Ninguna lleva "en un momento": eso dispararía el aviso al asesor, y aquí
 // no hay nada que un asesor tenga que hacer.
+
+// Cuando el cotejo visual encontró en el catálogo el zapato de la foto.
+//
+// Sustituye a lo que había escrito el modelo, que en este punto casi
+// siempre es una pregunta ("¿sabes cómo se llama?"): la foto ya nos lo
+// dijo. Ninguna afirma el modelo por su nombre —el título va en la
+// ficha, debajo— ni promete talla o stock, que eso no lo sabemos.
+const ENCONTRE_EL_DE_LA_FOTO = [
+  "¡Ese sí lo tenemos! 😍 Mira 👇",
+  "¡Claro que sí! Es este 👟 Te lo muestro 👇",
+  "¡Lo encontré! 😊 Aquí lo tienes 👇",
+  "¡Ese mismo lo manejamos! 👟 Mira 👇",
+];
 
 // Hay un modelo parecido que enseñarle: van con fichas debajo.
 const TE_OFREZCO_PARECIDOS = [
@@ -748,6 +762,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     // Solo si pide algo DISTINTO se descarta lo que ya vio. Una foto no
     // cuenta: quien manda una foto está pidiendo ESE zapato, no otro.
     pideMas: !imagenCruda && pideMasVariedad(mensaje.texto),
+    foto,
   });
 
   // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO (crítico).
@@ -963,7 +978,17 @@ function sinBienvenida(respuesta) {
 // De lo que escribió el modelo a lo que se le manda al cliente: se le quita
 // la talla al término, se separa el color, se busca en Shopify y se decide
 // si la respuesta del modelo sirve o hay que sustituirla.
-async function decidir({ env, salida, texto, historialPrevio, mostrados = [], pideMas = false }) {
+async function decidir({
+  env,
+  salida,
+  texto,
+  historialPrevio,
+  mostrados = [],
+  pideMas = false,
+  // La foto del cliente, ya en data URI. Solo viene en mensajes con
+  // imagen, y es lo que habilita el cotejo visual contra el catálogo.
+  foto = "",
+}) {
   const preguntoTalla = PREGUNTA_TALLA.test(texto);
 
   // Antes que nada: si esto vino de una foto, se revisa que "buscar" sea
@@ -1018,6 +1043,40 @@ async function decidir({ env, salida, texto, historialPrevio, mostrados = [], pi
 
     if (!productos.length) {
       console.log(`Sin resultados para "${aBuscar}"`);
+    }
+  }
+
+  // COTEJO VISUAL (solo si esto vino de una foto).
+  //
+  // Hasta aquí todo el reconocimiento pasó por un NOMBRE: la IA dijo
+  // "Vapormax" y se buscó esa palabra. Si el nombre no acertó, no hay
+  // productos — o hay diez de la marca, sin saber cuál es el de la foto.
+  //
+  // Esto compara la foto del cliente contra las fotos REALES del
+  // catálogo y saca el par que es. Ver ./cotejo.js: no corre siempre, y
+  // cuando no está seguro devuelve null y todo sigue igual que sin él.
+  if (foto) {
+    const cotejo = await cotejoPorImagen({
+      env,
+      foto,
+      textoCliente: texto,
+      productos,
+      termino: aBuscar,
+    });
+
+    if (cotejo) {
+      productos = cotejo.productos;
+      habiaDelModelo = productos.length;
+
+      // La respuesta que escribió el modelo puede estar preguntando qué
+      // modelo es —es lo que escribe cuando no lo reconoció, y también
+      // lo que deja identificar.js al bajar a marca. Ya lo sabemos: se
+      // lo enseñamos en vez de preguntárselo.
+      salida.respuesta = alAzar(ENCONTRE_EL_DE_LA_FOTO);
+      salida.historial = conNota(
+        salida.historial,
+        `Le mostré ${cotejo.elegido.titulo} (identificado por la foto).`
+      );
     }
   }
 
