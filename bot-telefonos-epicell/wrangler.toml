@@ -1,0 +1,55 @@
+# Nombre del Worker. Será parte de su dirección:
+#   https://NOMBRE.tu-subdominio.workers.dev
+#
+# Solo minúsculas, números y guiones. Si pones mayúsculas, wrangler falla
+# antes de arrancar (incluso en "wrangler login").
+name = "bot-telefonos"
+
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Permite importar los prompts como texto. No lo toques.
+[[rules]]
+type = "Text"
+globs = ["**/*.txt"]
+fallthrough = true
+
+[vars]
+# El id de tu hoja de Google. Está en la dirección de la hoja, entre /d/ y /edit:
+#   https://docs.google.com/spreadsheets/d/AQUI_ESTA_EL_ID/edit
+SHEET_ID = "PEGA_AQUI_EL_ID_DE_TU_HOJA"
+
+# El nombre de la pestaña donde está el catálogo, tal como se ve abajo en la
+# hoja. Si no la renombraste, suele ser "Hoja 1" o "Sheet1".
+SHEET_NOMBRE = "Hoja 1"
+
+# Enlace que se le manda al cliente cuando no hay productos que mostrar, y
+# el que usan las fichas sin enlace propio.
+URL_CATALOGO = "https://CAMBIA-ESTO.com"
+
+# Número de WhatsApp de la tienda, para el botón "Comprar" de cada ficha.
+# En formato internacional, SIN el +, sin espacios y sin guiones:
+#   Venezuela  0412-123 45 67  ->  "584121234567"
+# Si lo dejas vacío, las fichas salen solo con "Ver producto".
+WHATSAPP = "PON_AQUI_TU_NUMERO"
+
+# Modelo de OpenAI que REDACTA las respuestas de texto (ya no necesita ver
+# imágenes: eso lo hace un modelo aparte, ver OPENAI_MODELO_VISION).
+OPENAI_MODELO = "gpt-4o-mini"
+
+# 22-sep-2026: modelo que IDENTIFICA las fotos. Antes era el mismo que
+# OPENAI_MODELO y hacía dos trabajos a la vez (mirar y redactar). Ahora que
+# solo tiene que mirar, vale la pena que sea el modelo completo: identifica
+# mejor que el "mini", y el costo extra es acotado porque el "mini" sigue
+# siendo el que atiende todo el texto.
+OPENAI_MODELO_VISION = "gpt-4o"
+
+# ─────────────────────────────────────────────────────────────────────
+# Los secretos NO van aquí, se cargan uno por uno con:
+#
+#   npx wrangler secret put OPENAI_API_KEY     sk-proj-... o sk-...
+#   npx wrangler secret put MANYCHAT_SECRET    una contraseña que inventes
+#   npx wrangler secret put SLACK_WEBHOOK      https://hooks.slack.com/...
+#
+# No hace falta token de Google: la hoja se lee por su enlace público.
+# ─────────────────────────────────────────────────────────────────────
