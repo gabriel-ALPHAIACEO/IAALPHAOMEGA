@@ -1,0 +1,106 @@
+name = "invictus-bot"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Permite importar los prompts como texto (import promptTexto from "./prompts/texto.txt")
+[[rules]]
+type = "Text"
+globs = ["**/*.txt"]
+fallthrough = true
+
+# --- Base de datos (D1) - la memoria del bot entre mensajes -----------
+# 19-sep-2026: se retiro ManyChat, asi que el historial de cada
+# conversacion ya no vive en sus campos - vive aca. Sin esto el bot no
+# recuerda nada de un mensaje al siguiente (vuelve a saludar siempre,
+# pierde el hilo de "y en negro?", etc.)
+#
+# Antes de desplegar, hace falta crear la base y correr la migracion:
+#   npx wrangler d1 create invictus-bot-db
+#   (el comando anterior imprime un database_id: pegalo abajo)
+#   npx wrangler d1 migrations apply invictus-bot-db --remote
+[[d1_databases]]
+binding = "DB"
+database_name = "invictus-bot-db"
+database_id = "b7cc27df-dbcf-4188-b0f2-c00a1629d1e2"
+
+[vars]
+# Enlace que se le manda al cliente cuando no hay productos que mostrar
+URL_CATALOGO = "https://8vds1e-jw.myshopify.com/"
+
+# Numero de WhatsApp de la tienda, para el boton "Comprar" de cada ficha.
+# En formato internacional, SIN el +, sin espacios y sin guiones:
+#   Venezuela  0412-123 45 67  ->  "584121234567"
+# Si lo dejas vacio, las fichas salen solo con "Ver producto".
+WHATSAPP = "+584262992111"
+
+# Dominio de tu tienda, el que termina en .myshopify.com (sin https://)
+SHOPIFY_TIENDA = "8vds1e-jw.myshopify.com"
+
+# --- Meta es el unico canal --------------------------------------------
+# El webhook atiende texto, fotos, respuestas a historias y ecos (para la
+# pausa automatica). Todo lo demas -los "visto", las reacciones, los
+# comentarios- se descarta sin gastar nada.
+#
+# Eso es lo que se comio los creditos de Make: Meta manda cientos de
+# avisos al dia y Make pagaba una operacion por cada uno.
+#
+#   "todo"   atiende todo tipo de mensaje  <- por defecto
+#   "off"    nada; el webhook queda desactivado
+META_MODO = "todo"
+
+# El que TU te inventas y escribes igual en el panel de Meta, en la
+# casilla "Token de verificacion" al dar de alta el webhook.
+META_VERIFY_TOKEN = "invictus2026"
+
+# Modelo de OpenAI que REDACTA las respuestas de texto (ya no necesita ver
+# imagenes: eso lo hace un modelo aparte, ver OPENAI_MODELO_VISION).
+OPENAI_MODELO = "gpt-4o-mini"
+
+# 22-sep-2026: modelo que IDENTIFICA las fotos. Antes era el mismo que
+# OPENAI_MODELO y hacia dos trabajos a la vez (mirar y redactar). Ahora que
+# solo tiene que mirar, vale la pena que sea el modelo completo: identifica
+# mejor que el "mini" y el costo extra es acotado porque el "mini" sigue
+# siendo el que atiende todo el texto.
+OPENAI_MODELO_VISION = "gpt-4o"
+
+# Cuantas horas se calla el bot despues de que un asesor le escribe a un
+# cliente a mano desde la app de Instagram (para no hablar por encima).
+#
+# SE CUENTA DESDE EL ULTIMO MENSAJE DEL ASESOR, no desde el primero: cada
+# vez que el asesor escribe, el reloj vuelve a empezar.
+#
+# Mientras dura la pausa el cliente NO se queda a oscuras: si escribe, el
+# bot le confirma que ya lo atienden (una vez cada 10 minutos, no mas), y
+# si el asesor lleva 15 minutos callado le llega un aviso a Slack
+# ("TE ESTAN ESPERANDO"). Ya NO sale el aviso "BOT EN PAUSA" con cada
+# mensaje del asesor.
+#
+# Admite decimales:  0.5 = 30 minutos   0.25 = 15 minutos
+#
+# Puede ser largo sin miedo: el asesor le devuelve la conversacion al bot
+# cuando quiera con FRASE_DESPAUSAR (abajo), sin esperar a que venza.
+PAUSA_HORAS = "4"
+
+# La frase con la que el asesor le DEVUELVE la conversacion al bot, desde el
+# mismo chat de Instagram. Basta con que aparezca dentro del mensaje; no
+# importan tildes, mayusculas ni signos. El cliente la lee, asi que tiene
+# que sonar a despedida normal. Lo comodo es guardarla como Respuesta
+# guardada de Instagram, por ejemplo:
+#   "Te dejo con la asistente virtual, ella te sigue ayudando 😊"
+FRASE_DESPAUSAR = "te dejo con la asistente"
+
+# ------------------------------------------------------------------------
+# Los secretos NO van aqui. Se cargan uno por uno con:
+#
+#   npx wrangler secret put OPENAI_API_KEY
+#   npx wrangler secret put SHOPIFY_TOKEN
+#   npx wrangler secret put SLACK_WEBHOOK
+#   npx wrangler secret put META_APP_SECRET_IG
+#   npx wrangler secret put IG_TOKEN
+#
+# ManyChat esta retirado (21-sep-2026). Si todavia tienes cargados
+# MANYCHAT_SECRET, MANYCHAT_API_TOKEN o MANYCHAT_CAMPO_IMAGEN, puedes
+# borrarlos cuando quieras con:
+#   npx wrangler secret delete MANYCHAT_SECRET
+# Dejarlos tampoco rompe nada: el codigo ya no los lee.
+# ------------------------------------------------------------------------
