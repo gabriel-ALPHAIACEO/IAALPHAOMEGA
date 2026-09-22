@@ -31,7 +31,19 @@ Tres capas, y cada una arregla el fallo de la anterior:
 
    **Para barrer el catálogo COMPLETO de verdad hay dos caminos, los dos fuera de este código:**
    - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
-   - **Indexar el catálogo una sola vez.** Pasar el modelo de visión por cada producto UNA vez, guardar sus rasgos en D1, y después filtrar por rasgos (sin gastar modelo) para mirar solo los 10 que valen la pena. Cuesta una indexación inicial y deja el costo por mensaje en una llamada. Es la solución buena si no se quiere subir de tier. **Sin construir todavía.**
+   - **Indexar el catálogo una sola vez** ← **esto es lo que se hizo.** Ver abajo.
+
+### El índice del catálogo (`indice.js` + `/indexar-catalogo`)
+
+El trabajo de mirar el catálogo no hace falta repetirlo en cada mensaje: el catálogo no cambia entre un cliente y el siguiente. Así que se mira **una vez**, se guardan los 15 rasgos de cada producto en D1, y cuando llega una foto sus rasgos se comparan con los guardados **en código, sin gastar una sola llamada ni un token de cupo**. Solo los 10 más parecidos van a un único cotejo.
+
+**De 20 llamadas por mensaje a 1**, y el cliente espera segundos en vez de minutos.
+
+- **Cómo se llena:** abrir `https://<worker>/indexar-catalogo` en el navegador. Trabaja por tandas de 20 y dice cuántos faltan; se repite hasta que diga `LISTO`. Hay que volver a correrlo al agregar productos — los que ya están no se vuelven a mirar, así que reindexar es barato.
+- **Con qué modelo:** `OPENAI_MODELO_INDICE` (por defecto `gpt-4o-mini`), que tiene un cupo por minuto mucho más alto y para una foto de producto limpia alcanza. La foto del **cliente** sigue yendo al modelo bueno.
+- **Cómo puntúa:** compartir un rasgo **presente** ("los dos tienen cámara de aire en el talón") vale 3; compartir uno ausente vale 1, porque casi todos los pares no tienen casi ningún rasgo y los "no" coinciden por defecto sin distinguir nada; diferir resta 2, porque un rasgo que uno tiene y el otro no es justo lo que descarta un modelo.
+- **Se mantiene solo:** un producto se reindexa si le cambió la foto (la URL del CDN de Shopify cambia con la imagen), y los que desaparecen de Shopify se borran del índice al terminar una pasada completa — si no, el bot podría enseñar la ficha de algo que ya no se vende.
+- **`/estado` dice cuántos hay indexados.** Si dice `VACÍO`, el cotejo se queda sin su vía buena y cae al barrido corto.
 
    Solo la confianza **"alta"** llega al cliente. Si no confirma, no descarta nada: el bot muestra lo que encontró preguntando si es ese, que es lo honesto.
 
@@ -145,6 +157,7 @@ worker/
     estado.js               memoria en D1: historial, nombre, pausa por asesor humano
     identificar.js          red de seguridad determinista para lo que identifica la IA en una foto
     cotejo.js               compara la foto del cliente con las fotos del catálogo y saca el par exacto
+    indice.js               el catálogo mirado una vez y guardado en D1: rasgos por producto
     shopify.js              búsqueda de productos (Admin GraphQL API)
     color.js                separa el color del término de búsqueda y filtra por color
     historial.js            arma el contexto que ve el modelo (separa pasado/presente, recorta historial)

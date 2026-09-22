@@ -36,6 +36,7 @@
 import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
 import { cotejarConCatalogo, estaLimitado } from "./ia.js";
 import { terminosCompatibles } from "./identificar.js";
+import { leerIndice, mejoresPorRasgos } from "./indice.js";
 
 // Cuántas fotos del catálogo se le mandan al modelo. Con 8 se cubre de
 // sobra una marca del catálogo, y cada una en "detail: low" cuesta poco.
@@ -99,6 +100,12 @@ const PRESUPUESTO_MS = 15000;
 // mirar. Traerlos es barato (no gasta modelo), así que conviene tenerlos
 // todos aunque después solo se miren los primeros.
 const MAXIMO_CATALOGO = 600;
+
+// Cuántos productos del índice se miran. Son los que MÁS se parecen a la
+// foto según sus rasgos guardados, así que con 10 sobra: si no está
+// entre los diez más parecidos de todo el catálogo, mirar veinte no lo
+// va a arreglar.
+const DESDE_EL_INDICE = 10;
 
 export async function cotejoPorImagen({
   env,
@@ -178,18 +185,61 @@ export async function cotejoPorImagen({
     }
   }
 
-  // ÚLTIMO RECURSO: MIRARLOS TODOS.
+  // EL ÍNDICE: TODO EL CATÁLOGO, EN UNA SOLA LLAMADA.
   //
-  // Hasta acá se buscó donde era razonable buscar. Si el zapato sigue
-  // sin aparecer, o está en otro estante del catálogo o no lo tenemos —
-  // y esas dos cosas hay que distinguirlas antes de decirle nada al
-  // cliente.
+  // Si el catálogo está indexado (ver indice.js y /indexar-catalogo),
+  // acá se compara —en código, sin gastar modelo ni cupo— los rasgos de
+  // la foto contra los de los cientos de productos guardados, y solo los
+  // 10 más parecidos van a una llamada de cotejo.
+  //
+  // Es la forma de mirar el catálogo entero sin las veinte llamadas que
+  // el cupo de OpenAI no aguanta. Por eso va ANTES del barrido a ciegas:
+  // si hay índice, el barrido casi nunca hace falta.
+  const delIndice = await candidatosDelIndice(env, rasgos, yaMirados);
+  if (delIndice.length >= 1) {
+    const elegido = await cotejar(env, foto, delIndice, textoCliente, 1, yaMirados, DESDE_EL_INDICE);
+    if (elegido) return resultado(elegido, productos);
+  }
+
+  // ÚLTIMO RECURSO: MIRARLOS TODOS, A CIEGAS.
+  //
+  // Solo hace falta si el catálogo NO está indexado. Es caro y el cupo
+  // de OpenAI apenas deja mirar unos pocos por mensaje, así que es una
+  // red por si acaso, no la vía principal.
   if (!barrer) return null;
 
   const elegido = await barrerCatalogo(env, foto, textoCliente, { termino, yaMirados });
   if (!elegido) return null;
 
   return resultado(elegido, productos);
+}
+
+// Los del índice que más se parecen a la foto, quitando los que el
+// modelo ya descartó en las rondas anteriores.
+async function candidatosDelIndice(env, rasgos, yaMirados) {
+  if (!env.DB || !rasgos) return [];
+
+  let indice = [];
+  try {
+    indice = await leerIndice(env.DB);
+  } catch (error) {
+    // Sin índice el bot sigue funcionando: solo se queda sin este atajo.
+    console.error("No pude leer el índice del catálogo:", error?.message || error);
+    return [];
+  }
+
+  if (!indice.length) return [];
+
+  const mejores = mejoresPorRasgos(indice, rasgos, DESDE_EL_INDICE + yaMirados.size)
+    .filter((p) => !yaMirados.has(clave(p)))
+    .slice(0, DESDE_EL_INDICE);
+
+  console.log(
+    `Índice: ${indice.length} productos guardados, los ${mejores.length} ` +
+      "más parecidos a la foto van al cotejo"
+  );
+
+  return mejores;
 }
 
 // Compara la foto contra TODO el catálogo, en lotes y en paralelo.
@@ -346,11 +396,22 @@ function unir(...listas) {
   return juntos;
 }
 
-async function cotejar(env, foto, productos, textoCliente, minimo = 2, yaMirados = null) {
+async function cotejar(
+  env,
+  foto,
+  productos,
+  textoCliente,
+  minimo = 2,
+  yaMirados = null,
+  // Cuántos se le mandan como mucho. Los del índice pueden ser más que
+  // los de una ronda dirigida: vienen ya ordenados por parecido, así que
+  // los últimos siguen siendo candidatos con motivo.
+  maximo = MAXIMO_CANDIDATOS
+) {
   // Sin foto no hay nada que comparar, y un producto sin imagen en el
   // catálogo dejaría al modelo eligiendo por el título — que es
   // justamente lo que este archivo evita.
-  const candidatos = productos.filter((p) => p.imagen).slice(0, MAXIMO_CANDIDATOS);
+  const candidatos = productos.filter((p) => p.imagen).slice(0, maximo);
   if (candidatos.length < minimo) return null;
 
   // Se anotan aunque el cotejo falle: el barrido no tiene por qué volver

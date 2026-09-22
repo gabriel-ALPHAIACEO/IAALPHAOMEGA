@@ -90,6 +90,13 @@ COTEJO_LOTES = "2"
 # mirar. Traerlos no gasta modelo, asi que conviene que entren todos.
 COTEJO_MAXIMO = "600"
 
+# Modelo con el que se INDEXA el catalogo (abrir /indexar-catalogo). Son
+# cientos de fotos, asi que va el mini: tiene un cupo por minuto mucho mas
+# alto que el modelo grande y para una foto de producto limpia alcanza.
+# La foto del CLIENTE, que es una sola y decide la venta, sigue yendo a
+# OPENAI_MODELO_VISION.
+OPENAI_MODELO_INDICE = "gpt-4o-mini"
+
 # Cuantas horas se calla el bot despues de que un asesor le escribe a un
 # cliente a mano desde la app de Instagram (para no hablar por encima).
 #

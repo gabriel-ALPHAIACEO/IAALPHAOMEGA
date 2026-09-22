@@ -185,7 +185,7 @@ export async function responderTexto(env, entrada) {
 
 // SOLO identifica: no redacta nada para el cliente. Devuelve
 // { visto, rasgos, buscar, pedirNombreExacto } o null si algo falló.
-export async function identificarEnImagen(env, urlImagen) {
+export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) {
   const salida = await llamar(
     env,
     promptVision,
@@ -200,7 +200,12 @@ export async function identificarEnImagen(env, urlImagen) {
     ],
     {
       schema: ESQUEMA_IDENTIFICACION,
-      modelo: env.OPENAI_MODELO_VISION || MODELO_VISION_POR_DEFECTO,
+      // "modelo" lo usa la indexación del catálogo: son cientos de
+      // fotos y el cupo por minuto del modelo grande no da, así que se
+      // indexa con el mini —que tiene un cupo mucho más alto— mientras
+      // que la foto del cliente, que es una sola y decide la venta,
+      // sigue yendo al modelo bueno.
+      modelo: modelo || env.OPENAI_MODELO_VISION || MODELO_VISION_POR_DEFECTO,
     }
   );
 

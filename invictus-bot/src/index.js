@@ -28,8 +28,8 @@
 // vivía en KV. Si ves un memoria.js o un nombre.js sueltos, son de esa otra
 // versión y NO van con este código — mezclarlos rompe el arranque.
 
-import { responderTexto, identificarEnImagen } from "./ia.js";
-import { buscarProductos } from "./shopify.js";
+import { responderTexto, identificarEnImagen, estaLimitado } from "./ia.js";
+import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo } from "./catalogo.js";
@@ -38,6 +38,7 @@ import { separarColor, filtrarPorColor, terminoDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
 import { cotejoPorImagen } from "./cotejo.js";
+import { leerIndice, guardarIndexados, limpiarLosQueYaNoEstan } from "./indice.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
   cargarContacto,
@@ -68,7 +69,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-22 (5) · barrido con presupuesto y respeto al cupo de OpenAI";
+const VERSION = "2026-09-22 (6) · catálogo indexado en D1: el cotejo mira todo en una llamada";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -386,6 +387,16 @@ export default {
       // tenga las columnas de hoy. Eso se comprueba de verdad, aquí.
       const base = await revisarBase(env.DB, { fraseDespausar: fraseDespausar(env) });
 
+      // Cuántos productos tiene el índice del catálogo. Sin índice, el
+      // cotejo visual se queda sin su vía buena y cae al barrido corto,
+      // que con el cupo de OpenAI apenas mira unos pocos por mensaje.
+      let indexados = 0;
+      try {
+        indexados = (await leerIndice(env.DB)).length;
+      } catch {
+        indexados = -1;
+      }
+
       return texto200(
         [
           `CÓDIGO DESPLEGADO   ${VERSION}`,
@@ -410,6 +421,20 @@ export default {
           `  FRASE_DESPAUSAR     "${fraseDespausar(env)}"   (el asesor la manda en el chat y el bot vuelve)`,
           `  OPENAI_MODELO       ${env.OPENAI_MODELO || "gpt-4o-mini (por defecto)"}   (el que redacta las respuestas)`,
           `  OPENAI_MODELO_VISION ${env.OPENAI_MODELO_VISION || "gpt-4o (por defecto)"}   (el que identifica las fotos)`,
+          `  COTEJO_BARRIDO      ${env.COTEJO_BARRIDO === "no" ? "no (apagado)" : "si"}   (mirar el catálogo cuando el nombre no acierta)`,
+          "",
+          "ÍNDICE DEL CATÁLOGO — lo que hace que el cotejo mire TODO",
+          indexados > 0
+            ? `  ${indexados} productos indexados.`
+            : indexados === 0
+              ? "  VACÍO. El cotejo visual solo puede mirar unos pocos productos\n" +
+                "  por mensaje (el cupo de OpenAI no da para más a ciegas).\n" +
+                "  Abre /indexar-catalogo para llenarlo; hay que repetirlo\n" +
+                "  hasta que diga LISTO."
+              : "  No se pudo leer (¿falta la base de datos?).",
+          indexados > 0
+            ? "  Vuelve a correr /indexar-catalogo cuando agregues productos."
+            : "",
           "",
           "BASE DE DATOS (D1) — la memoria del bot entre mensajes",
           ...base.lineas,
@@ -433,6 +458,101 @@ export default {
 
     // Prueba la vista del bot con una imagen cualquiera, sin depender de
     // un webhook real: /probar-imagen?url=https://...
+    // INDEXAR EL CATÁLOGO. Se corre a mano desde el navegador, por
+    // tandas, y hay que volver a correrlo cuando se agregan productos.
+    //
+    // Mira cada foto del catálogo UNA vez con el modelo de visión y
+    // guarda sus 15 rasgos en D1 (ver indice.js). Después, cuando un
+    // cliente manda una foto, sus rasgos se comparan con los guardados
+    // sin gastar una sola llamada, y solo los 10 más parecidos van al
+    // cotejo. Es lo que permite mirar el catálogo entero con el cupo de
+    // OpenAI que hay.
+    if (url.pathname === "/indexar-catalogo") {
+      if (!env.DB) {
+        return texto200(
+          "No hay base de datos conectada, y el índice vive ahí.\n" +
+            "Revisa el binding DB en wrangler.toml (mira /estado).\n"
+        );
+      }
+
+      const cuantos = Math.min(Number(url.searchParams.get("cuantos")) || 20, 50);
+      const rehacer = url.searchParams.get("rehacer") === "si";
+
+      const { productos } = await traerCatalogoCompleto(
+        env,
+        Number(env.COTEJO_MAXIMO) || 600
+      );
+
+      if (!productos.length) {
+        return texto200(
+          "Shopify no devolvió productos.\n\n" +
+            "Revisa SHOPIFY_TIENDA y el secreto SHOPIFY_TOKEN; el motivo\n" +
+            "exacto sale en `wrangler tail`.\n"
+        );
+      }
+
+      const indice = await leerIndice(env.DB);
+      // Se reindexa un producto si nunca se miró o si le cambiaron la
+      // foto: la URL del CDN de Shopify cambia con la imagen, así que
+      // comparar la URL alcanza para saberlo.
+      const guardados = new Map(indice.map((p) => [p.titulo, p]));
+      const pendientes = productos.filter((p) => {
+        if (!p.imagen) return false;
+        if (rehacer) return true;
+        const antes = guardados.get(p.titulo);
+        return !antes || antes.imagen !== p.imagen;
+      });
+
+      const tanda = pendientes.slice(0, cuantos);
+      const indexados = [];
+      const modelo = env.OPENAI_MODELO_INDICE || "gpt-4o-mini";
+
+      // De a POCOS a la vez: el cupo por minuto de OpenAI es el techo de
+      // todo esto, y reventarlo acá solo hace que la tanda falle entera.
+      for (let i = 0; i < tanda.length; i += 4) {
+        if (estaLimitado()) {
+          console.log("Indexación: OpenAI sin cupo, corto la tanda acá");
+          break;
+        }
+
+        const resultados = await Promise.all(
+          tanda.slice(i, i + 4).map(async (producto) => {
+            const visto = await identificarEnImagen(env, producto.imagen, { modelo });
+            return visto?.rasgos ? { ...producto, visto: visto.visto, rasgos: visto.rasgos } : null;
+          })
+        );
+
+        indexados.push(...resultados.filter(Boolean));
+      }
+
+      await guardarIndexados(env.DB, indexados);
+
+      const faltan = pendientes.length - indexados.length;
+      let quitados = 0;
+      if (!faltan) {
+        quitados = await limpiarLosQueYaNoEstan(
+          env.DB,
+          productos.map((p) => p.titulo)
+        );
+      }
+
+      return texto200(
+        `Catálogo en Shopify: ${productos.length} productos\n` +
+          `Ya estaban indexados: ${indice.length}\n` +
+          `Indexados en esta tanda: ${indexados.length} (con ${modelo})\n` +
+          (quitados ? `Quitados del índice (ya no están en Shopify): ${quitados}\n` : "") +
+          "\n" +
+          (faltan > 0
+            ? `FALTAN ${faltan}. Vuelve a abrir esta misma dirección para\n` +
+              "seguir con la próxima tanda. Si dice que faltan los mismos\n" +
+              "una y otra vez, mira `wrangler tail`: casi siempre es el\n" +
+              "cupo por minuto de OpenAI (429) y basta con esperar.\n"
+            : "LISTO: el catálogo está indexado entero.\n\n" +
+              "Vuelve a correr esto cuando agregues productos nuevos. Los\n" +
+              "que ya están no se vuelven a mirar, así que es barato.\n")
+      );
+    }
+
     if (url.pathname === "/probar-imagen") {
       const imagen = url.searchParams.get("url") || "";
       if (!urlValida(imagen)) {
