@@ -65,15 +65,84 @@ export function separarCapacidad(termino) {
 
 // Qué capacidades hay entre los productos que devolvió la hoja, leídas de
 // sus títulos y ordenadas de menor a mayor.
+// LA COLUMNA DE LA HOJA TRAE DOS COSAS, NO UNA.
+//
+// En el inventario real la columna "Almacenamiento" dice "4GB / 128GB":
+// lo de la izquierda es la RAM y lo de la derecha el almacenamiento. Si
+// se leyera como dos capacidades sueltas, el bot contestaría "lo tengo
+// en 4GB y 128GB", que no significa nada para un cliente.
+//
+// Cuando hay dos valores, el PRIMERO es RAM y el ÚLTIMO almacenamiento —
+// es como se escribe siempre en este rubro ("8/256", "12GB/512GB"). Con
+// uno solo, es el almacenamiento.
+//
+// Los accesorios —relojes, audífonos, una afeitadora— llevan "N/A". Eso
+// NO es un dato que falte: es que la pregunta no aplica, y responderlo
+// así es mejor que mandar al cliente con un asesor a preguntar cuántos
+// gigas tiene un par de audífonos.
+const NO_APLICA = /^(n\/?\s?a|no aplica|no|ninguna?|sin|-{1,2})$/i;
+
+export function leerColumnaCapacidad(valor) {
+  const texto = String(valor || "").trim();
+  const vacio = { ram: "", almacenamiento: "", noAplica: false };
+
+  if (!texto) return vacio;
+  if (NO_APLICA.test(texto)) return { ...vacio, noAplica: true };
+
+  const partes = texto
+    .split(/[\/+·|,]/)
+    .map((parte) => separarCapacidad(parte).capacidades[0] || "")
+    .filter(Boolean);
+
+  if (!partes.length) return vacio;
+  if (partes.length === 1) return { ...vacio, almacenamiento: partes[0] };
+
+  return { ram: partes[0], almacenamiento: partes[partes.length - 1], noAplica: false };
+}
+
+// PRIMERO LA COLUMNA DE LA HOJA, DESPUÉS EL TÍTULO.
+//
+// Muchos catálogos llevan la capacidad en su propia columna y el título
+// limpio ("Samsung A57"). Ese fue el caso que hizo que el bot inventara
+// "128GB": leyendo solo títulos, no había nada que leer. La columna es
+// el dato bueno; el título es el respaldo para las hojas que la meten
+// ahí ("iPhone 15 128GB").
 export function capacidadesDe(productos) {
   const encontradas = [];
 
   for (const producto of productos || []) {
-    const { capacidades } = separarCapacidad(producto.titulo);
-    encontradas.push(...capacidades);
+    const { almacenamiento } = leerColumnaCapacidad(producto.capacidad);
+    if (almacenamiento) {
+      encontradas.push(almacenamiento);
+      continue;
+    }
+
+    encontradas.push(...separarCapacidad(producto.titulo).capacidades);
   }
 
   return unicas(encontradas).sort((a, b) => enBytes(a) - enBytes(b));
+}
+
+// La capacidad de UN producto, tal como va escrita en su ficha:
+// "4GB RAM · 128GB". La RAM se nombra para que no se confunda con el
+// almacenamiento — dos números sueltos juntos no se entienden.
+export function capacidadDe(producto) {
+  const { ram, almacenamiento } = leerColumnaCapacidad(producto?.capacidad);
+
+  if (almacenamiento) {
+    return ram ? `${ram} RAM · ${almacenamiento}` : almacenamiento;
+  }
+
+  const [delTitulo] = separarCapacidad(producto?.titulo).capacidades;
+  return delTitulo || "";
+}
+
+// El producto no lleva almacenamiento porque no le corresponde: un reloj,
+// unos audífonos. La hoja lo dice con "N/A".
+export function noLlevaCapacidad(productos) {
+  const conDato = (productos || []).filter((p) => p?.capacidad);
+  if (!conDato.length) return false;
+  return conDato.every((p) => leerColumnaCapacidad(p.capacidad).noAplica);
 }
 
 // "128GB, 256GB y 512GB" — como lo diría una persona, no como una lista.

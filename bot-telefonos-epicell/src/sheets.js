@@ -43,6 +43,15 @@ const SINONIMOS = {
   precioCashea: [
     "cashea", "preciocashea", "precioconcashea", "casheausd",
   ],
+  // La capacidad del equipo, si tu hoja la tiene en su propia columna. Es
+  // el dato que más se pregunta después del precio, y el que el modelo
+  // más se tienta de inventar: un "Samsung A57" sin gigas en el título
+  // hacía que contestara "128GB" de memoria suya (ver index.js). Con la
+  // columna, deja de ser una suposición.
+  capacidad: [
+    "capacidad", "almacenamiento", "memoria", "gb", "rom", "storage",
+    "capacidadgb", "memoriainterna", "espacio",
+  ],
   imagen: ["imagen", "imagenes", "foto", "fotos", "img", "urlimagen", "linkimagen"],
   enlace: ["enlace", "link", "url", "enlaceproducto", "linkproducto"],
   activo: ["activo", "activa", "estado", "publicado", "visible", "disponible"],
@@ -111,9 +120,54 @@ function palabrasDeBusqueda(termino) {
   return paraBuscar(termino).split(" ").filter(Boolean);
 }
 
-function indiceDeBusqueda(titulo) {
-  const piezas = palabrasDeBusqueda(titulo);
+// LA BÚSQUEDA MIRA TODA LA FILA, NO SOLO EL TÍTULO.
+//
+// "Samsung A57 128GB" no encontraba nada cuando el título era "Samsung
+// A57" y los gigas vivían en su propia columna: la búsqueda solo leía el
+// título. Ahora el índice se arma con el título Y con las columnas que
+// describen el equipo.
+//
+// Los PRECIOS quedan fuera a propósito. Un precio de "$128.00" haría que
+// buscar "128GB" pescara equipos que no tienen nada que ver, y el cliente
+// vería una lista sin sentido. Las imágenes y los enlaces tampoco entran:
+// son direcciones web, no palabras que alguien escriba en un chat.
+function indiceDeBusqueda(titulo, fila, encabezados, indices) {
+  const fuera = new Set(
+    ["precio", "precioLocal", "precioCashea", "imagen", "enlace", "activo", "stock"]
+      .map((clave) => indices[clave])
+      .filter((i) => i !== undefined && i !== -1)
+  );
+
+  const textos = [titulo];
+
+  for (let i = 0; i < (fila || []).length; i++) {
+    if (i === indices.titulo || fuera.has(i)) continue;
+    const valor = String(fila[i] ?? "").trim();
+    if (valor) textos.push(valor);
+  }
+
+  const piezas = palabrasDeBusqueda(textos.join(" "));
   return { piezas, junto: piezas.join("") };
+}
+
+// Las columnas que no son ninguna de las conocidas, con su nombre tal
+// como está escrito en la hoja. Es lo que permite que el bot hable de lo
+// que TÚ cargaste sin que nadie tenga que tocar el código.
+function otrasColumnas(fila, encabezados, indices) {
+  const conocidas = new Set(Object.values(indices).filter((i) => i !== -1));
+  const extras = {};
+
+  for (let i = 0; i < (fila || []).length; i++) {
+    if (conocidas.has(i)) continue;
+
+    const nombre = String((encabezados || [])[i] ?? "").trim();
+    const valor = String(fila[i] ?? "").trim();
+    if (!nombre || !valor) continue;
+
+    extras[nombre] = valor;
+  }
+
+  return extras;
 }
 
 // La lista de títulos, lista para pegarla en el prompt del modelo. Es lo que
@@ -142,7 +196,9 @@ export async function listaDeTitulos(env, limite = MAXIMO_CARACTERES_CATALOGO) {
   let cuantos = 0;
 
   for (const p of productos) {
-    const linea = p.titulo;
+    // Con la capacidad pegada al título, el modelo la ve al elegir el
+    // término de búsqueda y no tiene que suponerla.
+    const linea = p.capacidad ? `${p.titulo} — ${p.capacidad}` : p.titulo;
     // +1 por el salto de línea que separa cada título.
     if (usados + linea.length + 1 > limite) break;
     lineas.push(linea);
@@ -185,12 +241,18 @@ export async function diagnosticoHoja(env) {
     `  precio              -> ${columnas.precio}`,
     `  precio 2ª moneda    -> ${columnas.precioLocal}`,
     `  precio Cashea       -> ${columnas.precioCashea}`,
+    `  capacidad           -> ${columnas.capacidad}`,
     `  imagen              -> ${columnas.imagen}`,
     `  enlace              -> ${columnas.enlace}`,
     `  activo/estado       -> ${columnas.activo}`,
     `  stock/cantidad      -> ${columnas.stock}`,
     "",
     `Productos visibles para el cliente: ${productos.length}`,
+    "",
+    // Lo que no encaja en ninguna columna conocida ya no se tira: entra en
+    // la búsqueda y queda guardado. Verlo aquí evita la sorpresa de
+    // "¿por qué encuentra por marca si la marca no está en el título?".
+    ...columnasExtra(productos),
     ""
   );
 
@@ -369,6 +431,7 @@ function convertir(filas, env) {
     precio: nombreDe(indices.precio),
     precioLocal: nombreDe(indices.precioLocal),
     precioCashea: nombreDe(indices.precioCashea),
+    capacidad: nombreDe(indices.capacidad),
     imagen: nombreDe(indices.imagen),
     enlace: nombreDe(indices.enlace),
     activo: nombreDe(indices.activo),
@@ -413,12 +476,25 @@ function convertir(filas, env) {
       // no lo tiene cargado, la ficha usa el precio en divisas.
       precioCashea:
         indices.precioCashea === -1 ? "" : String(fila[indices.precioCashea] || "").trim(),
+      capacidad: indices.capacidad === -1 ? "" : String(fila[indices.capacidad] || "").trim(),
       imagen: enlaceDeImagen(indices.imagen === -1 ? "" : fila[indices.imagen]),
       url:
         (indices.enlace === -1 ? "" : String(fila[indices.enlace] || "").trim()) ||
         env.URL_CATALOGO ||
         "",
-      busqueda: indiceDeBusqueda(titulo),
+      // TODO LO DEMÁS DE LA FILA, sin descartar nada.
+      //
+      // Antes esto se quedaba con ocho columnas conocidas y tiraba el
+      // resto. Si la hoja traía RAM, cámara, estado del equipo o
+      // cualquier otra cosa, el bot no se enteraba — y el modelo
+      // terminaba respondiendo esas preguntas de memoria propia, que es
+      // de donde salió el "128GB" inventado de un A57.
+      //
+      // Ahora se guardan tal cual vienen, con el nombre que les pusiste
+      // en la hoja. Así el bot puede decir lo que TU catálogo dice, y no
+      // lo que el modelo cree saber de ese teléfono.
+      extras: otrasColumnas(fila, encabezados, indices),
+      busqueda: indiceDeBusqueda(titulo, fila, encabezados, indices),
     });
   }
 
@@ -448,6 +524,7 @@ function ubicarColumnas(fila) {
     precio: buscar("precio"),
     precioLocal: buscar("precioLocal"),
     precioCashea: buscar("precioCashea"),
+    capacidad: buscar("capacidad"),
     imagen: buscar("imagen"),
     enlace: buscar("enlace"),
     activo: buscar("activo"),
@@ -551,4 +628,22 @@ function leerCsv(texto) {
   }
 
   return filas;
+}
+
+// Los encabezados que no son ninguna de las columnas conocidas. No se
+// descartan: entran en el índice de búsqueda y se guardan con el producto
+// (ver otrasColumnas), así que el cliente puede buscar por ellos.
+function columnasExtra(productos) {
+  const nombres = new Set();
+  for (const producto of productos) {
+    for (const nombre of Object.keys(producto.extras || {})) nombres.add(nombre);
+  }
+
+  if (!nombres.size) return [];
+
+  return [
+    "Otras columnas de tu hoja (se buscan igual, aunque el bot no las",
+    "muestre en la ficha):",
+    `  ${[...nombres].join(" | ")}`,
+  ];
 }

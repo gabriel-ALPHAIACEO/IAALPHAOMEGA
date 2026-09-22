@@ -37,6 +37,8 @@ import { separarColor } from "./color.js";
 import {
   separarCapacidad,
   capacidadesDe,
+  capacidadDe,
+  noLlevaCapacidad,
   comoSeDicen,
   preguntaPorCapacidad,
 } from "./capacidad.js";
@@ -67,7 +69,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-22 (4) · los gigas salen del título o los confirma un asesor";
+const VERSION = "2026-09-22 (5) · la hoja entra completa: capacidad, marca y todas las columnas";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -119,6 +121,15 @@ const SIN_ESA_CAPACIDAD = [
 //
 // Así que cuando los títulos no traen gigas, esto NO deja hablar al
 // modelo: responde el código y se avisa a un asesor.
+// El equipo no lleva almacenamiento porque no le corresponde: un reloj,
+// unos audífonos, una afeitadora. La hoja lo dice con "N/A", así que no
+// es un dato que falte y no hay por qué molestar a un asesor con esto.
+const NO_LLEVA_CAPACIDAD = [
+  "Ese no maneja almacenamiento 😊 ¿Te ayudo con algo más de él?",
+  "Ese equipo no lleva memoria de almacenamiento 😊",
+  "Ese no tiene almacenamiento, es otro tipo de equipo 😊",
+];
+
 const SIN_DATO_DE_CAPACIDAD = [
   "La capacidad exacta te la confirma un asesor en un momento 😊",
   "Déjame que un asesor te confirme la capacidad exacta en un momento 😊",
@@ -806,7 +817,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const conDivisas = PREGUNTA_DIVISAS.test(mensaje.texto);
   const fichas = productos.map((p) => ({
     ...p,
-    precio: precioParaMostrar(p, conCashea, conDivisas),
+    precio: subtituloDeFicha(p, conCashea, conDivisas),
   }));
 
   // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO. El botón sale en dos casos:
@@ -1173,7 +1184,13 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   // Preguntó por los gigas y los títulos no los dicen. El modelo sí
   // "sabe" cuántos trae un A57 de fábrica, y por eso hay que quitarle la
   // palabra: lo que sabe no es de ESTA tienda.
-  const capacidadSinDato = Boolean(quiereSaberCapacidades) && !otrasCapacidades.length;
+  // La hoja dice "N/A": no es que falte el dato, es que no aplica.
+  const capacidadNoAplica =
+    Boolean(quiereSaberCapacidades) && !otrasCapacidades.length && noLlevaCapacidad(productos);
+
+  const capacidadSinDato =
+    Boolean(quiereSaberCapacidades) && !otrasCapacidades.length && !capacidadNoAplica;
+
   if (capacidadSinDato) {
     console.log(
       `Preguntó por la capacidad y ningún título de "${termino}" la trae: ` +
@@ -1209,6 +1226,8 @@ async function decidir({ env, salida, texto, historialPrevio }) {
       "{otras}",
       comoSeDicen(otrasCapacidades)
     );
+  } else if (capacidadNoAplica) {
+    respuestaCliente = alAzar(NO_LLEVA_CAPACIDAD);
   } else if (capacidadSinDato) {
     // Los equipos se le muestran igual: lo único que no sabemos es la
     // capacidad, no el producto.
@@ -1247,6 +1266,20 @@ function precioParaMostrar(producto, conCashea, conDivisas) {
   if (producto.precioCashea) return `Con Cashea: ${producto.precioCashea}`;
 
   return producto.precio || "";
+}
+
+// El texto que va bajo el título de la ficha: la capacidad delante del
+// precio, cuando la hoja la trae.
+//
+// Así el cliente la ve SIN tener que preguntar — que es mejor que
+// contestarla bien: la pregunta que no hace falta hacer es la que no se
+// responde mal.
+function subtituloDeFicha(producto, conCashea, conDivisas) {
+  const precio = precioParaMostrar(producto, conCashea, conDivisas);
+  const capacidad = capacidadDe(producto);
+
+  if (!capacidad) return precio;
+  return precio ? `${capacidad} · ${precio}` : capacidad;
 }
 
 // Se avisa en dos situaciones, y solo en esas dos.
