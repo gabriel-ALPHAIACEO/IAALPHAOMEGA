@@ -1,8 +1,7 @@
-# Nombre del Worker. Será parte de su dirección:
+# Nombre del Worker. Es parte de su direccion:
 #   https://NOMBRE.tu-subdominio.workers.dev
 #
-# Solo minúsculas, números y guiones. Si pones mayúsculas, wrangler falla
-# antes de arrancar (incluso en "wrangler login").
+# Solo minusculas, numeros y guiones.
 name = "bot-telefonos"
 
 main = "src/index.js"
@@ -14,42 +13,92 @@ type = "Text"
 globs = ["**/*.txt"]
 fallthrough = true
 
+# --- Base de datos (D1) - la memoria del bot entre mensajes -------------
+# 22-sep-2026: se retiro ManyChat, asi que el historial de cada
+# conversacion ya no vive en sus campos - vive aca. Sin esto el bot no
+# recuerda nada de un mensaje al siguiente (vuelve a saludar siempre,
+# pierde el hilo de "y en 256?", etc.) y tampoco funciona la pausa cuando
+# un asesor contesta a mano.
+#
+# Antes de desplegar hay que crear la base y correr la migracion:
+#   npx wrangler d1 create bot-telefonos-db
+#   (ese comando imprime un database_id: pegalo abajo)
+#   npx wrangler d1 migrations apply bot-telefonos-db --remote
+[[d1_databases]]
+binding = "DB"
+database_name = "bot-telefonos-db"
+database_id = "PENDIENTE_pega_aqui_el_database_id_que_imprime_wrangler_d1_create"
+
 [vars]
-# El id de tu hoja de Google. Está en la dirección de la hoja, entre /d/ y /edit:
+# El id de tu hoja de Google. Esta en la direccion de la hoja, entre /d/ y /edit:
 #   https://docs.google.com/spreadsheets/d/AQUI_ESTA_EL_ID/edit
 SHEET_ID = "PEGA_AQUI_EL_ID_DE_TU_HOJA"
 
-# El nombre de la pestaña donde está el catálogo, tal como se ve abajo en la
+# El nombre de la pestana donde esta el catalogo, tal como se ve abajo en la
 # hoja. Si no la renombraste, suele ser "Hoja 1" o "Sheet1".
 SHEET_NOMBRE = "Hoja 1"
 
-# Enlace que se le manda al cliente cuando no hay productos que mostrar, y
-# el que usan las fichas sin enlace propio.
+# Enlace que se le manda al cliente cuando no hay productos que mostrar.
 URL_CATALOGO = "https://CAMBIA-ESTO.com"
 
-# Número de WhatsApp de la tienda, para el botón "Comprar" de cada ficha.
+# Numero de WhatsApp de la tienda, para el boton "Comprar" de cada ficha.
 # En formato internacional, SIN el +, sin espacios y sin guiones:
 #   Venezuela  0412-123 45 67  ->  "584121234567"
-# Si lo dejas vacío, las fichas salen solo con "Ver producto".
+# Si lo dejas vacio, las fichas salen solo con "Ver producto".
 WHATSAPP = "PON_AQUI_TU_NUMERO"
 
-# Modelo de OpenAI que REDACTA las respuestas de texto (ya no necesita ver
-# imágenes: eso lo hace un modelo aparte, ver OPENAI_MODELO_VISION).
+# --- Meta es el unico canal ---------------------------------------------
+# El webhook atiende texto, fotos, respuestas a historias y ecos (para la
+# pausa automatica). Todo lo demas -los "visto", las reacciones, los
+# comentarios- se descarta sin gastar nada.
+#
+#   "todo"   atiende todo tipo de mensaje  <- por defecto
+#   "off"    nada; el webhook queda desactivado
+META_MODO = "todo"
+
+# El que TU te inventas y escribes IGUAL en el panel de Meta, en la casilla
+# "Identificador de verificacion" al dar de alta el webhook.
+META_VERIFY_TOKEN = "epiccell2026"
+
+# Modelo de OpenAI que REDACTA las respuestas de texto.
 OPENAI_MODELO = "gpt-4o-mini"
 
-# 22-sep-2026: modelo que IDENTIFICA las fotos. Antes era el mismo que
-# OPENAI_MODELO y hacía dos trabajos a la vez (mirar y redactar). Ahora que
-# solo tiene que mirar, vale la pena que sea el modelo completo: identifica
-# mejor que el "mini", y el costo extra es acotado porque el "mini" sigue
-# siendo el que atiende todo el texto.
+# Modelo que IDENTIFICA las fotos. Como solo tiene que mirar, vale la pena
+# que sea el completo: identifica mejor que el "mini", y el costo extra es
+# acotado porque el "mini" sigue atendiendo todo el texto.
 OPENAI_MODELO_VISION = "gpt-4o"
 
-# ─────────────────────────────────────────────────────────────────────
-# Los secretos NO van aquí, se cargan uno por uno con:
+# Cuantas horas se calla el bot despues de que un asesor le escribe a un
+# cliente a mano desde la app de Instagram (para no hablar por encima).
 #
-#   npx wrangler secret put OPENAI_API_KEY     sk-proj-... o sk-...
-#   npx wrangler secret put MANYCHAT_SECRET    una contraseña que inventes
-#   npx wrangler secret put SLACK_WEBHOOK      https://hooks.slack.com/...
+# SE CUENTA DESDE EL ULTIMO MENSAJE DEL ASESOR: cada vez que el asesor
+# escribe, el reloj vuelve a empezar. Admite decimales: 0.5 = 30 minutos.
 #
-# No hace falta token de Google: la hoja se lee por su enlace público.
-# ─────────────────────────────────────────────────────────────────────
+# Puede ser largo sin miedo: el asesor le devuelve la conversacion al bot
+# cuando quiera con FRASE_DESPAUSAR, sin esperar a que venza.
+PAUSA_HORAS = "4"
+
+# La frase con la que el asesor le DEVUELVE la conversacion al bot, desde el
+# mismo chat de Instagram. Basta con que aparezca dentro del mensaje; no
+# importan tildes, mayusculas ni signos. El cliente la lee, asi que tiene
+# que sonar a despedida normal. Lo comodo es guardarla como Respuesta
+# guardada de Instagram.
+FRASE_DESPAUSAR = "te dejo con la asistente"
+
+# ------------------------------------------------------------------------
+# Los secretos NO van aqui. Se cargan uno por uno con:
+#
+#   npx wrangler secret put OPENAI_API_KEY      sk-proj-... o sk-...
+#   npx wrangler secret put SLACK_WEBHOOK       https://hooks.slack.com/...
+#   npx wrangler secret put META_APP_SECRET_IG  la clave del producto Instagram
+#   npx wrangler secret put IG_TOKEN            el token de acceso de Instagram
+#
+# OJO CON META_APP_SECRET_IG: Meta tiene DOS claves y las dos miden 32
+# caracteres, asi que no se distinguen a ojo. La que sirve es la del
+# producto Instagram, NO la de Configuracion -> Basica.
+#
+# MANYCHAT_SECRET ya no se usa. Podes borrarlo con:
+#   npx wrangler secret delete MANYCHAT_SECRET
+#
+# No hace falta token de Google: la hoja se lee por su enlace publico.
+# ------------------------------------------------------------------------
