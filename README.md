@@ -23,6 +23,8 @@ Tres capas, y cada una arregla el fallo de la anterior:
    - **Desempatar** — hay varios candidatos y hay que saber cuál es. Los candidatos se eligen **por los rasgos** (`terminosCompatibles`, la tabla de `identificar.js` leída al revés), no por el orden del catálogo.
    - **Verificar** — la identificación venía sin confirmar. Ahí corre **aunque haya un solo resultado**, porque la pregunta no es "cuál" sino "¿es este?".
 
+   Y si con eso no aparece, **barre el catálogo entero** (`traerCatalogoCompleto` en `shopify.js`): trae todos los productos activos de Shopify —250 por llamada, un par de llamadas— y compara la foto contra todos, en lotes de 20 imágenes, de a 4 lotes en paralelo, parando en cuanto uno acierta. Los títulos que comparten palabra con lo que se buscó van primero, así que lo normal es que caiga en el primer lote. Es el único paso caro del bot y solo corre cuando lo barato ya falló; se apaga con `COTEJO_BARRIDO = "no"`.
+
    Solo la confianza **"alta"** llega al cliente. Si no confirma, no descarta nada: el bot muestra lo que encontró preguntando si es ese, que es lo honesto.
 
 ## Proyecto actual: Invictus Shoes

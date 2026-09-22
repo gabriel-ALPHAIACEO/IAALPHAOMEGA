@@ -27,6 +27,70 @@ const CONSULTA = `
 // elementos en un carrusel) — sin esto, el segundo caso se confundía con el
 // primero y el cliente que preguntaba "¿solo tienes esos?" recibía marcas
 // sin relación en vez del catálogo completo, que es donde sí estaban todos.
+// TODO el catálogo, no una búsqueda.
+//
+// Existe para el barrido del cotejo visual (ver cotejo.js): cuando la
+// búsqueda por nombre no da con el zapato de la foto, la única forma de
+// encontrarlo es mirarlos todos. Shopify entrega hasta 250 por página,
+// así que un catálogo de varios cientos son dos o tres llamadas — se
+// hace en un segundo y no gasta nada de modelo.
+//
+// "maximo" es un tope de seguridad para que un catálogo enorme no se
+// traiga entero sin querer. Devuelve { productos, completo }: "completo"
+// dice si se llegó al final de verdad o si se cortó por el tope.
+const POR_PAGINA = 250;
+
+const CONSULTA_TODO = `
+  query todo($cuantos: Int!, $cursor: String) {
+    products(first: $cuantos, after: $cursor, query: "status:active") {
+      pageInfo { hasNextPage endCursor }
+      edges {
+        node {
+          title
+          onlineStoreUrl
+          featuredImage { url }
+          priceRangeV2 { minVariantPrice { amount currencyCode } }
+        }
+      }
+    }
+  }
+`;
+
+export async function traerCatalogoCompleto(env, maximo = 1000) {
+  const productos = [];
+  let cursor = null;
+  let completo = false;
+
+  // Un tope duro de páginas: si algún día Shopify devolviera siempre
+  // "hasNextPage", esto no se queda dando vueltas para siempre.
+  for (let pagina = 0; pagina < 20; pagina++) {
+    const datos = await consultar(env, CONSULTA_TODO, {
+      cuantos: Math.min(POR_PAGINA, maximo - productos.length),
+      cursor,
+    });
+
+    if (!datos) break;
+
+    productos.push(...(datos.products?.edges || []).map(aProducto(env)));
+
+    const info = datos.products?.pageInfo;
+    if (!info?.hasNextPage) {
+      completo = true;
+      break;
+    }
+
+    if (productos.length >= maximo) break;
+    cursor = info.endCursor;
+  }
+
+  console.log(
+    `Catálogo completo: ${productos.length} productos` +
+      (completo ? "" : ` (cortado en el tope de ${maximo})`)
+  );
+
+  return { productos, completo };
+}
+
 export async function buscarProductos(env, termino, cuantos = 10) {
   const palabras = String(termino || "")
     .trim()
@@ -136,4 +200,49 @@ function formatearPrecio(precio) {
   const cifra = Number(precio.amount);
   const redondo = Number.isInteger(cifra) ? String(cifra) : cifra.toFixed(2);
   return `${redondo} ${precio.currencyCode || ""}`.trim();
+}
+
+// Una llamada a la API de Shopify. Devuelve datos.data o null: quien
+// llama decide qué hacer sin nada, pero nunca revienta por un fallo de
+// red — un cliente esperando no se merece un error del sistema.
+async function consultar(env, query, variables) {
+  let respuesta;
+  try {
+    respuesta = await fetch(
+      `https://${env.SHOPIFY_TIENDA}/admin/api/${VERSION_API}/graphql.json`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Shopify-Access-Token": env.SHOPIFY_TOKEN,
+        },
+        body: JSON.stringify({ query, variables }),
+      }
+    );
+  } catch (error) {
+    console.error("No se pudo llamar a Shopify:", error.message);
+    return null;
+  }
+
+  if (!respuesta.ok) {
+    console.error("Shopify respondió", respuesta.status, await respuesta.text());
+    return null;
+  }
+
+  const datos = await respuesta.json();
+  if (datos.errors) {
+    console.error("Shopify devolvió errores:", JSON.stringify(datos.errors));
+    return null;
+  }
+
+  return datos.data || null;
+}
+
+function aProducto(env) {
+  return ({ node }) => ({
+    titulo: node.title,
+    precio: formatearPrecio(node.priceRangeV2?.minVariantPrice),
+    imagen: node.featuredImage?.url || "",
+    url: node.onlineStoreUrl || env.URL_CATALOGO,
+  });
 }

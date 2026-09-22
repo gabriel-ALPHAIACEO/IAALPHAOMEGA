@@ -68,7 +68,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-22 (3) · cotejo visual que verifica + despausar desde el chat + nombres de clientes";
+const VERSION = "2026-09-22 (4) · cotejo visual contra el catálogo completo";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -803,6 +803,15 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     const identificacion = await identificarEnImagen(env, foto);
     if (identificacion) {
       const { buscar, pedirNombreExacto, confirmar } = validarIdentificacion(identificacion);
+
+      // SIN ESTA LÍNEA NO SE PUEDE DEPURAR NADA. Un barrido que no
+      // encuentra y un nombre mal identificado se ven igual en los
+      // registros si no queda escrito qué vio y qué va a buscar.
+      console.log(
+        `La IA de visión vio: "${identificacion.visto}" → busco: "${buscar}"` +
+          (confirmar ? " (sin confirmar)" : "")
+      );
+
       marcaFoto = marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar);
       rasgosFoto = identificacion.rasgos;
       porConfirmar = Boolean(confirmar);
@@ -1254,9 +1263,11 @@ async function decidir({
       hayMasEnCatalogo = resultado.hayMas;
     }
 
-    if (!productos.length) {
-      console.log(`Sin resultados para "${aBuscar}"`);
-    }
+    console.log(
+      productos.length
+        ? `Busqué "${aBuscar}": ${productos.length} resultado(s)`
+        : `Sin resultados para "${aBuscar}"`
+    );
   }
 
   // COTEJO VISUAL (solo si esto vino de una foto).
@@ -1277,6 +1288,9 @@ async function decidir({
       termino: aBuscar,
       rasgos,
       verificar: porConfirmar,
+      // El barrido del catálogo completo es el último recurso y el único
+      // paso caro de todo esto. Se apaga con COTEJO_BARRIDO = "no".
+      barrer: env.COTEJO_BARRIDO !== "no",
     });
 
     if (cotejo) {

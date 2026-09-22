@@ -63,6 +63,21 @@ OPENAI_MODELO = "gpt-4o-mini"
 # siendo el que atiende todo el texto.
 OPENAI_MODELO_VISION = "gpt-4o"
 
+# --- El barrido del catalogo completo -----------------------------------
+# Cuando el cliente manda una foto (o responde a una historia) y el zapato
+# no aparece buscando por su nombre, el bot compara la foto contra TODAS
+# las fotos del catalogo hasta encontrarlo. Es el unico paso caro del bot:
+# son varias llamadas al modelo de vision, pero solo ocurre cuando ya se
+# intento lo barato y fallo, y se corta en cuanto encuentra el par.
+#
+#   "si"  barrido activado   <- por defecto
+#   "no"  desactivado (el bot vuelve a rendirse si el nombre no acierta)
+COTEJO_BARRIDO = "si"
+
+# Cuantos productos como maximo se barren. Subelo si el catalogo crece:
+# con un tope por debajo del total, el zapato puede quedar sin mirar.
+COTEJO_MAXIMO = "400"
+
 # Cuantas horas se calla el bot despues de que un asesor le escribe a un
 # cliente a mano desde la app de Instagram (para no hablar por encima).
 #

@@ -33,7 +33,7 @@
 // Shopify no responde, se devuelve null y el bot sigue exactamente como
 // seguiría sin este archivo.
 
-import { buscarProductos } from "./shopify.js";
+import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
 import { cotejarConCatalogo } from "./ia.js";
 import { terminosCompatibles } from "./identificar.js";
 
@@ -49,6 +49,27 @@ const MAXIMO_CANDIDATOS = 8;
 // compatibles a la vez.
 const MAXIMO_TERMINOS = 2;
 
+// --- El barrido del catálogo completo -------------------------------
+//
+// Cuando la ronda dirigida no encuentra el zapato, la única forma de
+// saber si está en la tienda es mirarlos TODOS. Caso real que lo pidió:
+// un cliente respondió a una historia preguntando el precio, el cotejo
+// comparó contra los 10 que había devuelto la búsqueda y contestó
+// "ninguno coincide en suela ondulada y corte bajo". Tenía razón sobre
+// esos diez — pero el par estaba en el catálogo, en otro estante.
+//
+// Se hace en lotes porque meter cientos de fotos en una sola llamada
+// castiga la precisión: cuantas más mira el modelo de un tirón, más
+// fácil es que se conforme con la más parecida. Los lotes van de a
+// varios en paralelo para que el cliente no espere dos minutos, y en
+// cuanto uno dice "alta" se para: los demás ya no hacen falta.
+const POR_LOTE = 20;
+const LOTES_EN_PARALELO = 4;
+
+// Tope de productos a barrer. Se puede subir o bajar desde
+// wrangler.toml con COTEJO_MAXIMO sin tocar el código.
+const MAXIMO_CATALOGO = 400;
+
 export async function cotejoPorImagen({
   env,
   foto,
@@ -62,6 +83,9 @@ export async function cotejoPorImagen({
   // foto. Por eso corre aunque haya uno solo — es justo el caso en que
   // hace falta una segunda opinión.
   verificar = false,
+  // El barrido del catálogo completo. Se puede apagar desde
+  // wrangler.toml con COTEJO_BARRIDO = "no".
+  barrer = true,
 } = {}) {
   if (!foto) return null;
 
@@ -91,29 +115,126 @@ export async function cotejoPorImagen({
   // llena, que lo llenen los que tienen motivo para parecerse.
   const pila = unir(porRasgos, productos);
 
+  // Todo lo que ya se le puso delante al modelo. Lo que descartó no se
+  // le vuelve a mostrar en el barrido: sería pagar dos veces por la
+  // misma respuesta.
+  const yaMirados = new Set();
+
   if (pila.length >= minimo) {
-    const elegido = await cotejar(env, foto, pila, textoCliente, minimo);
+    const elegido = await cotejar(env, foto, pila, textoCliente, minimo, yaMirados);
     if (elegido) return resultado(elegido, productos);
   }
 
-  // Ni los rasgos ni la búsqueda dejaron con qué comparar. Queda la
-  // marca, que es lo poco que se puede dar por seguro cuando el modelo
-  // concreto no se acertó.
-  if (productos.length) return null;
+  // Ni los rasgos ni la búsqueda dieron con él. Queda la marca, que es lo
+  // poco que se puede dar por seguro cuando el modelo concreto no se
+  // acertó — y solo tiene sentido si la búsqueda no devolvió nada.
+  if (!productos.length) {
+    const marca = primeraPalabra(termino);
 
-  const marca = primeraPalabra(termino);
-  if (!marca || marca.toLowerCase() === String(termino).trim().toLowerCase()) {
-    // El término YA era una sola palabra: buscar "Nike" otra vez
+    // Si el término YA era una sola palabra, buscar "Nike" otra vez
     // devolvería lo mismo que acaba de devolver cero.
-    return null;
+    if (marca && marca.toLowerCase() !== String(termino).trim().toLowerCase()) {
+      console.log(`Sin resultados para "${termino}": cotejo la foto contra "${marca}"`);
+      const { productos: deLaMarca } = await buscarProductos(env, marca, MAXIMO_CANDIDATOS);
+      const elegido = await cotejar(
+        env,
+        foto,
+        unir(pila, deLaMarca),
+        textoCliente,
+        minimo,
+        yaMirados
+      );
+      if (elegido) return resultado(elegido, productos);
+    }
   }
 
-  console.log(`Sin resultados para "${termino}": cotejo la foto contra "${marca}"`);
-  const { productos: deLaMarca } = await buscarProductos(env, marca, MAXIMO_CANDIDATOS);
-  const elegido = await cotejar(env, foto, unir(pila, deLaMarca), textoCliente, minimo);
+  // ÚLTIMO RECURSO: MIRARLOS TODOS.
+  //
+  // Hasta acá se buscó donde era razonable buscar. Si el zapato sigue
+  // sin aparecer, o está en otro estante del catálogo o no lo tenemos —
+  // y esas dos cosas hay que distinguirlas antes de decirle nada al
+  // cliente.
+  if (!barrer) return null;
+
+  const elegido = await barrerCatalogo(env, foto, textoCliente, { termino, yaMirados });
   if (!elegido) return null;
 
   return resultado(elegido, productos);
+}
+
+// Compara la foto contra TODO el catálogo, en lotes y en paralelo.
+async function barrerCatalogo(env, foto, textoCliente, { termino, yaMirados }) {
+  const maximo = Number(env.COTEJO_MAXIMO) || MAXIMO_CATALOGO;
+  const { productos } = await traerCatalogoCompleto(env, maximo);
+
+  const pendientes = productos.filter(
+    (p) => p.imagen && !yaMirados.has(clave(p))
+  );
+
+  if (pendientes.length < 1) return null;
+
+  // Los que comparten alguna palabra con lo que se buscó van primero.
+  // No es una apuesta: si el término acierta la marca, el par está ahí, y
+  // encontrarlo en el primer lote ahorra todos los demás.
+  const ordenados = porParecidoDeTitulo(pendientes, termino);
+  const lotes = enLotes(ordenados, POR_LOTE);
+
+  console.log(
+    `Barrido del catálogo: ${ordenados.length} productos sin mirar, ` +
+      `${lotes.length} lote(s) de ${POR_LOTE}`
+  );
+
+  // De a varios lotes a la vez, y se corta en cuanto uno acierta. En
+  // serie, un catálogo grande haría esperar al cliente más de un minuto.
+  for (let i = 0; i < lotes.length; i += LOTES_EN_PARALELO) {
+    const tanda = lotes.slice(i, i + LOTES_EN_PARALELO);
+    const resultados = await Promise.all(
+      tanda.map((lote) => cotejarConCatalogo(env, foto, lote, textoCliente))
+    );
+
+    // El primero de la tanda, no "cualquiera": el orden de los lotes es
+    // el del parecido de título, así que el de más abajo es el que menos
+    // motivos tiene para ser.
+    const elegido = resultados.find(Boolean);
+    if (elegido) {
+      console.log(`Barrido: encontrado en el lote ${i + resultados.indexOf(elegido) + 1}`);
+      return elegido;
+    }
+  }
+
+  console.log(`Barrido: ninguno de los ${ordenados.length} del catálogo es el de la foto`);
+  return null;
+}
+
+// Ordena dejando delante los títulos que comparten palabra con lo que se
+// buscó. Las palabras de menos de 3 letras se ignoran: "de", "la" y los
+// números sueltos emparejan con cualquier cosa.
+function porParecidoDeTitulo(productos, termino) {
+  const palabras = String(termino || "")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((p) => p.length > 3);
+
+  if (!palabras.length) return productos;
+
+  const puntos = (producto) => {
+    const titulo = String(producto.titulo || "").toLowerCase();
+    return palabras.filter((p) => titulo.includes(p)).length;
+  };
+
+  return [...productos].sort((a, b) => puntos(b) - puntos(a));
+}
+
+function enLotes(productos, tamano) {
+  const lotes = [];
+  for (let i = 0; i < productos.length; i += tamano) {
+    lotes.push(productos.slice(i, i + tamano));
+  }
+  return lotes;
+}
+
+function clave(producto) {
+  return String(producto.titulo || "").toLowerCase();
 }
 
 // Qué se le devuelve a decidir() según de dónde salió el par elegido.
@@ -173,12 +294,16 @@ function unir(...listas) {
   return juntos;
 }
 
-async function cotejar(env, foto, productos, textoCliente, minimo = 2) {
+async function cotejar(env, foto, productos, textoCliente, minimo = 2, yaMirados = null) {
   // Sin foto no hay nada que comparar, y un producto sin imagen en el
   // catálogo dejaría al modelo eligiendo por el título — que es
   // justamente lo que este archivo evita.
   const candidatos = productos.filter((p) => p.imagen).slice(0, MAXIMO_CANDIDATOS);
   if (candidatos.length < minimo) return null;
+
+  // Se anotan aunque el cotejo falle: el barrido no tiene por qué volver
+  // a pagar por unas fotos que el modelo ya descartó.
+  if (yaMirados) candidatos.forEach((p) => yaMirados.add(clave(p)));
 
   return cotejarConCatalogo(env, foto, candidatos, textoCliente);
 }
