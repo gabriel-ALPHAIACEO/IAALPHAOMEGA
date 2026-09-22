@@ -187,6 +187,30 @@ export async function guardarContacto(db, contacto) {
 //   mostrados        los productos que el cliente ya vio (no repetir carrusel)
 //   nombre_completo  el nombre del perfil, tal cual ("María José Pérez")
 //   usuario          el @ de Instagram ("mariajo.p") — para Slack y /estado
+// LA TABLA TAMBIÉN SE CREA SOLA (22-sep-2026).
+//
+// Antes esto solo agregaba COLUMNAS: si la tabla no existía, se rendía y
+// dejaba al bot sin memoria. Eso dependía de que alguien se acordara de
+// correr `wrangler d1 migrations apply` a mano — y en el primer arranque
+// de EPICELL no se corrió: la base estaba creada pero vacía, y cada
+// mensaje moría con "D1_ERROR: no such table: contactos". El cliente
+// escribía "Hola" y no recibía nada.
+//
+// Un paso manual que hay que recordar es un paso que algún día no se da.
+// Así que la tabla se crea desde el código, igual que las columnas. Las
+// migraciones siguen existiendo para quien prefiera correrlas, pero ya no
+// son la única forma: CREATE TABLE IF NOT EXISTS no pisa nada si ya está.
+const CREAR_TABLA = `
+  CREATE TABLE IF NOT EXISTS contactos (
+    id            TEXT PRIMARY KEY,
+    nombre        TEXT    DEFAULT '',
+    historial     TEXT    DEFAULT '',
+    pausado_hasta INTEGER DEFAULT 0,
+    mids_enviados TEXT    DEFAULT '[]',
+    ultimo_envio  INTEGER NOT NULL DEFAULT 0
+  )
+`;
+
 const COLUMNAS_SOLAS = [
   ["mostrados", "TEXT NOT NULL DEFAULT '[]'"],
   ["nombre_completo", "TEXT NOT NULL DEFAULT ''"],
@@ -200,11 +224,25 @@ let columnasRevisadas = false;
 export async function asegurarColumnas(db, { aunqueYaSeRevisara = false } = {}) {
   if (!db || (columnasRevisadas && !aunqueYaSeRevisara)) return;
 
-  const { results } = await db.prepare("PRAGMA table_info(contactos)").all();
-  const hay = new Set((results || []).map((fila) => String(fila.name)));
+  let { results } = await db.prepare("PRAGMA table_info(contactos)").all();
+  let hay = new Set((results || []).map((fila) => String(fila.name)));
 
-  // Sin tabla no hay nada que completar: eso lo dice /estado con el comando.
-  if (!hay.size) return;
+  // Sin tabla, se crea. Es el primer arranque de este bot (o alguien no
+  // corrió la migración) y no hay motivo para dejarlo sin memoria.
+  if (!hay.size) {
+    await db.prepare(CREAR_TABLA).run();
+    console.log("Tabla \"contactos\" creada sola: primer arranque de esta base.");
+
+    ({ results } = await db.prepare("PRAGMA table_info(contactos)").all());
+    hay = new Set((results || []).map((fila) => String(fila.name)));
+
+    // Si después de crearla sigue sin verse, algo más grave pasa con la
+    // base y es mejor que se note en los registros que seguir en silencio.
+    if (!hay.size) {
+      console.error("Creé la tabla \"contactos\" pero la base sigue sin verla.");
+      return;
+    }
+  }
 
   for (const [columna, tipo] of COLUMNAS_SOLAS) {
     if (hay.has(columna)) continue;

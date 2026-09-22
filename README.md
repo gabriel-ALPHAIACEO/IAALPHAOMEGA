@@ -141,6 +141,12 @@ Hasta ahora **todo** el reconocimiento por foto terminaba en un nombre: la IA mi
 
 **Pendiente de prueba real:** no hay acceso a la tienda desde este entorno, así que el cotejo está comprobado en su lógica de ramas (cuándo corre, cuándo no, qué manda) pero **no contra fotos reales del catálogo**. La primera prueba en vivo debería ser una respuesta a una historia de un modelo que el bot venía fallando.
 
+### La tabla de D1 se crea sola (22-sep-2026)
+
+`asegurarColumnas` en `estado.js` agregaba columnas, pero si la tabla **no existía** se rendía — y eso dejaba el arranque dependiendo de que alguien se acordara de correr `wrangler d1 migrations apply` a mano. En el primer arranque de EPICELL no se corrió: la base estaba creada pero vacía, y cada mensaje moría con `D1_ERROR: no such table: contactos`. El cliente escribió "Hola" y no recibió nada.
+
+Ahora la tabla se crea desde el código igual que las columnas (`CREATE TABLE IF NOT EXISTS`, que no pisa nada si ya está). Las migraciones siguen existiendo para quien prefiera correrlas, pero ya no son la única forma. Es la regla 3 del `CLAUDE.md`, que hasta ahora se cumplía a medias.
+
 ### Estructura
 
 ```

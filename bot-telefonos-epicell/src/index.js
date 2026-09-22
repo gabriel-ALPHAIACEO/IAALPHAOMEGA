@@ -61,7 +61,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-22 · Meta directo (sin ManyChat) + los colores van al asesor";
+const VERSION = "2026-09-22 (2) · Meta directo + colores al asesor + la tabla de D1 se crea sola";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
