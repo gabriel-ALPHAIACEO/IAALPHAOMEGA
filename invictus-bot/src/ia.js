@@ -18,6 +18,7 @@
 
 import promptTexto from "./prompts/texto.txt";
 import promptVision from "./prompts/vision.txt";
+import promptCotejo from "./prompts/cotejo.txt";
 import { RASGOS_CLAVE } from "./identificar.js";
 
 const API = "https://api.openai.com/v1/chat/completions";
@@ -59,6 +60,28 @@ const ESQUEMA_IDENTIFICACION = {
       pedirNombreExacto: { type: "boolean" },
     },
     required: ["visto", "rasgos", "buscar", "pedirNombreExacto"],
+    additionalProperties: false,
+  },
+};
+
+// SCHEMA ESTRICTO PARA EL COTEJO VISUAL.
+//
+// Se elige por NÚMERO, no por título. Si se le pidiera devolver el
+// nombre del producto, el modelo lo parafrasearía ("Nike Air Max 97
+// plateadas" por "NIKE AIR MAX 97 SILVER BULLET") y después habría que
+// adivinar a cuál se refería. Con un índice no hay nada que interpretar:
+// o es uno de los que se le mandaron, o es 0.
+const ESQUEMA_COTEJO = {
+  name: "cotejo_catalogo",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      eleccion: { type: "integer" },
+      confianza: { type: "string", enum: ["alta", "media", "baja"] },
+      porque: { type: "string" },
+    },
+    required: ["eleccion", "confianza", "porque"],
     additionalProperties: false,
   },
 };
@@ -165,6 +188,92 @@ export async function identificarEnImagen(env, urlImagen) {
     rasgos: datos.rasgos && typeof datos.rasgos === "object" ? datos.rasgos : null,
     pedirNombreExacto: Boolean(datos.pedirNombreExacto),
   };
+}
+
+// COTEJO VISUAL CONTRA EL CATÁLOGO.
+//
+// identificarEnImagen() le pone un NOMBRE al zapato, y ese nombre se
+// busca por texto en Shopify. Si el nombre no acierta —el fallo
+// recurrente de este bot: el Uplift saliendo como "Air Max 270"— no hay
+// búsqueda que valga.
+//
+// Esto no adivina el nombre: le pone al modelo la foto del cliente al
+// lado de las fotos reales del catálogo y le pregunta cuál es el mismo
+// par. El acierto ya no depende de que sepa cómo se llama.
+//
+// Corre en OPENAI_MODELO_VISION, el mismo que identifica: es trabajo de
+// mirar, no de redactar.
+//
+// Devuelve el producto elegido, o null si no hay ninguno con confianza
+// alta. Cualquier fallo (el modelo no responde, un índice fuera de
+// rango) devuelve null: esto es una mejora oportunista, nunca puede
+// dejar peor al cliente de lo que estaba sin ella.
+export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
+  if (!foto || !candidatos?.length) return null;
+
+  const contenido = [
+    // La foto del cliente en alta: es la que hay que leer al detalle, y
+    // suele venir con filtros, lejos o con stickers encima.
+    { type: "image_url", image_url: { url: foto, detail: "high" } },
+    { type: "text", text: "↑ ESTA es la foto del cliente. Abajo, el catálogo:" },
+  ];
+
+  candidatos.forEach((producto, i) => {
+    contenido.push({ type: "text", text: `${i + 1}. ${producto.titulo}` });
+    // Las del catálogo en baja: son fotos de producto limpias, con el
+    // zapato centrado y sobre fondo liso. La silueta y la suela se leen
+    // igual de bien, y así una comparación contra 8 productos cuesta una
+    // fracción de lo que costaría en alta.
+    contenido.push({
+      type: "image_url",
+      image_url: { url: producto.imagen, detail: "low" },
+    });
+  });
+
+  contenido.push({
+    type: "text",
+    text: `El cliente escribió: ${textoCliente ? `"${textoCliente}"` : "(nada, solo mandó la foto)"}`,
+  });
+
+  const salida = await llamar(env, promptCotejo, contenido, {
+    maxTokens: 300,
+    schema: ESQUEMA_COTEJO,
+    modelo: env.OPENAI_MODELO_VISION || MODELO_VISION_POR_DEFECTO,
+  });
+
+  const datos = extraerJson(salida);
+  if (!datos) {
+    console.error("El cotejo visual no devolvió JSON válido");
+    return null;
+  }
+
+  const indice = Number(datos.eleccion);
+  const confianza = String(datos.confianza || "").toLowerCase();
+  const porque = String(datos.porque || "").slice(0, 200);
+
+  if (!indice) {
+    console.log(`Cotejo visual: ninguno del catálogo es el de la foto (${porque})`);
+    return null;
+  }
+
+  if (!Number.isInteger(indice) || indice < 1 || indice > candidatos.length) {
+    console.error(`Cotejo visual: índice fuera de rango (${datos.eleccion})`);
+    return null;
+  }
+
+  const elegido = candidatos[indice - 1];
+
+  // SOLO "ALTA" LLEGA AL CLIENTE. Lo que sale de aquí se convierte en una
+  // ficha con precio y botón de compra; con una corazonada no se manda.
+  if (confianza !== "alta") {
+    console.log(
+      `Cotejo visual: "${elegido.titulo}" con confianza ${confianza} — no lo uso (${porque})`
+    );
+    return null;
+  }
+
+  console.log(`Cotejo visual: la foto es "${elegido.titulo}" (${porque})`);
+  return elegido;
 }
 
 // Con response_format el JSON ya viene limpio, pero si algún día se cambia de

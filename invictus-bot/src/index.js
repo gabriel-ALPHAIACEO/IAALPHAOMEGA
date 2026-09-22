@@ -37,6 +37,7 @@ import { alternativasPara } from "./parecidos.js";
 import { separarColor, filtrarPorColor, terminoDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
+import { cotejoPorImagen } from "./cotejo.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
   cargarContacto,
@@ -67,7 +68,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-22 · despausar desde el chat + nombres de clientes";
+const VERSION = "2026-09-22 · cotejo visual + despausar desde el chat + nombres de clientes";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -78,6 +79,23 @@ const SIN_RESULTADOS =
 
 // La talla la confirma una persona: el catálogo no guarda qué tallas quedan.
 const SOLO_TALLA = "Eso te lo confirma un asesor en un momento 😊";
+
+// Cuando el cotejo visual encontró en el catálogo el zapato de la foto.
+//
+// Sustituye a lo que escribió la IA de texto, que en este punto casi
+// siempre es una pregunta ("¿sabes cómo se llama?") o un "mira esta
+// marca": la marcaFoto que recibió decía que no se reconoció el modelo,
+// porque el cotejo corre DESPUÉS de que ella redactó. La foto ya nos lo
+// dijo, así que se lo enseñamos en vez de preguntárselo.
+//
+// Ninguna afirma el modelo por su nombre —el título va en la ficha,
+// debajo— ni promete talla o stock, que eso no lo sabemos.
+const ENCONTRE_EL_DE_LA_FOTO = [
+  "¡Ese sí lo tenemos! 😍 Mira 👇",
+  "¡Claro que sí! Es este 👟 Te lo muestro 👇",
+  "¡Lo encontré! 😊 Aquí lo tienes 👇",
+  "¡Ese mismo lo manejamos! 👟 Mira 👇",
+];
 
 // Hay un modelo parecido que enseñarle: van con fichas debajo.
 const TE_OFREZCO_PARECIDOS = [
@@ -838,6 +856,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     // Solo si pide algo DISTINTO se descarta lo que ya vio. Una foto no
     // cuenta: quien manda una foto está pidiendo ESE zapato, no otro.
     pideMas: !imagenCruda && pideMasVariedad(mensaje.texto),
+    foto,
   });
 
   // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO (crítico).
@@ -1136,7 +1155,17 @@ function sinBienvenida(respuesta) {
 // De lo que escribió el modelo a lo que se le manda al cliente: se le quita
 // la talla al término, se separa el color, se busca en Shopify y se decide
 // si la respuesta del modelo sirve o hay que sustituirla.
-async function decidir({ env, salida, texto, historialPrevio, mostrados = [], pideMas = false }) {
+async function decidir({
+  env,
+  salida,
+  texto,
+  historialPrevio,
+  mostrados = [],
+  pideMas = false,
+  // La foto del cliente, ya en data URI. Solo viene en mensajes con
+  // imagen, y es lo que habilita el cotejo visual contra el catálogo.
+  foto = "",
+}) {
   const preguntoTalla = PREGUNTA_TALLA.test(texto);
 
   // El modelo cuela la talla en el término cuando el cliente la nombra, y eso
@@ -1185,6 +1214,43 @@ async function decidir({ env, salida, texto, historialPrevio, mostrados = [], pi
 
     if (!productos.length) {
       console.log(`Sin resultados para "${aBuscar}"`);
+    }
+  }
+
+  // COTEJO VISUAL (solo si esto vino de una foto).
+  //
+  // Hasta aquí el reconocimiento pasó por un NOMBRE: la IA de visión dijo
+  // "Vapormax" y se buscó esa palabra. Si el nombre no acertó, no hay
+  // productos — o hay diez de la marca, sin saber cuál es el de la foto.
+  //
+  // Esto compara la foto del cliente contra las fotos REALES del
+  // catálogo y saca el par que es. Ver ./cotejo.js: no corre siempre, y
+  // cuando no está seguro devuelve null y todo sigue igual que sin él.
+  if (foto) {
+    const cotejo = await cotejoPorImagen({
+      env,
+      foto,
+      textoCliente: texto,
+      productos,
+      termino: aBuscar,
+    });
+
+    if (cotejo) {
+      productos = cotejo.productos;
+      habiaDelModelo = productos.length;
+
+      // Se sabe cuál es el par exacto, así que "hay más de los que caben
+      // en el carrusel" deja de aplicar: mandarlo al catálogo completo
+      // ahora sería alejarlo del zapato que acabamos de encontrarle.
+      hayMasEnCatalogo = false;
+
+      // La IA de texto redactó ANTES del cotejo, con una marcaFoto que
+      // decía que no se reconocía el modelo. Lo que escribió ya no vale.
+      salida.respuesta = alAzar(ENCONTRE_EL_DE_LA_FOTO);
+      salida.historial = conNota(
+        salida.historial,
+        `Le mostré ${cotejo.elegido.titulo} (identificado por la foto).`
+      );
     }
   }
 
