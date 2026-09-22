@@ -18,6 +18,8 @@ Como los archivos se pegan a mano, **cada entrega sube la constante `VERSION` de
 | Carpeta | Qué es |
 |---|---|
 | `invictus-bot/` | **LA DE PRODUCCIÓN.** Es el código que atiende clientes hoy. Todo cambio para Invictus se hace acá. |
+| `kit-meta/` | Las piezas de Meta directo (`instagram.js`, `estado.js`, `imagen.js` + migraciones), copiadas de producción sin cambios, con `GUIA.md` para portarlas a otro bot. **Decisión del dueño (22-sep): todos los bots van a Meta directo, ManyChat se retira de todos.** |
+| `bot-telefonos-epicell/` | EPICELL (teléfonos, Google Sheets). **Incompleto:** solo `wrangler.toml` y prompts, falta `src/`. Ver su `PENDIENTE.md`. |
 | `worker/` | Rama **multi-tienda sin fusionar** (`tienda.js`, `tiendas/*.js`, prompts con `{{TIENDA}}`). Viene de una base más vieja: no tiene visión en dos pasos, ni `hayMas`, ni despausar, ni nombres de clientes. **No copiar sus archivos a la carpeta de despliegue.** |
 
 Si algún día se integra el multi-tienda, se porta `tienda.js` + `tiendas/` + los prompts con marcadores **hacia** `invictus-bot/`, nunca al revés.
