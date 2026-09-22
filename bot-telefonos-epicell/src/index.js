@@ -69,7 +69,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-22 (5) · la hoja entra completa: capacidad, marca y todas las columnas";
+const VERSION = "2026-09-22 (6) · la ficha va limpia: capacidad y precio, sin etiquetas";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -1259,11 +1259,17 @@ async function decidir({ env, salida, texto, historialPrevio }) {
 function precioParaMostrar(producto, conCashea, conDivisas) {
   if (conDivisas) return producto.precio || "Precio: consúltalo";
 
+  // Los DOS precios juntos: aquí sí van con su nombre. Sin etiqueta
+  // serían dos cifras seguidas y el cliente no sabría cuál es cuál —
+  // justo cuando preguntó para comparar.
   if (conCashea && producto.precioCashea) {
-    return `${producto.precio || "Precio: consúltalo"} · Con Cashea: ${producto.precioCashea}`;
+    return `${producto.precio || "Precio: consúltalo"} en divisas · ${producto.precioCashea} con Cashea`;
   }
 
-  if (producto.precioCashea) return `Con Cashea: ${producto.precioCashea}`;
+  // El precio de siempre, solo. Sin el "Con Cashea:" delante: es el que
+  // se muestra por defecto, así que decirlo en cada ficha no aporta y le
+  // roba espacio al título, que es lo que el cliente está leyendo.
+  if (producto.precioCashea) return producto.precioCashea;
 
   return producto.precio || "";
 }
