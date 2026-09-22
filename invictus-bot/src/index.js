@@ -68,7 +68,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-22 · cotejo visual + despausar desde el chat + nombres de clientes";
+const VERSION = "2026-09-22 · cotejo visual por rasgos + despausar desde el chat + nombres de clientes";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -781,11 +781,17 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // otro mensaje. Antes una sola llamada hacía las dos cosas a la vez —
   // mirar y redactar—, y competían por la atención del modelo.
   let marcaFoto = "";
+  // Los rasgos que la IA marcó en la foto siguen vivos después de
+  // identificar: el cotejo visual los usa para elegir contra QUÉ
+  // productos comparar, en vez de contra los primeros que devuelva
+  // Shopify (ver cotejo.js).
+  let rasgosFoto = null;
   if (foto) {
     const identificacion = await identificarEnImagen(env, foto);
     if (identificacion) {
       const { buscar, pedirNombreExacto } = validarIdentificacion(identificacion);
       marcaFoto = marcarIdentificacion(buscar, pedirNombreExacto, esHistoria);
+      rasgosFoto = identificacion.rasgos;
     } else {
       console.error(
         "La IA de visión no respondió: trato la foto como si no se hubiera podido ver"
@@ -857,6 +863,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     // cuenta: quien manda una foto está pidiendo ESE zapato, no otro.
     pideMas: !imagenCruda && pideMasVariedad(mensaje.texto),
     foto,
+    rasgos: rasgosFoto,
   });
 
   // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO (crítico).
@@ -1165,6 +1172,9 @@ async function decidir({
   // La foto del cliente, ya en data URI. Solo viene en mensajes con
   // imagen, y es lo que habilita el cotejo visual contra el catálogo.
   foto = "",
+  // Lo que la IA de visión marcó que VE en esa foto. El cotejo elige por
+  // ahí contra qué productos comparar.
+  rasgos = null,
 }) {
   const preguntoTalla = PREGUNTA_TALLA.test(texto);
 
@@ -1233,6 +1243,7 @@ async function decidir({
       textoCliente: texto,
       productos,
       termino: aBuscar,
+      rasgos,
     });
 
     if (cotejo) {

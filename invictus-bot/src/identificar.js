@@ -194,3 +194,38 @@ export function validarIdentificacion({ buscar, rasgos, pedirNombreExacto }) {
     corregido: true,
   };
 }
+
+// QUÉ MODELOS DEL CATÁLOGO ENCAJAN CON LO QUE SE VIO EN LA FOTO.
+//
+// Es la tabla de REGLAS leída al revés. validarIdentificacion() la usa
+// para descartar ("dijiste Air Force One pero no hay pieza metálica");
+// esto la usa para PROPONER: dados los rasgos que la IA marcó, ¿qué
+// términos del catálogo son compatibles con ellos?
+//
+// Nació de un caso real. Un cliente respondió a una historia preguntando
+// el precio; la IA dijo "Air Force One", la verificación lo bajó a
+// "Nike" porque no se veía la pieza metálica del ojal, y el cotejo
+// visual terminó comparando la foto contra los primeros 8 Nike que
+// devolvió Shopify — ocho pares cualesquiera, elegidos por el orden del
+// catálogo y no por parecerse a la foto. El cotejo se abstuvo, con razón
+// ("la suela de la foto es plana, distinta a las del catálogo"), pero
+// nunca llegó a ver un solo candidato de la familia correcta.
+//
+// Con los mismos rasgos —swoosh grande y recto SÍ, pieza metálica en el
+// ojal NO— esta función devuelve "dunk": la única regla que los dos
+// rasgos satisfacen. Esos son los candidatos que valía la pena mirar.
+//
+// Solo se proponen términos cuyos rasgos EXIGIDOS estén todos
+// presentes. Como ninguna regla tiene la lista de exigidos vacía, un
+// término nunca aparece "gratis": hace falta que se haya visto algo
+// distintivo suyo.
+export function terminosCompatibles(rasgos) {
+  if (!rasgos || typeof rasgos !== "object") return [];
+
+  return REGLAS.filter(
+    (regla) =>
+      regla.requiere.length &&
+      regla.requiere.every((clave) => rasgos[clave] === true) &&
+      regla.prohibe.every((clave) => rasgos[clave] !== true)
+  ).map((regla) => regla.term);
+}
