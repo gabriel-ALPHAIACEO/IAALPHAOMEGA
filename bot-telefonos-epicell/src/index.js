@@ -34,6 +34,12 @@ import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideVerMas, fraseDeCatalogo } from "./catalogo.js";
 import { separarColor } from "./color.js";
+import {
+  separarCapacidad,
+  capacidadesDe,
+  comoSeDicen,
+  preguntaPorCapacidad,
+} from "./capacidad.js";
 import { comoDataUri } from "./imagen.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
@@ -61,7 +67,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-22 (2) · Meta directo + colores al asesor + la tabla de D1 se crea sola";
+const VERSION = "2026-09-22 (3) · los gigas se responden con el catálogo delante";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -80,6 +86,28 @@ const SOLO_ASESOR = "Eso te lo confirma un asesor en un momento 😊";
 // Si el modelo falla, el cliente no se queda sin nada y el asesor se entera.
 const FALLO_TECNICO =
   "Disculpa, se me trabó el sistema 😅 Un asesor te atiende en un momento";
+
+// LA CAPACIDAD SÍ SE RESPONDE (al revés que el color).
+//
+// Está escrita en el TÍTULO del catálogo —"iPhone 15 128GB"—, así que el
+// bot la sabe de verdad: la lee, no la supone. El color no: el título
+// puede decir "Medianoche" y eso no dice qué hay en la tienda hoy.
+//
+// Estas dos frases las escribe el CÓDIGO, no el modelo, porque el modelo
+// redacta antes de ver el resultado de la búsqueda: él no sabe en qué
+// capacidades quedó el equipo. Las de aquí sí, porque salen de los
+// títulos que volvieron.
+const SIN_ESA_CAPACIDAD = [
+  "En {pedida} no lo tengo ahora mismo 😅 Pero me queda en {otras}, mira 👇",
+  "De ese no me queda en {pedida}, pero sí en {otras} 😊 Míralos 👇",
+  "Justo en {pedida} no lo tengo 😅 Lo que sí tengo es en {otras} 👇",
+];
+
+const CAPACIDADES_QUE_HAY = [
+  "De ese lo tengo en {otras} 😊 Mira 👇",
+  "Me queda en {otras} 👇",
+  "Lo manejo en {otras} 😊 Aquí te los muestro 👇",
+];
 
 // Había MÁS de los 10 que caben en un carrusel: se le dice y se le pasa el
 // catálogo, que es donde sí están todos.
@@ -1082,6 +1110,44 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     );
   }
 
+  // PIDIÓ UNA CAPACIDAD QUE NO HAY (crítico para no perder la venta).
+  //
+  // "¿Tienen el 15 de 256?" terminaba mal cuando no había ese exacto: cero
+  // resultados, "déjame confirmarte con un asesor", y el cliente se iba —
+  // con el mismo modelo ahí, en 128 y en 512.
+  //
+  // Así que si la búsqueda traía una capacidad y no dio nada, se vuelve a
+  // buscar el modelo SIN ella. Si aparece, no es que no lo tengamos: es que
+  // no lo tenemos en esos gigas, y eso se puede decir con el dato delante.
+  const { termino: sinCapacidad, capacidades: pedidas } = separarCapacidad(termino);
+  let otrasCapacidades = [];
+
+  if (termino && !productos.length && pedidas.length && sinCapacidad) {
+    console.log(
+      `Sin "${comoSeDicen(pedidas)}": busco "${sinCapacidad}" a ver en qué capacidades está`
+    );
+    const reintento = await buscarProductos(env, sinCapacidad);
+
+    if (reintento.productos.length) {
+      productos = reintento.productos;
+      hayMas = reintento.hayMas;
+      otrasCapacidades = capacidadesDe(productos);
+      console.log(
+        `El modelo SÍ está, en ${comoSeDicen(otrasCapacidades) || "capacidades que el título no dice"}`
+      );
+    }
+  }
+
+  // Preguntó por los gigas sin pedir unos concretos ("¿qué capacidades
+  // tienen del 15?"). Se responde con lo que dicen los títulos que
+  // volvieron, no con lo que el modelo haya supuesto antes de buscar.
+  const quiereSaberCapacidades =
+    preguntaPorCapacidad(texto) && !pedidas.length && productos.length;
+
+  if (quiereSaberCapacidades && !otrasCapacidades.length) {
+    otrasCapacidades = capacidadesDe(productos);
+  }
+
   // Si buscó y no encontró nada, no le damos la respuesta optimista del
   // modelo: no afirmamos que el producto no existe.
   const buscoSinExito = Boolean(termino) && !productos.length;
@@ -1093,11 +1159,26 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   // escrito. Es el fallo que más se nota: saludar dos veces.
   const respuestaFinal = historialPrevio ? sinBienvenida(salida.respuesta) : salida.respuesta;
 
-  const respuestaCliente = soloAsesor
-    ? SOLO_ASESOR
-    : buscoSinExito
-      ? SIN_RESULTADOS
-      : respuestaFinal;
+  // El orden va de lo más concreto a lo más general. La respuesta que
+  // escribió el modelo queda última porque él no vio el resultado de la
+  // búsqueda: no sabe en qué capacidades quedó el equipo ni si hubo algo.
+  let respuestaCliente = respuestaFinal;
+
+  if (soloAsesor) {
+    respuestaCliente = SOLO_ASESOR;
+  } else if (otrasCapacidades.length && pedidas.length) {
+    // Pidió unos gigas que no hay, pero el modelo está en otros.
+    respuestaCliente = alAzar(SIN_ESA_CAPACIDAD)
+      .replace("{pedida}", comoSeDicen(pedidas))
+      .replace("{otras}", comoSeDicen(otrasCapacidades));
+  } else if (quiereSaberCapacidades && otrasCapacidades.length) {
+    respuestaCliente = alAzar(CAPACIDADES_QUE_HAY).replace(
+      "{otras}",
+      comoSeDicen(otrasCapacidades)
+    );
+  } else if (buscoSinExito) {
+    respuestaCliente = SIN_RESULTADOS;
+  }
 
   return {
     productos,

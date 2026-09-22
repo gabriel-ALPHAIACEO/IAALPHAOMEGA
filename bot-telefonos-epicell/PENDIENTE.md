@@ -53,6 +53,35 @@ Un color afirmado de más es una venta que se cae en el mostrador.
 
 `filtrarPorColor` y `terminoDeColor` siguen en `color.js` pero ya no se usan.
 
+## Hecho: los gigas se responden, con el catálogo delante
+
+La capacidad está escrita en el **título** del catálogo ("iPhone 15 128GB"),
+así que es un dato real — al revés que el color, que el título no sabe. Por
+eso los gigas SÍ se contestan.
+
+Lo que resuelve, que era una venta perdida por mensaje: *"¿tienen el 15 de
+256?"* cuando no había ese exacto devolvía cero, el bot decía "déjame
+confirmarte con un asesor" y el cliente se iba — **con el mismo modelo ahí,
+en 128 y en 512**.
+
+Ahora, si la búsqueda traía una capacidad y no dio nada, se busca el modelo
+**sin ella**. Si aparece, no es que no lo tengamos: es que no lo tenemos en
+esos gigas, y eso se dice con el dato delante:
+
+> En 256GB no lo tengo ahora mismo 😅 Pero me queda en 128GB y 512GB, mira 👇
+
+Y *"¿qué capacidades tienen del 15?"* se responde leyendo los títulos que
+volvieron, ordenados de menor a mayor.
+
+**La frase la escribe el código, no el modelo**, y por un motivo: el modelo
+redacta ANTES de que se haga la búsqueda, así que no puede saber en qué
+capacidades quedó el equipo. El prompt ahora se lo dice explícitamente —
+nunca adelantar capacidades, nunca decir que una no la hay, solo buscar.
+
+Cuidado con los números: `capacidad.js` acepta "256" suelto como capacidad
+pero **nunca** 12, 13 o 16, que son nombres de modelo ("iPhone 16" no es
+dieciséis gigas). Con unidad escrita —"16GB"— sí vale.
+
 ## Falta: configuración (no es código)
 
 1. **Crear la base de datos y correr la migración:**
