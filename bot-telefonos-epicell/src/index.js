@@ -29,10 +29,16 @@
 // ──────────────────────────────────────────────────────────────────────
 
 import { responderTexto, identificarEnImagen } from "./ia.js";
-import { buscarProductos, diagnosticoHoja, listaDeTitulos } from "./sheets.js";
+import {
+  buscarProductos,
+  catalogoCompleto,
+  diagnosticoHoja,
+  listaDeTitulos,
+} from "./sheets.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideVerMas, fraseDeCatalogo } from "./catalogo.js";
+import { pideVerLoRecomendado, productosRecomendados } from "./recomendados.js";
 import { separarColor } from "./color.js";
 import {
   separarCapacidad,
@@ -69,7 +75,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-22 (6) · la ficha va limpia: capacidad y precio, sin etiquetas";
+const VERSION = "2026-09-22 (7) · muéstrame esos enseña los que el bot nombró";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -140,6 +146,15 @@ const CAPACIDADES_QUE_HAY = [
   "De ese lo tengo en {otras} 😊 Mira 👇",
   "Me queda en {otras} 👇",
   "Lo manejo en {otras} 😊 Aquí te los muestro 👇",
+];
+
+// Cuando el cliente pide ver los que el bot acaba de nombrar. La lista ya
+// existe, así que no hay nada que preguntar ni que redactar.
+const AQUI_LOS_TIENES = [
+  "¡Claro! Aquí los tienes 👇",
+  "¡Con gusto! Míralos 👇",
+  "¡Listo! Estos son 👇",
+  "Aquí te los muestro 😊 👇",
 ];
 
 // Había MÁS de los 10 que caben en un carrusel: se le dice y se le pasa el
@@ -705,6 +720,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       nombre,
       mids_enviados: mids,
       ultimo_envio: enviadoEn || Date.now(),
+      ultima_respuesta: respuesta,
     });
     return;
   }
@@ -726,8 +742,58 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       historial: conNota(historialPrevio, "Pidió ver más y le pasé el catálogo."),
       mids_enviados: mids,
       ultimo_envio: enviadoEn || Date.now(),
+      ultima_respuesta: respuesta,
     });
     return;
+  }
+
+  // "MUÉSTRAME ESOS": los que el bot acaba de nombrar, no otros.
+  //
+  // Va ANTES del modelo a propósito. El modelo ya demostró que aquí se
+  // pierde: recitó cinco teléfonos de 8/256 y, al pedirle verlos, buscó
+  // "Samsung" y mandó dos cargadores. No hay nada que redactar — el
+  // cliente quiere ver una lista que ya existe, escrita en el mensaje
+  // anterior. Se lee de ahí y se muestra.
+  if (!imagenCruda && pideVerLoRecomendado(mensaje.texto) && contacto.ultima_respuesta) {
+    const recomendados = productosRecomendados(
+      await catalogoCompleto(env),
+      contacto.ultima_respuesta
+    );
+
+    if (recomendados.length) {
+      console.log(
+        `Pidió ver lo recomendado: ${recomendados.map((p) => p.titulo).join(", ")}`
+      );
+
+      const respuesta = alAzar(AQUI_LOS_TIENES);
+      const fichas = recomendados.map((p) => ({
+        ...p,
+        precio: subtituloDeFicha(p, false, false),
+      }));
+
+      await mandar(() => enviarTexto(env, mensaje.igsid, respuesta));
+      await mandar(() => enviarFichas(env, mensaje.igsid, fichas));
+
+      await guardarContacto(env.DB, {
+        ...contacto,
+        nombre,
+        historial: conNota(
+          historialPrevio,
+          `Le mostré los que le había recomendado: ${recomendados
+            .map((p) => p.titulo)
+            .join(", ")}.`
+        ),
+        mids_enviados: mids,
+        ultimo_envio: enviadoEn || Date.now(),
+        ultima_respuesta: respuesta,
+      });
+      return;
+    }
+
+    console.log(
+      "Pidió ver lo recomendado, pero en el último mensaje no reconocí " +
+        "ningún producto del catálogo: sigo por el camino normal."
+    );
   }
 
   const minutosCallado = minutosDesde(contacto.ultimo_envio);
@@ -864,6 +930,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     historial: recortarHistorial(salida.historial || historialPrevio),
     pausado_hasta: contacto.pausado_hasta,
     mids_enviados: mids,
+    // Lo que se le acaba de decir, tal cual. Es lo que hace posible el
+    // "muéstrame esos" del próximo mensaje (ver recomendados.js).
+    ultima_respuesta: respuestaCliente,
     // Si TODOS los envíos fallaron, enviadoEn sigue en 0 y no hay que pisar
     // la marca anterior con un cero.
     ultimo_envio: enviadoEn || contacto.ultimo_envio,

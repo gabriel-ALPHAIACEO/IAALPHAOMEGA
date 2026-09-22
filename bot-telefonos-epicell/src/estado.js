@@ -29,6 +29,7 @@ export async function cargarContacto(db, id) {
       mids_enviados: [],
       ultimo_envio: 0,
       mostrados: [],
+      ultima_respuesta: "",
     };
   }
 
@@ -47,6 +48,9 @@ export async function cargarContacto(db, id) {
     // Los títulos que este cliente YA vio. Sin esto, pedir "más" le devuelve
     // el mismo carrusel (ver migrations/0003_mostrados.sql).
     mostrados: leerLista(fila.mostrados),
+    // Lo último que se le dijo, tal cual salió. Es de donde se recupera
+    // "muéstrame esos".
+    ultima_respuesta: fila.ultima_respuesta || "",
   };
 }
 
@@ -138,6 +142,9 @@ export async function guardarContacto(db, contacto) {
     JSON.stringify(mids),
     Number(contacto.ultimo_envio) || 0,
     JSON.stringify(mostrados),
+    // Se recorta: es para volver sobre el último mensaje, no para
+    // guardarse conversaciones enteras en cada fila.
+    String(contacto.ultima_respuesta || "").slice(0, MAX_ULTIMA_RESPUESTA),
   ];
 
   // Los tres campos del perfil NUNCA se borran desde aquí: si el que llama
@@ -147,8 +154,8 @@ export async function guardarContacto(db, contacto) {
   const guardar = () =>
     db
       .prepare(
-        `INSERT INTO contactos (id, nombre, nombre_completo, usuario, historial, pausado_hasta, mids_enviados, ultimo_envio, mostrados)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO contactos (id, nombre, nombre_completo, usuario, historial, pausado_hasta, mids_enviados, ultimo_envio, mostrados, ultima_respuesta)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            nombre = COALESCE(NULLIF(excluded.nombre, ''), contactos.nombre),
            nombre_completo = COALESCE(NULLIF(excluded.nombre_completo, ''), contactos.nombre_completo),
@@ -157,7 +164,8 @@ export async function guardarContacto(db, contacto) {
            pausado_hasta = excluded.pausado_hasta,
            mids_enviados = excluded.mids_enviados,
            ultimo_envio = excluded.ultimo_envio,
-           mostrados = excluded.mostrados`
+           mostrados = excluded.mostrados,
+           ultima_respuesta = excluded.ultima_respuesta`
       )
       .bind(...datos)
       .run();
@@ -211,10 +219,26 @@ const CREAR_TABLA = `
   )
 `;
 
+// Cuánto se guarda del último mensaje. Con esto sobra para recuperar los
+// modelos que nombró; guardar más sería llenar la base de texto que nadie
+// va a volver a leer.
+const MAX_ULTIMA_RESPUESTA = 1000;
+
 const COLUMNAS_SOLAS = [
   ["mostrados", "TEXT NOT NULL DEFAULT '[]'"],
   ["nombre_completo", "TEXT NOT NULL DEFAULT ''"],
   ["usuario", "TEXT NOT NULL DEFAULT ''"],
+  // LO ÚLTIMO QUE EL BOT LE DIJO A ESTE CLIENTE, palabra por palabra.
+  //
+  // El historial es un RESUMEN que escribe el modelo ("pidió un Samsung
+  // de 256"), y para casi todo alcanza. Pero hay una frase que lo rompe:
+  // "muéstrame esos". Pasó en producción — el bot recitó cinco modelos de
+  // 8/256 y, al pedirle verlos, buscó "Samsung" y mandó dos cargadores.
+  // La lista que acababa de decir no estaba guardada en ninguna parte.
+  //
+  // Con el mensaje literal se puede volver sobre él y sacar los modelos
+  // que nombró, que es exactamente lo que el cliente está pidiendo ver.
+  ["ultima_respuesta", "TEXT NOT NULL DEFAULT ''"],
 ];
 
 // Una vez por instancia del Worker basta: después de la primera revisión,

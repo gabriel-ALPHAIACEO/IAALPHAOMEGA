@@ -180,6 +180,17 @@ function otrasColumnas(fila, encabezados, indices) {
 // los títulos son cortos o largos.
 const MAXIMO_CARACTERES_CATALOGO = 6000;
 
+// TODO el catálogo, sin buscar nada.
+//
+// Lo usa "muéstrame esos" (ver recomendados.js): para reconocer qué
+// modelos nombró el bot en su último mensaje hay que tener delante la
+// lista de los que existen. La hoja viene cacheada, así que esto no
+// dispara una descarga nueva en cada mensaje.
+export async function catalogoCompleto(env) {
+  const { productos } = await leerHoja(env);
+  return productos || [];
+}
+
 export async function listaDeTitulos(env, limite = MAXIMO_CARACTERES_CATALOGO) {
   const { productos, aviso } = await leerHoja(env);
 
