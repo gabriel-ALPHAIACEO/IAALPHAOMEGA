@@ -205,6 +205,37 @@ const ESQUEMA_COTEJO = {
   },
 };
 
+// SCHEMA ESTRICTO PARA LA RESPUESTA DE TEXTO.
+//
+// Es el mismo arreglo que ya se le hizo a la visión en septiembre, por el
+// mismo motivo. Con "json_object" (modo suelto) OpenAI garantiza que el
+// JSON sea válido, NO que traiga las claves que el prompt pide. Y este
+// prompt es largo: que se quede sin "buscar" es cuestión de tiempo.
+//
+// Cuando eso pasa no se nota. normalizar() rellena "buscar" con "NADA",
+// el bot no busca nada, y el cliente recibe una respuesta amable sin un
+// solo zapato debajo. Ningún error en los registros, ninguna alarma: una
+// venta perdida que parece una conversación normal.
+//
+// Con "json_schema" + strict:true eso es imposible a nivel de API.
+const ESQUEMA_RESPUESTA = {
+  name: "respuesta_vendedora",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      // Lo que ve el cliente.
+      respuesta: { type: "string" },
+      // El término de búsqueda, o "NADA" si no hay que buscar.
+      buscar: { type: "string" },
+      // La memoria para el mensaje siguiente.
+      historial: { type: "string" },
+    },
+    required: ["respuesta", "buscar", "historial"],
+    additionalProperties: false,
+  },
+};
+
 async function llamar(
   env,
   sistema,
@@ -269,7 +300,12 @@ async function llamar(
 }
 
 export async function responderTexto(env, entrada) {
-  const salida = await llamar(env, textoConCatalogo(), [{ type: "text", text: entrada }]);
+  const salida = await llamar(
+    env,
+    textoConCatalogo(),
+    [{ type: "text", text: entrada }],
+    { schema: ESQUEMA_RESPUESTA }
+  );
   return normalizar(salida);
 }
 

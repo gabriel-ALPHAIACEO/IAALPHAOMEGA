@@ -165,7 +165,7 @@ dos pasos, esa función se parte sola.
 |---|---|---|---|
 | 1 | **Sacar el catálogo de `vision.txt`** | ~4.000 tokens por foto (13% del cupo) | Bajo — el cotejo visual y el índice ya hacen ese trabajo mejor |
 | 2 | **Un solo catálogo**, no dos copias | ~3.400 tokens por mensaje, y deja de haber dos listas que mantener | Bajo |
-| 3 | **Comprimir las reglas que el código ya garantiza** | ~2.000-3.000 tokens | Bajo, con pruebas |
+| 3 | **Comprimir las reglas que el código ya garantiza** | ~700 tokens (ver corrección) | Bajo, con pruebas |
 | 4 | **Partir en dos pasos** | mejores respuestas + menos tokens | **Alto: toca el corazón del bot** |
 
 Los tres primeros son poda con red: se miden antes y después, y se prueban
@@ -173,6 +173,36 @@ con `/probar-imagen` sin que los vea un cliente.
 
 El cuarto lo haría **sobre El Emperador primero**, que todavía no tiene
 clientes, y lo pasamos a Invictus cuando esté probado en vivo.
+
+---
+
+## Corrección al punto 3 (23-sep, después de medirlo)
+
+También estaba inflado. Medido en serio:
+
+- **Duplicación real de párrafos: ~1.631 bytes** en 7 pares. Y de esos, la
+  mayoría son los ejemplos de bienvenida con nombres distintos (con nombre,
+  sin nombre, con un usuario que no es un nombre) — que parecen repetidos
+  pero enseñan tres casos diferentes. No se tocan.
+- **Los 58 ejemplos pesan 2.510 tokens, y NO son grasa.** Lo que enseñan es
+  el tono y cómo escribir el historial, que es lo que hace que el bot suene
+  a vendedora y no a formulario. Comprimirlos sería tirar lo bueno.
+- Lo único limpio de comprimir era el punto 1 del repaso final, que
+  reexplicaba entero algo ya explicado arriba **y** garantizado por
+  `sinBienvenida()`: **−143 tokens**.
+
+**Lo que sí valió la pena del punto 3 no era el tamaño: era un agujero.**
+
+La llamada de texto usaba `json_object` (modo suelto), que garantiza JSON
+válido pero NO que vengan las claves. Si el modelo se olvidaba de `buscar`,
+`normalizar()` lo rellenaba con "NADA" en silencio: el bot no buscaba, el
+cliente recibía una respuesta amable **sin un solo zapato debajo**, y no
+quedaba ni un error en los registros. Una venta perdida con forma de
+conversación normal.
+
+Es el mismo fallo que ya se había arreglado en la visión en septiembre, y
+seguía abierto acá. Ahora las tres llamadas —texto, visión y cotejo— van
+con `json_schema` + `strict:true`.
 
 ---
 
