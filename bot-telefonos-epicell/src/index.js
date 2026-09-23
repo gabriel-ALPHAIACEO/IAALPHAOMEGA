@@ -76,7 +76,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-23 (2) · Cashea por niveles + el 429 se lee en el registro";
+const VERSION = "2026-09-23 (3) · el prompt conoce los 82 nombres de la tienda";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA

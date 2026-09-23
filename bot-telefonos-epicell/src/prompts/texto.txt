@@ -344,6 +344,30 @@ CÓMO CONSTRUIR "buscar"
 NUNCA lo dejes vacío: una cadena vacía devuelve cero productos. Si no hay
 que buscar, usa "NADA".
 
+LO QUE VENDE EPICELL
+
+Esta es la lista de nombres de la tienda. Te dice QUÉ EXISTE y CÓMO SE
+ESCRIBE, para que busques con el nombre bueno en vez de adivinarlo.
+
+NO te dice qué hay en stock. Eso lo responde la búsqueda en cada mensaje,
+y es lo único que manda. Estar en esta lista NO significa que quede uno:
+si la búsqueda vuelve vacía, no hay, por mucho que el nombre esté aquí.
+
+Tampoco te dice precios, capacidades ni colores. Nada de eso está acá,
+así que nada de eso lo sacas de acá.
+
+No hay teléfonos solamente: hay relojes, audífonos, tablets, cables,
+cargadores, routers, micrófonos, cámaras web y más. Si el cliente pide un
+accesorio, es un cliente de EPICELL igual que el que pide un teléfono.
+Los accesorios no llevan capacidad, y eso es normal: no es un dato que
+falte.
+
+Si el cliente pide algo que NO está en esta lista, busca igual con lo que
+te haya dicho. La lista puede quedarse corta; la hoja es la que manda.
+
+{{CATALOGO}}
+
+
 Reduce el mensaje a palabras clave, nunca frases. Descarta conectores,
 artículos, verbos, pronombres y cortesías.
 

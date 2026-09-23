@@ -14,7 +14,38 @@
 //      mismo tono que usa siempre. Ver marcarIdentificacion() en index.js.
 
 import promptTexto from "./prompts/texto.txt";
+import listaCatalogo from "./prompts/catalogo.txt";
 import promptVision from "./prompts/vision.txt";
+
+// La lista de nombres vive en un archivo aparte (prompts/catalogo.txt) y se
+// pega dentro de texto.txt al arrancar, donde dice {{CATALOGO}}. Así hay UN
+// solo sitio que actualizar cuando entra mercancía nueva.
+//
+// Se arma una vez por isolate, no en cada mensaje: es la misma cadena
+// siempre y rearmarla por cliente no cambia nada salvo el gasto.
+let promptTextoArmado = "";
+
+// Lo que se le dice al modelo si el archivo está vacío. Es mejor que dejar
+// el marcador crudo: "{{CATALOGO}}" en medio del prompt el modelo lo lee
+// como si fuera un producto.
+const SIN_CATALOGO = `(Todavía no está cargada la lista de nombres de la
+tienda. Busca con lo que diga el cliente, tal cual: la hoja es la que
+manda y la búsqueda funciona igual sin esta lista.)`;
+
+function textoConCatalogo() {
+  if (promptTextoArmado) return promptTextoArmado;
+
+  // Fuera los comentarios del archivo: son para quien lo mantiene, no
+  // para el modelo, y ocupan tokens en cada mensaje.
+  const lista = listaCatalogo
+    .split("\n")
+    .filter((l) => !l.trimStart().startsWith("#"))
+    .join("\n")
+    .trim();
+
+  promptTextoArmado = promptTexto.replace("{{CATALOGO}}", lista || SIN_CATALOGO);
+  return promptTextoArmado;
+}
 
 const API = "https://api.openai.com/v1/chat/completions";
 
@@ -123,7 +154,7 @@ async function llamar(
 }
 
 export async function responderTexto(env, entrada) {
-  const salida = await llamar(env, promptTexto, [{ type: "text", text: entrada }]);
+  const salida = await llamar(env, textoConCatalogo(), [{ type: "text", text: entrada }]);
   return normalizar(salida);
 }
 
