@@ -76,7 +76,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-23 (4) · 82 nombres en el prompt + Cashea completa (3 cuotas/14 días)";
+const VERSION = "2026-09-23 (5) · vision sin plantilla + Krece junto a Cashea";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -170,19 +170,33 @@ const HAY_MAS_EN_CATALOGO =
 // Ojo con las tildes: van las dos formas, porque los clientes escriben sin
 // acentos.
 //
-// "Cuotas", "crédito" y "financiamiento" NO están aquí: cuando el cliente
-// pregunta por pagar a crédito CON CASHEA, el precio ya lo tenemos en la
-// hoja y el bot lo da directo. Solo se escala el crédito que NO es de
-// Cashea, y eso vive en CONSULTA_DE_CREDITO_GENERICO.
+// "Cuotas", "crédito" y "financiamiento" NO están aquí: el bot conoce
+// Cashea y Krece y las contesta él. Lo que de esas dos no se sabe lo
+// decide el prompt, no esta lista.
 const CONSULTA_DE_ASESOR =
   /\b(garant[ií]a|permuta|parte de pago|factura|repara\w*|liberad[oa]|liberaci[óo]n|seguro|bater[ií]a|ciclos)\b/i;
 
-// "cuotas" SALIÓ de esta lista el 23-sep: el dueño pasó el dato (3 cuotas,
-// una cada 14 días), así que preguntar en cuántas cuotas se paga ya tiene
-// respuesta y mandarlo al asesor sería hacerle esperar por algo que el bot
-// sabe. "Crédito" y "financiamiento" siguen acá: pueden referirse a un
-// arreglo que no es Cashea, y de ese no tenemos dato.
-const CONSULTA_DE_CREDITO_GENERICO = /\b(credito|cr[ée]dito|financia\w*)\b/i;
+// LAS FORMAS DE PAGO A CUOTAS YA NO ESCALAN (23-sep-2026).
+//
+// Aquí vivía CONSULTA_DE_CREDITO_GENERICO, que mandaba al asesor todo lo
+// que dijera "cuotas", "crédito" o "financiamiento". Estaba bien mientras
+// el bot no tenía el dato: prometer un plan de pago que no conoces es la
+// peor forma de perder una venta.
+//
+// Ya lo tiene. El dueño pasó las dos formas completas —Cashea (inicial
+// por nivel, 3 cuotas cada 14 días) y Krece (inicial y cuotas por nivel)—
+// y están escritas en texto.txt. Escalar una pregunta que el bot sabe
+// responder es hacer esperar al cliente por nada.
+//
+// Lo que sigue siendo del asesor ya no lo decide una lista de palabras
+// sueltas, sino el prompt, que enumera lo que NO se sabe: montos mínimos,
+// cómo se sube de nivel, qué pasa si el cliente se atrasa, y cada cuánto
+// se pagan las cuotas de Krece. Una lista de palabras no sabe distinguir
+// "¿puedo pagar a cuotas?" de "¿y si me atraso en una cuota?"; el prompt
+// sí, porque lee la frase entera.
+//
+// Si algún día aparece una tercera forma de pago sin datos, esto vuelve:
+// una constante acá y una condición en esConsultaDeAsesor.
 
 // La plataforma de compra a crédito. Cuando el cliente la nombra, se le
 // muestra el precio Cashea de la ficha junto al precio normal.
@@ -1262,15 +1276,7 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     );
   }
 
-  // El crédito genérico escala; el de Cashea no, porque el precio ya lo
-  // tenemos. Si el cliente menciona Cashea, esa mención no cuenta como
-  // "consulta de asesor" aunque también diga "crédito" o "cuotas" en la
-  // misma frase.
-  const preguntoCashea = PREGUNTA_CASHEA.test(texto);
-  const esConsultaDeAsesor =
-    CONSULTA_DE_ASESOR.test(texto) ||
-    preguntoPorColor ||
-    (CONSULTA_DE_CREDITO_GENERICO.test(texto) && !preguntoCashea);
+  const esConsultaDeAsesor = CONSULTA_DE_ASESOR.test(texto) || preguntoPorColor;
 
   const terminoBruto = salida.buscar.toUpperCase() === "NADA" ? "" : limpiarTermino(salida.buscar);
   if (salida.buscar !== terminoBruto && terminoBruto) {
