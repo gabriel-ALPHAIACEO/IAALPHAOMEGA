@@ -76,7 +76,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-23 (3) · el prompt conoce los 82 nombres de la tienda";
+const VERSION = "2026-09-23 (4) · 82 nombres en el prompt + Cashea completa (3 cuotas/14 días)";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -177,7 +177,12 @@ const HAY_MAS_EN_CATALOGO =
 const CONSULTA_DE_ASESOR =
   /\b(garant[ií]a|permuta|parte de pago|factura|repara\w*|liberad[oa]|liberaci[óo]n|seguro|bater[ií]a|ciclos)\b/i;
 
-const CONSULTA_DE_CREDITO_GENERICO = /\b(cuotas?|credito|cr[ée]dito|financia\w*)\b/i;
+// "cuotas" SALIÓ de esta lista el 23-sep: el dueño pasó el dato (3 cuotas,
+// una cada 14 días), así que preguntar en cuántas cuotas se paga ya tiene
+// respuesta y mandarlo al asesor sería hacerle esperar por algo que el bot
+// sabe. "Crédito" y "financiamiento" siguen acá: pueden referirse a un
+// arreglo que no es Cashea, y de ese no tenemos dato.
+const CONSULTA_DE_CREDITO_GENERICO = /\b(credito|cr[ée]dito|financia\w*)\b/i;
 
 // La plataforma de compra a crédito. Cuando el cliente la nombra, se le
 // muestra el precio Cashea de la ficha junto al precio normal.
