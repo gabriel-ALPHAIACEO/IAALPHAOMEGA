@@ -75,7 +75,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-23 (4) · intento rescatar el fotograma de las historias en vídeo";
+const VERSION = "2026-09-23 (5) · el fotograma de las historias funciona + indexación por tandas de 40";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -486,7 +486,10 @@ export default {
         );
       }
 
-      const cuantos = Math.min(Number(url.searchParams.get("cuantos")) || 20, 50);
+      // Con 581 productos, de 20 en 20 son 30 recargas a mano y nadie
+      // llega al final. La indexación corre con el mini, que tiene un cupo
+      // por minuto muy holgado, así que la tanda puede ser más grande.
+      const cuantos = Math.min(Number(url.searchParams.get("cuantos")) || 40, 100);
       const rehacer = url.searchParams.get("rehacer") === "si";
 
       const { productos } = await traerCatalogoCompleto(
@@ -576,7 +579,9 @@ export default {
           (quitados ? `Quitados del índice (ya no están en Shopify): ${quitados}\n` : "") +
           "\n" +
           (faltan > 0
-            ? `FALTAN ${faltan}. Vuelve a abrir esta misma dirección para\n` +
+            ? `FALTAN ${faltan} de ${pendientes.length + indice.length} ` +
+              `(${Math.round((indice.length + indexados.length) * 100 / productos.length)}% hecho).\n` +
+              "Vuelve a abrir esta misma dirección para\n" +
               "seguir con la próxima tanda. Si dice que faltan los mismos\n" +
               "una y otra vez, mira `wrangler tail`: casi siempre es el\n" +
               "cupo por minuto de OpenAI (429) y basta con esperar.\n"
