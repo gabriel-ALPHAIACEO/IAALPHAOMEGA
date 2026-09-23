@@ -19,7 +19,55 @@
 import promptTexto from "./prompts/texto.txt";
 import promptVision from "./prompts/vision.txt";
 import promptCotejo from "./prompts/cotejo.txt";
+import listaCatalogo from "./prompts/catalogo.txt";
 import { RASGOS_CLAVE } from "./identificar.js";
+
+// EL CATÁLOGO SE PEGA AL PROMPT AL ARRANCAR, NO EN CADA MENSAJE.
+//
+// La lista de títulos vive en un archivo aparte (prompts/catalogo.txt)
+// porque estaba copiada DOS veces —dentro de texto.txt y dentro de
+// vision.txt—, con 315 de 317 títulos idénticos. Dos listas para
+// mantener a mano y ninguna forma de saber cuál estaba vieja.
+//
+// El reemplazo se hace UNA vez y se guarda: son 9 KB y el resultado sería
+// idéntico en cada mensaje, porque el catálogo no cambia mientras el
+// Worker viva.
+let promptTextoArmado = "";
+
+// Lo que se le dice al modelo cuando catalogo.txt está vacío.
+const SIN_CATALOGO = `(Todavía no está cargada la lista de productos de esta tienda.
+
+Eso significa que NO SABES qué modelos existen aquí. No supongas que hay
+algo por ser una marca conocida, y no nombres modelos concretos que no te
+haya dicho el cliente: usa sus palabras exactas y deja que el catálogo
+responda. Si existe, aparece.)`;
+
+function textoConCatalogo() {
+  if (!promptTextoArmado) {
+    // Las líneas que empiezan con # son notas para quien mantiene el
+    // archivo, no para el modelo.
+    const lista = listaCatalogo
+      .split("\n")
+      .filter((linea) => !linea.trimStart().startsWith("#"))
+      .join("\n")
+      .trim();
+
+    // UNA TIENDA SIN CATÁLOGO TODAVÍA NO SE ROMPE. Es el caso de una
+    // tienda recién montada: el bot conversa y vende igual, solo busca
+    // peor, y lo que NO puede hacer es inventarse nombres de modelos.
+    if (!lista) {
+      promptTextoArmado = promptTexto.replace("{{CATALOGO}}", SIN_CATALOGO);
+      console.log("Sin catálogo cargado: el modelo usará las palabras del cliente");
+    } else {
+      promptTextoArmado = promptTexto.replace("{{CATALOGO}}", lista);
+      console.log(
+        `Catálogo pegado al prompt: ${lista.split("\n").filter(Boolean).length} títulos`
+      );
+    }
+  }
+
+  return promptTextoArmado;
+}
 
 const API = "https://api.openai.com/v1/chat/completions";
 
@@ -221,7 +269,7 @@ async function llamar(
 }
 
 export async function responderTexto(env, entrada) {
-  const salida = await llamar(env, promptTexto, [{ type: "text", text: entrada }]);
+  const salida = await llamar(env, textoConCatalogo(), [{ type: "text", text: entrada }]);
   return normalizar(salida);
 }
 

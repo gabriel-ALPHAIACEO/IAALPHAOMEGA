@@ -583,383 +583,119 @@ NUNCA agregues el género (dama, caballero, niño) a partir de la foto. Solo
 va si el cliente lo escribió en su mensaje de texto.
 
 
-CATÁLOGO — PRODUCTOS REALES
+QUÉ MODELOS PUEDES NOMBRAR
 
-Estos son los productos de la tienda. Solo puedes identificar modelos que
-estén aquí:
+Aquí iba la lista de los 317 productos de la tienda. Se quitó el
+23-sep-2026, y el motivo importa: eran ~4.000 tokens EN CADA FOTO, de un
+cupo de 30.000 por minuto. Un tercio del minuto gastado antes de mirar la
+imagen — por eso el barrido del catálogo chocaba contra el límite.
 
-Adidas Adistar XLG beige caballero
-Adidas Adizero Evo SL Caballero
-Adidas Adizero Evo SL Dama
-Adidas Bad Bunny Benito caballero
-Adidas Bad Bunny Dama
-Adidas Bad Bunny caballero
-Adidas Campus Dama
-Adidas Campus Dama/Caballero
-Adidas Campus gris caballero
-Adidas Campus marrón caballero
-Adidas Damian lillard X caballero
-Adidas Gallagher dama y caballero
-Adidas Gallangher caballero
-Adidas SL 72 dama
-Adidas SL72 dama
-Adidas Superstar negro blanco dama
-Adidas Swicth Dama/Caballero
-Adidas Switch Dama
-Adidas Terrex caballero
-Adidas Yeezy 700 caballero
-Adidas Yeezy 700 dama/caballero
-Adidas adistar XLG caballero
-Adidas adistar XLG gris caballero
-Adidas caballero
-Adidas caballero promoción
-Adidas campus azul marino caballero
-Adidas campus negro caballero
-Adidas dama
-Adidas dama promoción
-Adidas promoción dama
-Adidas samba clásicos dama
-Adidas samba dama
-Adidas super Nova dama
-Adidas terrex azul marino caballero
-Adidas terrex blanco/negro caballero
-Adidas terrex gris caballero
-Adidas terrex negro caballero
-Adidas terrex negro gris caballero
-Adidas terrex negro/blanco caballero
-Adizero Evo SL caballero
-Adizero caballero
-Air Force One ED dama
-Air Force One GLDDMY Gris Blanco Caballero
-Air Force One Gucci caballero
-Air Force One Kobe beige caballero
-Air Force One Kobe morado caballero
-Air Force One Kobe negro caballero
-Air Force One Kobe rojo caballero
-Air Force One Negro dama
-Air Force One clásicos blancos dama
-Air Force One marrón blanco Caballero
-Air Force One negro gamuza Caballero
-Air Force One suela Vibram caballero
-Air Force One trenzas gruesas caballero
-Air Max 270 New Caballero/ Dama
-Air Max 270 New caballero
-Air Max 270 caballero
-Air Max Élite Caballero
-Alo Caballero
-Alo Dama
-Armani Exchange Caballero
-Asics Caballero
-Asics Dama
-Asics GT-2160 dama
-Bape Sta caballero
-Bota táctica caballero
-Bota táctica dama
-Calvin Klein caballero
-Charles Barkley Caballero
-Chola Nike Ozuna Caballero
-Chola Nike caballero
-Chola Nike dama
-Chola dama
-Chola quiksilver dama
-Cristian Dior B27 caballero
-Cristian Dior B30 caballero
-Cristian Dior B30 dama
-Cristian Dior caballero
-Cristian Dior khrono Dama
-DC shoes acsed caballero
-Dc shoes ascend caballero
-Dior B22 caballero
-Dolce Gabanna caballero
-Emporio Armani Caballero
-Giannis caballero
-Golden Goose
-Golden Goose Dama
-Hermes Bounccing Caballero
-Hermes Gramme Caballero
-Huarache negro dorado
-Hugo Boss Caballero
-Ja Morant 3 caballero
-Ja Morant 3 negra azul caballero
-Ja Morant 3 negro azul caballero
-Ja Morant 3 roja caballero
-Ja Morant 3 verde caballero
-Jordan 40 Dorado tornasol Caballero
-Jordan 40 blanca caballero
-Jordan 40 caballero
-Jordan 40 negro blanco caballero
-Jordan 40 negro gris rojo caballero
-Jordan Lukka caballero
-Jordan Retro 5 azul university caballero
-Jordan Retro 5 beige gris caballero
-Jordan Retro 5 blanco vino verde caballero
-Jordan Retro 5 gris caballero
-Jordan Retro 5 negra caballero
-Jordan Retro 5 negro gris caballero
-Jordan Retro 5 roja caballero
-Kirie Irving 4 caballero
-Kirie Irving 4 dama/caballero
-Kobe Bryant Caballero
-Kyrie Irving 1 caballero
-Kyrie Irving 1 dama
-Kyrie Irving 2 caballero
-Kyrie Irving 3 caballero
-LV caballero
-LV trainer caballero
-Lebron 15 caballero
-Lebron 4 caballero
-Lebron Witness 5 Caballero/ Dama
-Lebron Witness 5 Caballero/Dama
-Lebron Witness 5 blanco caballero
-Lebron Witness 9 azul turquesa caballero
-Lebron Witness 9 blanco caballero
-Lebron Witness 9 negro beige caballero
-Lebron Witness 9 roja caballero
-Lebron Witness 9 roja negro caballero
-Lebron Witness 9 rosada beige caballero
-Lebron soldier 9 gris amarillo naranja caballero
-Louis Vuitton Caballero
-Merrell Caballero
-Metcon 6 dama
-Metcon 7 dama
-Mizuno caballero
-Mizuno gris caballero
-Mizuno negro caballero
-NB 530 MIU MIU Dama
-New Balamce 9060 dama
-New Balance 1000 Dama
-New Balance 2000 caballero
-New Balance 2000 dama/caballero
-New Balance 509 caballero
-New Balance 550 dama
-New Balance 9060 Caballero
-New Balance 9060 marrón verde caballero
-New Balance Caballero
-New Balance Course Rebel Caballero
-New Balance More Dama
-New Balance More Dama/Caballero
-New balance 2000 dama
-New balance 530 dama
-New balance 9060 verde caballero
-Nike 12 resortes caballero
-Nike 2k5 dama
-Nike 4 resortes supreme Caballero
-Nike Air Max TN plus Dama
-Nike Air Max caballero
-Nike Air Max liquitmax blanco caballero
-Nike Air Max liquitmax gris caballero
-Nike Air Max liquitmax negro caballero
-Nike Alpha blanca roja negro caballero
-Nike Alpha negro blanco caballero
-Nike Alpha negro caballero
-Nike Alpha roja gris blanco caballero
-Nike Cortez Dama
-Nike DN 8 Caballero
-Nike DN 8 dama
-Nike DN caballero
-Nike Dama
-Nike Hiperdunk caballero
-Nike Hiperset Caballero
-Nike Huarache caballero
-Nike M2K caballero
-Nike Metcon 6 Caballero
-Nike Metcon 6 Dama/Caballero
-Nike Mind 001 Caballero
-Nike Mind 001 Dama/Caballero
-Nike Mind 001 caballero/ dama
-Nike Mind 001 caballero/dama
-Nike Mind 002 Caballero
-Nike Mind 002 Dama
-Nike Mind 002 caballero/Dama
-Nike Nocta 1 caballero
-Nike Nocta 2 caballero
-Nike P6000 caballero
-Nike P6000 dama
-Nike P6000 gris azul caballero
-Nike P6000 negro dama/caballero
-Nike P6000 nergro/gris/blanco caballero
-Nike P6000 plateado caballero
-Nike Pegasus 2K5 dama
-Nike Pegasus Premium caballero
-Nike Shox 12 resortes Caballero
-Nike Shox 12 resortes dama
-Nike Shox 4 resorte caballero
-Nike Shox 4 resortes Caballero
-Nike TN caballero
-Nike Trail dama y caballero
-Nike Vapormax plus caballero
-Nike Vomero 5 caballero
-Nike Vomero 5 dama
-Nike Vomero 5 dama/caballero
-Nike Waffle trainer 2 caballero
-Nike Wildhorse 10 Caballero
-Nike ava Rover beige dama
-Nike ava Rover caballero
-Nike ava Rover negro dama
-Nike bailleli dama
-Nike metcon 6 dama
-Nike metcon 6 negro dama
-Nike metcon 7 azul caballero
-Nike metcon 7 azul celeste dama
-Nike metcon 7 beige dama/caballero
-Nike metcon 7 blanco dama/caballero
-Nike metcon 7 blanco negro caballero
-Nike metcon 7 blanco rosado dama
-Nike metcon 7 gris blanco caballero
-Nike metcon 7 negro beige dama
-Nike metcon 7 negro blanco dama/caballero
-Nike metcon 7 negro dama/caballero
-Nike metcon 7 negro gris caballero
-Nike metcon 7 negro rojo caballero
-Nike metcon 7 rosado dama
-Nike promoción
-Nike promoción caballero
-Nike promoción dama
-Nike pulse dama
-Nike react caballero
-Nike renew negro blanco dama
-Nike renew negro caballero
-Nike retro 1 caballero
-Nike shox 12 resortes dama/caballero
-Nike total 90 caballero
-Nike total 90 tacos de futbol gris vino caballero
-Nike trail Dama
-Nike trail wildhorse 10 dama
-Nike uplift azul dama
-Nike uplift azul suela blanca
-Nike uplift blanco dama
-Nike uplift blanco negro caballero
-Nike uplift blanco negro det morado dama
-Nike uplift negro blanco caballero
-Nike uplift negro gris caballero
-Nike uplift negro rosado dama
-Nike uplift todo blanco caballero/dama
-Nike zoom caballero
-Nike zoom dama
-Off white Dama/Juvenil
-Ok Cloud Caballero
-Ok cLoud blanco vinotinto ee caballero
-On Cloud Dama
-On Cloud Dama/Caballero
-On Cloud niño
-On cLoud Loewe blanco caballero
-On cLoud gris caballero
-On cloud Beige dama
-On cloud Loewe gris suela blanca caballero
-On cloud Monster dama/caballero
-On cloud Monster new dama/caballero
-On cloud beige blanco dama
-On cloud beige caballero
-On cloud beige crema negro caballero
-On cloud beige gris caballero
-On cloud blanco/negro caballero
-On cloud bota beige caballero
-On cloud bota caballero
-On cloud casual negro caballero
-On cloud gris dama/caballero
-On cloud loewe blanco crema dama
-On cloud loewe caballero
-On cloud loewe negro dama
-On cloud negro dama/caballero
-On cloud negro naranja caballero
-Paul George 2 caballero
-Paul George caballero
-Puma 180 caballero
-Puma Dama
-Puma Palermo Niño
-Puma caballero
-Reebok caballero
-Reebok energy 4 caballero
-Retro 1 Low Caballero
-Retro 1 low Paris dama
-Retro 1 low Travis Phantom caballero
-Retro 1 low travis caballero
-Retro 13 Caballero
-Retro 3 dama/caballero
-Retro 3 full black dama
-Retro 3 niño
-Retro 3 niños
-Retro 4 caballero
-Retro 4 dama
-Retro 4 full Black Caballero
-Retro 4 niño
-SB Dunk Caballero
-SB Dunk supreme caballero
-Salomon XT-6 dama
-Sb dunk play station verde caballero
-Sb dunk supreme beige caballero
-Skechers caballero
-Skechers dama
-Stephen Curry 4 caballero
-Superstar Dama
-Superstar azul blessd caballero
-Superstar beige Ed dama
-Superstar clasico blessd caballero
-Superstar edición limitada dama
-TN niño
-The North Face Caballero
-Vans Caballero
-Veja Dama
-Wildhorse Dama
-Wildhorse caballero
-Yeezy caballero
-nike a'ja wilson a'one caballero
+Lo que hacía esa lista —que no nombraras modelos que la tienda no vende—
+ahora lo hace el código, y mejor:
+
+  · identificar.js comprueba que el modelo que nombras sea coherente con
+    los rasgos que TÚ marcaste. Si dices "Air Max 270" y marcaste que no
+    hay cámara de aire, se corrige solo.
+  · Si el nombre no encuentra nada, el cotejo visual compara la foto del
+    cliente contra las FOTOS reales del catálogo. Eso encuentra el par
+    aunque el nombre esté equivocado — algo que la lista nunca pudo hacer.
+
+ASÍ QUE TU TRABAJO ES OTRO: nombra lo que VES, no lo que crees que la
+tienda tiene. No te guardes un modelo por miedo a que no esté, ni fuerces
+uno porque te suene conocido. Si lo reconoces, dilo; si solo reconoces la
+marca, quédate en la marca.
 
 
 REGLAS
 
-El modelo que nombres tiene que existir en el catálogo.
+Nombra el modelo solo si lo reconoces de verdad en la foto. Si no,
+quédate en la marca: el cotejo visual se encarga del resto.
 "visto" y "rasgos" son solo para ti: no le hablan a nadie, no llevan tono.
 
 
 EJEMPLOS
 
+Van en taquigrafía: solo los rasgos que van en TRUE. Los 15 los garantiza
+la API (schema estricto), así que no hace falta que los ejemplos los
+repitan uno por uno — tú devuelves el JSON completo igual, con los otros
+en false.
+
 [Foto nítida de unas Nike blancas, suela gruesa, pieza metálica en los cordones]
-{"visto":"swoosh lateral, corte bajo, suela blanca gruesa, pieza metalica en ojal","rasgos":{"camaraAireTalon":false,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":false,"muescaLateralArco":false,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":true,"piezaMetalicaOjal":true,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false},"buscar":"Air Force One","pedirNombreExacto":false}
+  visto: swoosh lateral, corte bajo, suela blanca gruesa, pieza metalica en ojal
+  rasgos en true: swooshGrandeRecto, piezaMetalicaOjal
+  buscar: Air Force One   pedirNombreExacto: false
 
 [Foto de unas Adidas de caña baja, suela color miel, puntera de gamuza en T]
-{"visto":"3 franjas, cana baja, suela goma miel, puntera gamuza en T","rasgos":{"camaraAireTalon":false,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":false,"muescaLateralArco":false,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":false,"piezaMetalicaOjal":false,"tresFranjas":true,"punteraGamuzaT":true,"punteraGomaConcha":false},"buscar":"samba","pedirNombreExacto":false}
+  visto: 3 franjas, cana baja, suela goma miel, puntera gamuza en T
+  rasgos en true: tresFranjas, punteraGamuzaT
+  buscar: samba   pedirNombreExacto: false
 
 [Foto de unas Nike de caña media con malla plástica en el lateral y alas en los cordones]
-{"visto":"jumpman en lengueta, malla plastica lateral, alas en cordones, cana media","rasgos":{"camaraAireTalon":false,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":false,"muescaLateralArco":false,"suelaNubesHuecas":false,"mallaPlasticaCuadros":true,"alasPlasticasCordones":true,"jumpman":true,"swooshGrandeRecto":false,"piezaMetalicaOjal":false,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false},"buscar":"Retro 4","pedirNombreExacto":false}
+  visto: jumpman en lengueta, malla plastica lateral, alas en cordones, cana media
+  rasgos en true: mallaPlasticaCuadros, alasPlasticasCordones, jumpman
+  buscar: Retro 4   pedirNombreExacto: false
 
 [Foto de una sandalia Nike de tira ancha]
-{"visto":"swoosh, tira ancha sobre empeine, pie destapado, suela gruesa","rasgos":{"camaraAireTalon":false,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":false,"muescaLateralArco":false,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":false,"piezaMetalicaOjal":false,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false},"buscar":"Chola Nike","pedirNombreExacto":false}
+  visto: swoosh, tira ancha sobre empeine, pie destapado, suela gruesa
+  rasgos en true: ninguno
+  buscar: Chola Nike   pedirNombreExacto: false
 
 [Foto de un Nike de lejos, solo se distingue el swoosh]
-{"visto":"swoosh pequeno, foto de lejos, sin detalles de suela ni talon","rasgos":{"camaraAireTalon":false,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":false,"muescaLateralArco":false,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":false,"piezaMetalicaOjal":false,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false},"buscar":"Nike","pedirNombreExacto":true}
+  visto: swoosh pequeno, foto de lejos, sin detalles de suela ni talon
+  rasgos en true: ninguno
+  buscar: Nike   pedirNombreExacto: true
 
 [Foto de un zapato chunky con el monograma LV repetido en cuero marrón y herrajes dorados]
-{"visto":"monograma LV repetido, herrajes dorados, silueta chunky","rasgos":{"camaraAireTalon":false,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":false,"muescaLateralArco":false,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":false,"piezaMetalicaOjal":false,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false},"buscar":"LV","pedirNombreExacto":false}
+  visto: monograma LV repetido, herrajes dorados, silueta chunky
+  rasgos en true: ninguno
+  buscar: LV   pedirNombreExacto: false
 
 [Foto de un zapato con el patrón Oblique gris en diagonal y "CD" bordado en el talón]
-{"visto":"patron oblique gris diagonal, CD bordado en talon, cana baja","rasgos":{"camaraAireTalon":false,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":false,"muescaLateralArco":false,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":false,"piezaMetalicaOjal":false,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false},"buscar":"Dior","pedirNombreExacto":false}
+  visto: patron oblique gris diagonal, CD bordado en talon, cana baja
+  rasgos en true: ninguno
+  buscar: Dior   pedirNombreExacto: false
 
 [Foto de un zapato verde menta, suela alta y redondeada tipo plataforma sin cámara de aire, parte superior de malla lisa sin paneles]
-{"visto":"suela alta redondeada lisa sin camara de aire, malla lisa, sin logos grandes, verde menta","rasgos":{"camaraAireTalon":false,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":true,"suelaPlanaPlacaDura":false,"muescaLateralArco":false,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":false,"piezaMetalicaOjal":false,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false},"buscar":"uplift","pedirNombreExacto":false}
+  visto: suela alta redondeada lisa sin camara de aire, malla lisa, sin logos grandes, verde menta
+  rasgos en true: suelaRedondeadaSinAire
+  buscar: uplift   pedirNombreExacto: false
 
 [Foto de un Nike de suela alta y voluminosa pero no se distingue si tiene cámara de aire o es lisa, foto en ángulo raro]
-{"visto":"suela alta y voluminosa, no se distingue si tiene camara de aire, foto en angulo","rasgos":{"camaraAireTalon":false,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":false,"muescaLateralArco":false,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":false,"piezaMetalicaOjal":false,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false},"buscar":"Nike","pedirNombreExacto":true}
+  visto: suela alta y voluminosa, no se distingue si tiene camara de aire, foto en angulo
+  rasgos en true: ninguno
+  buscar: Nike   pedirNombreExacto: true
 
 [Foto de un Nike negro de entrenamiento: suela plana con placa dura, muesca lateral bajo el arco, talón ancho y recto, franja de goma subiendo por el talón]
-{"visto":"suela plana con placa dura, muesca lateral bajo el arco, talon ancho recto","rasgos":{"camaraAireTalon":false,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":true,"muescaLateralArco":true,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":false,"piezaMetalicaOjal":false,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false},"buscar":"metcon","pedirNombreExacto":false}
+  visto: suela plana con placa dura, muesca lateral bajo el arco, talon ancho recto
+  rasgos en true: suelaPlanaPlacaDura, muescaLateralArco
+  buscar: metcon   pedirNombreExacto: false
 
 [Foto borrosa o donde no se distingue el calzado]
-{"visto":"sin logo visible, foto borrosa, no se distingue la silueta","rasgos":{"camaraAireTalon":false,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":false,"muescaLateralArco":false,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":false,"piezaMetalicaOjal":false,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false},"buscar":"NADA","pedirNombreExacto":false}
+  visto: sin logo visible, foto borrosa, no se distingue la silueta
+  rasgos en true: ninguno
+  buscar: NADA   pedirNombreExacto: false
 
 [Foto que no es un calzado]
-{"visto":"no hay calzado en la imagen","rasgos":{"camaraAireTalon":false,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":false,"muescaLateralArco":false,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":false,"piezaMetalicaOjal":false,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false},"buscar":"NADA","pedirNombreExacto":false}
+  visto: no hay calzado en la imagen
+  rasgos en true: ninguno
+  buscar: NADA   pedirNombreExacto: false
 
 EJEMPLOS DE HISTORIAS
 
 [EL CLIENTE RESPONDIÓ A UNA HISTORIA — la imagen que ves ES la historia]
 [La historia muestra unas Nike blancas con pieza metalica en los cordones, con el precio escrito encima]
-{"visto":"swoosh lateral, cana baja, suela blanca gruesa, pieza metalica en ojal, texto encima","rasgos":{"camaraAireTalon":false,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":false,"muescaLateralArco":false,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":true,"piezaMetalicaOjal":true,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false},"buscar":"Air Force One","pedirNombreExacto":false}
+  visto: swoosh lateral, cana baja, suela blanca gruesa, pieza metalica en ojal, texto encima
+  rasgos en true: swooshGrandeRecto, piezaMetalicaOjal
+  buscar: Air Force One   pedirNombreExacto: false
 
 [EL CLIENTE RESPONDIÓ A UNA HISTORIA — la imagen que ves ES la historia]
 [La historia muestra tres pares distintos: unas negras con placa dura y muesca lateral, unas blancas con 3 franjas, y unas de suela transparente. El cliente escribió "las negras"]
-{"visto":"tres pares; las negras tienen suela plana con placa dura y muesca lateral bajo el arco","rasgos":{"camaraAireTalon":false,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":true,"muescaLateralArco":true,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":false,"piezaMetalicaOjal":false,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false},"buscar":"metcon","pedirNombreExacto":false}
+  visto: tres pares; las negras tienen suela plana con placa dura y muesca lateral bajo el arco
+  rasgos en true: suelaPlanaPlacaDura, muescaLateralArco
+  buscar: metcon   pedirNombreExacto: false
 
 [EL CLIENTE RESPONDIÓ A UNA HISTORIA — la imagen que ves ES la historia]
 [La historia es un anuncio escrito de promocion, sin ningun calzado visible]
-{"visto":"anuncio de promocion con texto, no hay calzado en la imagen","rasgos":{"camaraAireTalon":false,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":false,"muescaLateralArco":false,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":false,"piezaMetalicaOjal":false,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false},"buscar":"promoción","pedirNombreExacto":false}
+  visto: anuncio de promocion con texto, no hay calzado en la imagen
+  rasgos en true: ninguno
+  buscar: promoción   pedirNombreExacto: false

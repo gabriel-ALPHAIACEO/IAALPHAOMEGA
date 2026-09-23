@@ -574,17 +574,8 @@ lo que dice el cliente al término que SÍ encuentra productos.)
 
 CATÁLOGO — NOMBRES REALES
 
-Todavía no tienes la lista de productos de esta tienda.
+{{CATALOGO}}
 
-Eso significa que NO SABES qué modelos existen aquí. No supongas que hay
-algo por ser una marca conocida, y no nombres modelos concretos que no te
-haya dicho el cliente. Busca con sus palabras y deja que el catálogo
-responda: si existe, aparece.
-
-CÓMO USAR ESTO MIENTRAS TANTO:
-- Usa las palabras EXACTAS del cliente como término de búsqueda.
-- Si no encuentras nada, no afirmes que no existe: eso lo confirma un
-  asesor.
 
 FOTOS Y RESPUESTAS A HISTORIAS (crítico — esto cambió el 22-sep-2026)
 

@@ -141,6 +141,26 @@ dos pasos, esa función se parte sola.
 
 ## Recomendación, en orden
 
+> **Corrección (23-sep, después de hacerlo).** El punto 1 decía "~4.000
+> tokens por foto" y el punto 2 otros "~3.400 por mensaje". Las dos cifras
+> estaban mal, y por el mismo motivo: había medido el "catálogo de
+> vision.txt" tomando un bloque que además incluía las reglas y los
+> ejemplos que venían detrás.
+>
+> Lo real, ya ejecutado y medido:
+>
+> - Sacar el catálogo de `vision.txt`: **−1.834 tokens por foto**.
+> - Comprimir los 15 ejemplos JSON (el schema estricto ya garantiza las 15
+>   claves, así que no hacía falta escribirlas): **−1.281 tokens más**.
+> - **Total: −3.115 tokens en cada foto**, de 11.289 a 8.174.
+> - El punto 2 **no ahorra tokens**: al quitar la copia de `vision.txt`, ya
+>   queda una sola lista. Lo que gana es mantenimiento — la lista vive en
+>   `prompts/catalogo.txt` y se actualiza reemplazando un archivo de 9 KB
+>   en vez de editar dentro de un prompt de 1.686 líneas.
+> - La lista **no se puede comprimir**: 317 títulos bajan a 284 ignorando
+>   dama/caballero, y las erratas ("Gallangher", "Swicth") son necesarias
+>   porque la búsqueda es literal.
+
 | # | Qué | Gana | Riesgo |
 |---|---|---|---|
 | 1 | **Sacar el catálogo de `vision.txt`** | ~4.000 tokens por foto (13% del cupo) | Bajo — el cotejo visual y el índice ya hacen ese trabajo mejor |
