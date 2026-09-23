@@ -68,13 +68,14 @@ import {
   enviarFichas,
   enviarBotonCatalogo,
   obtenerPerfil,
+  fotogramaDeHistoria,
 } from "./instagram.js";
 
 // Se sube a mano en cada entrega, y sale en /estado. Existe por una razón
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-23 (3) · schema estricto también en el texto";
+const VERSION = "2026-09-23 (4) · intento rescatar el fotograma de las historias en vídeo";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -930,6 +931,23 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   let porQueNo = "";
   if (imagenCruda) {
     ({ uri: foto, motivo: porQueNo } = await comoDataUri(env, imagenCruda));
+
+    // LA HISTORIA ERA UN VÍDEO: ÚLTIMO INTENTO ANTES DE RENDIRSE.
+    //
+    // Es el caso más común de todos —la mayoría de las historias son
+    // vídeo— y el más caro: quien responde a una historia está mirando
+    // el zapato mientras escribe. Preguntarle "¿cuál te gustó?" cuando
+    // lo tiene delante es perder la venta por un formato de archivo.
+    //
+    // Meta guarda una miniatura de cada vídeo. Si la da para historias,
+    // es una imagen normal y el bot la mira como cualquier otra foto.
+    // Si no la da, no pasa nada: se sigue exactamente como antes.
+    if (!foto && porQueNo === "video" && mensaje.historia.id) {
+      const miniatura = await fotogramaDeHistoria(env, mensaje.historia.id);
+      if (miniatura) {
+        ({ uri: foto, motivo: porQueNo } = await comoDataUri(env, miniatura));
+      }
+    }
   }
 
   // Si hay foto, primero se identifica con la IA de visión —dedicada,

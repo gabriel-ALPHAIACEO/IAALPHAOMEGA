@@ -123,6 +123,59 @@ export function enviarBotonCatalogo(env, igsid, texto) {
   });
 }
 
+/* ── El fotograma de una historia en vídeo ────────────────────────── */
+
+// LA MAYORÍA DE LAS HISTORIAS SON VÍDEO, Y ESAS NO SE PUEDEN MIRAR.
+//
+// Meta manda el enlace de la historia, pero si es un vídeo lo que llega
+// es un MP4: OpenAI no lo acepta, y el bot termina preguntándole al
+// cliente qué modelo le gustó — justo al cliente que MÁS cerca está de
+// comprar, porque está mirando el zapato mientras escribe.
+//
+// Esto intenta rescatar el fotograma. Meta guarda una miniatura de cada
+// vídeo ("thumbnail_url") y, si la entrega para las historias, es una
+// imagen normal que el bot ya sabe mirar.
+//
+// OJO: que la entregue para HISTORIAS no está documentado con claridad —
+// sí lo está para vídeos y reels. Por eso esto se INTENTA y, si no viene,
+// se sigue como hasta ahora sin que el cliente note nada. El registro
+// dice qué pasó, y con una historia real se sabrá de una vez si sirve.
+export async function fotogramaDeHistoria(env, idHistoria) {
+  const id = String(idHistoria || "").trim();
+  if (!id || !env.IG_TOKEN) return "";
+
+  try {
+    const respuesta = await fetch(
+      `${GRAFO}/${id}?fields=media_type,media_url,thumbnail_url&access_token=${env.IG_TOKEN}`
+    );
+
+    if (!respuesta.ok) {
+      console.log(
+        `Sin fotograma para la historia ${id}: Meta respondió ${respuesta.status}. ` +
+          (await respuesta.text()).slice(0, 160)
+      );
+      return "";
+    }
+
+    const datos = await respuesta.json();
+    const miniatura = urlBuena(datos.thumbnail_url);
+
+    if (!miniatura) {
+      console.log(
+        `La historia ${id} no trae "thumbnail_url" ` +
+          `(media_type: ${datos.media_type || "desconocido"}).`
+      );
+      return "";
+    }
+
+    console.log(`Rescaté el fotograma de la historia ${id}: ya puedo mirarla.`);
+    return miniatura;
+  } catch (error) {
+    console.log("No pude pedirle el fotograma a Meta:", error.message);
+    return "";
+  }
+}
+
 /* ── Perfil ──────────────────────────────────────────────────────── */
 
 // El perfil del cliente: su nombre tal como lo puso en Instagram y su @.
