@@ -1,4 +1,4 @@
-// Cerebro del bot de ventas de INVICTUS SHOES.
+// Cerebro del bot de ventas de EL EMPERADOR (calzado).
 //
 // 19-sep-2026: se retiró ManyChat. Antes había DOS apps recibiendo el mismo
 // webhook de Meta —la de ManyChat y esta— y cada una respondía por su
@@ -74,7 +74,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-23 · el nombre de la base sale de wrangler.toml";
+const VERSION = "2026-09-23 · El Emperador, primera versión (base: Invictus al día)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -654,7 +654,7 @@ export default {
       );
     }
 
-    return new Response("invictus-bot", { status: 200 });
+    return new Response(`bot activo · ${VERSION}\n`, { status: 200 });
   },
 };
 

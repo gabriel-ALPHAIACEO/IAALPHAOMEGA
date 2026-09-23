@@ -76,7 +76,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-22 (8) · /contactos para ver y descargar tus clientes";
+const VERSION = "2026-09-23 · /contactos + el nombre de la base sale de wrangler.toml";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -405,7 +405,12 @@ export default {
         return valor ? `cargado (${String(valor).length} caracteres)` : "FALTA";
       };
 
-      const base = await revisarBase(env.DB, { fraseDespausar: fraseDespausar(env) });
+      const base = await revisarBase(env.DB, {
+        fraseDespausar: fraseDespausar(env),
+        // Para que los comandos que imprime se puedan copiar tal cual:
+        // cada bot tiene SU base, y estado.js es el mismo archivo en todos.
+        base: env.D1_NOMBRE || "tu-base-d1",
+      });
 
       return texto200(
         [

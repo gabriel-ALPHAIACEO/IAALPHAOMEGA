@@ -18,9 +18,12 @@ Como los archivos se pegan a mano, **cada entrega sube la constante `VERSION` de
 | Carpeta | Qué es |
 |---|---|
 | `invictus-bot/` | **LA DE PRODUCCIÓN.** Es el código que atiende clientes hoy. Todo cambio para Invictus se hace acá. |
+| `emperador-bot/` | **El Emperador** (calzado, Shopify). Copia al día de Invictus con sus propios prompts: calidad doble A / triple A en vez de 1.1. **Le falta el catálogo** — ver su `EMPEZAR-AQUI.md`. |
 | `kit-meta/` | Las piezas de Meta directo (`instagram.js`, `estado.js`, `imagen.js` + migraciones), copiadas de producción sin cambios, con `GUIA.md` para portarlas a otro bot. **Decisión del dueño (22-sep): todos los bots van a Meta directo, ManyChat se retira de todos.** |
-| `bot-telefonos-epicell/` | EPICELL (teléfonos, Google Sheets). **Incompleto:** solo `wrangler.toml` y prompts, falta `src/`. Ver su `PENDIENTE.md`. |
+| `bot-telefonos-epicell/` | **EPICELL** (teléfonos, Google Sheets). Meta directo, completo. Ver su `PENDIENTE.md`. |
 | `worker/` | Rama **multi-tienda sin fusionar** (`tienda.js`, `tiendas/*.js`, prompts con `{{TIENDA}}`). Viene de una base más vieja: no tiene visión en dos pasos, ni `hayMas`, ni despausar, ni nombres de clientes. **No copiar sus archivos a la carpeta de despliegue.** |
+
+**`src/` es casi idéntico en `invictus-bot/`, `emperador-bot/` y `bot-telefonos-epicell/` a propósito.** Un arreglo se aplica pegando el mismo archivo en las carpetas que correspondan. Lo que NUNCA se cruza entre tiendas: `wrangler.toml`, `src/prompts/` y los secretos — ahí vive lo que hace que cada bot sea de su tienda. (EPICELL además lee de Google Sheets en vez de Shopify, así que sus `sheets.js`, `capacidad.js` y `recomendados.js` son suyos.)
 
 Si algún día se integra el multi-tienda, se porta `tienda.js` + `tiendas/` + los prompts con marcadores **hacia** `invictus-bot/`, nunca al revés.
 

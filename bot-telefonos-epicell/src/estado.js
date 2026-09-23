@@ -387,7 +387,14 @@ const COLUMNAS = [
 // COLUMNAS_SOLAS). Que falten en /estado no es algo que arreglar a mano.
 const SE_CREAN_SOLAS = new Set(COLUMNAS_SOLAS.map(([columna]) => columna));
 
-export async function revisarBase(db, { fraseDespausar = "te dejo con la asistente" } = {}) {
+// "base" es el nombre de la base D1 de ESTE bot, para que los comandos
+// que se imprimen se puedan copiar y pegar tal cual. Estaba escrito a
+// mano ("invictus-bot-db") y este archivo es el MISMO en todos los bots:
+// El Emperador habría leído que corriera la migración de Invictus.
+export async function revisarBase(
+  db,
+  { fraseDespausar = "te dejo con la asistente", base = "tu-base-d1" } = {}
+) {
   if (!db) {
     return {
       ok: false,
@@ -410,7 +417,7 @@ export async function revisarBase(db, { fraseDespausar = "te dejo con la asisten
         "  DB                  conectada, pero NO PUDE LEER LA TABLA",
         `  Error: ${error?.message || error}`,
         "  Corre la migración una sola vez:",
-        "    npx wrangler d1 migrations apply invictus-bot-db --remote",
+        `    npx wrangler d1 migrations apply ${base} --remote`,
       ],
     };
   }
@@ -421,7 +428,7 @@ export async function revisarBase(db, { fraseDespausar = "te dejo con la asisten
       lineas: [
         '  DB                  conectada, pero la tabla "contactos" NO EXISTE',
         "  El bot no puede recordar nada. Corre, una sola vez:",
-        "    npx wrangler d1 migrations apply invictus-bot-db --remote",
+        `    npx wrangler d1 migrations apply ${base} --remote`,
       ],
     };
   }
@@ -447,7 +454,7 @@ export async function revisarBase(db, { fraseDespausar = "te dejo con la asisten
       lineas.push(
         `  Migración pendiente ${migraciones.join(", ")}`,
         "  Corre, una sola vez:",
-        "    npx wrangler d1 migrations apply invictus-bot-db --remote"
+        `    npx wrangler d1 migrations apply ${base} --remote`
       );
     }
   } else {
@@ -499,11 +506,11 @@ export async function revisarBase(db, { fraseDespausar = "te dejo con la asisten
         "  vuelve a atender a ese cliente desde su siguiente mensaje.",
         "",
         "  O desde la terminal, para uno (copia y pega):",
-        "    npx wrangler d1 execute invictus-bot-db --remote --command " +
+        `    npx wrangler d1 execute ${base} --remote --command ` +
           `"UPDATE contactos SET pausado_hasta = 0 WHERE id = '${pausados[0].id}'"`,
         "",
         "  O para reanudarlos todos de golpe:",
-        "    npx wrangler d1 execute invictus-bot-db --remote --command " +
+        `    npx wrangler d1 execute ${base} --remote --command ` +
           '"UPDATE contactos SET pausado_hasta = 0"'
       );
     }
