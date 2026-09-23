@@ -93,7 +93,28 @@ async function llamar(
   }
 
   if (!respuesta.ok) {
-    console.error("El modelo respondió", respuesta.status, await respuesta.text());
+    const detalle = await respuesta.text();
+
+    // 429 = se acabó el cupo de tokens por minuto de la cuenta de OpenAI.
+    // No es un fallo del código ni de la petición, y conviene que se lea
+    // distinto en el registro: un 429 se arregla esperando, un 401 se
+    // arregla con la clave, y confundirlos cuesta media hora.
+    //
+    // El mensaje de OpenAI trae el cupo y lo gastado ("Limit 200000, Used
+    // 199431"). Ese dato se deja a la vista: en Invictus diagnostiqué mal
+    // un 429 dos veces por no leerlo, teniéndolo en el propio error.
+    if (respuesta.status === 429) {
+      const cupo = /Limit \d+[^.]*/i.exec(detalle)?.[0] || "";
+      const segundos = /try again in ([\d.]+)s/i.exec(detalle)?.[1] || "";
+      console.error(
+        `OpenAI se quedó sin cupo por minuto (${cuerpo.model})` +
+          (cupo ? ` · ${cupo}` : "") +
+          (segundos ? ` · vuelve en ${Math.ceil(Number(segundos))}s` : "")
+      );
+    } else {
+      console.error("El modelo respondió", respuesta.status, detalle);
+    }
+
     return null;
   }
 
