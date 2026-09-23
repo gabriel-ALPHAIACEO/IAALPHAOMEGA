@@ -29,6 +29,7 @@
 // ──────────────────────────────────────────────────────────────────────
 
 import { responderTexto, identificarEnImagen } from "./ia.js";
+import { referenciaEnTexto } from "./referencias.js";
 import {
   buscarProductos,
   catalogoCompleto,
@@ -76,7 +77,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-23 (6) · busca aunque lo escriban mal + se registra lo enviado";
+const VERSION = "2026-09-23 (7) · entiende descripciones y erratas + manda Cashea y Krece";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -88,6 +89,66 @@ const VERSION = "2026-09-23 (6) · busca aunque lo escriban mal + se registra lo
 const SIN_RESULTADOS =
   "Déjame confirmarte ese modelo con un asesor y te escribo en un momento 😊 " +
   "Mientras, aquí tienes el catálogo completo";
+
+// LAS FORMAS DE PAGO, PALABRA POR PALABRA.
+//
+// Esto NO lo redacta el modelo, y es a propósito. Son diez números que
+// tienen que salir exactos: si el modelo escribe 25% donde va 20%, el
+// cliente llega a la tienda con una cuenta que no es y la culpa es del
+// bot. Un modelo de lenguaje parafrasea; una constante no.
+//
+// El prompt sigue sabiendo los niveles —los necesita para contestar "soy
+// oro, cuánto pago"— pero cuando la pregunta es "qué formas de pago hay",
+// sale esto tal cual.
+const FORMAS_DE_PAGO =
+  "¡Sí trabajamos con cuotas! Tenemos dos opciones 👇\n\n" +
+  "CASHEA — 3 cuotas sin intereses, una cada 14 días.\n" +
+  "La inicial depende de tu nivel:\n" +
+  "  Nivel 1: 60%\n" +
+  "  Nivel 2: 50%\n" +
+  "  Nivel 3: 30%\n" +
+  "  Nivel 4: 25%\n" +
+  "  Nivel 5: 20%\n" +
+  "  Nivel 6: 20%\n\n" +
+  "KRECE — la inicial y las cuotas dependen del nivel:\n" +
+  "  Azul: 30% de inicial y 6 cuotas\n" +
+  "  Plata: 25% de inicial y 8 cuotas\n" +
+  "  Oro: 20% de inicial y 8 cuotas\n" +
+  "  Platino: 15% de inicial y 10 cuotas\n\n" +
+  "¿Con cuál de las dos compras? Así te digo cuánto te queda de inicial 😊";
+
+// Cuándo sale ese mensaje: cuando preguntan por las formas de pago EN
+// GENERAL. Si el cliente ya dijo su nivel ("soy oro, cuánto pago"), no
+// sale: eso lo contesta el modelo, que sabe leer la frase entera y no
+// tiene sentido mandarle la tabla completa a quien ya dijo dónde está.
+// Las faltas van ESCRITAS UNA A UNA, no con un patrón que las abarque.
+// Lo intenté con un patrón corto y hacía las dos cosas que no debe: se
+// dejaba fuera "crece" (la forma más común de escribir Krece) y a la vez
+// habría pescado palabras que no vienen al caso. Con nombres de marca no
+// hay atajo: se listan.
+//
+// Van acá y no en el buscador porque esto ni siquiera pasa por él: es la
+// pregunta la que se reconoce, no un producto.
+//
+// "crece" es también una palabra normal en español, pero en un chat de
+// venta de teléfonos nadie escribe "crece" hablando de otra cosa. Y si lo
+// hiciera, lo que recibe es la tabla de formas de pago: sobra, no miente.
+const PREGUNTA_POR_PAGOS = new RegExp(
+  "\\b(" +
+    [
+      "cashea", "cashe", "kashea", "cachea", "casheas",
+      "krece", "kreze", "crece", "creze", "kresce", "kreces",
+      "cuotas?", "credito", "cr[ée]dito", "financia\\w*",
+      "inicial", "abonos?", "plazos?",
+    ].join("|") +
+    ")\\b",
+  "i"
+);
+
+// Las señales de que YA sabe de qué habla: su nivel, o un equipo concreto
+// en la misma frase. Ahí la tabla entera estorba.
+const YA_DIJO_SU_NIVEL =
+  /\b(nivel\s*[1-6]|azul|plata|oro|platino|soy\s+\w+)\b/i;
 
 // Lo que se responde cuando preguntan un dato que solo sabe una persona.
 const SOLO_ASESOR = "Eso te lo confirma un asesor en un momento 😊";
@@ -1291,7 +1352,10 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   // al término —para que "el iPhone 15 blanco" encuentre los iPhone 15— y
   // quién tiene qué color lo dice un asesor.
   const { termino: sinColor, colores } = separarColor(terminoBruto);
-  const termino = sinColor;
+  // No es const porque el rescate por referencia puede cambiarlo: si el
+  // cliente describió el producto en vez de nombrarlo, el término bueno
+  // aparece más abajo, después de que la búsqueda normal falle.
+  let termino = sinColor;
   if (colores.length) {
     console.log(
       `El cliente nombró ${colores.join(" + ")}: lo saco del término y busco "${termino}". ` +
@@ -1308,6 +1372,34 @@ async function decidir({ env, salida, texto, historialPrevio }) {
         ? `Busqué "${termino}": ${productos.length} resultado(s)${hayMas ? " (y hay más)" : ""}`
         : `Sin resultados para "${termino}"`
     );
+  }
+
+  // EL CLIENTE DESCRIBIÓ EN VEZ DE NOMBRAR.
+  //
+  // "Una pila para el teléfono", "el taco del cargador", "cascos". Nada de
+  // eso está escrito en un título, así que la búsqueda vuelve vacía —o el
+  // modelo ni busca— y el cliente se va con un "no hay" teniéndolo en la
+  // tienda. referencias.js traduce eso a un término del catálogo.
+  //
+  // Se intenta DESPUÉS de la búsqueda normal, nunca antes: si el cliente
+  // nombró el producto, manda lo que nombró. Esto es el rescate, no el
+  // primer camino.
+  if (!productos.length) {
+    const referencia = referenciaEnTexto(texto);
+
+    if (referencia && referencia.toLowerCase() !== termino.toLowerCase()) {
+      const porReferencia = await buscarProductos(env, referencia);
+
+      if (porReferencia.productos.length) {
+        console.log(
+          `Lo describió sin nombrarlo${termino ? ` ("${termino}" no dio nada)` : ""}: ` +
+            `lo busco como "${referencia}"`
+        );
+        productos = porReferencia.productos;
+        hayMas = porReferencia.hayMas;
+        termino = referencia;
+      }
+    }
   }
 
   // PIDIÓ UNA CAPACIDAD QUE NO HAY (crítico para no perder la venta).
@@ -1372,6 +1464,21 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   // Preguntó algo de asesor y no quedó nada que mostrarle.
   const soloAsesor = esConsultaDeAsesor && !termino;
 
+  // PREGUNTÓ POR LAS FORMAS DE PAGO, en general. Sale la tabla entera de
+  // Cashea y Krece, escrita en el código, para que los diez porcentajes
+  // salgan exactos y no parafraseados.
+  //
+  // No sale si ya dijo su nivel —"soy oro, cuánto pago"—: a ese no hay
+  // que darle la tabla, hay que contestarle, y eso lo hace el modelo.
+  // Tampoco si le estamos mostrando producto: ahí la venta va por otro
+  // lado y la tabla se le cruza en medio.
+  const preguntoPorPagos =
+    PREGUNTA_POR_PAGOS.test(texto) && !YA_DIJO_SU_NIVEL.test(texto) && !productos.length;
+
+  if (preguntoPorPagos) {
+    console.log("Preguntó por las formas de pago: mando Cashea y Krece tal cual");
+  }
+
   // Si ya se conocen, se le quita la bienvenida aunque el modelo la haya
   // escrito. Es el fallo que más se nota: saludar dos veces.
   const respuestaFinal = historialPrevio ? sinBienvenida(salida.respuesta) : salida.respuesta;
@@ -1381,7 +1488,9 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   // búsqueda: no sabe en qué capacidades quedó el equipo ni si hubo algo.
   let respuestaCliente = respuestaFinal;
 
-  if (soloAsesor) {
+  if (preguntoPorPagos) {
+    respuestaCliente = FORMAS_DE_PAGO;
+  } else if (soloAsesor) {
     respuestaCliente = SOLO_ASESOR;
   } else if (otrasCapacidades.length && pedidas.length) {
     // Pidió unos gigas que no hay, pero el modelo está en otros.
