@@ -76,7 +76,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-23 (6) · El Emperador, primera versión";
+const VERSION = "2026-09-23 (7) · indexar con foto liviana: lo caro era la imagen";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -487,9 +487,10 @@ export default {
         );
       }
 
-      // La indexación corre con el mini, que tiene un cupo por minuto muy
-      // holgado, así que la tanda puede ser grande: con 20 en 20, un
-      // catálogo de 600 son 30 recargas a mano y nadie llega al final.
+      // Con 20 en 20, un catálogo de 600 son 30 recargas a mano y nadie
+      // llega al final. La tanda puede ser grande porque la foto va en
+      // detail:"low" (ver DETALLE_INDICE en ia.js): con la foto pesada
+      // entraban 7 por minuto, no 40.
       const cuantos = Math.min(Number(url.searchParams.get("cuantos")) || 40, 100);
       const rehacer = url.searchParams.get("rehacer") === "si";
 

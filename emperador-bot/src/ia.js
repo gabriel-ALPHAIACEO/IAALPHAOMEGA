@@ -143,9 +143,15 @@ function anotarLimite(modelo, texto) {
   const segundos = Number(/try again in ([\d.]+)s/i.exec(texto || "")?.[1]);
   const espera = Number.isFinite(segundos) ? Math.ceil(segundos) * 1000 : 30000;
   limitados.set(modelo, Date.now() + espera);
+  // El mensaje de OpenAI trae el cupo y lo ya gastado ("Limit 200000,
+  // Used 199431"). Sin eso en el registro, un 429 no se distingue de
+  // otro y se diagnostica a ciegas: yo mismo culpé al prompt cuando el
+  // que se comía el cupo era el tamaño de la imagen.
+  const cupo = /Limit \d+[^.]*/i.exec(texto || "")?.[0] || "";
   console.error(
     `OpenAI puso límite de tokens por minuto en ${modelo}: ` +
-      `no insisto por ${Math.round(espera / 1000)}s`
+      `no insisto por ${Math.round(espera / 1000)}s` +
+      (cupo ? ` · ${cupo}` : "")
   );
 }
 
@@ -454,25 +460,36 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
 
 // CATALOGAR UN PRODUCTO: los 15 rasgos de su foto, y nada más.
 //
-// Esto lo usa /indexar-catalogo, y tiene prompt propio por un motivo
-// medido: antes reutilizaba identificarEnImagen(), que manda el prompt
-// COMPLETO de visión —8.300 tokens de firmas de marca y ejemplos— para
-// sacar 15 booleanos de una foto de producto sobre fondo blanco.
+// Esto lo usa /indexar-catalogo, y tiene prompt propio porque reutilizar
+// identificarEnImagen() mandaba el prompt COMPLETO de visión —8.300
+// tokens de firmas de marca y ejemplos— para sacar 15 booleanos de una
+// foto de producto sobre fondo blanco. El prompt corto son 587.
 //
-// La cuenta: una tanda de 40 productos gastaba 333.000 tokens contra un
-// cupo de 200.000 por minuto. La mayoría fallaba con 429 y el catálogo
-// no terminaba de indexarse nunca: de 40 pedidos entraban 7.
+// Pero el prompt NUNCA fue el techo, y conviene dejarlo escrito porque
+// me costó dos intentos entenderlo. Con el prompt corto la tanda de 40
+// seguía muriendo en 429 en las PRIMERAS CUATRO llamadas, y 4 × 587 son
+// 2.300 tokens: imposible que eso reviente un cupo de 200.000.
 //
-// Con el prompt corto son ~24.000. Catorce veces menos, y la tanda entra
-// entera. Se queda con detail:"high" a propósito: el índice decide qué
-// diez productos van al cotejo, así que un rasgo mal leído acá se paga
-// en cada foto que llegue después.
+// Lo caro era la IMAGEN. gpt-4o-mini no cuenta las fotos como el modelo
+// grande: las cobra muchísimo más caro, y con detail:"high" una foto de
+// Shopify sale por decenas de miles de tokens ella sola. La cuenta que
+// lo confirma es la tanda que entregó 7: 200.000 de cupo entre 7 fotos
+// son ~28.000 tokens por foto, y el texto eran 587. Todo lo demás era
+// la imagen.
+//
+// Por eso va detail:"low". La foto se manda a 512×512, que es de sobra
+// para lo que se le pregunta acá: si tiene swoosh, si es bota, si la
+// suela es de aire. No se le pide leer la letra chica de la lengüeta.
+// El cotejo contra la foto DEL CLIENTE sigue en "high" —ahí sí hay que
+// mirar fino—; esto es solo catalogar el estante.
+const DETALLE_INDICE = "low";
+
 export async function rasgosDeProducto(env, urlImagen, { modelo = "" } = {}) {
   const salida = await llamar(
     env,
     promptIndexar,
     [
-      { type: "image_url", image_url: { url: urlImagen, detail: "high" } },
+      { type: "image_url", image_url: { url: urlImagen, detail: DETALLE_INDICE } },
       { type: "text", text: "Cataloga este producto." },
     ],
     {

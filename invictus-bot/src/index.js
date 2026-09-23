@@ -76,7 +76,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-23 (6) · indexar con prompt propio: 14 veces menos tokens";
+const VERSION = "2026-09-23 (7) · indexar con foto liviana: lo caro era la imagen";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -488,8 +488,9 @@ export default {
       }
 
       // Con 581 productos, de 20 en 20 son 30 recargas a mano y nadie
-      // llega al final. La indexación corre con el mini, que tiene un cupo
-      // por minuto muy holgado, así que la tanda puede ser más grande.
+      // llega al final. La tanda puede ser grande porque la foto va en
+      // detail:"low" (ver DETALLE_INDICE en ia.js): con la foto pesada
+      // entraban 7 por minuto, no 40.
       const cuantos = Math.min(Number(url.searchParams.get("cuantos")) || 40, 100);
       const rehacer = url.searchParams.get("rehacer") === "si";
 
