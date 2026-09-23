@@ -76,7 +76,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-23 (5) · vision sin plantilla + Krece junto a Cashea";
+const VERSION = "2026-09-23 (6) · busca aunque lo escriban mal + se registra lo enviado";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA

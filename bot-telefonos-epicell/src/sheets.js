@@ -71,9 +71,49 @@ export async function buscarProductos(env, termino, cuantos = 10) {
 
   // TODAS las palabras del término tienen que estar en el título. Es más
   // estricto, pero evita que pedir un modelo concreto devuelva media tienda.
-  const encontrados = productos.filter((p) =>
+  let encontrados = productos.filter((p) =>
     palabras.every((palabra) => coincide(palabra, p.busqueda))
   );
+
+  // RESCATE 1 — LA PALABRA PARTIDA EN DOS.
+  //
+  // Un cliente escribió "Powerbank" y se fue sin respuesta. El modelo lo
+  // pasó a "power bank", y "bank" no empieza ninguna palabra de "Aorax
+  // Powerbank 10.000 mAh": queda en MEDIO de "powerbank". La regla de
+  // "todas las palabras" lo descartó teniendo el producto en la hoja.
+  //
+  // Pasa igual con "mi band" / "miband", "selfie stick" / "selfiestick",
+  // "tipo c" / "tipoc". No es un caso raro: es cómo escribe la gente.
+  //
+  // Así que si la búsqueda estricta no encuentra nada, se prueba el
+  // término SIN ESPACIOS contra el título sin espacios. Solo se intenta
+  // cuando la primera pasada vino vacía, así que no afloja nada.
+  if (!encontrados.length && palabras.length > 1) {
+    const pegado = palabras.join("");
+    encontrados = productos.filter((p) => p.busqueda.junto.includes(pegado));
+    if (encontrados.length) {
+      console.log(`Sin resultados con "${palabras.join(" ")}", pero sí pegado: "${pegado}"`);
+    }
+  }
+
+  // RESCATE 2 — LA ERRATA.
+  //
+  // "powerbanck", "aurifonos", "cargadro". Se le perdona UNA letra por
+  // palabra —cambiada, sobrante o que falta— en palabras de 5 letras o
+  // más. En las cortas no: con 3 letras, perdonar una es perdonarlo todo
+  // y "A17" acabaría encontrando "A07".
+  //
+  // Los números NO se tocan nunca, ni siquiera acá: un 512 no es un 128
+  // por mucho que se escriban parecido, y mandarle el equipo equivocado
+  // al cliente es peor que no encontrarlo.
+  if (!encontrados.length) {
+    encontrados = productos.filter((p) =>
+      palabras.every((palabra) => coincide(palabra, p.busqueda) || casiCoincide(palabra, p.busqueda))
+    );
+    if (encontrados.length) {
+      console.log(`Sin resultados exactos con "${palabras.join(" ")}": lo tomo como errata`);
+    }
+  }
 
   return {
     productos: encontrados.slice(0, cuantos).map(({ busqueda, ...producto }) => producto),
@@ -103,6 +143,47 @@ function coincide(palabra, { piezas, junto }) {
   if (piezas.some((pieza) => pieza.startsWith(palabra))) return true;
   // Letras y números pegados: "iphone15", "s24ultra".
   return /\d/.test(palabra) && /[a-z]/.test(palabra) && junto.includes(palabra);
+}
+
+// La misma comparación, perdonando UNA letra. Se usa solo cuando la
+// búsqueda de verdad ya falló: es el último intento antes de decirle al
+// cliente que no hay.
+function casiCoincide(palabra, { piezas }) {
+  if (palabra.length < 5 || /\d/.test(palabra)) return false;
+  return piezas.some((pieza) => pieza.length >= 4 && aUnaLetra(palabra, pieza));
+}
+
+// ¿Se llega de "a" a "b" con UN solo desliz? Cuenta como uno: una letra
+// cambiada, una de más, una que falta, o DOS LETRAS CAMBIADAS DE SITIO.
+//
+// Las dos cambiadas de sitio hay que contarlas aparte, y se me pasó en el
+// primer intento: "cargadro" por "cargador" son dos letras mal para
+// cualquier cuenta normal, y es de las erratas más comunes que hay —
+// dedos que llegan en el orden equivocado. Sin este caso, el rescate no
+// rescataba justo lo que más se escribe mal.
+//
+// Se compara contra el PRINCIPIO de la palabra del título, para que
+// "powerbanck" encuentre "powerbank 10.000 mah".
+function aUnaLetra(a, b) {
+  if (b.length > a.length + 1) b = b.slice(0, a.length + 1);
+  if (Math.abs(a.length - b.length) > 1) return false;
+
+  let i = 0, j = 0;
+  while (i < a.length && j < b.length && a[i] === b[j]) { i++; j++; }
+
+  // Iguales hasta el final salvo una letra suelta al borde.
+  if (i === a.length && j === b.length) return true;
+
+  // Dos letras cambiadas de sitio, y el resto igual.
+  if (a.length === b.length && a[i] === b[j + 1] && a[i + 1] === b[j]) {
+    return a.slice(i + 2) === b.slice(j + 2);
+  }
+
+  // Una cambiada, una de más, o una que falta: desde el primer desacuerdo,
+  // lo que queda tiene que coincidir exactamente.
+  if (a.length === b.length) return a.slice(i + 1) === b.slice(j + 1);
+  if (a.length > b.length) return a.slice(i + 1) === b.slice(j);
+  return a.slice(i) === b.slice(j + 1);
 }
 
 function paraBuscar(texto) {

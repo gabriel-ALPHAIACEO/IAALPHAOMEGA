@@ -69,7 +69,30 @@ async function enviar(env, igsid, mensaje) {
   }
 
   const datos = await respuesta.json();
+
+  // QUÉ SE LE MANDÓ AL CLIENTE, en el registro.
+  //
+  // Sin esta línea, `wrangler tail` cuenta lo que el bot PENSÓ pero no lo
+  // que SALIÓ, y "el bot no respondió" es imposible de distinguir de "el
+  // bot respondió algo que no servía". Con un cliente esperando, esa
+  // diferencia es media hora de tail a ciegas. Un fallo al enviar ya se
+  // veía; un envío correcto, no.
+  console.log(`Meta ← mandé: ${resumirEnvio(mensaje)}`);
+
   return datos.message_id || ""; // lo guardamos para reconocer nuestro propio eco
+}
+
+// Lo justo para reconocerlo de un vistazo, sin volcar el JSON entero.
+function resumirEnvio(mensaje) {
+  if (mensaje?.text) return `"${recortar(mensaje.text, 90)}"`;
+
+  const elementos = mensaje?.attachment?.payload?.elements;
+  if (elementos?.length) {
+    return `${elementos.length} ficha(s): ${elementos.map((e) => e.title).join(" · ")}`;
+  }
+
+  if (mensaje?.attachment?.payload?.buttons) return "botón del catálogo";
+  return "adjunto";
 }
 
 export function enviarTexto(env, igsid, texto) {
