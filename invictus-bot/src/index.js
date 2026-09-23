@@ -76,7 +76,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-23 (7) · indexar con foto liviana: lo caro era la imagen";
+const VERSION = "2026-09-23 (8) · catálogo al día: 347 nombres, 25 que ya no existen fuera";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
