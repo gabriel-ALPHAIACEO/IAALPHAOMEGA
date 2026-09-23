@@ -20,6 +20,7 @@ import promptTexto from "./prompts/texto.txt";
 import promptVision from "./prompts/vision.txt";
 import promptCotejo from "./prompts/cotejo.txt";
 import listaCatalogo from "./prompts/catalogo.txt";
+import promptIndexar from "./prompts/indexar.txt";
 import { RASGOS_CLAVE } from "./identificar.js";
 
 // EL CATÁLOGO SE PEGA AL PROMPT AL ARRANCAR, NO EN CADA MENSAJE.
@@ -449,6 +450,45 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
 
   console.log(`Cotejo visual: la foto es "${elegido.titulo}" (${porque})`);
   return elegido;
+}
+
+// CATALOGAR UN PRODUCTO: los 15 rasgos de su foto, y nada más.
+//
+// Esto lo usa /indexar-catalogo, y tiene prompt propio por un motivo
+// medido: antes reutilizaba identificarEnImagen(), que manda el prompt
+// COMPLETO de visión —8.300 tokens de firmas de marca y ejemplos— para
+// sacar 15 booleanos de una foto de producto sobre fondo blanco.
+//
+// La cuenta: una tanda de 40 productos gastaba 333.000 tokens contra un
+// cupo de 200.000 por minuto. La mayoría fallaba con 429 y el catálogo
+// no terminaba de indexarse nunca: de 40 pedidos entraban 7.
+//
+// Con el prompt corto son ~24.000. Catorce veces menos, y la tanda entra
+// entera. Se queda con detail:"high" a propósito: el índice decide qué
+// diez productos van al cotejo, así que un rasgo mal leído acá se paga
+// en cada foto que llegue después.
+export async function rasgosDeProducto(env, urlImagen, { modelo = "" } = {}) {
+  const salida = await llamar(
+    env,
+    promptIndexar,
+    [
+      { type: "image_url", image_url: { url: urlImagen, detail: "high" } },
+      { type: "text", text: "Cataloga este producto." },
+    ],
+    {
+      schema: ESQUEMA_IDENTIFICACION,
+      modelo: modelo || modeloDeIndice(env),
+      maxTokens: 400,
+    }
+  );
+
+  const datos = extraerJson(salida);
+  if (!datos?.rasgos) return null;
+
+  return {
+    visto: String(datos.visto || "").trim(),
+    rasgos: datos.rasgos,
+  };
 }
 
 // Con response_format el JSON ya viene limpio, pero si algún día se cambia de

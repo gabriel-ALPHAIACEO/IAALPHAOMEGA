@@ -31,6 +31,7 @@
 import {
   responderTexto,
   identificarEnImagen,
+  rasgosDeProducto,
   esperarCupo,
   modeloDeIndice,
 } from "./ia.js";
@@ -75,7 +76,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-23 (5) · el fotograma de las historias funciona + indexación por tandas de 40";
+const VERSION = "2026-09-23 (6) · indexar con prompt propio: 14 veces menos tokens";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -521,6 +522,9 @@ export default {
       const indexados = [];
       const modelo = modeloDeIndice(env);
       let corto = "";
+      // Cuántos de la tanda no se pudieron catalogar. Sin este número, una
+      // tanda de 40 que devuelve 7 no explica qué pasó con los otros 33.
+      let fallados = 0;
 
       // De a POCOS a la vez: el cupo por minuto de OpenAI es el techo de
       // todo esto, y reventarlo acá solo hace que la tanda falle entera.
@@ -538,12 +542,15 @@ export default {
 
         const resultados = await Promise.all(
           tanda.slice(i, i + 4).map(async (producto) => {
-            const visto = await identificarEnImagen(env, producto.imagen, { modelo });
-            return visto?.rasgos ? { ...producto, visto: visto.visto, rasgos: visto.rasgos } : null;
+            // Prompt propio, no el de visión completo: ver
+            // rasgosDeProducto() en ia.js.
+            const visto = await rasgosDeProducto(env, producto.imagen, { modelo });
+            return visto ? { ...producto, visto: visto.visto, rasgos: visto.rasgos } : null;
           })
         );
 
         indexados.push(...resultados.filter(Boolean));
+        fallados += resultados.filter((r) => !r).length;
       }
 
       // Ni uno solo. Casi siempre es la clave de OpenAI (sin saldo, o sin
@@ -576,6 +583,10 @@ export default {
         `Catálogo en Shopify: ${productos.length} productos\n` +
           `Ya estaban indexados: ${indice.length}\n` +
           `Indexados en esta tanda: ${indexados.length} (con ${modelo})\n` +
+          (fallados
+            ? `No se pudieron catalogar: ${fallados} — el motivo exacto sale\n` +
+              "en `wrangler tail`. Si son 429, es cupo: espera un minuto.\n"
+            : "") +
           (quitados ? `Quitados del índice (ya no están en Shopify): ${quitados}\n` : "") +
           "\n" +
           (faltan > 0
