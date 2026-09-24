@@ -1,5 +1,40 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: el post compartido no llegaba como "share" (24-sep-2026)
+
+**La prueba, en el propio registro del dueño:**
+
+```
+(log) Meta → ATIENDO texto de:1391... texto:""
+(log) Busqué "Poco": 4 resultado(s)
+(log) Meta ← mandé: 4 ficha(s): Poco X8 pro 5G · Poco M8 pro 5G · ...
+```
+
+`texto`, no `publicacion`, y **sin una sola letra**. Meta mandó el post
+compartido con un tipo de adjunto que el código no reconocía, así que no
+era ni foto, ni historia, ni publicación: llegó un mensaje en blanco. Y el
+modelo, al que no se le puede pedir que conteste la nada, rellenó con lo
+último del historial — cuatro Poco cualesquiera a alguien que había
+señalado uno concreto.
+
+Se cerró por los dos lados:
+
+1. **Más tipos reconocidos, y un cajón de sastre.** Además de `share`,
+   `ig_reel` y compañía entran `fallback` (el más común cuando lo
+   compartido lleva enlace), `link`, `template`, `video` y `file`; y
+   cualquier adjunto **desconocido que traiga una URL** se atiende como
+   publicación. Quedan fuera a propósito las notas de voz y las fotos, que
+   no son publicaciones. Así un nombre nuevo de Meta no vuelve a costar un
+   cliente.
+2. **Los enlaces envueltos se desenvuelven.** Meta manda muchas veces su
+   redirector (`l.instagram.com/?u=...`) en vez de la dirección real; así
+   tal cual no se reconoce como publicación nuestra ni se puede leer.
+3. **Un mensaje vacío ya no se contesta con el historial.** Si no hay
+   texto, ni foto, ni publicación, el bot dice que no le llegó y pregunta
+   qué equipo busca. Sin saludo, porque también le pasa a quien ya viene
+   hablando. Esto cubre de una vez las notas de voz, los stickers y
+   cualquier adjunto que Meta invente mañana.
+
 ## Hecho: las publicaciones se leen por la API, no raspando la página (24-sep-2026)
 
 Cuando lo que llega es el **enlace** de una publicación —o cuando Meta manda

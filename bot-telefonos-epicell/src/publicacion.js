@@ -43,6 +43,19 @@ export const PUBLICACION_FRESCA_MS = 3 * 60 * 1000;
 // Los adjuntos con los que Meta manda una publicación compartida. Cambian
 // según sea un post, un reel o un vídeo, y según la versión de la API, así
 // que se aceptan todos los nombres que ha usado.
+// VISTO EN PRODUCCIÓN (24-sep-2026): NO SIEMPRE ES "share".
+//
+// Un post compartido llegó con un tipo que no estaba en esta lista, así que
+// el mensaje cayó en el saco de "texto" — y como no lleva texto, el modelo
+// contestó con lo último del historial: cuatro Poco cualesquiera a alguien
+// que había señalado uno concreto.
+//
+// Por eso esta lista se amplió con los nombres que Meta usa para lo mismo
+// ("fallback" es el más común cuando lo que se comparte lleva un enlace), y
+// por eso además hay un cajón de sastre más abajo: cualquier adjunto
+// desconocido que traiga una URL se atiende como publicación. Es mejor
+// tratar un adjunto raro como una publicación —el bot pregunta cuál es— que
+// dejarlo pasar como un mensaje en blanco.
 const ADJUNTOS_COMPARTIDOS = new Set([
   "share",
   "media_share",
@@ -50,7 +63,17 @@ const ADJUNTOS_COMPARTIDOS = new Set([
   "reel",
   "post",
   "story_reply",
+  "fallback",
+  "link",
+  "template",
+  "video",
+  "file",
 ]);
+
+// Estos NO entran en el cajón de sastre: una nota de voz no es una
+// publicación, y tratarla como tal haría que el bot hable de "la
+// publicación que mandaste" cuando el cliente mandó un audio.
+const NO_SON_PUBLICACION = new Set(["audio", "voice", "image", "story_mention"]);
 
 // Los dominios donde Meta guarda el archivo de una publicación. Sirve para
 // distinguir "esto es una imagen que puedo mirar" de "esto es un enlace a
@@ -69,13 +92,22 @@ export function leerAdjuntoCompartido(adjuntos) {
   const vacio = { url: "", titulo: "", enlace: "" };
   const lista = Array.isArray(adjuntos) ? adjuntos : [];
 
-  const compartido = lista.find((a) =>
-    ADJUNTOS_COMPARTIDOS.has(String(a?.type || "").toLowerCase())
-  );
+  const compartido =
+    lista.find((a) => ADJUNTOS_COMPARTIDOS.has(String(a?.type || "").toLowerCase())) ||
+    // El cajón de sastre: un adjunto que no conocemos pero que trae una
+    // dirección. Meta cambia estos nombres entre versiones y no los
+    // documenta; esto hace que un nombre nuevo no vuelva a costar un
+    // cliente.
+    lista.find(
+      (a) =>
+        !NO_SON_PUBLICACION.has(String(a?.type || "").toLowerCase()) &&
+        /^https?:\/\//i.test(String(a?.payload?.url || ""))
+    );
+
   if (!compartido) return vacio;
 
   const carga = compartido.payload || {};
-  const url = String(carga.url || "").trim();
+  const url = desenvolver(carga.url);
 
   // El pie de foto solo viene en los reels ("title"), y es oro: muchas
   // veces nombra el producto mejor que la propia imagen.
@@ -88,7 +120,7 @@ export function leerAdjuntoCompartido(adjuntos) {
   if (!/^https?:\/\//i.test(url)) return { ...vacio, titulo };
 
   return esArchivoDeMeta(url)
-    ? { url, titulo, enlace: String(carga.permalink_url || carga.link || "").trim() }
+    ? { url, titulo, enlace: desenvolver(carga.permalink_url || carga.link || "") }
     : { url: "", titulo, enlace: url };
 }
 
@@ -106,11 +138,33 @@ export function esEnlaceDeInstagram(url) {
 // El enlace que el cliente pegó a mano en el texto. Es el otro camino por
 // el que llega una publicación: en vez de compartirla, copian la dirección
 // desde los tres puntos y la mandan escrita.
+// META ENVUELVE LOS ENLACES. Lo que manda muchas veces no es la dirección
+// de la publicación sino un redirector suyo:
+//
+//   https://l.instagram.com/?u=https%3A%2F%2Fwww.instagram.com%2Fp%2FABC%2F&e=...
+//
+// Así tal cual no sirve para nada: ni se reconoce como publicación nuestra
+// ni se puede leer. Se desenvuelve antes de tocarla.
+export function desenvolver(url) {
+  const enlace = String(url || "").trim();
+  if (!/^https?:\/\//i.test(enlace)) return enlace;
+
+  try {
+    const direccion = new URL(enlace);
+    if (!/^l\.(instagram|facebook|messenger)\.com$/i.test(direccion.hostname)) return enlace;
+
+    const dentro = direccion.searchParams.get("u") || direccion.searchParams.get("url");
+    return dentro && /^https?:\/\//i.test(dentro) ? dentro : enlace;
+  } catch {
+    return enlace;
+  }
+}
+
 export function enlaceEnTexto(texto) {
   const encontrado = String(texto || "").match(/https?:\/\/[^\s<>"']+/i);
   if (!encontrado) return "";
   // Un enlace al final de una frase se lleva pegado el punto o el paréntesis.
-  return encontrado[0].replace(/[).,;!?]+$/, "");
+  return desenvolver(encontrado[0].replace(/[).,;!?]+$/, ""));
 }
 
 /* ── Nuestro propio feed, por la API de Instagram ─────────────────── */

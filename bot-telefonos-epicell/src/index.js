@@ -309,6 +309,23 @@ const PRECIOS_EN_DIVISAS = [
 // de una publicación del POCO M8 PRO y el bot le contestó con el Samsung
 // A57, que era el de la conversación anterior—. Enseñar el equipo
 // equivocado con seguridad es peor que preguntar.
+// LLEGÓ ALGO QUE NO SE PUEDE LEER: NI TEXTO, NI FOTO, NI PUBLICACIÓN.
+//
+// EL FALLO QUE ESTO ARREGLA (24-sep-2026, visto en el registro). Un cliente
+// compartió un post y Meta lo mandó con un adjunto que el código no sabía
+// leer. El mensaje llegó EN BLANCO, y el modelo —que no puede contestar la
+// nada— rellenó con lo último del historial: le mandó cuatro Poco
+// cualesquiera a alguien que había señalado uno concreto.
+//
+// Un mensaje vacío no se contesta con el pasado. Se dice que no llegó y se
+// pregunta, que es lo que haría cualquiera. Sin saludo: esto también le
+// pasa a clientes que ya vienen hablando.
+const NO_PUDE_ABRIRLO = [
+  "Eso no me llegó completo 😅 Dime cuál equipo te interesa y te lo muestro",
+  "No pude abrir lo que me mandaste 😅 ¿Cuál equipo estás buscando?",
+  "Se me trabó eso que mandaste 😅 Dime el modelo y te paso el precio enseguida",
+];
+
 const PUBLICACION_SIN_IDENTIFICAR = [
   "¡Claro que sí! 😊 Dime cuál de los equipos de esa publicación te interesa y te paso el precio",
   "¡Con gusto! ¿Cuál viste en esa publicación? Dime el modelo y te lo muestro enseguida",
@@ -1112,6 +1129,33 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     `Meta → ATIENDO ${mensaje.tipo} de:${mensaje.igsid} ` +
       `texto:${JSON.stringify(String(mensaje.texto).slice(0, 60))}`
   );
+
+  // UN MENSAJE VACÍO NO SE CONTESTA CON EL HISTORIAL (crítico).
+  //
+  // Si no hay texto, ni foto, ni publicación, no hay NADA que atender: un
+  // adjunto que Meta manda con una forma que no sabemos leer, una nota de
+  // voz, un sticker. Pasarle eso al modelo es pedirle que adivine, y
+  // adivina con lo único que tiene: la conversación anterior. Así se le
+  // mandaron cuatro Poco a quien había compartido un post de uno solo.
+  //
+  // El adjunto que llegó queda en el registro (ver instagram.js), que es
+  // por donde se arregla el caso siguiente.
+  if (!mensaje.texto && !imagenCruda && !publicacion) {
+    const frase = alAzar(NO_PUDE_ABRIRLO);
+    console.log(
+      `Mensaje sin nada que atender de ${mensaje.igsid} (tipo ${mensaje.tipo}): ` +
+        "pregunto en vez de suponer con el historial"
+    );
+    await mandar(() => enviarTexto(env, mensaje.igsid, frase), frase);
+    await guardarContacto(env.DB, {
+      ...contacto,
+      nombre,
+      mids_enviados: mids,
+      ultimo_envio: enviadoEn || Date.now(),
+      ultima_respuesta: frase,
+    });
+    return;
+  }
 
   // Quien ya escribió antes y vuelve con un "hola" suelto no necesita al
   // modelo: no hay nada que buscar. La primera vez de cada cliente NO entra
