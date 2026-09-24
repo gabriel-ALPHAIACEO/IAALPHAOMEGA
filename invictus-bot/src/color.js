@@ -100,3 +100,37 @@ function reiniciar(patron) {
   patron.lastIndex = 0;
   return patron;
 }
+
+// ── Para el reconocimiento por foto ─────────────────────────────────
+
+// Lo que dijo la IA de visión ("negra", "black", "Negro") al nombre
+// interno. Devuelve "" si no es un color que sepamos reconocer.
+export function nombreDeColor(texto) {
+  const limpio = String(texto || "").trim();
+  if (!limpio) return "";
+  const encontrado = COLORES.find((c) => reiniciar(c.pide).test(limpio));
+  return encontrado ? encontrado.nombre : "";
+}
+
+// ¿El título de este producto es de ese color?
+//
+// Sirve para lo que más se quejaba la tienda: la historia enseña el
+// negro y el bot manda el blanco. Con esto, entre varios del mismo
+// modelo, el del color de la foto va primero.
+//
+// OJO: que dé false NO significa que sea de otro color. Muchos títulos no
+// nombran ninguno ("Tommy caballero"), y esos no se penalizan — solo se
+// premia al que SÍ coincide.
+export function tituloEsDelColor(titulo, color) {
+  const nombre = String(color || "").trim().toLowerCase();
+  if (!nombre) return false;
+  const c = COLORES.find((x) => x.nombre === nombre);
+  return c ? c.titulo.test(String(titulo || "")) : false;
+}
+
+// ¿El título nombra algún color, el que sea? Un título que no dice color
+// no contradice a la foto; uno que dice otro color, sí.
+export function tituloNombraColor(titulo) {
+  const texto = String(titulo || "");
+  return COLORES.some((c) => c.titulo.test(texto));
+}

@@ -33,6 +33,20 @@ Tres capas, y cada una arregla el fallo de la anterior:
    - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
    - **Indexar el catálogo una sola vez** ← **esto es lo que se hizo.** Ver abajo.
 
+### El color de la foto manda (24-sep-2026)
+
+Reportado por el dueño: *"pregunté por un calzado, en la historia sale en color negro y me mostró otro color nada que ver; con los Tommy igual"*. Y el otro síntoma: *"a veces dice ¿son adidas? ¿me dices cómo se llama? y muestra algo nada que ver"*.
+
+**Por qué pasaba.** El ranking del índice solo miraba los 15 rasgos — y entre dos colores del MISMO modelo esos rasgos son **idénticos**. Así que el desempate lo hacía el orden en que D1 devolviera las filas. Con 17 `New Balance 9060 Dama` en el catálogo, acertar el color era una lotería de 1 entre 17. Lo mismo con los resultados de marca: diez Adidas sin ordenar, y el modelo solo ve los 8 primeros.
+
+**Qué cambió:**
+
+1. **La visión devuelve el color** en su propio campo del JSON (`color`), no enterrado en la frase libre de `visto` — ahí *"suela blanca"* convertía un zapato negro en uno blanco. El prompt es explícito: el color del CUERPO del zapato, no el de la suela ni el del swoosh; vacío si el filtro no deja verlo.
+2. **El color pesa en el ranking, y pesa más que los rasgos.** Coincidir suma 60; llevar OTRO color escrito en el título resta 25; un título que no nombra color (`Tommy caballero`) ni suma ni resta — no contradice nada. El máximo por los 15 rasgos son 45 puntos, así que el color gana los empates, que es justo donde se perdía.
+3. **Los resultados de marca también se ordenan.** Se piden 3x candidatos a Shopify y se ordenan por color + rasgos antes de enseñárselos al modelo, que solo mira 8.
+4. **El prompt del cotejo desempata por color.** Sigue diciendo que un color distinto no descarta un modelo — eso es correcto y evita perder ventas por un filtro de Instagram— pero ahora añade: si varios candidatos son el mismo modelo y solo cambian de color, elige el de la foto.
+5. **Detrás del elegido van sus hermanos.** Antes, cuando el par salía del índice o de la marca, se mandaba SOLO. Pero en este catálogo el mismo título se repite una vez por color, así que los que comparten título son el mismo zapato en otros colores — que es exactamente lo que el cliente quiere ver después del suyo. **El de la foto va primero** y detrás hasta 9 más.
+
 ### El barrido a Shopify ya no corre con el catálogo indexado (24-sep-2026)
 
 Capturado en producción por el dueño, en `wrangler tail`. Una respuesta a una historia con `"Precio"`:

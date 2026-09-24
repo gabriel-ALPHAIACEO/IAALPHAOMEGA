@@ -36,7 +36,7 @@
 import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
 import { cotejarConCatalogo, estaLimitado, modeloDeVision } from "./ia.js";
 import { terminosCompatibles } from "./identificar.js";
-import { leerIndice, mejoresPorRasgos } from "./indice.js";
+import { leerIndice, mejoresPorRasgos, parecidoDeRasgos, puntosDeColor } from "./indice.js";
 
 // Cuántas fotos del catálogo se le mandan al modelo. Con 8 se cubre de
 // sobra una marca del catálogo, y cada una en "detail: low" cuesta poco.
@@ -125,6 +125,9 @@ export async function cotejoPorImagen({
   productos,
   termino,
   rasgos,
+  // El color del zapato de la foto, en una palabra. Es lo que evita
+  // mandarle el mismo modelo en otro color — la queja número uno.
+  color = "",
   // El modelo se nombró pero su detalle distintivo no se ve en la foto
   // (ver identificar.js). Entonces el cotejo ya no está desempatando
   // entre varios: está VERIFICANDO que el que se encontró sea el de la
@@ -159,9 +162,18 @@ export async function cotejoPorImagen({
   // diferencia entre ocho fotos al azar y ocho del estante correcto.
   const porRasgos = await buscarPorRasgos(env, rasgos, termino);
 
+  // El índice se lee UNA vez, al principio: hace falta para ordenar (trae
+  // los rasgos de cada producto del catálogo) y no solo para elegir
+  // candidatos al final.
+  const indice = await leerIndiceSeguro(env);
+
   // Primero los del rasgo, después los que ya había: si el cupo de 8 se
   // llena, que lo llenen los que tienen motivo para parecerse.
-  const pila = unir(porRasgos, productos);
+  //
+  // Y ORDENADOS POR COLOR Y RASGOS, que es lo que arregla el "me mostró
+  // otro color": diez Adidas sin ordenar son diez tiros al aire, y el
+  // modelo solo ve los 8 primeros.
+  const pila = ordenar(unir(porRasgos, productos), { color, rasgos, indice });
 
   // Todo lo que ya se le puso delante al modelo. Lo que descartó no se
   // le vuelve a mostrar en el barrido: sería pagar dos veces por la
@@ -170,7 +182,7 @@ export async function cotejoPorImagen({
 
   if (pila.length >= minimo) {
     const elegido = await cotejar(env, foto, pila, textoCliente, minimo, yaMirados);
-    if (elegido) return resultado(elegido, productos);
+    if (elegido) return resultado(elegido, productos, indice);
   }
 
   // Ni los rasgos ni la búsqueda dieron con él. Queda la marca, que es lo
@@ -183,16 +195,18 @@ export async function cotejoPorImagen({
     // devolvería lo mismo que acaba de devolver cero.
     if (marca && marca.toLowerCase() !== String(termino).trim().toLowerCase()) {
       console.log(`Sin resultados para "${termino}": cotejo la foto contra "${marca}"`);
-      const { productos: deLaMarca } = await buscarProductos(env, marca, MAXIMO_CANDIDATOS);
+      // Se piden más de los que caben: con el orden por color y rasgos,
+      // los 8 que se le enseñan al modelo salen de un grupo más grande.
+      const { productos: deLaMarca } = await buscarProductos(env, marca, MAXIMO_CANDIDATOS * 3);
       const elegido = await cotejar(
         env,
         foto,
-        unir(pila, deLaMarca),
+        ordenar(unir(pila, deLaMarca), { color, rasgos, indice }),
         textoCliente,
         minimo,
         yaMirados
       );
-      if (elegido) return resultado(elegido, productos);
+      if (elegido) return resultado(elegido, productos, indice);
     }
   }
 
@@ -209,11 +223,9 @@ export async function cotejoPorImagen({
   // diez siguientes, y los diez siguientes. Son candidatos ordenados por
   // parecido real, así que la ronda 2 sigue siendo mejor apuesta que
   // veinte productos cualesquiera de Shopify.
-  const indice = await leerIndiceSeguro(env);
-
   if (indice.length) {
     for (let ronda = 1; ronda <= RONDAS_DEL_INDICE; ronda++) {
-      const candidatos = mejoresPorRasgos(indice, rasgos, DESDE_EL_INDICE + yaMirados.size)
+      const candidatos = mejoresPorRasgos(indice, rasgos, DESDE_EL_INDICE + yaMirados.size, color)
         .filter((p) => !yaMirados.has(clave(p)))
         .slice(0, DESDE_EL_INDICE);
 
@@ -221,11 +233,12 @@ export async function cotejoPorImagen({
 
       console.log(
         `Índice (ronda ${ronda}): ${indice.length} productos guardados, ` +
-          `miro los ${candidatos.length} más parecidos que aún no vi`
+          `miro los ${candidatos.length} más parecidos que aún no vi` +
+          (color ? ` (color de la foto: ${color})` : "")
       );
 
       const elegido = await cotejar(env, foto, candidatos, textoCliente, 1, yaMirados, DESDE_EL_INDICE);
-      if (elegido) return resultado(elegido, productos);
+      if (elegido) return resultado(elegido, productos, indice);
 
       // Si OpenAI se quedó sin cupo, las rondas siguientes fallarían
       // igual y el cliente está esperando.
@@ -272,7 +285,7 @@ export async function cotejoPorImagen({
   const elegido = await barrerCatalogo(env, foto, textoCliente, { termino, yaMirados });
   if (!elegido) return null;
 
-  return resultado(elegido, productos);
+  return resultado(elegido, productos, indice);
 }
 
 // El índice entero, una sola vez. Sin él el bot sigue funcionando: solo
@@ -385,7 +398,7 @@ function clave(producto) {
 }
 
 // Qué se le devuelve a decidir() según de dónde salió el par elegido.
-function resultado(elegido, productos) {
+function resultado(elegido, productos, indice = []) {
   const estaba = productos.some((p) => p.titulo === elegido.titulo);
 
   // Salió de la búsqueda original: el cliente pidió ESE modelo y los
@@ -398,10 +411,54 @@ function resultado(elegido, productos) {
     };
   }
 
-  // Salió de otro lado (los rasgos, o la marca), así que lo demás no
-  // tiene que ver con la foto: mandarlo sería enterrar el que pidió
-  // entre siete que no.
-  return { elegido, productos: [elegido] };
+  // SALIÓ DEL ÍNDICE O DE LA MARCA: SE LE ENSEÑA CON SUS HERMANOS.
+  //
+  // Antes aquí se mandaba el elegido SOLO, para no enterrarlo entre siete
+  // que no tienen que ver. Pero en este catálogo el mismo título se
+  // repite una vez por color —hay 17 "New Balance 9060 Dama"—, así que
+  // los que comparten título son EL MISMO ZAPATO en otros colores. Eso no
+  // es ruido: es exactamente lo que el cliente quiere ver después del
+  // suyo.
+  //
+  // El de la foto va PRIMERO y los demás detrás.
+  const hermanos = indice.filter(
+    (p) => p.titulo === elegido.titulo && p.imagen !== elegido.imagen && p.imagen
+  );
+
+  if (hermanos.length) {
+    console.log(`Del mismo modelo hay ${hermanos.length} más: van detrás del de la foto`);
+  }
+
+  return { elegido, productos: [elegido, ...hermanos.slice(0, MAXIMO_HERMANOS)] };
+}
+
+// Cuántos del mismo modelo se enseñan detrás del de la foto. El carrusel
+// de Instagram admite 10, y el primero ya está ocupado.
+const MAXIMO_HERMANOS = 9;
+
+// ORDENA POR LO QUE DE VERDAD DISTINGUE UN ZAPATO DE OTRO: el color que
+// se ve en la foto, y después los rasgos.
+//
+// Los productos que llegan de Shopify no traen rasgos —eso vive en el
+// índice—, así que se emparejan por la URL de su foto, que es la clave
+// del índice. El que no esté indexado puntúa solo por color, y queda
+// detrás de los que sí: es lo correcto, de ese no sabemos nada.
+function ordenar(productos, { color, rasgos, indice }) {
+  if (!color && !rasgos) return productos;
+
+  const porFoto = new Map((indice || []).map((p) => [p.imagen, p]));
+
+  return [...productos]
+    .map((producto, orden) => {
+      const guardado = porFoto.get(producto.imagen);
+      const puntos =
+        puntosDeColor(producto.titulo, color) +
+        (guardado ? parecidoDeRasgos(guardado.rasgos, rasgos) : 0);
+      // "orden" mantiene estable el orden original entre empatados.
+      return { producto, puntos, orden };
+    })
+    .sort((a, b) => b.puntos - a.puntos || a.orden - b.orden)
+    .map((x) => x.producto);
 }
 
 // Busca en Shopify los modelos que encajan con lo que la IA dijo VER.
@@ -483,7 +540,7 @@ function primeraPalabra(termino) {
 // el catálogo entero indexado eso es absurdo: sabe qué hay y sabe a qué
 // se parece la foto. Enseñarle cinco y preguntarle cuál es vende; pedirle
 // el nombre de un zapato que no sabe nombrar, no.
-export async function parecidosDeLaFoto(env, rasgos, cuantos = 6) {
+export async function parecidosDeLaFoto(env, rasgos, cuantos = 6, color = "") {
   if (!env.DB || !rasgos) return [];
 
   let indice = [];
@@ -496,7 +553,7 @@ export async function parecidosDeLaFoto(env, rasgos, cuantos = 6) {
 
   if (!indice.length) return [];
 
-  const mejores = mejoresPorRasgos(indice, rasgos, cuantos).filter((p) => p.titulo && p.imagen);
+  const mejores = mejoresPorRasgos(indice, rasgos, cuantos, color).filter((p) => p.titulo && p.imagen);
 
   if (mejores.length) {
     console.log(

@@ -539,6 +539,24 @@ TRAMPAS DE ESTA TIENDA (memorízalas, son las que más ventas cuestan)
 
   El término CORTO salva estos casos. Es la razón del máximo de 3 palabras.
 
+EL COLOR (campo "color")
+
+Una palabra con el color DEL ZAPATO: "negro", "blanco", "azul", "gris",
+"beige", "marrón", "rojo", "rosado", "verde", "morado", "dorado",
+"plateado", "crema"...
+
+Es el color del CUERPO del zapato, el que se ve de lejos. No el de la
+suela, ni el del swoosh, ni el de los cordones: un zapato negro con suela
+blanca es "negro".
+
+Si son dos colores a partes iguales, pon el que más superficie ocupa. Si
+la foto tiene tanto filtro, tanta sombra o tan poca luz que no te atreves
+a decirlo, deja "" — vacío es mejor que inventado.
+
+PARA QUÉ SE USA: entre varios del mismo modelo, el que coincide en color
+se le enseña PRIMERO al cliente. Si aquí pones el color equivocado, se le
+manda el zapato de otro color, que es la queja número uno de la tienda.
+
 LO QUE EXISTE EN ESTA TIENDA
 
 Esta es la lista de los modelos que la tienda maneja. Si lo que ves está

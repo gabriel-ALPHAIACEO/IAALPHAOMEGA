@@ -223,12 +223,23 @@ const ESQUEMA_IDENTIFICACION = {
         additionalProperties: false,
       },
       buscar: { type: "string" },
+      // EL COLOR DEL ZAPATO, en una palabra ("negro", "blanco", "azul"...)
+      // o "" si no se distingue.
+      //
+      // Va aparte de "visto" a propósito. Antes había que sacarlo de esa
+      // frase libre, y ahí "suela blanca" convertía un zapato negro en uno
+      // blanco. Con su propio campo, el modelo contesta por el zapato
+      // entero y el código no tiene que adivinar.
+      //
+      // Es lo que evita el fallo que más duele: la historia enseña el
+      // negro y el bot manda el blanco.
+      color: { type: "string" },
       // true = solo se reconoce la marca o familia, no el modelo exacto.
       // Con esto la IA de texto sabe si, además de mostrar la marca, tiene
       // que pedirle al cliente el nombre exacto en el mismo mensaje.
       pedirNombreExacto: { type: "boolean" },
     },
-    required: ["visto", "rasgos", "buscar", "pedirNombreExacto"],
+    required: ["visto", "rasgos", "buscar", "color", "pedirNombreExacto"],
     additionalProperties: false,
   },
 };
@@ -360,7 +371,7 @@ export async function responderTexto(env, entrada) {
 }
 
 // SOLO identifica: no redacta nada para el cliente. Devuelve
-// { visto, rasgos, buscar, pedirNombreExacto } o null si algo falló.
+// { visto, rasgos, buscar, color, pedirNombreExacto } o null si algo falló.
 export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) {
   const salida = await llamar(
     env,
@@ -405,6 +416,7 @@ export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) 
   return {
     visto: String(datos.visto || "").trim(),
     buscar: String(datos.buscar || "NADA").trim(),
+    color: String(datos.color || "").trim().toLowerCase(),
     rasgos: datos.rasgos && typeof datos.rasgos === "object" ? datos.rasgos : null,
     pedirNombreExacto: Boolean(datos.pedirNombreExacto),
   };

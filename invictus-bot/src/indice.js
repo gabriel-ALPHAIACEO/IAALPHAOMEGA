@@ -26,6 +26,7 @@
 import { RASGOS_CLAVE } from "./identificar.js";
 import { modeloDeIndice, rasgosDeProducto, esperarCupo } from "./ia.js";
 import { traerCatalogoCompleto } from "./shopify.js";
+import { tituloEsDelColor, tituloNombraColor } from "./color.js";
 
 // LA CLAVE ES LA FOTO, NO EL TÍTULO (24-sep-2026 — esto tenía parada la
 // indexación en seco).
@@ -227,12 +228,30 @@ const PUNTOS_COINCIDE_PRESENTE = 3;
 const PUNTOS_COINCIDE_AUSENTE = 1;
 const PUNTOS_DIFIERE = -2;
 
-export function mejoresPorRasgos(indice, rasgos, cuantos = 10) {
+// EL COLOR PESA, Y PESA MÁS QUE LOS RASGOS (24-sep-2026).
+//
+// Queja número uno de la tienda: la historia enseña el zapato negro y el
+// bot manda el mismo modelo en blanco. Pasaba porque el ranking solo
+// miraba los 15 rasgos, y entre dos colores del MISMO modelo esos rasgos
+// son idénticos — así que salía primero el que la base devolviera antes.
+//
+// Coincidir en color vale más que cualquier rasgo suelto (el máximo por
+// rasgos son 45 puntos: 15 por 3). Y llevar OTRO color escrito en el
+// título resta, porque ahí el título sí está contradiciendo a la foto.
+// Un título que no nombra color no suma ni resta: "Tommy caballero" no
+// dice nada, y no por eso es peor candidato.
+const PUNTOS_MISMO_COLOR = 60;
+const PUNTOS_OTRO_COLOR = -25;
+
+export function mejoresPorRasgos(indice, rasgos, cuantos = 10, color = "") {
   if (!rasgos || typeof rasgos !== "object") return [];
 
   const conPuntos = indice
     .filter((producto) => producto.imagen && producto.rasgos)
-    .map((producto) => ({ producto, puntos: puntuar(producto.rasgos, rasgos) }));
+    .map((producto) => ({
+      producto,
+      puntos: puntuar(producto.rasgos, rasgos) + puntosDeColor(producto.titulo, color),
+    }));
 
   if (!conPuntos.length) return [];
 
@@ -258,6 +277,20 @@ export function mejoresPorRasgos(indice, rasgos, cuantos = 10) {
   }
 
   return elegidos;
+}
+
+export function puntosDeColor(titulo, color) {
+  if (!color) return 0;
+  if (tituloEsDelColor(titulo, color)) return PUNTOS_MISMO_COLOR;
+  return tituloNombraColor(titulo) ? PUNTOS_OTRO_COLOR : 0;
+}
+
+// El parecido entre los rasgos de un producto y los de la foto. Se
+// exporta para que cotejo.js pueda ordenar con el mismo criterio los
+// productos que le llegan de Shopify.
+export function parecidoDeRasgos(delCatalogo, deLaFoto) {
+  if (!delCatalogo || !deLaFoto) return 0;
+  return puntuar(delCatalogo, deLaFoto);
 }
 
 function puntuar(delCatalogo, deLaFoto) {

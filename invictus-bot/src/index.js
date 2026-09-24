@@ -34,7 +34,7 @@ import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo } from "./catalogo.js";
 import { alternativasPara } from "./parecidos.js";
-import { separarColor, filtrarPorColor, terminoDeColor } from "./color.js";
+import { separarColor, filtrarPorColor, terminoDeColor, nombreDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
 import { cotejoPorImagen, parecidosDeLaFoto } from "./cotejo.js";
@@ -70,7 +70,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-24 (13) · con el catálogo indexado ya no se barre Shopify";
+const VERSION = "2026-09-24 (14) · el color de la foto manda: mismo modelo, mismo color, y primero";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -613,6 +613,7 @@ export default {
         historialPrevio: "",
         foto: descargada,
         rasgos: identificacion.rasgos,
+        colorFoto: nombreDeColor(identificacion.color),
         porConfirmar: Boolean(confirmar),
       });
 
@@ -1023,6 +1024,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // productos comparar, en vez de contra los primeros que devuelva
   // Shopify (ver cotejo.js).
   let rasgosFoto = null;
+  // El color que la IA vio en el zapato. Ordena los candidatos para que
+  // no se le mande el mismo modelo en otro color.
+  let colorFoto = "";
   // El modelo se nombró pero el detalle que lo confirmaría no se ve en la
   // foto (ver identificar.js). Se busca igual, y el cotejo visual lo
   // verifica contra la foto real del catálogo — incluso si hay un solo
@@ -1037,12 +1041,15 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       // encuentra y un nombre mal identificado se ven igual en los
       // registros si no queda escrito qué vio y qué va a buscar.
       console.log(
-        `La IA de visión vio: "${identificacion.visto}" → busco: "${buscar}"` +
+        `La IA de visión vio: "${identificacion.visto}"` +
+          (identificacion.color ? ` · color: ${identificacion.color}` : " · color: no lo distingue") +
+          ` → busco: "${buscar}"` +
           (confirmar ? " (sin confirmar)" : "")
       );
 
       marcaFoto = marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar);
       rasgosFoto = identificacion.rasgos;
+      colorFoto = nombreDeColor(identificacion.color);
       porConfirmar = Boolean(confirmar);
     } else {
       console.error(
@@ -1116,6 +1123,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     pideMas: !imagenCruda && pideMasVariedad(mensaje.texto),
     foto,
     rasgos: rasgosFoto,
+    colorFoto,
     porConfirmar,
   });
 
@@ -1447,6 +1455,9 @@ async function decidir({
   // Lo que la IA de visión marcó que VE en esa foto. El cotejo elige por
   // ahí contra qué productos comparar.
   rasgos = null,
+  // El color del zapato de la foto, en una palabra. Ordena los candidatos
+  // para que no se le mande el mismo modelo en otro color.
+  colorFoto = "",
   // El modelo se identificó pero sin confirmar del todo: el cotejo pasa a
   // verificar, no solo a desempatar.
   porConfirmar = false,
@@ -1521,6 +1532,7 @@ async function decidir({
       productos,
       termino: aBuscar,
       rasgos,
+      color: colorFoto,
       verificar: porConfirmar,
       // El barrido del catálogo completo es el último recurso y el único
       // paso caro de todo esto. Se apaga con COTEJO_BARRIDO = "no".
@@ -1562,7 +1574,7 @@ async function decidir({
   // no dice "es este". Esa es la diferencia con el cotejo, que sí afirma
   // y por eso exige confianza alta.
   if (foto && !productos.length && rasgos) {
-    const parecidos = await parecidosDeLaFoto(env, rasgos, PARECIDOS_DEL_INDICE);
+    const parecidos = await parecidosDeLaFoto(env, rasgos, PARECIDOS_DEL_INDICE, colorFoto);
 
     if (parecidos.length) {
       productos = parecidos;
