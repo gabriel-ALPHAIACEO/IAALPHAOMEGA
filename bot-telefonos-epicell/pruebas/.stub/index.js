@@ -2631,3 +2631,6 @@ function paraCsv(valor) {
   if (!/[",\n]/.test(texto)) return texto;
   return `"${texto.replace(/"/g, '""')}"`;
 }
+
+
+export { atenderMeta, publicacionDelTurno, nombraDelCatalogo, sinListaPegada, precioParaMostrar, subtituloDeFicha, minutosParaVolver, hayQueDecirQueHayMas, fraseSinResultados, marcarIdentificacion, marcarPublicacionSinVer, PAGOS_CASHEA, PAGOS_KRECE, NO_PUDE_ABRIRLO, NO_ESE_PERO_MIRA };
