@@ -267,6 +267,21 @@ export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
   if (mensaje.is_unsupported) return descartar("un mensaje que Meta no entiende");
 
   const adjuntos = Array.isArray(mensaje.attachments) ? mensaje.attachments : [];
+
+  // QUÉ TRAE EL MENSAJE, TAL CUAL LO MANDA META.
+  //
+  // Meta no documenta con qué forma llega cada cosa —un post compartido, un
+  // reel, una publicación con varias fotos— y cambia de una versión a otra.
+  // Sin esta línea, averiguarlo es adivinar; con ella, `wrangler tail` lo
+  // dice en el momento y se ajusta lo que haga falta en una tarde.
+  if (adjuntos.length) {
+    console.log(
+      `Meta → adjuntos: ${adjuntos
+        .map((a) => `${a?.type || "?"}${a?.payload?.url ? ` (${String(a.payload.url).slice(0, 60)}…)` : ""}`)
+        .join(" · ")}`
+    );
+  }
+
   const historia = leerHistoria(mensaje, adjuntos);
   const publicacion = leerAdjuntoCompartido(adjuntos);
   const foto = primeraImagen(adjuntos);

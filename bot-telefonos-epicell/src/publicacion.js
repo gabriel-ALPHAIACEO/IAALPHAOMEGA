@@ -113,6 +113,125 @@ export function enlaceEnTexto(texto) {
   return encontrado[0].replace(/[).,;!?]+$/, "");
 }
 
+/* ── Nuestro propio feed, por la API de Instagram ─────────────────── */
+
+// LA FORMA FIABLE DE LEER UNA PUBLICACIÓN NUESTRA.
+//
+// EL PROBLEMA. Cuando el cliente manda el ENLACE de una publicación (o
+// cuando Meta manda el permalink en vez del archivo), abrir esa dirección
+// desde el Worker casi nunca funciona: Instagram le devuelve un muro de
+// inicio de sesión a cualquiera que no sea un navegador con sesión, y de
+// ahí no sale ni la foto ni el pie. Raspar etiquetas og: es un intento, no
+// una garantía.
+//
+// LA IDEA. Esa publicación es NUESTRA. No hace falta entrar por la puerta
+// de la calle: la API de Instagram nos deja leer nuestro propio feed con el
+// mismo token con el que el bot contesta los mensajes. Del enlace se saca
+// el código de la publicación, se busca en nuestras últimas publicaciones,
+// y de ahí salen el PIE DE FOTO —que casi siempre nombra el equipo con su
+// capacidad— y la IMAGEN, que ya se puede mirar.
+//
+// Si el token no alcanza o la publicación es vieja, no pasa nada: se sigue
+// con el camino de las etiquetas og:, y si tampoco, el bot pregunta.
+const GRAFO = "https://graph.instagram.com/v23.0";
+
+const CAMPOS = "id,caption,media_url,thumbnail_url,permalink,media_type";
+
+// Cuántas publicaciones se miran hacia atrás. Tres páginas de 50 cubren el
+// feed de varios meses, que es de donde sale lo que comparte un cliente.
+const PAGINAS = 3;
+const POR_PAGINA = 50;
+
+// El feed cambia poco y esto corre en cada enlace que llega: se guarda en
+// memoria unos minutos, como el catálogo.
+const CACHE_MS = 10 * 60 * 1000;
+let cache = { cuando: 0, medios: [] };
+
+// El código que identifica una publicación dentro de su enlace:
+// instagram.com/p/CODIGO/ o /reel/CODIGO/.
+export function codigoDePublicacion(url) {
+  const encontrado = String(url || "").match(
+    /instagram\.com\/(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/i
+  );
+  return encontrado ? encontrado[1] : "";
+}
+
+async function nuestrasPublicaciones(env) {
+  const ahora = Date.now();
+  if (cache.medios.length && ahora - cache.cuando < CACHE_MS) return cache.medios;
+
+  const medios = [];
+  let siguiente = `${GRAFO}/me/media?fields=${CAMPOS}&limit=${POR_PAGINA}&access_token=${env.IG_TOKEN}`;
+
+  for (let pagina = 0; pagina < PAGINAS && siguiente; pagina++) {
+    let respuesta;
+    try {
+      respuesta = await fetch(siguiente, { signal: AbortSignal.timeout(ESPERA_MS) });
+    } catch (error) {
+      console.error("No pude leer nuestro feed:", error?.message || error);
+      break;
+    }
+
+    if (!respuesta.ok) {
+      console.error(
+        `La API de Instagram no dio el feed (${respuesta.status}). ` +
+          "Con IG_TOKEN sin permiso para leer publicaciones, el bot sigue " +
+          "igual: usa las etiquetas de la página y, si no, pregunta."
+      );
+      break;
+    }
+
+    let datos;
+    try {
+      datos = await respuesta.json();
+    } catch {
+      break;
+    }
+
+    medios.push(...(datos?.data || []));
+    siguiente = datos?.paging?.next || "";
+  }
+
+  if (medios.length) {
+    cache = { cuando: ahora, medios };
+    console.log(`Feed propio leído: ${medios.length} publicaciones en memoria`);
+  }
+
+  return medios;
+}
+
+// Devuelve lo mismo que leerEnlace, para que quien llama no tenga que
+// distinguir de dónde salió.
+export async function buscarEnNuestroFeed(env, enlace) {
+  const codigo = codigoDePublicacion(enlace);
+  if (!codigo || !env?.IG_TOKEN) return null;
+
+  const medios = await nuestrasPublicaciones(env);
+  const encontrada = medios.find((m) => codigoDePublicacion(m?.permalink) === codigo);
+
+  if (!encontrada) {
+    console.log(`La publicación ${codigo} no está en nuestras últimas publicaciones`);
+    return null;
+  }
+
+  // En un vídeo, "media_url" es el vídeo: lo que se puede mirar es la
+  // miniatura.
+  const esVideo = String(encontrada.media_type || "").toUpperCase() === "VIDEO";
+  const imagen = primeraHttp(
+    esVideo ? encontrada.thumbnail_url : encontrada.media_url,
+    encontrada.thumbnail_url,
+    encontrada.media_url
+  );
+
+  const pie = String(encontrada.caption || "").trim();
+  console.log(
+    `La publicación ${codigo} es nuestra: ${imagen ? "con imagen" : "sin imagen"}, ` +
+      `pie: ${JSON.stringify(pie.slice(0, 60))}`
+  );
+
+  return { imagen, titulo: pie, descripcion: "", termino: "" };
+}
+
 /* ── Leer lo que hay del otro lado del enlace ─────────────────────── */
 
 // No se espera indefinidamente: esto corre mientras el cliente mira la

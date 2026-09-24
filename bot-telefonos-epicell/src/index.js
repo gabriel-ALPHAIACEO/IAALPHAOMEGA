@@ -52,6 +52,7 @@ import {
 import { comoDataUri } from "./imagen.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
+  buscarEnNuestroFeed,
   enlaceEnTexto,
   esEnlaceDeInstagram,
   leerEnlace,
@@ -772,12 +773,14 @@ export default {
         );
       }
 
-      const leido = await leerEnlace(enlace);
+      const delFeed = await buscarEnNuestroFeed(env, enlace);
+      const leido = delFeed || (await leerEnlace(enlace));
       const algo = leido.imagen || leido.titulo || leido.descripcion || leido.termino;
 
       return texto200(
         [
           `Enlace        ${enlace}`,
+          `Como se leyo  ${delFeed ? "por la API (es una publicacion nuestra)" : "raspando la pagina (etiquetas og:)"}`,
           `Titulo        ${leido.titulo || "(no se pudo leer)"}`,
           `Descripcion   ${(leido.descripcion || "(no se pudo leer)").slice(0, 200)}`,
           `Imagen        ${leido.imagen || "(no se pudo leer)"}`,
@@ -1532,11 +1535,18 @@ async function publicacionDelTurno(env, mensaje, contacto) {
       ? mensaje.publicacion
       : { url: "", titulo: "", enlace: enlaceEscrito };
 
-    // Si lo que llegó es un enlace —el permalink de la publicación, la
-    // ficha de un producto— se abre para sacar de ahí la foto, el título y,
-    // con suerte, el nombre exacto del equipo.
+    // Si lo que llegó es un enlace, hay dos formas de leerlo, y el orden
+    // importa:
+    //
+    //   1. POR LA API, si es una publicación NUESTRA. Es la buena: devuelve
+    //      el pie de foto y la imagen de verdad, sin depender de que
+    //      Instagram nos deje entrar por la puerta de la calle.
+    //   2. Raspando la página (etiquetas og:), para todo lo demás — la
+    //      ficha de un producto, otra web. Instagram casi siempre devuelve
+    //      un muro de inicio de sesión por este camino, y por eso es el
+    //      segundo.
     const leido = cruda.enlace
-      ? await leerEnlace(cruda.enlace)
+      ? (await buscarEnNuestroFeed(env, cruda.enlace)) || (await leerEnlace(cruda.enlace))
       : { imagen: "", titulo: "", descripcion: "", termino: "" };
 
     // UN ENLACE DEL QUE NO SE SACÓ NADA NO ES UNA PUBLICACIÓN. Si el

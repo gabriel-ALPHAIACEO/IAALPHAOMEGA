@@ -1,5 +1,31 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: las publicaciones se leen por la API, no raspando la página (24-sep-2026)
+
+Cuando lo que llega es el **enlace** de una publicación —o cuando Meta manda
+el permalink en vez del archivo— abrir esa dirección desde el Worker casi
+nunca funciona: Instagram devuelve un muro de inicio de sesión a cualquiera
+que no sea un navegador con sesión. De ahí no sale ni la foto ni el pie, y
+el bot se quedaba sin saber de qué equipo le hablan.
+
+Pero esa publicación **es nuestra**, así que no hace falta entrar por la
+puerta de la calle: con el mismo `IG_TOKEN` con el que el bot contesta los
+mensajes se lee nuestro propio feed (`/me/media`). Del enlace se saca el
+código de la publicación, se busca entre las últimas 150, y de ahí salen el
+**pie de foto** —que casi siempre nombra el equipo con su capacidad— y la
+**imagen** (la miniatura, si es un reel).
+
+- Se intenta **primero** la API y solo después las etiquetas `og:`.
+- El feed se guarda en memoria 10 minutos: no se pide en cada mensaje.
+- Si el token no tiene permiso para leer publicaciones, el registro lo dice
+  con su código de error y el bot sigue igual que antes — no se rompe nada.
+- `/probar-enlace` ahora dice **por qué camino** se leyó el enlace.
+
+**Y para poder diagnosticar lo que falte:** cada mensaje con adjuntos deja
+en el registro el tipo tal cual lo manda Meta (`Meta → adjuntos: share
+(https://…)`). Meta no documenta con qué forma llega cada cosa y cambia de
+una versión a otra; sin esa línea es adivinar.
+
 ## Hecho: Cashea y Krece se leen de un vistazo (24-sep-2026)
 
 Los porcentajes llegaban en un solo mensaje con las dos tablas pegadas: diez
