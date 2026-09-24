@@ -24,6 +24,8 @@
 // ya están no se vuelven a mirar, así que reindexar es barato.
 
 import { RASGOS_CLAVE } from "./identificar.js";
+import { modeloDeIndice, rasgosDeProducto, esperarCupo } from "./ia.js";
+import { traerCatalogoCompleto } from "./shopify.js";
 
 const TABLA = `
   CREATE TABLE IF NOT EXISTS catalogo (
@@ -176,4 +178,102 @@ function leerRasgos(texto) {
   } catch {
     return null;
   }
+}
+
+
+/* ── Una tanda de indexación ────────────────────────────────────────── */
+//
+// ESTO ESTABA METIDO DENTRO DE LA RUTA /indexar-catalogo, Y POR ESO SOLO
+// PASABA CUANDO ALGUIEN ABRÍA LA PÁGINA.
+//
+// El cotejo visual depende del índice: sin él no puede comparar la foto
+// contra el catálogo entero y cae al barrido corto, que mira 20 productos
+// de 581. Pero llenar el índice eran ~15 recargas a mano, y una tarea que
+// depende de que alguien recargue quince veces es una tarea que no se
+// hace. El índice se quedaba vacío y el cotejo, cojo.
+//
+// Sacado aquí, lo usan los dos: la ruta (para verlo y forzarlo) y el cron
+// de scheduled() en index.js (para que se llene solo).
+
+// De a cuántos se miran a la vez. El techo es el cupo por minuto de
+// OpenAI; pasarse solo hace que la tanda falle entera.
+const DE_A_LA_VEZ = 4;
+
+export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) {
+  if (!env.DB) return { ok: false, error: "No hay base de datos conectada, y el índice vive ahí." };
+
+  const { productos } = await traerCatalogoCompleto(env, Number(env.COTEJO_MAXIMO) || 600);
+  if (!productos.length) return { ok: false, error: "Shopify no devolvió productos." };
+
+  const indice = await leerIndice(env.DB);
+
+  // Se reindexa un producto si nunca se miró o si le cambiaron la foto: la
+  // URL del CDN de Shopify cambia con la imagen, así que comparar la URL
+  // alcanza para saberlo.
+  const guardados = new Map(indice.map((p) => [p.titulo, p]));
+  const pendientes = productos.filter((p) => {
+    if (!p.imagen) return false;
+    if (rehacer) return true;
+    const antes = guardados.get(p.titulo);
+    return !antes || antes.imagen !== p.imagen;
+  });
+
+  const tanda = pendientes.slice(0, cuantos);
+  const modelo = modeloDeIndice(env);
+  const indexados = [];
+  let fallados = 0;
+  let corto = "";
+
+  // Si se acaba el cupo NO se abandona: aquí no hay ningún cliente
+  // esperando, así que se espera a que vuelva y se sigue. Solo se corta
+  // si la espera es tan larga que no vale la pena seguir en esta pasada.
+  for (let i = 0; i < tanda.length; i += DE_A_LA_VEZ) {
+    if (!(await esperarCupo(modelo))) {
+      corto = "Me quedé sin cupo de OpenAI a mitad de la tanda.";
+      console.log("Indexación: sin cupo y la espera es larga, corto la tanda");
+      break;
+    }
+
+    const resultados = await Promise.all(
+      tanda.slice(i, i + DE_A_LA_VEZ).map(async (producto) => {
+        // Prompt propio, no el de visión completo: ver rasgosDeProducto().
+        const visto = await rasgosDeProducto(env, producto.imagen, { modelo });
+        return visto ? { ...producto, visto: visto.visto, rasgos: visto.rasgos } : null;
+      })
+    );
+
+    indexados.push(...resultados.filter(Boolean));
+    fallados += resultados.filter((r) => !r).length;
+  }
+
+  // Ni uno solo de los que se intentaron. Casi siempre es la clave de
+  // OpenAI (sin saldo o sin permiso para este modelo), y quien llama
+  // necesita distinguirlo de "ya estaba todo hecho".
+  const ningunoSalio = tanda.length > 0 && indexados.length === 0;
+
+  await guardarIndexados(env.DB, indexados);
+
+  const faltan = pendientes.length - indexados.length;
+
+  // Solo cuando ya no falta nada: si se limpiara a mitad de la carga, un
+  // producto todavía sin mirar parecería retirado.
+  let quitados = 0;
+  if (!faltan) {
+    quitados = await limpiarLosQueYaNoEstan(env.DB, productos.map((p) => p.titulo));
+  }
+
+  return {
+    ok: true,
+    catalogo: productos.length,
+    yaEstaban: indice.length,
+    intentados: tanda.length,
+    indexados: indexados.length,
+    fallados,
+    pendientes: pendientes.length,
+    faltan,
+    quitados,
+    corto,
+    modelo,
+    ningunoSalio,
+  };
 }

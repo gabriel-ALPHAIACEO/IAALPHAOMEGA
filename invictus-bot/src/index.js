@@ -28,14 +28,8 @@
 // vivía en KV. Si ves un memoria.js o un nombre.js sueltos, son de esa otra
 // versión y NO van con este código — mezclarlos rompe el arranque.
 
-import {
-  responderTexto,
-  identificarEnImagen,
-  rasgosDeProducto,
-  esperarCupo,
-  modeloDeIndice,
-} from "./ia.js";
-import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
+import { responderTexto, identificarEnImagen } from "./ia.js";
+import { buscarProductos } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo } from "./catalogo.js";
@@ -44,7 +38,7 @@ import { separarColor, filtrarPorColor, terminoDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
 import { cotejoPorImagen } from "./cotejo.js";
-import { leerIndice, guardarIndexados, limpiarLosQueYaNoEstan } from "./indice.js";
+import { leerIndice, indexarTanda } from "./indice.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
   cargarContacto,
@@ -76,7 +70,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-23 (8) · catálogo al día: 347 nombres, 25 que ya no existen fuera";
+const VERSION = "2026-09-24 (9) · el índice del catálogo se llena solo (cron)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -439,13 +433,18 @@ export default {
           indexados > 0
             ? `  ${indexados} productos indexados.`
             : indexados === 0
-              ? "  VACÍO. El cotejo visual solo puede mirar unos pocos productos\n" +
-                "  por mensaje (el cupo de OpenAI no da para más a ciegas).\n" +
-                "  Abre /indexar-catalogo para llenarlo; hay que repetirlo\n" +
-                "  hasta que diga LISTO."
+              ? "  VACÍO TODAVÍA. Mientras tanto el cotejo visual solo puede\n" +
+                "  mirar unos pocos productos por mensaje (el cupo de OpenAI\n" +
+                "  no da para más a ciegas).\n" +
+                "  NO HACE FALTA QUE HAGAS NADA: el cron lo llena solo, en\n" +
+                "  un par de horas desde cero. Si tienes prisa, abre\n" +
+                "  /indexar-catalogo para adelantar una tanda."
               : "  No se pudo leer (¿falta la base de datos?).",
           indexados > 0
-            ? "  Vuelve a correr /indexar-catalogo cuando agregues productos."
+            ? "  Se mantiene solo: los productos nuevos los recoge el cron\n" +
+              "  (cada 15 min, ver [triggers] en wrangler.toml). Si aquí\n" +
+              "  el número lleva horas sin subir y sabes que faltan, mira\n" +
+              "  `wrangler tail`: casi siempre es saldo o cupo de OpenAI."
             : "",
           "",
           "BASE DE DATOS (D1) — la memoria del bot entre mensajes",
@@ -480,126 +479,52 @@ export default {
     // cotejo. Es lo que permite mirar el catálogo entero con el cupo de
     // OpenAI que hay.
     if (url.pathname === "/indexar-catalogo") {
-      if (!env.DB) {
-        return texto200(
-          "No hay base de datos conectada, y el índice vive ahí.\n" +
-            "Revisa el binding DB en wrangler.toml (mira /estado).\n"
-        );
-      }
-
-      // Con 581 productos, de 20 en 20 son 30 recargas a mano y nadie
-      // llega al final. La tanda puede ser grande porque la foto va en
-      // detail:"low" (ver DETALLE_INDICE en ia.js): con la foto pesada
-      // entraban 7 por minuto, no 40.
       const cuantos = Math.min(Number(url.searchParams.get("cuantos")) || 40, 100);
-      const rehacer = url.searchParams.get("rehacer") === "si";
-
-      const { productos } = await traerCatalogoCompleto(
-        env,
-        Number(env.COTEJO_MAXIMO) || 600
-      );
-
-      if (!productos.length) {
-        return texto200(
-          "Shopify no devolvió productos.\n\n" +
-            "Revisa SHOPIFY_TIENDA y el secreto SHOPIFY_TOKEN; el motivo\n" +
-            "exacto sale en `wrangler tail`.\n"
-        );
-      }
-
-      const indice = await leerIndice(env.DB);
-      // Se reindexa un producto si nunca se miró o si le cambiaron la
-      // foto: la URL del CDN de Shopify cambia con la imagen, así que
-      // comparar la URL alcanza para saberlo.
-      const guardados = new Map(indice.map((p) => [p.titulo, p]));
-      const pendientes = productos.filter((p) => {
-        if (!p.imagen) return false;
-        if (rehacer) return true;
-        const antes = guardados.get(p.titulo);
-        return !antes || antes.imagen !== p.imagen;
+      const r = await indexarTanda(env, {
+        cuantos,
+        rehacer: url.searchParams.get("rehacer") === "si",
       });
 
-      const tanda = pendientes.slice(0, cuantos);
-      const indexados = [];
-      const modelo = modeloDeIndice(env);
-      let corto = "";
-      // Cuántos de la tanda no se pudieron catalogar. Sin este número, una
-      // tanda de 40 que devuelve 7 no explica qué pasó con los otros 33.
-      let fallados = 0;
-
-      // De a POCOS a la vez: el cupo por minuto de OpenAI es el techo de
-      // todo esto, y reventarlo acá solo hace que la tanda falle entera.
-      //
-      // Si se acaba el cupo NO se abandona: acá no hay ningún cliente
-      // esperando, así que se espera a que vuelva y se sigue. Solo se
-      // corta si la espera es tan larga que conviene que la persona
-      // recargue la página.
-      for (let i = 0; i < tanda.length; i += 4) {
-        if (!(await esperarCupo(modelo))) {
-          corto = "Me quedé sin cupo de OpenAI a mitad de la tanda.";
-          console.log("Indexación: sin cupo y la espera es larga, corto la tanda");
-          break;
-        }
-
-        const resultados = await Promise.all(
-          tanda.slice(i, i + 4).map(async (producto) => {
-            // Prompt propio, no el de visión completo: ver
-            // rasgosDeProducto() en ia.js.
-            const visto = await rasgosDeProducto(env, producto.imagen, { modelo });
-            return visto ? { ...producto, visto: visto.visto, rasgos: visto.rasgos } : null;
-          })
+      if (!r.ok) {
+        return texto200(
+          `${r.error}\n\n` +
+            "Revisa SHOPIFY_TIENDA, el secreto SHOPIFY_TOKEN y el binding DB\n" +
+            "(mira /estado); el motivo exacto sale en `wrangler tail`.\n"
         );
-
-        indexados.push(...resultados.filter(Boolean));
-        fallados += resultados.filter((r) => !r).length;
       }
 
-      // Ni uno solo. Casi siempre es la clave de OpenAI (sin saldo, o sin
-      // permiso para este modelo), y decirlo acá ahorra media hora de
-      // recargar la página esperando que cambie algo.
-      if (tanda.length && !indexados.length) {
+      if (r.ningunoSalio) {
         return texto200(
-          `No pude indexar NINGUNO de los ${tanda.length} que intenté, con ${modelo}.\n\n` +
-            (corto ? `${corto}\n\n` : "") +
+          `No pude indexar NINGUNO de los ${r.intentados} que intenté, con ${r.modelo}.\n\n` +
+            (r.corto ? `${r.corto}\n\n` : "") +
             "El motivo exacto sale en `wrangler tail`. Los dos habituales:\n" +
             "  · la cuenta de OpenAI se quedó sin saldo\n" +
-            `  · la clave no tiene permiso para "${modelo}"\n\n` +
+            `  · la clave no tiene permiso para "${r.modelo}"\n\n` +
             "Si en el registro ves 429 con \"tokens per min\", es solo cupo:\n" +
             "espera un minuto y vuelve a abrir esta dirección.\n"
         );
       }
 
-      await guardarIndexados(env.DB, indexados);
-
-      const faltan = pendientes.length - indexados.length;
-      let quitados = 0;
-      if (!faltan) {
-        quitados = await limpiarLosQueYaNoEstan(
-          env.DB,
-          productos.map((p) => p.titulo)
-        );
-      }
+      const hecho = Math.round(((r.yaEstaban + r.indexados) * 100) / r.catalogo);
 
       return texto200(
-        `Catálogo en Shopify: ${productos.length} productos\n` +
-          `Ya estaban indexados: ${indice.length}\n` +
-          `Indexados en esta tanda: ${indexados.length} (con ${modelo})\n` +
-          (fallados
-            ? `No se pudieron catalogar: ${fallados} — el motivo exacto sale\n` +
+        `Catálogo en Shopify: ${r.catalogo} productos\n` +
+          `Ya estaban indexados: ${r.yaEstaban}\n` +
+          `Indexados en esta tanda: ${r.indexados} (con ${r.modelo})\n` +
+          (r.fallados
+            ? `No se pudieron catalogar: ${r.fallados} — el motivo exacto sale\n` +
               "en `wrangler tail`. Si son 429, es cupo: espera un minuto.\n"
             : "") +
-          (quitados ? `Quitados del índice (ya no están en Shopify): ${quitados}\n` : "") +
+          (r.quitados ? `Quitados del índice (ya no están en Shopify): ${r.quitados}\n` : "") +
           "\n" +
-          (faltan > 0
-            ? `FALTAN ${faltan} de ${pendientes.length + indice.length} ` +
-              `(${Math.round((indice.length + indexados.length) * 100 / productos.length)}% hecho).\n` +
-              "Vuelve a abrir esta misma dirección para\n" +
-              "seguir con la próxima tanda. Si dice que faltan los mismos\n" +
-              "una y otra vez, mira `wrangler tail`: casi siempre es el\n" +
-              "cupo por minuto de OpenAI (429) y basta con esperar.\n"
+          (r.faltan > 0
+            ? `FALTAN ${r.faltan} de ${r.pendientes + r.yaEstaban} (${hecho}% hecho).\n\n` +
+              "NO HACE FALTA QUE HAGAS NADA: el cron indexa lo que queda\n" +
+              "solo, en las próximas pasadas (ver [triggers] en\n" +
+              "wrangler.toml). Recarga esta dirección solo si tienes prisa.\n"
             : "LISTO: el catálogo está indexado entero.\n\n" +
-              "Vuelve a correr esto cuando agregues productos nuevos. Los\n" +
-              "que ya están no se vuelven a mirar, así que es barato.\n")
+              "Los productos nuevos los recoge el cron solo. Esta dirección\n" +
+              "queda para mirar cómo va o para forzar una pasada.\n")
       );
     }
 
@@ -674,7 +599,93 @@ export default {
 
     return new Response("invictus-bot", { status: 200 });
   },
+
+  // EL ÍNDICE SE LLENA SOLO.
+  //
+  // POR QUÉ ESTO TENÍA QUE EXISTIR. Todo el cotejo visual depende del
+  // índice: con él, los rasgos de la foto del cliente se comparan contra
+  // los de los cientos de productos EN CÓDIGO, sin gastar un token, y
+  // solo los 10 más parecidos van a una llamada. Sin él, el cotejo cae al
+  // barrido corto, que mira 20 productos de 581 — el zapato casi nunca
+  // está entre esos veinte.
+  //
+  // Y llenarlo eran ~15 recargas a mano de /indexar-catalogo. Una tarea
+  // que depende de que alguien recargue quince veces no se hace nunca: el
+  // índice se quedaba vacío y la mejor parte del bot, apagada. Es la
+  // misma lección que dejó la columna "mostrados" — lo que se pueda
+  // resolver desde el archivo que sí se copia, se resuelve ahí.
+  //
+  // Cloudflare llama aquí según [triggers] en wrangler.toml. Cada pasada
+  // mira lo que falte dentro de un presupuesto de tiempo, y cuando ya no
+  // falta nada no gasta ni una llamada al modelo: solo comprueba si
+  // entraron productos nuevos, y esos los recoge sola.
+  async scheduled(evento, env, ctx) {
+    ctx.waitUntil(indexarLoQueFalte(env));
+  },
 };
+
+// Cuánto se le permite tardar a una pasada. Cloudflare corta las tareas
+// largas, y no hace falta terminar en una sola: lo que quede lo agarra la
+// siguiente.
+const PRESUPUESTO_CRON_MS = 60000;
+
+// Los mismos 40 por tanda que usa la ruta a mano: la foto va en
+// detail:"low", así que entran sin reventar el cupo de OpenAI.
+const POR_TANDA_CRON = 40;
+
+// Tope de tandas por pasada, por si el presupuesto de tiempo no llegara a
+// cortar. Con 40 por tanda son 200 productos en una pasada.
+const MAXIMO_TANDAS = 5;
+
+async function indexarLoQueFalte(env) {
+  const hasta = Date.now() + PRESUPUESTO_CRON_MS;
+
+  for (let tanda = 1; tanda <= MAXIMO_TANDAS; tanda++) {
+    const r = await indexarTanda(env, { cuantos: POR_TANDA_CRON });
+
+    if (!r.ok) {
+      console.error("Indexación automática: no pude arrancar —", r.error);
+      return;
+    }
+
+    // Ya estaba todo mirado. Es el caso normal una vez lleno el índice, y
+    // no cuesta ni una llamada al modelo.
+    if (!r.pendientes) {
+      if (r.quitados) console.log(`Índice: quité ${r.quitados} producto(s) que ya no están`);
+      return;
+    }
+
+    console.log(
+      `Indexación automática: ${r.indexados} de ${r.intentados} en esta tanda; ` +
+        `faltan ${r.faltan} de ${r.catalogo}`
+    );
+
+    // Ni uno salió: no es que falte trabajo, es que algo está mal (sin
+    // saldo, sin permiso para el modelo, o el cupo agotado). Insistir
+    // solo gasta.
+    if (r.ningunoSalio) {
+      console.error(
+        `Indexación automática: no salió ninguno de ${r.intentados} con ${r.modelo}. ` +
+          (r.corto || "Revisa saldo y permisos de OpenAI en `wrangler tail`.")
+      );
+      return;
+    }
+
+    if (!r.faltan) {
+      console.log("Índice completo: el cotejo visual ya puede mirar el catálogo entero.");
+      return;
+    }
+
+    // Se quedó sin cupo a mitad, o se acabó el tiempo de esta pasada. En
+    // los dos casos, lo que falta lo recoge la próxima.
+    if (r.corto || Date.now() >= hasta) {
+      console.log(
+        `Indexación automática: corto aquí, faltan ${r.faltan}. Sigo en la próxima pasada.`
+      );
+      return;
+    }
+  }
+}
 
 /* ════════════════════════════════════════════════════════════════════
    Webhook de Meta — es el bot entero, de punta a punta

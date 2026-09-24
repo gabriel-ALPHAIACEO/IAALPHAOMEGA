@@ -23,6 +23,25 @@ binding = "DB"
 database_name = "invictus-bot-db"
 database_id = "b7cc27df-dbcf-4188-b0f2-c00a1629d1e2"
 
+# --- El indice del catalogo se llena solo ------------------------------
+# Cloudflare llama al Worker cada 15 minutos y este indexa los productos
+# que le falten, por tandas, dentro de un presupuesto de tiempo.
+#
+# POR QUE IMPORTA. El cotejo visual -lo que reconoce el zapato de una foto
+# o de una historia- compara los rasgos de la foto contra los de TODO el
+# catalogo guardado en D1, sin gastar tokens, y solo manda al modelo los
+# 10 mas parecidos. Sin indice no puede: cae al barrido corto, que mira 20
+# productos de 581, y el zapato casi nunca esta entre esos veinte.
+#
+# Llenarlo a mano eran ~15 recargas de /indexar-catalogo. Ahora no hay que
+# hacer nada: desde vacio tarda un par de horas y despues se mantiene solo
+# (los productos nuevos los recoge en la siguiente pasada).
+#
+# Cuando ya no falta nada, la pasada no gasta ni una llamada al modelo.
+# Para ver como va: /estado  o  /indexar-catalogo
+[triggers]
+crons = ["*/15 * * * *"]
+
 [vars]
 # Enlace que se le manda al cliente cuando no hay productos que mostrar
 URL_CATALOGO = "https://8vds1e-jw.myshopify.com/"
