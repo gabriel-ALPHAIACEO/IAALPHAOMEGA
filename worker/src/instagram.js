@@ -3,6 +3,8 @@
 // ver README — el problema de fondo era que dos apps atendían el mismo
 // webhook de Meta por separado; con una sola app ese problema no existe).
 
+import { leerAdjuntoCompartido } from "./publicacion.js";
+
 const GRAFO = "https://graph.instagram.com/v23.0";
 
 /* ── Firma ───────────────────────────────────────────────────────── */
@@ -173,7 +175,12 @@ function recortar(texto, limite) {
 // Ahora que esta es la única app que atiende el webhook (sin ManyChat de
 // por medio), el texto suelto SÍ se atiende aquí: ya no hay un segundo
 // sistema que lo reciba y responda por su cuenta.
-const ACEPTADOS = new Set(["historia", "imagen", "texto", "eco"]);
+// "publicacion" es el cliente compartiendo un post o un reel del feed por
+// el chat. Antes no existía: ese mensaje caía en "texto", y como no lleva
+// texto, al modelo le llegaba la nada y contestaba la bienvenida genérica
+// a alguien que acababa de señalar un producto con el dedo (ver
+// publicacion.js).
+const ACEPTADOS = new Set(["historia", "imagen", "texto", "eco", "publicacion"]);
 
 export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
   const entrada = cuerpo?.entry?.[0];
@@ -209,6 +216,7 @@ export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
       texto: "",
       foto: "",
       historia: { url: "", id: "" },
+      publicacion: { url: "", titulo: "", enlace: "" },
     };
   }
   if (mensaje.is_deleted) return descartar("un mensaje borrado");
@@ -216,9 +224,19 @@ export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
 
   const adjuntos = Array.isArray(mensaje.attachments) ? mensaje.attachments : [];
   const historia = leerHistoria(mensaje, adjuntos);
+  const publicacion = leerAdjuntoCompartido(adjuntos);
   const foto = primeraImagen(adjuntos);
 
-  const tipo = historia.url ? "historia" : foto ? "imagen" : "texto";
+  // La historia va primero porque es más concreta: responder a una historia
+  // también llega con adjunto, y ahí ya sabemos de qué publicación se trata.
+  const tipo = historia.url
+    ? "historia"
+    : publicacion.url || publicacion.enlace
+      ? "publicacion"
+      : foto
+        ? "imagen"
+        : "texto";
+
   if (!aceptar.has(tipo)) return descartar(`un mensaje de ${tipo}`);
 
   return {
@@ -228,6 +246,7 @@ export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
     texto: String(mensaje.text || "").trim(),
     foto,
     historia,
+    publicacion,
   };
 }
 

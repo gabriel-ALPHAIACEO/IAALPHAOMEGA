@@ -81,6 +81,7 @@ export function contextoParaElModelo({
   texto,
   marca = "",
   esHistoriaNueva = false,
+  esPublicacionNueva = false,
   minutosDesdeElUltimo = 0,
   minutosParaSerViejo = 30,
 }) {
@@ -116,11 +117,24 @@ export function contextoParaElModelo({
       );
     }
 
-    if (noDiceQue && (viejo || esHistoriaNueva)) {
+    // Con una publicación compartida delante, un "precio?" suelto SÍ dice
+    // de qué habla: lo dice la publicación. Pedirle al modelo que pregunte
+    // "¿de cuál?" ahí sería justo lo que el cliente no entiende — acaba de
+    // señalarlo. Por eso esta protección se desactiva en ese caso, y solo
+    // en ese.
+    if (noDiceQue && (viejo || esHistoriaNueva) && !esPublicacionNueva) {
       partes.push(
         "[SU MENSAJE NO DICE DE QUÉ PRODUCTO HABLA. No lo adivines con lo de",
         "arriba: PREGÚNTASELO con amabilidad y ofrécele el catálogo. Dar el",
         "precio del producto equivocado es peor que preguntar]"
+      );
+    }
+
+    // Igual que con una historia: lo de antes no es de lo que habla ahora.
+    if (esPublicacionNueva) {
+      partes.push(
+        "[OJO: el cliente ACABA DE COMPARTIR UNA PUBLICACIÓN. Está preguntando",
+        "por el producto que sale en ELLA, no por lo de arriba]"
       );
     }
 

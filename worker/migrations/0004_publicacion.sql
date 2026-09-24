@@ -1,0 +1,12 @@
+-- La última publicación del feed que compartió el cliente.
+--
+-- Compartir una publicación y escribir "precio?" son DOS mensajes, y Meta
+-- los manda como dos webhooks distintos que el Worker atiende en paralelo,
+-- cada uno en su propia petición. Lo único que comparten es esta base. Sin
+-- esto, los dos contestaban por separado y el cliente recibía dos veces el
+-- mismo mensaje (pasó en producción, ver src/publicacion.js).
+--
+-- NO HACE FALTA CORRER ESTA MIGRACIÓN A MANO: si la columna no está, el
+-- Worker la crea solo con el primer mensaje que atienda (ver estado.js).
+-- El archivo existe para que una base nueva nazca ya con ella.
+ALTER TABLE contactos ADD COLUMN publicacion TEXT NOT NULL DEFAULT '';

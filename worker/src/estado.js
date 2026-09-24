@@ -27,6 +27,7 @@ export async function cargarContacto(db, id) {
       mids_enviados: [],
       ultimo_envio: 0,
       mostrados: [],
+      publicacion: null,
     };
   }
 
@@ -40,7 +41,82 @@ export async function cargarContacto(db, id) {
     // Los títulos que este cliente YA vio. Sin esto, pedir "más" le devuelve
     // el mismo carrusel (ver migrations/0003_mostrados.sql).
     mostrados: leerLista(fila.mostrados),
+    // La última publicación del feed que compartió, si fue hace poco. Es lo
+    // que une los DOS webhooks de "compartir + preguntar" en una sola
+    // respuesta (ver publicacion.js y migrations/0004_publicacion.sql).
+    publicacion: leerPublicacion(fila.publicacion),
   };
+}
+
+/* ── La publicación que acaba de compartir ────────────────────────── */
+
+// POR QUÉ ESTO VIVE EN LA BASE Y NO EN UNA VARIABLE.
+//
+// Compartir una publicación y escribir "precio?" son DOS mensajes, y Meta
+// los manda como dos webhooks distintos que el Worker atiende en paralelo,
+// cada uno en su propia petición. No comparten memoria: lo único que los
+// dos ven es D1. Sin esto, el que atiende la publicación y el que atiende
+// la pregunta contestan por separado — que es exactamente el mensaje
+// repetido que se vio en producción.
+//
+// "atendida" es la bandera que impide la segunda respuesta. Se marca ANTES
+// de llamar al modelo, no después: la llamada tarda segundos y en esa
+// ventana es cuando el otro webhook está decidiendo si contesta.
+export async function guardarPublicacion(db, id, publicacion) {
+  const valor = JSON.stringify({
+    url: publicacion.url || "",
+    imagen: publicacion.imagen || "",
+    titulo: publicacion.titulo || "",
+    descripcion: publicacion.descripcion || "",
+    enlace: publicacion.enlace || "",
+    termino: publicacion.termino || "",
+    cuando: Number(publicacion.cuando) || Date.now(),
+    atendida: Boolean(publicacion.atendida),
+  });
+
+  const escribir = () =>
+    db
+      .prepare(
+        `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, publicacion)
+         VALUES (?, '', '', 0, '[]', ?)
+         ON CONFLICT(id) DO UPDATE SET publicacion = excluded.publicacion`
+      )
+      .bind(id, valor)
+      .run();
+
+  try {
+    await escribir();
+  } catch (error) {
+    // Misma idea que con "mostrados": la columna se crea sola. Los archivos
+    // se copian a mano a la carpeta de despliegue, así que el código nuevo y
+    // la base vieja conviven siempre, y un arreglo que depende de que
+    // alguien recuerde correr una migración no es un arreglo.
+    if (!/publicacion/i.test(String(error?.message || ""))) throw error;
+
+    console.log('Falta la columna "publicacion": la creo y sigo.');
+    await crearColumna(db, "publicacion", "''");
+    await escribir();
+  }
+}
+
+// ¿Sigue valiendo lo que compartió? Fuera de la ventana es una publicación
+// vieja, y darle el precio de aquello a un "precio?" de hoy es el mismo
+// fallo que historial.js pelea con el recorte.
+export function publicacionVigente(contacto, ventanaMs, ahora = Date.now()) {
+  const guardada = contacto.publicacion;
+  if (!guardada) return null;
+  if (ahora - (Number(guardada.cuando) || 0) > ventanaMs) return null;
+  return guardada;
+}
+
+function leerPublicacion(valor) {
+  if (!valor) return null;
+  try {
+    const datos = JSON.parse(valor);
+    return datos && typeof datos === "object" ? datos : null;
+  } catch {
+    return null;
+  }
 }
 
 // ¿Este producto ya se lo mandamos? Se compara sin tildes, sin mayúsculas y
@@ -164,7 +240,7 @@ export async function guardarContacto(db, contacto) {
     if (!/mostrados/i.test(String(error?.message || ""))) throw error;
 
     console.log('Falta la columna "mostrados": la creo y sigo.');
-    await crearColumnaMostrados(db);
+    await crearColumna(db, "mostrados", "'[]'");
 
     await db
       .prepare(
@@ -183,21 +259,23 @@ export async function guardarContacto(db, contacto) {
   }
 }
 
-// Crea la columna que falta. Se llama sola, desde el rescate de arriba.
+// Crea la columna que falta. Se llama sola, desde los rescates de arriba.
 //
 // Dos peticiones en paralelo pueden intentarlo a la vez y una de las dos se
 // va a encontrar con que ya existe. Eso no es un fallo: es exactamente el
 // resultado que buscábamos, así que se traga y se sigue.
-async function crearColumnaMostrados(db) {
+async function crearColumna(db, nombre, porDefecto) {
   try {
     await db
-      .prepare("ALTER TABLE contactos ADD COLUMN mostrados TEXT NOT NULL DEFAULT '[]'")
+      .prepare(
+        `ALTER TABLE contactos ADD COLUMN ${nombre} TEXT NOT NULL DEFAULT ${porDefecto}`
+      )
       .run();
-    console.log('Columna "mostrados" creada. El bot ya no repetirá productos.');
+    console.log(`Columna "${nombre}" creada.`);
   } catch (error) {
     const mensaje = String(error?.message || "");
     if (/duplicate column/i.test(mensaje)) return; // se nos adelantó otra petición
-    console.error('No se pudo crear la columna "mostrados":', mensaje);
+    console.error(`No se pudo crear la columna "${nombre}":`, mensaje);
     throw error;
   }
 }
@@ -236,7 +314,12 @@ const COLUMNAS = [
   ["mids_enviados", "0001_contactos"],
   ["ultimo_envio", "0002_ultimo_envio"],
   ["mostrados", "0003_mostrados"],
+  ["publicacion", "0004_publicacion"],
 ];
+
+// Estas dos se crean solas en cuanto el bot atienda un mensaje: verlas
+// como "faltantes" no es un problema que haya que resolver a mano.
+const SE_CREAN_SOLAS = new Set(["mostrados", "publicacion"]);
 
 export async function revisarBase(db, base = "tu-base-d1") {
   if (!db) {
@@ -287,11 +370,11 @@ export async function revisarBase(db, base = "tu-base-d1") {
 
     lineas.push(`  FALTAN COLUMNAS     ${nombres.join(", ")}`);
 
-    // "mostrados" se crea sola en cuanto el bot atienda un mensaje, así que
-    // verla aquí no es un problema que haya que resolver a mano.
-    if (nombres.length === 1 && nombres[0] === "mostrados") {
+    if (nombres.every((nombre) => SE_CREAN_SOLAS.has(nombre))) {
       lineas.push(
-        "  Esta se crea sola con el primer mensaje que atienda el bot.",
+        nombres.length === 1
+          ? "  Esta se crea sola con el primer mensaje que atienda el bot."
+          : "  Estas se crean solas con el primer mensaje que atienda el bot.",
         "  No hay que hacer nada."
       );
     } else {

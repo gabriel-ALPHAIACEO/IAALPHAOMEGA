@@ -32,8 +32,18 @@ import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
+  enlaceEnTexto,
+  esEnlaceDeInstagram,
+  leerEnlace,
+  marcaDePublicacion,
+  terminoDeTitulo,
+  PUBLICACION_FRESCA_MS,
+} from "./publicacion.js";
+import {
   cargarContacto,
   guardarContacto,
+  guardarPublicacion,
+  publicacionVigente,
   marcarEnvio,
   pausar,
   estaPausado,
@@ -56,7 +66,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-22 · multi-tienda (Invictus + El Emperador)";
+const VERSION = "2026-09-24 · publicaciones compartidas del feed";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -118,6 +128,21 @@ const HISTORIA_SIN_VER = [
   "¡Claro! ¿De cuál quieres saber? Dime el modelo o la marca y te enseño lo que tengo 😊",
 ];
 
+// Y lo mismo cuando lo que no se puede mirar es una publicación que el
+// cliente compartió del feed: casi siempre porque es un reel (un vídeo).
+//
+// No se le pide una foto ni se le habla de un error: la publicación es
+// NUESTRA, el cliente la señaló y lo único que falta es el nombre. Sin
+// catálogo, por lo mismo que en las historias: quien comparte una
+// publicación está a un paso de comprar, y mandarlo a la tienda online en
+// ese momento es soltarle la mano.
+const PUBLICACION_SIN_VER = [
+  "¡Claro que sí! 😊 Dime cuál de los que salen ahí te interesa y te paso el precio",
+  "¡Con gusto! ¿Cuál te gustó de esa publicación? Dime el modelo y te lo enseño",
+  "¡Por supuesto! 😊 Dime el nombre del que viste y te doy toda la información",
+  "¡Claro! ¿Cuál te llamó la atención? Dime el modelo y te lo muestro enseguida",
+];
+
 // Si el modelo falla, el cliente no se queda sin nada y el asesor se entera.
 const FALLO_TECNICO =
   "Disculpa, se me trabó el sistema 😅 Un asesor te atiende en un momento";
@@ -162,6 +187,21 @@ const PAUSA_HORAS_POR_DEFECTO = 1;
 // tiempo que le damos a la otra petición —la que está respondiendo al
 // cliente en paralelo— para terminar de anotar sus mids en D1.
 const ESPERA_ANTES_DE_PAUSAR_MS = 4000;
+
+// CUÁNTO SE ESPERA A QUE LLEGUE LA PREGUNTA DETRÁS DE LA PUBLICACIÓN.
+//
+// El cliente comparte el post y escribe acto seguido: "precio?", "¿cuánto
+// cuesta?", "¿tienen este?". Son dos mensajes, y Meta los manda como dos
+// webhooks que se atienden en paralelo. Si la publicación contesta sola y
+// al segundo después contesta la pregunta, el cliente recibe dos mensajes
+// por una sola cosa — que es lo que se vio en EPICCELL.
+//
+// Así que cuando la publicación llega SIN texto, se le dan unos segundos a
+// la pregunta. Si llega, ella contesta por las dos (con la publicación
+// delante, que para eso quedó guardada en D1). Si no llega, contesta la
+// publicación. Esta espera solo ocurre en ese caso; ningún otro mensaje se
+// retrasa ni un milisegundo.
+const ESPERA_POR_LA_PREGUNTA_MS = 5000;
 
 // Y a partir de cuánto silencio del asesor se entiende que se distrajo y
 // hay que llamarlo por Slack. Si está contestando ahí mismo, avisarle de
@@ -410,6 +450,48 @@ export default {
       );
     }
 
+    // Prueba de lectura de un enlace, sin esperar a que lo mande un cliente:
+    //   /probar-enlace?url=https://www.instagram.com/p/XXXX/
+    //
+    // Dice exactamente lo que el bot saca de ese enlace y con qué término
+    // acabaría buscando. Sirve sobre todo para lo que NO se ve desde fuera:
+    // Instagram a veces deja leer la publicación y a veces no, y esto lo
+    // responde en diez segundos en vez de a base de suponer.
+    if (url.pathname === "/probar-enlace") {
+      const enlace = url.searchParams.get("url") || "";
+      if (!urlValida(enlace)) {
+        return texto200(
+          "Pasame un enlace asi:\n" +
+            "  /probar-enlace?url=https://www.instagram.com/p/XXXX/\n\n" +
+            "Vale el enlace de una publicacion de Instagram o el de la ficha\n" +
+            "de un producto de la tienda.\n"
+        );
+      }
+
+      const leido = await leerEnlace(enlace);
+      const termino = leido.termino ? terminoDeTitulo(leido.termino) : "";
+      const productos = termino ? await buscarProductos(env, termino) : [];
+
+      return texto200(
+        [
+          `Enlace        ${enlace}`,
+          `Titulo        ${leido.titulo || "(no se pudo leer)"}`,
+          `Descripcion   ${(leido.descripcion || "(no se pudo leer)").slice(0, 200)}`,
+          `Imagen        ${leido.imagen || "(no se pudo leer)"}`,
+          `Ficha         ${leido.termino || "(no es la ficha de un producto)"}`,
+          `Buscaria      ${termino || "(lo decide el modelo mirando la imagen)"}`,
+          `Encontraria   ${productos.length}`,
+          ...productos.map((p) => `   ${p.titulo}  -  ${p.precio}`),
+          "",
+          leido.imagen || leido.titulo || leido.descripcion || leido.termino
+            ? ""
+            : "No se pudo sacar nada de ese enlace. Si es de Instagram, el bot\n" +
+              "igual sabe que es una publicacion nuestra y le pregunta al cliente\n" +
+              "cual le gusto, en vez de saludarlo como si no hubiera mandado nada.\n",
+        ].join("\n")
+      );
+    }
+
     return new Response(`bot de ${tiendaDe(env).nombre}\n`, { status: 200 });
   },
 };
@@ -602,8 +684,23 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     return;
   }
 
+  // LA PUBLICACIÓN QUE COMPARTIÓ DESDE EL FEED.
+  //
+  // Va aquí, antes de los atajos: quien señala un producto con el dedo no
+  // está saludando ni pidiendo el catálogo, y contestarle con cualquiera de
+  // las dos cosas es lo que hacía el bot antes de esto.
+  const publicacion = await publicacionDelTurno(env, mensaje, contacto);
+
+  // Otro webhook —la pregunta que venía detrás— ya contestó por esta
+  // publicación. Callarse aquí es la única forma de que el cliente reciba
+  // una sola respuesta.
+  if (publicacion?.yaContestaron) {
+    console.log(`La pregunta de ${mensaje.igsid} ya atendió su publicación: no repito`);
+    return;
+  }
+
   const esHistoria = mensaje.tipo === "historia";
-  const imagenCruda = mensaje.historia.url || mensaje.foto || "";
+  const imagenCruda = publicacion?.imagen || mensaje.historia.url || mensaje.foto || "";
 
   // El nombre se busca una sola vez por cliente y se guarda: no hace falta
   // gastar una llamada a la Graph API en cada mensaje.
@@ -614,12 +711,19 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   const historialPrevio = contacto.historial;
   const textoCliente =
-    mensaje.texto || (imagenCruda ? (esHistoria ? "(respondió a una historia)" : "(mandó una foto)") : "");
+    mensaje.texto ||
+    (publicacion
+      ? "(compartió una publicación de la tienda)"
+      : imagenCruda
+        ? esHistoria
+          ? "(respondió a una historia)"
+          : "(mandó una foto)"
+        : "");
 
   // Quien ya escribió antes y vuelve con un "hola" suelto no necesita al
   // modelo: no hay nada que buscar. La primera vez de cada cliente NO entra
   // aquí: esa bienvenida la escribe el modelo con el tono del prompt.
-  if (historialPrevio && !imagenCruda && esSoloSaludo(mensaje.texto)) {
+  if (historialPrevio && !imagenCruda && !publicacion && esSoloSaludo(mensaje.texto)) {
     const respuesta = saludoDeVuelta(nombre, mensaje.texto);
     console.log(`Saludo de vuelta → ${JSON.stringify(respuesta)}`);
     await mandar(() => enviarTexto(env, mensaje.igsid, respuesta));
@@ -645,7 +749,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   //
   // La talla va PRIMERO a propósito: "¿tienen más tallas?" es una pregunta
   // para el asesor, no un pedido de catálogo.
-  if (!imagenCruda && !PREGUNTA_TALLA.test(mensaje.texto) && pideElCatalogo(mensaje.texto)) {
+  if (
+    !imagenCruda &&
+    !publicacion &&
+    !PREGUNTA_TALLA.test(mensaje.texto) &&
+    pideElCatalogo(mensaje.texto)
+  ) {
     const respuesta = fraseDeCatalogo(nombre);
     console.log(`Pidió el catálogo → ${JSON.stringify(respuesta)}`);
     await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuesta));
@@ -661,13 +770,29 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   const minutosCallado = minutosDesde(contacto.ultimo_envio);
 
+  // Lo que se le dice al modelo sobre de DÓNDE viene este mensaje. Una
+  // publicación compartida y una respuesta a una historia se parecen —en las
+  // dos, la imagen es de la tienda y no del cliente— pero no son lo mismo, y
+  // el modelo tiene que saber cuál de las dos tiene delante.
+  const marcaDelTurno = publicacion
+    ? marcaDePublicacion({
+        titulo: publicacion.titulo,
+        descripcion: publicacion.descripcion,
+        termino: publicacion.termino,
+        hayImagen: Boolean(imagenCruda),
+      })
+    : esHistoria
+      ? "[EL CLIENTE RESPONDIÓ A UNA HISTORIA — la imagen que ves ES la historia]"
+      : "";
+
   const entrada = contexto(
     nombre,
     historialPrevio,
     textoCliente,
-    esHistoria ? "[EL CLIENTE RESPONDIÓ A UNA HISTORIA — la imagen que ves ES la historia]" : "",
+    marcaDelTurno,
     esHistoria,
-    minutosCallado
+    minutosCallado,
+    Boolean(publicacion)
   );
 
   // La foto se descarga aquí y viaja dentro de la petición. Pasarle a
@@ -690,9 +815,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
             nombre,
             historialPrevio,
             textoCliente,
-            marcarSinVer(porQueNo),
+            publicacion
+              ? `${marcaDelTurno}\n${marcarPublicacionSinVer(porQueNo)}`
+              : marcarSinVer(porQueNo),
             esHistoria,
-            minutosCallado
+            minutosCallado,
+            Boolean(publicacion)
           )
         )
       : await responderTexto(env, entrada);
@@ -700,7 +828,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // Y si además el modelo falla, la pregunta se la hacemos nosotros, que es
   // infinitamente mejor que decirle que el sistema se trabó.
   if (!salida && imagenCruda && !foto) {
-    const frase = HISTORIA_SIN_VER[Math.floor(Math.random() * HISTORIA_SIN_VER.length)];
+    const frase = alAzar(publicacion ? PUBLICACION_SIN_VER : HISTORIA_SIN_VER);
     console.log(`Historia sin ver (${porQueNo}) → pregunto: ${JSON.stringify(frase)}`);
     await mandar(() => enviarTexto(env, mensaje.igsid, frase));
     await guardarContacto(env.DB, {
@@ -745,6 +873,15 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     texto: mensaje.texto,
     historialPrevio,
     mostrados: contacto.mostrados,
+    // Si el enlace era la ficha de un producto, su título manda sobre lo
+    // que el modelo haya escrito: es el dato exacto de la tienda, no una
+    // lectura de una imagen.
+    terminoPreferido: publicacion?.termino || "",
+    // La tabla de rasgos está hecha para FOTOS de calzado. Una publicación
+    // promocional es otra cosa —un montaje con el nombre del modelo
+    // escrito encima— y ahí esa verificación descarta identificaciones
+    // buenas: lo que la sostiene es el texto de la imagen, no la suela.
+    verificarRasgos: !publicacion,
     // Solo si pide algo DISTINTO se descarta lo que ya vio. Una foto no
     // cuenta: quien manda una foto está pidiendo ESE zapato, no otro.
     pideMas: !imagenCruda && pideMasVariedad(mensaje.texto),
@@ -821,6 +958,114 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     // pida más. Es lo que evita el "son los mismos".
     mostrados: conProductosMostrados(contacto.mostrados, productos),
   });
+}
+
+/* ── La publicación del feed que compartió el cliente ──────────────
+   Devuelve lo que hay que atender en ESTE turno:
+
+     null                    no hay ninguna publicación en juego
+     { yaContestaron: true } la pregunta que venía detrás ya contestó por
+                             ella: este turno se calla
+     { imagen, titulo, ... } la publicación que hay que atender
+
+   Los dos caminos por los que llega son el botón de compartir (un adjunto
+   en el webhook) y el enlace pegado a mano en el texto. Los dos acaban
+   aquí y salen iguales.
+   ───────────────────────────────────────────────────────────────── */
+async function publicacionDelTurno(env, mensaje, contacto) {
+  const compartida = mensaje.tipo === "publicacion";
+  const enlaceEscrito = compartida ? "" : enlaceEnTexto(mensaje.texto);
+
+  if (compartida || enlaceEscrito) {
+    const cruda = compartida
+      ? mensaje.publicacion
+      : { url: "", titulo: "", enlace: enlaceEscrito };
+
+    // Si lo que llegó es un enlace —la ficha de un producto, el permalink
+    // de la publicación— se abre para sacar de ahí la foto, el título y,
+    // con suerte, el nombre exacto del producto.
+    const leido = cruda.enlace
+      ? await leerEnlace(cruda.enlace)
+      : { imagen: "", titulo: "", descripcion: "", termino: "" };
+
+    // UN ENLACE DEL QUE NO SE SACÓ NADA NO ES UNA PUBLICACIÓN. Si el
+    // cliente pegó una dirección cualquiera y no se pudo leer ni la foto ni
+    // el título, tratarla como publicación solo serviría para decirle al
+    // modelo que hay algo que no hay. Se sigue como un mensaje normal.
+    //
+    // La excepción es Instagram, que a ratos no se deja leer desde fuera:
+    // ahí sí sabemos que es una publicación nuestra, y eso ya cambia la
+    // respuesta —le preguntamos cuál le gustó en vez de qué busca.
+    const algoUtil = Boolean(
+      cruda.url || leido.imagen || leido.titulo || leido.descripcion || leido.termino
+    );
+    if (!compartida && !algoUtil && !esEnlaceDeInstagram(enlaceEscrito)) {
+      console.log(`El enlace de ${mensaje.igsid} no dio nada: sigo como mensaje normal`);
+      return null;
+    }
+
+    const nueva = {
+      url: cruda.url || "",
+      imagen: cruda.url || leido.imagen || "",
+      titulo: cruda.titulo || leido.titulo || "",
+      descripcion: leido.descripcion || "",
+      enlace: cruda.enlace || "",
+      termino: leido.termino || "",
+      cuando: Date.now(),
+      // Si el mismo mensaje ya trae la pregunta, no hay nada que esperar:
+      // este turno contesta, y queda marcada para que nadie la repita.
+      atendida: Boolean(mensaje.texto),
+    };
+
+    await guardarPublicacion(env.DB, mensaje.igsid, nueva);
+    console.log(
+      `Publicación compartida por ${mensaje.igsid} · imagen: ${nueva.imagen ? "sí" : "no"} · ` +
+        `ficha: ${nueva.termino || "—"}`
+    );
+
+    if (mensaje.texto) return nueva;
+
+    // Sin texto: lo más probable es que la pregunta venga en camino, un
+    // segundo detrás. Se le da tiempo a llegar. Si llega, contesta ella —
+    // con esta publicación ya guardada delante— y este turno se calla.
+    await new Promise((seguir) => setTimeout(seguir, ESPERA_POR_LA_PREGUNTA_MS));
+
+    const alSegundoVistazo = await cargarContacto(env.DB, mensaje.igsid);
+    const yaAtendida = alSegundoVistazo.publicacion?.atendida;
+    const yaRespondimos = Number(alSegundoVistazo.ultimo_envio) > nueva.cuando;
+    // Y si mientras tanto compartió OTRA publicación, la que vale es la
+    // suya, no esta: contesta ese turno y este se aparta.
+    const hayUnaMasNueva =
+      Number(alSegundoVistazo.publicacion?.cuando || 0) > nueva.cuando;
+
+    if (yaAtendida || yaRespondimos || hayUnaMasNueva) return { yaContestaron: true };
+
+    await guardarPublicacion(env.DB, mensaje.igsid, { ...nueva, atendida: true });
+    return nueva;
+  }
+
+  // Un mensaje normal con una publicación recién compartida detrás: el
+  // "precio?" que llega un segundo después del post. Esta es la otra mitad
+  // de la unión, y la que de verdad contesta en el caso de EPICCELL.
+  const guardada = publicacionVigente(contacto, PUBLICACION_FRESCA_MS);
+  if (!guardada) return null;
+
+  // Si además mandó una foto suya o respondió a una historia, esa imagen
+  // manda: la publicación se queda solo como contexto.
+  const suPropiaImagen = Boolean(mensaje.foto || mensaje.historia?.url);
+
+  if (guardada.atendida || suPropiaImagen) {
+    return { ...guardada, imagen: "" };
+  }
+
+  // Se marca ANTES de llamar al modelo: la llamada tarda segundos, y es en
+  // esa ventana cuando el otro webhook decide si contesta o se calla.
+  await guardarPublicacion(env.DB, mensaje.igsid, { ...guardada, atendida: true });
+  console.log(
+    `Uno la publicación de ${mensaje.igsid} con su pregunta: ` +
+      JSON.stringify(mensaje.texto.slice(0, 60))
+  );
+  return guardada;
 }
 
 // El cliente escribió mientras un asesor lleva la conversación.
@@ -903,6 +1148,21 @@ function marcarSinVer(motivo) {
   );
 }
 
+// Lo mismo, cuando lo que no se pudo mirar es una publicación compartida.
+// La mayoría son reels, o sea vídeo: no es una avería y el cliente no puede
+// recibir un mensaje de avería. Y aquí hay algo que en las historias no
+// siempre hay: el pie de foto, que muchas veces nombra el producto.
+function marcarPublicacionSinVer(motivo) {
+  return motivo === "video"
+    ? "[LA PUBLICACIÓN ES UN VÍDEO Y NO PUEDES VERLO. NO digas que hubo un " +
+        "error ni que no ves vídeos. Guíate por el texto de la publicación y " +
+        "por lo que escribió el cliente; si aun así no sabes qué producto es, " +
+        "pregúntale cuál le interesa]"
+    : "[NO PUDISTE ABRIR LA IMAGEN DE LA PUBLICACIÓN. NO digas que hubo un " +
+        "error. Guíate por el texto de la publicación y por lo que escribió " +
+        "el cliente]";
+}
+
 // Lo que ve el modelo antes del mensaje del cliente. La construcción vive en
 // historial.js, que es donde está la regla de separar pasado y presente.
 //
@@ -913,13 +1173,22 @@ function marcarSinVer(motivo) {
 // nadie se lo pasaba, así que siempre valía 0 y esa protección nunca se
 // activaba — el cliente que volvía a los tres días recibía el precio del
 // zapato de la vez pasada.
-function contexto(nombre, historial, texto, marca = "", esHistoriaNueva = false, minutosCallado = 0) {
+function contexto(
+  nombre,
+  historial,
+  texto,
+  marca = "",
+  esHistoriaNueva = false,
+  minutosCallado = 0,
+  esPublicacionNueva = false
+) {
   return contextoParaElModelo({
     nombre: primerNombre(nombre),
     historial,
     texto,
     marca,
     esHistoriaNueva,
+    esPublicacionNueva,
     minutosDesdeElUltimo: minutosCallado,
   });
 }
@@ -963,7 +1232,16 @@ function sinBienvenida(respuesta) {
 // De lo que escribió el modelo a lo que se le manda al cliente: se le quita
 // la talla al término, se separa el color, se busca en Shopify y se decide
 // si la respuesta del modelo sirve o hay que sustituirla.
-async function decidir({ env, salida, texto, historialPrevio, mostrados = [], pideMas = false }) {
+async function decidir({
+  env,
+  salida,
+  texto,
+  historialPrevio,
+  mostrados = [],
+  pideMas = false,
+  terminoPreferido = "",
+  verificarRasgos = true,
+}) {
   const preguntoTalla = PREGUNTA_TALLA.test(texto);
 
   // Antes que nada: si esto vino de una foto, se revisa que "buscar" sea
@@ -974,7 +1252,9 @@ async function decidir({ env, salida, texto, historialPrevio, mostrados = [], pi
   // en el momento para que tanto lo que sigue en esta función como lo que
   // el llamador guarda después (salida.respuesta, salida.historial) ya
   // vean la versión corregida.
-  const verificacion = validarIdentificacion(salida);
+  const verificacion = verificarRasgos
+    ? validarIdentificacion(salida)
+    : { corregido: false };
   if (verificacion.corregido) {
     salida.buscar = verificacion.buscar;
     salida.respuesta = verificacion.respuesta;
@@ -983,9 +1263,20 @@ async function decidir({ env, salida, texto, historialPrevio, mostrados = [], pi
 
   // El modelo cuela la talla en el término cuando el cliente la nombra, y eso
   // devuelve cero productos siempre. Se le quita antes de buscar.
-  const termino = salida.buscar.toUpperCase() === "NADA" ? "" : sinTalla(salida.buscar);
-  if (salida.buscar !== termino && termino) {
-    console.log(`Quité la talla del término: "${salida.buscar}" -> "${termino}"`);
+  const delModelo = salida.buscar.toUpperCase() === "NADA" ? "" : sinTalla(salida.buscar);
+  if (salida.buscar !== delModelo && delModelo) {
+    console.log(`Quité la talla del término: "${salida.buscar}" -> "${delModelo}"`);
+  }
+
+  // EL TÍTULO DE LA FICHA GANA. Cuando el cliente manda el enlace de un
+  // producto, su título sale de la propia tienda: no hay nada que
+  // identificar ni que adivinar, y hacerle caso al modelo en vez de al dato
+  // exacto solo puede empeorarlo.
+  const termino = terminoPreferido ? terminoDeTitulo(terminoPreferido) : delModelo;
+  if (terminoPreferido && termino !== delModelo) {
+    console.log(
+      `El enlace manda: busco "${termino}" (el modelo había dicho "${delModelo || "NADA"}")`
+    );
   }
 
   // El color se saca del término y se aplica DESPUÉS, sobre los títulos que

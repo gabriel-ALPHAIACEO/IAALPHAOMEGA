@@ -71,6 +71,23 @@ El mismo código atiende a varias tiendas. Lo que cambia por tienda son dos arch
 - **El Emperador vende doble A y triple A**, no 1.1 como Invictus. Como son dos gamas y el bot no puede saber de cuál es un par concreto (ve el título y la foto, no la gama), su sección de calidad nombra las dos y manda al asesor cuando preguntan por un modelo en particular. Decir "triple A" de un par que es doble A es la equivocación más cara que podría cometer.
 - Guía de montaje paso a paso: `MONTAR-OTRA-TIENDA.md`.
 
+### Publicaciones compartidas del feed (24-sep-2026)
+
+**El fallo, visto en EPICCELL.** Un cliente ve una publicación en el feed, le da a compartir, la manda por el chat y escribe *"Feliz noche, precio?"*. Recibió **dos veces** la misma bienvenida — *"¡Hola! Soy la asistente virtual de EPICELL 👋 ¿Qué equipo estás buscando?"* — preguntándole qué busca a alguien que acababa de señalarlo con el dedo. Dos causas distintas:
+
+1. **La publicación no se leía.** `instagram.js` reconocía fotos sueltas y respuestas a historias, pero un adjunto `share` o `ig_reel` caía en el saco de "texto"; como ese mensaje no lleva texto, al modelo le llegaba la nada y contestaba la bienvenida genérica.
+2. **El mensaje repetido.** Compartir y preguntar son **dos mensajes**, y Meta los manda como dos webhooks que el Worker atiende en paralelo, cada uno en su propia petición. Sin memoria compartida, cada uno contestaba por su cuenta.
+
+**Cómo quedó.** `src/publicacion.js` (nuevo) es la parte de leer: del adjunto saca la imagen de la publicación y el pie de foto; de un enlace —compartido o pegado a mano en el texto— saca la foto, el título y la descripción con las etiquetas `og:`, y si apunta a la ficha de un producto, lo pide en JSON (`/products/<handle>.js`) y se queda con **el título exacto de la tienda**, que es el mejor término de búsqueda que existe. A partir de ahí, la publicación viaja por el mismo camino que una respuesta a una historia: la imagen va al prompt de visión con una cabecera que dice que **es una publicación nuestra** y que el nombre del producto suele ir *escrito encima* del montaje.
+
+- **La unión de los dos webhooks vive en D1** (columna `publicacion`, `migrations/0004_publicacion.sql`). El turno de la publicación la guarda y espera 5 s a la pregunta que viene detrás; si llega, contesta ella —con la publicación delante— y el otro turno se calla. Si no llega, contesta la publicación. Es la única espera del sistema y solo ocurre cuando la publicación llega sin texto.
+- **La columna se crea sola** con el primer mensaje que atienda el bot, igual que `mostrados`: el código nuevo y la base vieja conviven siempre porque los archivos se copian a mano.
+- **El título de la ficha gana sobre lo que diga el modelo.** Si el enlace era un producto, no hay nada que identificar.
+- **La verificación de rasgos de `identificar.js` se salta en las publicaciones.** Esa tabla está hecha para *fotos* de calzado; un montaje publicitario con el nombre escrito es otra cosa, y ahí la verificación descartaba identificaciones buenas.
+- **Un "precio?" suelto detrás de una publicación ya no dispara el "no sabes de qué habla"** de `historial.js`: sí se sabe, lo dice la publicación.
+- **Si la publicación es un reel (vídeo) o el enlace no se deja abrir**, no hay mensaje de avería: se usa el pie de foto y, si no alcanza, se le pregunta cuál le gustó — nunca "¿qué buscas?" ni "mándame una foto".
+- **Diagnóstico:** `/probar-enlace?url=...` dice exactamente qué saca el bot de un enlace y con qué término buscaría, sin esperar a que lo mande un cliente.
+
 ### Estructura
 
 ```
@@ -80,10 +97,12 @@ worker/
     0001_contactos.sql   crea la tabla de memoria en D1
     0002_ultimo_envio.sql  cuándo mandó el bot su último mensaje
     0003_mostrados.sql     qué productos ya vio cada cliente
+    0004_publicacion.sql   la publicación del feed que acaba de compartir (se crea sola)
   src/
-    index.js             entrypoint y bot completo: /webhook (Meta, único canal), /estado, /probar-imagen, /probar-aviso
+    index.js             entrypoint y bot completo: /webhook (Meta, único canal), /estado, /probar-imagen, /probar-enlace, /probar-aviso
     ia.js                 llamadas a OpenAI (texto y visión; la visión usa JSON schema estricto)
     imagen.js             descarga la foto de Instagram y la convierte a data URI
+    publicacion.js        publicaciones compartidas del feed y enlaces: qué mirar y qué buscar
     instagram.js           firma del webhook, envío de mensajes/fichas, lectura de eventos (incluye ecos)
     estado.js               memoria en D1: historial, nombre, pausa por asesor humano
     identificar.js          red de seguridad determinista para lo que identifica la IA en una foto
