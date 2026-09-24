@@ -70,7 +70,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-24 (14) · el color de la foto manda: mismo modelo, mismo color, y primero";
+const VERSION = "2026-09-24 (15) · los zapatos sin logo se desempatan por su descripción";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -614,6 +614,7 @@ export default {
         foto: descargada,
         rasgos: identificacion.rasgos,
         colorFoto: nombreDeColor(identificacion.color),
+        vistoFoto: identificacion.visto || "",
         porConfirmar: Boolean(confirmar),
       });
 
@@ -1027,6 +1028,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // El color que la IA vio en el zapato. Ordena los candidatos para que
   // no se le mande el mismo modelo en otro color.
   let colorFoto = "";
+  // La frase de lo que la IA vio. Desempata los zapatos sin logo.
+  let vistoFoto = "";
   // El modelo se nombró pero el detalle que lo confirmaría no se ve en la
   // foto (ver identificar.js). Se busca igual, y el cotejo visual lo
   // verifica contra la foto real del catálogo — incluso si hay un solo
@@ -1040,6 +1043,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       // SIN ESTA LÍNEA NO SE PUEDE DEPURAR NADA. Un barrido que no
       // encuentra y un nombre mal identificado se ven igual en los
       // registros si no queda escrito qué vio y qué va a buscar.
+      // La descripción se registra entera a propósito: en los zapatos sin
+      // logo es lo ÚNICO que los distingue, así que si uno falla hay que
+      // poder leer qué vio exactamente.
       console.log(
         `La IA de visión vio: "${identificacion.visto}"` +
           (identificacion.color ? ` · color: ${identificacion.color}` : " · color: no lo distingue") +
@@ -1050,6 +1056,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       marcaFoto = marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar);
       rasgosFoto = identificacion.rasgos;
       colorFoto = nombreDeColor(identificacion.color);
+      vistoFoto = identificacion.visto || "";
       porConfirmar = Boolean(confirmar);
     } else {
       console.error(
@@ -1124,6 +1131,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     foto,
     rasgos: rasgosFoto,
     colorFoto,
+    vistoFoto,
     porConfirmar,
   });
 
@@ -1458,6 +1466,9 @@ async function decidir({
   // El color del zapato de la foto, en una palabra. Ordena los candidatos
   // para que no se le mande el mismo modelo en otro color.
   colorFoto = "",
+  // Lo que la IA describió de la foto. Es lo único que distingue un
+  // zapato liso de otro: en los 15 rasgos, todos los lisos empatan.
+  vistoFoto = "",
   // El modelo se identificó pero sin confirmar del todo: el cotejo pasa a
   // verificar, no solo a desempatar.
   porConfirmar = false,
@@ -1533,6 +1544,7 @@ async function decidir({
       termino: aBuscar,
       rasgos,
       color: colorFoto,
+      visto: vistoFoto,
       verificar: porConfirmar,
       // El barrido del catálogo completo es el último recurso y el único
       // paso caro de todo esto. Se apaga con COTEJO_BARRIDO = "no".
@@ -1574,7 +1586,7 @@ async function decidir({
   // no dice "es este". Esa es la diferencia con el cotejo, que sí afirma
   // y por eso exige confianza alta.
   if (foto && !productos.length && rasgos) {
-    const parecidos = await parecidosDeLaFoto(env, rasgos, PARECIDOS_DEL_INDICE, colorFoto);
+    const parecidos = await parecidosDeLaFoto(env, rasgos, PARECIDOS_DEL_INDICE, colorFoto, vistoFoto);
 
     if (parecidos.length) {
       productos = parecidos;

@@ -128,6 +128,10 @@ export async function cotejoPorImagen({
   // El color del zapato de la foto, en una palabra. Es lo que evita
   // mandarle el mismo modelo en otro color — la queja número uno.
   color = "",
+  // La frase con lo que la IA VIO en la foto ("cuero blanco, corte bajo,
+  // suela plana, sin logo"). Desempata los zapatos lisos, que en los 15
+  // rasgos empatan todos entre sí.
+  visto = "",
   // El modelo se nombró pero su detalle distintivo no se ve en la foto
   // (ver identificar.js). Entonces el cotejo ya no está desempatando
   // entre varios: está VERIFICANDO que el que se encontró sea el de la
@@ -225,7 +229,7 @@ export async function cotejoPorImagen({
   // veinte productos cualesquiera de Shopify.
   if (indice.length) {
     for (let ronda = 1; ronda <= RONDAS_DEL_INDICE; ronda++) {
-      const candidatos = mejoresPorRasgos(indice, rasgos, DESDE_EL_INDICE + yaMirados.size, color)
+      const candidatos = mejoresPorRasgos(indice, rasgos, DESDE_EL_INDICE + yaMirados.size, color, visto)
         .filter((p) => !yaMirados.has(clave(p)))
         .slice(0, DESDE_EL_INDICE);
 
@@ -540,7 +544,7 @@ function primeraPalabra(termino) {
 // el catálogo entero indexado eso es absurdo: sabe qué hay y sabe a qué
 // se parece la foto. Enseñarle cinco y preguntarle cuál es vende; pedirle
 // el nombre de un zapato que no sabe nombrar, no.
-export async function parecidosDeLaFoto(env, rasgos, cuantos = 6, color = "") {
+export async function parecidosDeLaFoto(env, rasgos, cuantos = 6, color = "", visto = "") {
   if (!env.DB || !rasgos) return [];
 
   let indice = [];
@@ -553,7 +557,7 @@ export async function parecidosDeLaFoto(env, rasgos, cuantos = 6, color = "") {
 
   if (!indice.length) return [];
 
-  const mejores = mejoresPorRasgos(indice, rasgos, cuantos, color).filter((p) => p.titulo && p.imagen);
+  const mejores = mejoresPorRasgos(indice, rasgos, cuantos, color, visto).filter((p) => p.titulo && p.imagen);
 
   if (mejores.length) {
     console.log(

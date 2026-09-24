@@ -243,15 +243,49 @@ const PUNTOS_DIFIERE = -2;
 const PUNTOS_MISMO_COLOR = 60;
 const PUNTOS_OTRO_COLOR = -25;
 
-export function mejoresPorRasgos(indice, rasgos, cuantos = 10, color = "") {
+// LA DESCRIPCIÓN DESEMPATA LOS ZAPATOS SIN LOGO (24-sep-2026).
+//
+// EL PROBLEMA. Los 15 rasgos describen zapatos RUIDOSOS: cámara de aire,
+// swoosh, jumpman, tres franjas, puntera de concha. Un zapato de cuero
+// blanco liso sin logo pone los 15 en false — y dos productos con los 15
+// en false sacan exactamente los mismos puntos. No es que ordene mal: es
+// un empate perfecto entre todos los zapatos lisos del catálogo, y lo
+// desempata el orden en que D1 devuelva las filas.
+//
+// Caso real (24-sep): "sin logo visible, corte bajo, suela blanca plana,
+// cuero blanco". El bot miró 30 candidatos y falló los 30.
+//
+// LA SALIDA, SIN VOLVER A MIRAR NI UNA FOTO. Al indexar ya se guardó de
+// cada producto una frase con lo que se ve —el logo si lo hay, la altura
+// de la caña, la forma de la suela, el material— y la foto del cliente
+// trae la suya. Comparar esas dos frases cuesta cero llamadas y cero
+// tokens, y distingue justo donde los rasgos no llegan: cuero contra
+// malla, corte bajo contra bota, suela plana contra plataforma.
+//
+// SE PESAN LAS PALABRAS POR LO RARAS QUE SEAN. "zapato" y "suela" salen
+// en las 581 descripciones y no distinguen nada; "gamuza", "charol",
+// "trenzado" o "plataforma" salen en pocas y valen mucho. Eso se calcula
+// solo sobre el propio catálogo, así que no hay ninguna lista de palabras
+// que mantener a mano.
+const PUNTOS_DESCRIPCION = 50;
+
+export function mejoresPorRasgos(indice, rasgos, cuantos = 10, color = "", visto = "") {
   if (!rasgos || typeof rasgos !== "object") return [];
 
-  const conPuntos = indice
-    .filter((producto) => producto.imagen && producto.rasgos)
-    .map((producto) => ({
-      producto,
-      puntos: puntuar(producto.rasgos, rasgos) + puntosDeColor(producto.titulo, color),
-    }));
+  const utiles = indice.filter((producto) => producto.imagen && producto.rasgos);
+
+  // Las palabras de la foto del cliente, y lo que vale cada una según lo
+  // rara que sea en este catálogo.
+  const delaFoto = palabrasDe(visto);
+  const peso = pesoDeLasPalabras(utiles);
+
+  const conPuntos = utiles.map((producto) => ({
+    producto,
+    puntos:
+      puntuar(producto.rasgos, rasgos) +
+      puntosDeColor(producto.titulo, color) +
+      puntosDeDescripcion(producto.visto, delaFoto, peso),
+  }));
 
   if (!conPuntos.length) return [];
 
@@ -277,6 +311,67 @@ export function mejoresPorRasgos(indice, rasgos, cuantos = 10, color = "") {
   }
 
   return elegidos;
+}
+
+// Las palabras con contenido de una descripción. Fuera los acentos, los
+// signos y las palabras de pegamento, que salen en todas y no dicen nada.
+const VACIAS = new Set([
+  "de","del","la","el","los","las","un","una","unos","unas","y","o","en","con",
+  "sin","por","para","que","se","su","sus","al","es","son","tipo","estilo",
+  "zapato","zapatos","calzado","tenis","zapatilla","zapatillas","par","modelo",
+  "color","se","ve","visible","tiene","lleva","parte","lado","lateral","foto",
+]);
+
+function palabrasDe(texto) {
+  return new Set(
+    String(texto || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((p) => p.length > 2 && !VACIAS.has(p))
+  );
+}
+
+// Cuánto vale cada palabra: mucho si sale en pocas descripciones, casi
+// nada si sale en todas. Es el peso que hace que "gamuza" mande sobre
+// "suela" sin tener que escribir a mano ninguna lista.
+function pesoDeLasPalabras(indice) {
+  const enCuantas = new Map();
+
+  for (const producto of indice) {
+    for (const palabra of palabrasDe(producto.visto)) {
+      enCuantas.set(palabra, (enCuantas.get(palabra) || 0) + 1);
+    }
+  }
+
+  const total = indice.length || 1;
+  const peso = new Map();
+  for (const [palabra, veces] of enCuantas) {
+    peso.set(palabra, Math.log(total / veces));
+  }
+  return peso;
+}
+
+function puntosDeDescripcion(vistoDelCatalogo, delaFoto, peso) {
+  if (!delaFoto.size) return 0;
+
+  const delProducto = palabrasDe(vistoDelCatalogo);
+  if (!delProducto.size) return 0;
+
+  let compartido = 0;
+  let maximo = 0;
+
+  for (const palabra of delaFoto) {
+    const vale = peso.get(palabra) || 0;
+    maximo += vale;
+    if (delProducto.has(palabra)) compartido += vale;
+  }
+
+  if (maximo <= 0) return 0;
+
+  return Math.round((compartido / maximo) * PUNTOS_DESCRIPCION);
 }
 
 export function puntosDeColor(titulo, color) {

@@ -33,6 +33,29 @@ Tres capas, y cada una arregla el fallo de la anterior:
    - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
    - **Indexar el catálogo una sola vez** ← **esto es lo que se hizo.** Ver abajo.
 
+### Los zapatos sin logo (24-sep-2026)
+
+Caso real: `"sin logo visible, corte bajo, suela blanca plana, cuero blanco"`. El bot miró 30 candidatos y falló los 30.
+
+**No ordenaba mal: no ordenaba.** Los 15 rasgos describen zapatos **ruidosos** — cámara de aire, swoosh, jumpman, tres franjas, puntera de concha. Un zapato de cuero liso sin logo pone los 15 en `false`, y en `puntuar()` dos productos con los 15 en `false` sacan **exactamente los mismos puntos**. Empate perfecto entre todos los zapatos lisos del catálogo, desempatado por el orden en que D1 devolviera las filas. Y los lisos son buena parte de esta tienda: Tommy, Calvin Klein, Hugo Boss, Alo, Armani, Golden Goose, Veja.
+
+**La salida no costó ni una llamada al modelo.** Al indexar ya se guardaba de cada producto una frase con lo que se ve —*"el logo si lo hay, la altura de la caña, la forma de la suela, el material"*— y la foto del cliente trae la suya. Ese campo `visto` estaba en la base sin usarse para nada. Comparar las dos frases distingue justo donde los rasgos no llegan: cuero contra malla, corte bajo contra bota, suela plana contra plataforma.
+
+**Las palabras se pesan por lo raras que son** (TF-IDF sobre el propio catálogo): `"zapato"` y `"suela"` salen en las 581 descripciones y valen casi cero; `"gamuza"`, `"charol"`, `"plataforma"` o `"trenzado"` salen en pocas y valen mucho. Se calcula solo, así que **no hay ninguna lista de palabras que mantener a mano**.
+
+Pesos: descripción hasta 50 puntos, color 60, rasgos hasta 45. El color sigue mandando —es la queja más cara— y la descripción desempata por debajo.
+
+Medido con el caso real, catálogo simulado de 40 Air Max y 5 lisos:
+
+| | 1º | 2º | 3º |
+|---|---|---|---|
+| **Antes** | Air Max 270 | Air Max 270 | Air Max 270 |
+| **Ahora** | Tommy blanco | Calvin Klein | Alo |
+
+**No hizo falta reindexar nada:** el campo ya estaba guardado desde la primera indexación.
+
+**Lo que sigue pendiente, si hiciera falta.** Los 15 rasgos siguen sin tener vocabulario para el zapato tranquilo: no hay `cañaAlta`, ni `cueroLiso`, ni `suelaPlataforma`, ni `sinLogoVisible`. Añadirlos daría una señal más limpia que el texto, pero obliga a **reindexar los 581 productos** (`/indexar-catalogo?rehacer=si`, unas horas de cron y el gasto de 581 llamadas de visión). Se dejó sin hacer porque la descripción ya resuelve el caso y es gratis.
+
 ### El color de la foto manda (24-sep-2026)
 
 Reportado por el dueño: *"pregunté por un calzado, en la historia sale en color negro y me mostró otro color nada que ver; con los Tommy igual"*. Y el otro síntoma: *"a veces dice ¿son adidas? ¿me dices cómo se llama? y muestra algo nada que ver"*.
