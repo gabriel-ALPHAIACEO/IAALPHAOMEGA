@@ -111,22 +111,44 @@ const SIN_RESULTADOS =
 // El prompt sigue sabiendo los niveles —los necesita para contestar "soy
 // oro, cuánto pago"— pero cuando la pregunta es "qué formas de pago hay",
 // sale esto tal cual.
-const FORMAS_DE_PAGO =
-  "¡Sí trabajamos con cuotas! Tenemos dos opciones 👇\n\n" +
-  "CASHEA — 3 cuotas sin intereses, una cada 14 días.\n" +
-  "La inicial depende de tu nivel:\n" +
-  "  Nivel 1: 60%\n" +
-  "  Nivel 2: 50%\n" +
-  "  Nivel 3: 30%\n" +
-  "  Nivel 4: 25%\n" +
-  "  Nivel 5: 20%\n" +
-  "  Nivel 6: 20%\n\n" +
-  "KRECE — la inicial y las cuotas dependen del nivel:\n" +
-  "  Azul: 30% de inicial y 6 cuotas\n" +
-  "  Plata: 25% de inicial y 8 cuotas\n" +
-  "  Oro: 20% de inicial y 8 cuotas\n" +
-  "  Platino: 15% de inicial y 10 cuotas\n\n" +
-  "¿Con cuál de las dos compras? Así te digo cuánto te queda de inicial 😊";
+// LAS DOS FORMAS DE PAGO, EN DOS MENSAJES (24-sep-2026).
+//
+// Antes era UN solo mensaje con las dos tablas pegadas: diez líneas de
+// porcentajes seguidas, sangradas con espacios que Instagram aplasta, y el
+// cliente tenía que leerlo entero para encontrar su nivel. Un muro.
+//
+// Ahora va una plataforma por mensaje, con su título, su emoji y una línea
+// por nivel. Se lee de un vistazo y, sobre todo, se distingue de un vistazo
+// cuál es cuál — que es el error que más caro sale aquí: cruzar los niveles
+// de Cashea (números) con los de Krece (colores).
+//
+// DOS MENSAJES Y NO TRES: cada uno es una notificación en el teléfono del
+// cliente. Dos es una tabla partida en dos; tres ya es el bot hablando solo.
+const PAGOS_CASHEA =
+  "¡Sí trabajamos con cuotas! 🙌 Tenemos dos opciones 👇\n" +
+  "\n" +
+  "💳 CASHEA\n" +
+  "3 cuotas sin intereses, una cada 14 días 🗓️\n" +
+  "\n" +
+  "Tu inicial según tu nivel:\n" +
+  "🔹 Nivel 1 — 60%\n" +
+  "🔹 Nivel 2 — 50%\n" +
+  "🔹 Nivel 3 — 30%\n" +
+  "🔹 Nivel 4 — 25%\n" +
+  "🔹 Nivel 5 — 20%\n" +
+  "🔹 Nivel 6 — 20%";
+
+const PAGOS_KRECE =
+  "💰 KRECE\n" +
+  "Aquí la inicial Y las cuotas van por nivel 👇\n" +
+  "\n" +
+  "🔵 Azul — 30% inicial · 6 cuotas\n" +
+  "⚪ Plata — 25% inicial · 8 cuotas\n" +
+  "🟡 Oro — 20% inicial · 8 cuotas\n" +
+  "💎 Platino — 15% inicial · 10 cuotas\n" +
+  "\n" +
+  "¿Con cuál de las dos quieres comprar? 😊\n" +
+  "Dime tu nivel y te digo cuánto te queda de inicial 👌";
 
 // Cuándo sale ese mensaje: cuando preguntan por las formas de pago EN
 // GENERAL. Si el cliente ya dijo su nivel ("soy oro, cuánto pago"), no
@@ -1362,8 +1384,15 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     return;
   }
 
-  const { productos, respuestaCliente, termino, esConsultaDeAsesor, buscoSinExito, hayMas } =
-    await decidir({ env, salida, texto: mensaje.texto, historialPrevio });
+  const {
+    productos,
+    respuestaCliente,
+    segundoMensaje,
+    termino,
+    esConsultaDeAsesor,
+    buscoSinExito,
+    hayMas,
+  } = await decidir({ env, salida, texto: mensaje.texto, historialPrevio });
 
   // El precio que va en cada ficha depende de lo que preguntó el cliente
   // (Cashea, divisas, o el de por defecto). Se resuelve ACÁ y las fichas
@@ -1424,6 +1453,13 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, leDigo), leDigo);
   } else {
     await mandar(() => enviarTexto(env, mensaje.igsid, leDigo), leDigo);
+  }
+
+  // El segundo mensaje de la tabla de pagos (Krece). Sale detrás del
+  // primero, nunca solo, y nunca cuando no sabemos de qué equipo hablamos.
+  const segundo = sinSaberQueEs ? "" : segundoMensaje;
+  if (segundo) {
+    await mandar(() => enviarTexto(env, mensaje.igsid, segundo), segundo);
   }
 
   const escalada = hayEscalada({
@@ -2043,7 +2079,7 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   let respuestaCliente = respuestaFinal;
 
   if (preguntoPorPagos) {
-    respuestaCliente = FORMAS_DE_PAGO;
+    respuestaCliente = PAGOS_CASHEA;
   } else if (soloAsesor) {
     respuestaCliente = SOLO_ASESOR;
   } else if (otrasCapacidades.length && pedidas.length) {
@@ -2069,6 +2105,9 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   return {
     productos,
     respuestaCliente,
+    // La tabla de pagos va en DOS mensajes, uno por plataforma. Este es el
+    // segundo; va vacío en cualquier otro caso.
+    segundoMensaje: preguntoPorPagos ? PAGOS_KRECE : "",
     termino,
     // Una capacidad que el catálogo no trae es un dato que solo sabe una
     // persona, igual que la garantía: va al asesor.

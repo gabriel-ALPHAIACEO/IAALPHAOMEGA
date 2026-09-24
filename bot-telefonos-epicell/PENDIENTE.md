@@ -1,5 +1,32 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: Cashea y Krece se leen de un vistazo (24-sep-2026)
+
+Los porcentajes llegaban en un solo mensaje con las dos tablas pegadas: diez
+líneas seguidas, sangradas con espacios que Instagram aplasta, y el cliente
+teniendo que leerlo entero para encontrar su nivel.
+
+- **Una plataforma por mensaje**, cada una con su título, su emoji y una
+  línea por nivel. Dos mensajes, no tres: cada uno es una notificación en el
+  teléfono del cliente.
+- **Los niveles de Krece llevan el emoji de su color** (🔵 Azul, ⚪ Plata,
+  🟡 Oro, 💎 Platino), así se encuentra el suyo sin leer los cuatro. Y se
+  distingue de un vistazo cuál tabla es cuál, que es el error más caro aquí:
+  cruzar los niveles de Cashea (números) con los de Krece (colores).
+
+**Y la causa de fondo, que afectaba a TODAS las respuestas del bot:** el
+prompt le prohibía los saltos de línea. Lo decía dos veces —en el formato de
+salida y en el repaso final— sin distinguir entre un salto de línea de
+verdad (que rompe el JSON) y un `\n` escrito (que no). Con esa regla, el
+modelo no tenía forma de separar nada: todo lo que escribía salía pegado.
+
+Ahora el prompt dice lo contrario y lo enseña: `\n` para una línea nueva,
+`\n\n` para una línea en blanco, sección nueva **CÓMO SE ESCRIBE UNA
+LISTA**, la excepción al "un emoji por mensaje" (en una lista, cada línea
+lleva el suyo), los ejemplos de Cashea y Krece reescritos con ese formato, y
+un punto 5 en el repaso final: *si tu respuesta enumera tres cosas o más, no
+pueden ir seguidas en el párrafo*.
+
 ## Hecho: las pausas falsas dejan de costar horas (24-sep-2026)
 
 **El síntoma, dicho por el dueño:** *"pausa a los clientes sin razón y si
