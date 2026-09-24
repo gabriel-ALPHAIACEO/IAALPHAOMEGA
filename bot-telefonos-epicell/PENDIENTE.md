@@ -1,5 +1,39 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: fotos y precio en vez de un inventario escrito (24-sep-2026)
+
+```
+Cliente: "Precio de los cables dophin"
+Bot:     "No tengo cables Dophin por ahora. Si te interesa, aquí están
+          los cables que tengo disponibles:
+          🔹 Samsung Cable Tipo C 1Metro
+          🔹 Skydolphing cable 4 en 1 S40E
+          ..."
+```
+
+Seis nombres escritos, ni una foto, ni un precio. Eso es un inventario, no
+una venta. Y además **era mentira**: sí hay cables "dolphin" — en la hoja
+se llaman **Skydolphing**.
+
+Tres arreglos, de lo más de fondo a lo más de superficie:
+
+1. **La búsqueda ahora encuentra una palabra DENTRO de otra más larga.**
+   "dophin" no era prefijo de "skydolphing" ni se le parecía como palabra
+   entera (6 letras contra 11), así que la búsqueda devolvía cero. Ahora se
+   compara contra los trozos de la palabra larga, con el mismo margen de
+   erratas de siempre: "dolphin" está dentro de "Skydolphing", y "dophin"
+   se le parece en una letra. Solo con palabras de 5 letras o más, para que
+   no pesque media tienda.
+2. **Rescate por categoría.** Si aun así no hay resultados —"cargador
+   anker", "forro de iphone 20"— se prueban las palabras del término por
+   separado y con la primera que devuelva algo se le enseña ESO, con sus
+   fotos y sus precios: "Ese exacto no lo tengo, pero mira estos 👇".
+3. **El prompt tiene prohibido recitar el catálogo.** Sección nueva: si no
+   tiene lo que piden, pone en "buscar" la CATEGORÍA (cable, cargador,
+   audífonos) y deja que salgan las fichas. Y se le advierte que los
+   nombres de la hoja están llenos de erratas y marcas raras, así que no
+   afirme que algo no existe por no verlo escrito igual.
+
 ## Hecho: la lista escrita no se pega encima de las fotos (24-sep-2026)
 
 El cliente pidió *"me mandas las fotos de los cables?"* y recibió las fotos

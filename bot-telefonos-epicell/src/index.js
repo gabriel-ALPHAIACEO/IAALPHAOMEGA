@@ -368,6 +368,22 @@ function leOfrecimosLasImagenes(contacto) {
   return String(contacto?.ultima_respuesta || "").includes("las imágenes de esta lista");
 }
 
+// NO TENGO ESE, PERO MIRA ESTOS.
+//
+// EL FALLO QUE ESTO ARREGLA (24-sep-2026). "Precio de los cables dophin" y
+// el bot contestó, en texto y sin una sola foto: "No tengo cables Dophin
+// por ahora. Si te interesa, aquí están los cables que tengo disponibles:"
+// y seis nombres escritos.
+//
+// Eso es un inventario, no una venta. El cliente pidió cables: hay que
+// enseñarle cables, con su foto y su precio, que es lo que hace que elija
+// uno. La lista escrita no vende nada.
+const NO_ESE_PERO_MIRA = [
+  "Ese exacto no lo tengo ahora 😊 Pero mira estos, que te pueden servir 👇",
+  "De ese no me queda 😅 Te muestro los que sí tengo 👇",
+  "Justo ese no lo manejo 😊 Pero estos van por la misma línea, míralos 👇",
+];
+
 // Lo que se le dice cuando vuelve a pedir lo mismo en divisas. No hace
 // falta buscar nada: son los equipos que acaba de ver.
 const PRECIOS_EN_DIVISAS = [
@@ -1680,6 +1696,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     esConsultaDeAsesor,
     buscoSinExito,
     hayMas,
+    porCategoria,
   } = await decidir({ env, salida, texto: mensaje.texto, historialPrevio });
 
   // El precio que va en cada ficha depende de lo que preguntó el cliente
@@ -1789,7 +1806,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     historial: recortarHistorial(
       sinSaberQueEs
         ? conNota(historialPrevio, "Compartió una publicación que no pude identificar: le pregunté cuál es.")
-        : salida.historial || historialPrevio
+        : porCategoria
+          ? conNota(
+              salida.historial || historialPrevio,
+              `No había "${termino}": le mostré los de "${porCategoria}". Ya busqué: ${porCategoria}.`
+            )
+          : salida.historial || historialPrevio
     ),
     pausado_hasta: contacto.pausado_hasta,
     mids_enviados: mids,
@@ -2337,6 +2359,35 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     }
   }
 
+  // RESCATE 3 — LA CATEGORÍA.
+  //
+  // "cables dophin", "cargador anker", "forro de iphone 20": el cliente
+  // nombra una marca o un modelo que esta tienda no maneja. La búsqueda
+  // exige TODAS las palabras, así que devuelve cero — y ahí el bot se
+  // quedaba diciendo "no tengo eso" y, en el peor de los casos, recitando
+  // de memoria una lista sin fotos.
+  //
+  // Pero una de esas palabras SÍ existe en la tienda: "cables". Se prueban
+  // las palabras del término por separado y, con la primera que devuelva
+  // algo, se le enseña eso — con sus fotos y sus precios, que es lo que
+  // hace que el cliente elija uno.
+  let porCategoria = "";
+  if (!productos.length && /\s/.test(termino)) {
+    for (const palabra of termino.split(/\s+/).filter((p) => p.length >= 3)) {
+      const intento = await buscarProductos(env, palabra);
+      if (intento.productos.length) {
+        productos = intento.productos;
+        hayMas = intento.hayMas;
+        porCategoria = palabra;
+        console.log(
+          `Sin resultados para "${termino}": le enseño los de "${palabra}" ` +
+            `(${productos.length}), con foto y precio`
+        );
+        break;
+      }
+    }
+  }
+
   // PIDIÓ UNA CAPACIDAD QUE NO HAY (crítico para no perder la venta).
   //
   // "¿Tienen el 15 de 256?" terminaba mal cuando no había ese exacto: cero
@@ -2443,6 +2494,10 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     // Los equipos se le muestran igual: lo único que no sabemos es la
     // capacidad, no el producto.
     respuestaCliente = alAzar(SIN_DATO_DE_CAPACIDAD);
+  } else if (porCategoria) {
+    // Lo que escribió el modelo no vale aquí: él creía que no había nada
+    // que enseñar, o peor, iba a recitar la lista. Hay fotos que mandar.
+    respuestaCliente = alAzar(NO_ESE_PERO_MIRA);
   } else if (buscoSinExito) {
     respuestaCliente = fraseSinResultados(env);
   }
@@ -2459,6 +2514,8 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     esConsultaDeAsesor: esConsultaDeAsesor || capacidadSinDato,
     buscoSinExito,
     hayMas,
+    // Con qué palabra se rescató la búsqueda, si hubo que rescatarla.
+    porCategoria,
   };
 }
 

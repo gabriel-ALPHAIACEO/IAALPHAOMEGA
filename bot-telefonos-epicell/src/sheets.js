@@ -242,7 +242,42 @@ function partirEnDos(palabra) {
 function casiCoincide(palabra, { piezas }) {
   const margen = erratasQueSePerdonan(palabra);
   if (!margen) return false;
-  return piezas.some((pieza) => pieza.length >= 4 && seParecen(palabra, pieza, margen));
+  return piezas.some(
+    (pieza) =>
+      (pieza.length >= 4 && seParecen(palabra, pieza, margen)) ||
+      casiDentro(palabra, pieza, margen)
+  );
+}
+
+// LA PALABRA VA DENTRO DE OTRA MÁS LARGA (24-sep-2026).
+//
+// EL CASO REAL. El cliente escribió "precio de los cables dophin" y no
+// encontró nada, teniendo seis en la tienda: en la hoja se llaman
+// "Skydolphing". Ni el prefijo servía —"skydolphing" no empieza por
+// "dophin"— ni el parecido entre palabras enteras, que son de 6 y 11
+// letras.
+//
+// Pero "dolphin" SÍ está dentro de "skydolphing", y lo que el cliente
+// escribió se parece a eso con una letra de diferencia. Así que se compara
+// contra los TROZOS de la palabra larga, del tamaño del término, con el
+// mismo margen de erratas de siempre.
+//
+// Solo con palabras de 5 letras o más: con menos, cualquier cosa está
+// dentro de cualquier cosa y la búsqueda devolvería media tienda.
+const MINIMO_PARA_BUSCAR_DENTRO = 5;
+
+function casiDentro(palabra, pieza, margen) {
+  if (palabra.length < MINIMO_PARA_BUSCAR_DENTRO) return false;
+  if (pieza.length <= palabra.length) return false;
+
+  for (let largo = palabra.length - margen; largo <= palabra.length + margen; largo++) {
+    if (largo < MINIMO_PARA_BUSCAR_DENTRO) continue;
+    for (let desde = 0; desde + largo <= pieza.length; desde++) {
+      if (seParecen(palabra, pieza.slice(desde, desde + largo), margen)) return true;
+    }
+  }
+
+  return false;
 }
 
 // ¿Se llega de "a" a "b" con "margen" deslices o menos? Cuenta como uno:
