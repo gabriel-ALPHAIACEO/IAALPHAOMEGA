@@ -27,10 +27,37 @@ import { RASGOS_CLAVE } from "./identificar.js";
 import { modeloDeIndice, rasgosDeProducto, esperarCupo } from "./ia.js";
 import { traerCatalogoCompleto } from "./shopify.js";
 
+// LA CLAVE ES LA FOTO, NO EL TÍTULO (24-sep-2026 — esto tenía parada la
+// indexación en seco).
+//
+// La tabla tenía "titulo TEXT PRIMARY KEY". Parecía razonable y era un
+// fallo grave: el catálogo tiene 581 productos pero solo 347 títulos
+// distintos —el mismo nombre para varios colores— así que 234 productos
+// se pisaban unos a otros al guardarse.
+//
+// Lo que se veía desde fuera: la indexación subía, se paraba en seco y
+// "FALTAN N" nunca bajaba de ahí, sin un solo error en el registro. Y lo
+// peor, cada pasada volvía a mirar los mismos duplicados: 40 llamadas de
+// visión tiradas, una y otra vez, para siempre.
+//
+// La cuenta de por qué se estanca: al guardar, el último de cada título
+// borra al anterior. En la pasada siguiente el que fue borrado vuelve a
+// salir como pendiente —su foto no coincide con la que quedó guardada—,
+// se vuelve a mirar, y vuelve a pisarse. El índice no puede pasar nunca
+// del número de títulos, y "faltan" no puede llegar nunca a cero.
+//
+// La URL de la foto sí es única por producto (el CDN de Shopify le mete
+// el id de la imagen), así que es la clave correcta. Y de regalo arregla
+// el reindexado: si a un producto le cambian la foto, es una clave nueva,
+// entra sola, y la vieja la limpia limpiarLosQueYaNoEstan().
+//
+// Dos productos que compartan LA MISMA foto sí se colapsan en una fila.
+// Da igual: son idénticos para lo único que hace este índice, que es
+// comparar imágenes.
 const TABLA = `
   CREATE TABLE IF NOT EXISTS catalogo (
-    titulo TEXT PRIMARY KEY,
-    imagen TEXT,
+    imagen TEXT PRIMARY KEY,
+    titulo TEXT,
     precio TEXT,
     url TEXT,
     visto TEXT,
@@ -44,10 +71,66 @@ let tablaLista = false;
 // La tabla se crea desde el código, no con una migración a mano: los
 // archivos se pegan a mano en la carpeta de despliegue y un paso extra
 // que alguien tiene que acordarse de correr es un paso que no se corre.
+//
+// Y por lo mismo, la tabla vieja se migra sola. Lo ya indexado NO se
+// tira: cada fila vieja ya guardaba su foto, así que se copia tal cual a
+// la tabla nueva con la foto de clave. Lo que se pagó al modelo por esos
+// productos sigue valiendo.
 export async function asegurarIndice(db) {
   if (!db || tablaLista) return;
+
   await db.prepare(TABLA).run();
+  await migrarDeTituloAFoto(db);
+
   tablaLista = true;
+}
+
+async function migrarDeTituloAFoto(db) {
+  let columnas;
+  try {
+    const { results } = await db.prepare("PRAGMA table_info(catalogo)").all();
+    columnas = (results || []).map((f) => ({ nombre: String(f.name), clave: Number(f.pk) > 0 }));
+  } catch {
+    return; // sin tabla no hay nada que migrar
+  }
+
+  const clave = columnas.find((c) => c.clave);
+  // Ya está en el esquema nuevo (o la tabla se acaba de crear).
+  if (!clave || clave.nombre === "imagen") return;
+
+  console.log("Índice: la tabla estaba indexada por título; la paso a indexar por foto.");
+
+  // Se rescata lo que ya se miró. Las filas sin foto no sirven para el
+  // cotejo (se compara contra imágenes), así que esas sí se van.
+  await db
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS catalogo_nuevo (
+         imagen TEXT PRIMARY KEY,
+         titulo TEXT,
+         precio TEXT,
+         url TEXT,
+         visto TEXT,
+         rasgos TEXT,
+         actualizado INTEGER
+       )`
+    )
+    .run();
+
+  await db
+    .prepare(
+      `INSERT OR REPLACE INTO catalogo_nuevo
+         (imagen, titulo, precio, url, visto, rasgos, actualizado)
+       SELECT imagen, titulo, precio, url, visto, rasgos, actualizado
+         FROM catalogo
+        WHERE imagen IS NOT NULL AND imagen <> ''`
+    )
+    .run();
+
+  await db.prepare("DROP TABLE catalogo").run();
+  await db.prepare("ALTER TABLE catalogo_nuevo RENAME TO catalogo").run();
+
+  const { results } = await db.prepare("SELECT COUNT(*) AS n FROM catalogo").all();
+  console.log(`Índice migrado: ${results?.[0]?.n ?? "?"} producto(s) rescatados, sin volver a mirarlos.`);
 }
 
 export async function leerIndice(db) {
@@ -88,12 +171,12 @@ export async function guardarIndexados(db, filas) {
       db
         .prepare(
           `INSERT OR REPLACE INTO catalogo
-             (titulo, imagen, precio, url, visto, rasgos, actualizado)
+             (imagen, titulo, precio, url, visto, rasgos, actualizado)
            VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
-          fila.titulo,
           fila.imagen || "",
+          fila.titulo,
           fila.precio || "",
           fila.url || "",
           String(fila.visto || "").slice(0, 300),
@@ -107,17 +190,20 @@ export async function guardarIndexados(db, filas) {
 // Los productos que ya no están en Shopify tienen que salir del índice:
 // si no, el cotejo puede acabar enseñándole al cliente una ficha de algo
 // que ya no se vende.
-export async function limpiarLosQueYaNoEstan(db, titulosActuales) {
-  if (!db || !titulosActuales.length) return 0;
+// Se compara por FOTO, igual que la clave. Por título no valdría: con 347
+// títulos para 581 productos, un título sigue vigente aunque el color
+// concreto que guardamos ya no se venda.
+export async function limpiarLosQueYaNoEstan(db, fotosActuales) {
+  if (!db || !fotosActuales.length) return 0;
 
   const indice = await leerIndice(db);
-  const vigentes = new Set(titulosActuales);
-  const sobran = indice.filter((p) => !vigentes.has(p.titulo));
+  const vigentes = new Set(fotosActuales);
+  const sobran = indice.filter((p) => !vigentes.has(p.imagen));
 
   if (!sobran.length) return 0;
 
   await db.batch(
-    sobran.map((p) => db.prepare("DELETE FROM catalogo WHERE titulo = ?").bind(p.titulo))
+    sobran.map((p) => db.prepare("DELETE FROM catalogo WHERE imagen = ?").bind(p.imagen))
   );
 
   console.log(`Índice: quité ${sobran.length} producto(s) que ya no están en Shopify`);
@@ -150,10 +236,28 @@ export function mejoresPorRasgos(indice, rasgos, cuantos = 10) {
 
   if (!conPuntos.length) return [];
 
-  return conPuntos
-    .sort((a, b) => b.puntos - a.puntos)
-    .slice(0, cuantos)
-    .map(({ producto }) => producto);
+  const ordenados = conPuntos.sort((a, b) => b.puntos - a.puntos);
+
+  // UNO POR TÍTULO, EL QUE MEJOR PUNTÚA.
+  //
+  // Desde que el índice guarda una fila por foto, el mismo modelo aparece
+  // varias veces —un color por fila—. Mandarle al modelo cinco fotos que
+  // se llaman igual desperdicia la mitad de los candidatos, y cotejo.js
+  // los colapsa por título después de todas formas. Así que se elige aquí
+  // el color cuyos rasgos más se parecen a los de la foto del cliente, que
+  // es justo el que hay que enseñar.
+  const porTitulo = new Set();
+  const elegidos = [];
+
+  for (const { producto } of ordenados) {
+    const clave = String(producto.titulo || "").toLowerCase();
+    if (porTitulo.has(clave)) continue;
+    porTitulo.add(clave);
+    elegidos.push(producto);
+    if (elegidos.length >= cuantos) break;
+  }
+
+  return elegidos;
 }
 
 function puntuar(delCatalogo, deLaFoto) {
@@ -207,16 +311,17 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
 
   const indice = await leerIndice(env.DB);
 
-  // Se reindexa un producto si nunca se miró o si le cambiaron la foto: la
-  // URL del CDN de Shopify cambia con la imagen, así que comparar la URL
-  // alcanza para saberlo.
-  const guardados = new Map(indice.map((p) => [p.titulo, p]));
-  const pendientes = productos.filter((p) => {
-    if (!p.imagen) return false;
-    if (rehacer) return true;
-    const antes = guardados.get(p.titulo);
-    return !antes || antes.imagen !== p.imagen;
-  });
+  // Pendiente es el que no está guardado POR SU FOTO. Si le cambian la
+  // imagen a un producto, su URL cambia, así que entra solo como nuevo.
+  const guardados = new Set(indice.map((p) => p.imagen));
+
+  // Un producto sin featuredImage no se puede indexar: el cotejo compara
+  // imágenes y aquí no hay ninguna. Se cuentan aparte para que el
+  // porcentaje no mienta y para que se vea cuántos son.
+  const sinFoto = productos.filter((p) => !p.imagen).length;
+  const indexables = productos.filter((p) => p.imagen);
+
+  const pendientes = indexables.filter((p) => rehacer || !guardados.has(p.imagen));
 
   const tanda = pendientes.slice(0, cuantos);
   const modelo = modeloDeIndice(env);
@@ -253,18 +358,41 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
 
   await guardarIndexados(env.DB, indexados);
 
+  // RED DE SEGURIDAD CONTRA EL FALLO QUE NOS TUVO PARADOS.
+  //
+  // Se cuenta AQUÍ, justo después de guardar y antes de limpiar: si se
+  // contara después, quitar una foto vieja restaría y la cuenta no
+  // cuadraría aunque todo estuviera bien.
+  //
+  // Si se guardaron productos y las filas no subieron lo que debían, algo
+  // los está pisando. Eso fue exactamente lo que pasó con la clave por
+  // título, y lo peor no fue el fallo: fue que no dijo nada. Aquí grita.
+  if (indexados.length) {
+    const hayAhora = await contarFilas(env.DB);
+    const nuevas = hayAhora - indice.length;
+    if (nuevas < indexados.length) {
+      console.error(
+        `ÍNDICE: guardé ${indexados.length} producto(s) pero solo quedaron ${nuevas} ` +
+          "fila(s) nuevas. Se están pisando entre ellos y la indexación no va a " +
+          "terminar nunca. Mira la clave primaria de la tabla en indice.js."
+      );
+    }
+  }
+
   const faltan = pendientes.length - indexados.length;
 
   // Solo cuando ya no falta nada: si se limpiara a mitad de la carga, un
   // producto todavía sin mirar parecería retirado.
   let quitados = 0;
   if (!faltan) {
-    quitados = await limpiarLosQueYaNoEstan(env.DB, productos.map((p) => p.titulo));
+    quitados = await limpiarLosQueYaNoEstan(env.DB, indexables.map((p) => p.imagen));
   }
 
   return {
     ok: true,
     catalogo: productos.length,
+    indexables: indexables.length,
+    sinFoto,
     yaEstaban: indice.length,
     intentados: tanda.length,
     indexados: indexados.length,
@@ -276,4 +404,14 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
     modelo,
     ningunoSalio,
   };
+}
+
+
+async function contarFilas(db) {
+  try {
+    const { results } = await db.prepare("SELECT COUNT(*) AS n FROM catalogo").all();
+    return Number(results?.[0]?.n) || 0;
+  } catch {
+    return 0;
+  }
 }

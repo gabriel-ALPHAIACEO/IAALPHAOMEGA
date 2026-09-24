@@ -70,7 +70,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-24 (9) · el índice del catálogo se llena solo (cron)";
+const VERSION = "2026-09-24 (10) · el índice se indexaba por título y se pisaba: ahora por foto";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -505,10 +505,19 @@ export default {
         );
       }
 
-      const hecho = Math.round(((r.yaEstaban + r.indexados) * 100) / r.catalogo);
+      // El porcentaje se cuenta sobre los que SE PUEDEN indexar, no sobre
+      // los 581. Contar los que no tienen foto hacía que no llegara nunca
+      // al 100% por mucho que estuviera todo hecho.
+      const hecho = r.indexables
+        ? Math.round(((r.yaEstaban + r.indexados) * 100) / r.indexables)
+        : 0;
 
       return texto200(
         `Catálogo en Shopify: ${r.catalogo} productos\n` +
+          (r.sinFoto
+            ? `  de los cuales ${r.sinFoto} NO tienen foto y no se pueden indexar\n` +
+              `  (el cotejo compara imágenes). Quedan ${r.indexables} indexables.\n`
+            : "") +
           `Ya estaban indexados: ${r.yaEstaban}\n` +
           `Indexados en esta tanda: ${r.indexados} (con ${r.modelo})\n` +
           (r.fallados
@@ -518,7 +527,7 @@ export default {
           (r.quitados ? `Quitados del índice (ya no están en Shopify): ${r.quitados}\n` : "") +
           "\n" +
           (r.faltan > 0
-            ? `FALTAN ${r.faltan} de ${r.pendientes + r.yaEstaban} (${hecho}% hecho).\n\n` +
+            ? `FALTAN ${r.faltan} de ${r.indexables} (${hecho}% hecho).\n\n` +
               "NO HACE FALTA QUE HAGAS NADA: el cron indexa lo que queda\n" +
               "solo, en las próximas pasadas (ver [triggers] en\n" +
               "wrangler.toml). Recarga esta dirección solo si tienes prisa.\n"
