@@ -33,6 +33,23 @@ Tres capas, y cada una arregla el fallo de la anterior:
    - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
    - **Indexar el catálogo una sola vez** ← **esto es lo que se hizo.** Ver abajo.
 
+### Las dos listas de productos: `catalogo.txt` y `modelos.txt`
+
+| Archivo | Qué trae | A qué prompt va | Peso |
+|---|---|---|---|
+| `prompts/catalogo.txt` | Los **347 títulos** completos, tal cual están en Shopify (`Nike Metcon 7 negro blanco dama/caballero`) | `texto.txt`, vía `{{CATALOGO}}` | ~2.400 tokens, una vez por arranque |
+| `prompts/modelos.txt` | Los **163 modelos**, sin género ni color (`Nike Metcon 7`) | `vision.txt`, vía `{{MODELOS}}` | ~584 tokens |
+
+**Por qué son dos y no una (24-sep-2026).** El 22-sep se le quitaron al prompt de visión los 347 títulos porque costaban **~3.100 tokens en cada foto** contra el cupo de 30.000/min de OpenAI — el mismo cupo del que vive el cotejo visual. El recorte estaba bien, pero dejó al modelo de visión sin saber qué se vende aquí, justo mientras el prompt le exige escribir `buscar` *"como aparece en los títulos del catálogo"*. `modelos.txt` es el término medio: **+584 tokens en vez de +2.399, 4 veces más barato**. Que haya 17 `New Balance 9060` por color no le hace falta saberlo a la visión — de elegir el color se encarga el cotejo, que para eso mira la foto.
+
+**La regla que hace que la lista sirva:** cada nombre tiene que aparecer **literalmente dentro de algún título real**. Si no, el modelo lo escribiría en `buscar` y la búsqueda devolvería cero. Está comprobado sobre los 581 títulos del export: los 163 pasan.
+
+**Las erratas no se corrigen, en ninguna de las dos listas.** `New Balamce 9060`, `Adidas Gallangher`, `Kirie Irving 4`, `Onitsuka Tiguer`, `Dolce Gabanna` están así en Shopify y la búsqueda es literal: corregirlas es perder el producto. Cuando existen las dos formas, van las dos.
+
+**Cómo rehacer `modelos.txt`:** de los títulos del export se quitan género y colores, y se queda lo que **siga apareciendo literalmente** en algún título. El encabezado del archivo lo explica.
+
+**Nota sobre el export del 24-09-2026:** 581 filas, 347 nombres — **idéntico** al que ya estaba cargado. La columna `Available` viene en 0 en las 581 filas, así que ese export no sirve para saber stock.
+
 ### El índice del catálogo (`indice.js` + `/indexar-catalogo`)
 
 El trabajo de mirar el catálogo no hace falta repetirlo en cada mensaje: el catálogo no cambia entre un cliente y el siguiente. Así que se mira **una vez**, se guardan los 15 rasgos de cada producto en D1, y cuando llega una foto sus rasgos se comparan con los guardados **en código, sin gastar una sola llamada ni un token de cupo**. Solo los 10 más parecidos van a un único cotejo.

@@ -20,6 +20,7 @@ import promptTexto from "./prompts/texto.txt";
 import promptVision from "./prompts/vision.txt";
 import promptCotejo from "./prompts/cotejo.txt";
 import listaCatalogo from "./prompts/catalogo.txt";
+import listaModelos from "./prompts/modelos.txt";
 import promptIndexar from "./prompts/indexar.txt";
 import { RASGOS_CLAVE } from "./identificar.js";
 
@@ -42,6 +43,9 @@ Eso significa que NO SABES qué modelos existen aquí. No supongas que hay
 algo por ser una marca conocida, y no nombres modelos concretos que no te
 haya dicho el cliente: usa sus palabras exactas y deja que el catálogo
 responda. Si existe, aparece.)`;
+
+const SIN_MODELOS = `(Todavía no está cargada la lista de modelos de esta tienda.
+Identifica por lo que VES y quédate en la marca si no estás seguro.)`;
 
 function textoConCatalogo() {
   if (!promptTextoArmado) {
@@ -68,6 +72,45 @@ function textoConCatalogo() {
   }
 
   return promptTextoArmado;
+}
+
+// LA VISIÓN TAMBIÉN NECESITA SABER QUÉ EXISTE, PERO NO LA LISTA ENTERA.
+//
+// El 22-sep se le quitaron al prompt de visión los 347 títulos porque
+// costaban ~3.100 tokens en CADA foto, contra el cupo de 30.000 por
+// minuto de OpenAI — el mismo del que vive el cotejo visual. El recorte
+// estaba bien, pero dejó al modelo sin saber qué se vende aquí, justo
+// mientras el prompt le exige escribir "buscar" como aparece en los
+// títulos.
+//
+// prompts/modelos.txt es el término medio: los modelos sin género ni
+// color, ~640 tokens. Que hay 17 "New Balance 9060" por color no le hace
+// falta saberlo; de elegir el color se encarga el cotejo, que mira la foto.
+let promptVisionArmado = "";
+
+function visionConModelos() {
+  if (!promptVisionArmado) {
+    const lista = listaModelos
+      .split("\n")
+      .filter((linea) => !linea.trimStart().startsWith("#"))
+      .join("\n")
+      .trim();
+
+    // Sin lista, el prompt sigue sirviendo: se queda con sus firmas
+    // visuales y su tabla de términos. Es el estado de una tienda recién
+    // montada, igual que con el catálogo.
+    if (!lista) {
+      promptVisionArmado = promptVision.replace("{{MODELOS}}", SIN_MODELOS);
+      console.log("Sin lista de modelos: la visión irá solo con sus firmas visuales");
+    } else {
+      promptVisionArmado = promptVision.replace("{{MODELOS}}", lista);
+      console.log(
+        `Modelos pegados al prompt de visión: ${lista.split("\n").filter(Boolean).length}`
+      );
+    }
+  }
+
+  return promptVisionArmado;
 }
 
 const API = "https://api.openai.com/v1/chat/completions";
@@ -321,7 +364,7 @@ export async function responderTexto(env, entrada) {
 export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) {
   const salida = await llamar(
     env,
-    promptVision,
+    visionConModelos(),
     [
       // detail:"high" fuerza la resolución máxima que admite el modelo. Sin
       // esto, OpenAI decide solo ("auto") y en fotos de producto —donde hay

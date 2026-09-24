@@ -539,6 +539,19 @@ TRAMPAS DE ESTA TIENDA (memorízalas, son las que más ventas cuestan)
 
   El término CORTO salva estos casos. Es la razón del máximo de 3 palabras.
 
+LO QUE EXISTE EN ESTA TIENDA
+
+Esta es la lista de los modelos que la tienda maneja. Si lo que ves está
+aquí, ese es el nombre que va en "buscar" —tal cual está escrito, erratas
+incluidas—. Si lo que ves NO está aquí, no lo fuerces a parecerse al más
+cercano: baja a la marca sola, o a "NADA".
+
+La lista trae el MODELO, sin género ni color. No busques "dama",
+"caballero" ni el color: la búsqueda exige que todas las palabras estén en
+el título y una de más devuelve cero.
+
+{{MODELOS}}
+
 CÓMO SE VEN LOS MODELOS QUE MÁS VENDES
 
   Retro 4          jumpman en la lengüeta, malla de plástico en el lateral,
