@@ -57,6 +57,22 @@ binding = "DB"
 database_name = "bot-telefonos-db"
 database_id = "PEGA_AQUI_EL_DATABASE_ID"   # <-- (1) SIN ESTO EL DEPLOY FALLA
 
+# --- El indice del catalogo se llena solo ------------------------------
+# Cloudflare llama al Worker cada 15 minutos y este cataloga las fotos que
+# le falten de la hoja, por tandas.
+#
+# POR QUE IMPORTA. El cotejo visual -lo que reconoce el equipo de una foto
+# o de una historia- compara la descripcion de esa foto contra las de TODO
+# el catalogo guardado en D1, sin gastar tokens, y solo manda al modelo los
+# mas parecidos. Sin indice no puede, y el bot se queda preguntando el
+# nombre del modelo, que el cliente casi nunca sabe.
+#
+# Desde vacio tarda unos minutos y despues se mantiene solo. Cuando no
+# falta nada, la pasada no gasta ni una llamada al modelo.
+# Para ver como va: /estado  o  /indexar-catalogo
+[triggers]
+crons = ["*/15 * * * *"]
+
 [vars]
 # El id de tu hoja de Google. Esta en la direccion de la hoja, entre /d/ y /edit:
 #   https://docs.google.com/spreadsheets/d/AQUI_ESTA_EL_ID/edit

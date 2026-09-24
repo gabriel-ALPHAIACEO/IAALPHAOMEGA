@@ -29,6 +29,8 @@
 // ──────────────────────────────────────────────────────────────────────
 
 import { responderTexto, identificarEnImagen } from "./ia.js";
+import { cotejoPorImagen, parecidosDeLaFoto, ordenarPorLaFoto } from "./cotejo.js";
+import { indexarTanda, revisarIndice } from "./indice.js";
 import { referenciaEnTexto } from "./referencias.js";
 import {
   buscarProductos,
@@ -77,7 +79,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-24 (8) · erratas en todo el catálogo, tambien con los espacios mal";
+const VERSION = "2026-09-24 (9) · cotejo visual: reconoce el equipo por la foto, no por el nombre";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -317,6 +319,34 @@ const YA_TE_ATIENDEN = [
 // recibe cinco veces lo mismo: eso sí parecería un robot averiado.
 const AVISO_PAUSA_CADA_MS = 10 * 60 * 1000;
 
+// El cotejo visual encontró el equipo de la foto en el catálogo. Estas
+// frases SÍ afirman, porque el cotejo solo llega aquí con confianza alta.
+const ENCONTRE_EL_DE_LA_FOTO = [
+  "¡Ese sí lo tenemos! 😍 Mira 👇",
+  "¡Claro que sí! Es este 📱 Te lo muestro 👇",
+  "¡Lo encontré! 😊 Aquí lo tienes 👇",
+  "¡Ese mismo lo manejamos! 📱 Mira 👇",
+];
+
+// NO SE PUDO AFIRMAR CUÁL ES, PERO EL CATÁLOGO INDEXADO SÍ TIENE
+// CANDIDATOS QUE SE LE PARECEN.
+//
+// Ninguna de estas frases afirma nada: enseñan y preguntan cuál, que es
+// lo que hace una vendedora con el equipo delante. Lo que NO se hace más
+// es pedirle el nombre de un modelo que el cliente no sabe nombrar —
+// para eso está la foto, y para eso se indexó el catálogo.
+const ES_ALGUNO_DE_ESTOS = [
+  "Mira, ¿es alguno de estos? 👇",
+  "Tengo estos que se parecen mucho 📱 ¿Es alguno?",
+  "A ver si es uno de estos 👇 Dime cuál y te paso el precio 😊",
+  "Creo que puede ser alguno de estos 📱 Échales un ojo 👇",
+  "Estos son los que más se le parecen 👇 ¿Alguno es el que viste?",
+];
+
+// Cuántos se le enseñan. Suficientes para que esté el suyo, pocos para
+// que pueda mirarlos: veinte fichas no se revisan, se ignoran.
+const PARECIDOS_DEL_INDICE = 6;
+
 function alAzar(frases) {
   return frases[Math.floor(Math.random() * frases.length)];
 }
@@ -485,6 +515,10 @@ export default {
         return valor ? `cargado (${String(valor).length} caracteres)` : "FALTA";
       };
 
+      // Si el índice está lleno, el bot reconoce equipos por foto; si no,
+      // se queda preguntando el nombre.
+      const indice = await revisarIndice(env);
+
       const base = await revisarBase(env.DB, {
         fraseDespausar: fraseDespausar(env),
         // Para que los comandos que imprime se puedan copiar tal cual:
@@ -516,6 +550,10 @@ export default {
           `  FRASE_DESPAUSAR     "${fraseDespausar(env)}"   (el asesor la manda en el chat y el bot vuelve)`,
           `  OPENAI_MODELO       ${env.OPENAI_MODELO || "gpt-4o-mini (por defecto)"}   (el que redacta)`,
           `  OPENAI_MODELO_VISION ${env.OPENAI_MODELO_VISION || "gpt-4o (por defecto)"}   (el que mira las fotos)`,
+          "",
+          "ÍNDICE DEL CATÁLOGO — lo que hace que reconozca las fotos",
+          ...indice,
+          "  Ver o forzar una pasada:  /indexar-catalogo",
           "",
           "BASE DE DATOS (D1) — la memoria del bot entre mensajes",
           ...base.lineas,
@@ -632,6 +670,84 @@ export default {
     // Enseña qué ve el Worker cuando lee tu hoja: si la alcanza, qué
     // columnas reconoció y cuántos productos quedan visibles. Con
     // ?buscar=iphone 15 prueba además una búsqueda concreta.
+    // INDEXAR EL CATÁLOGO. Mira cada foto de la hoja UNA vez y guarda la
+    // frase con lo que se ve (ver indice.js). Después, cuando un cliente
+    // manda una foto, esa descripción se compara con las guardadas sin
+    // gastar una sola llamada.
+    //
+    // NO HACE FALTA ABRIRLA: el cron la llena sola. Queda para mirar cómo
+    // va o para adelantar una tanda.
+    if (url.pathname === "/indexar-catalogo") {
+      const cuantos = Math.min(Number(url.searchParams.get("cuantos")) || 40, 100);
+      const r = await indexarTanda(env, {
+        cuantos,
+        rehacer: url.searchParams.get("rehacer") === "si",
+      });
+
+      if (!r.ok) {
+        return texto200(
+          `${r.error}\n\n` +
+            "Revisa el binding DB y la hoja (mira /estado y /probar-hoja);\n" +
+            "el motivo exacto sale en `wrangler tail`.\n"
+        );
+      }
+
+      if (r.ningunoSalio) {
+        return texto200(
+          `No pude catalogar NINGUNO de los ${r.intentados} que intenté, con ${r.modelo}.\n\n` +
+            (r.corto ? `${r.corto}\n\n` : "") +
+            "El motivo exacto sale en `wrangler tail`. Los tres habituales:\n" +
+            "  · la cuenta de OpenAI se quedó sin saldo\n" +
+            `  · la clave no tiene permiso para "${r.modelo}"\n` +
+            "  · las fotos de Drive no son públicas: tienen que estar en\n" +
+            "    \"Cualquiera con el enlace\", igual que la hoja\n\n" +
+            "Si en el registro ves 429 con \"tokens per min\", es solo cupo:\n" +
+            "espera un minuto y vuelve a abrir esta dirección.\n"
+        );
+      }
+
+      const hecho = r.indexables
+        ? Math.round(((r.yaEstaban + r.indexados) * 100) / r.indexables)
+        : 0;
+
+      return texto200(
+        [
+          `Productos en la hoja: ${r.catalogo}`,
+          ...(r.sinFoto
+            ? [
+                `  de los cuales ${r.sinFoto} NO tienen foto y no se pueden indexar`,
+                `  (el cotejo compara imágenes). Quedan ${r.indexables} indexables.`,
+              ]
+            : []),
+          `Ya estaban indexados: ${r.yaEstaban}`,
+          `Catalogados en esta tanda: ${r.indexados} (con ${r.modelo})`,
+          ...(r.fallados
+            ? [`No se pudieron catalogar: ${r.fallados} — el motivo sale en wrangler tail.`]
+            : []),
+          ...(r.refrescados
+            ? [`Precio, enlace o título actualizados: ${r.refrescados} (sin mirar ninguna foto)`]
+            : []),
+          ...(r.quitados ? [`Quitados del índice (ya no están en la hoja): ${r.quitados}`] : []),
+          "",
+          ...(r.faltan > 0
+            ? [
+                `FALTAN ${r.faltan} de ${r.indexables} (${hecho}% hecho).`,
+                "",
+                "NO HACE FALTA QUE HAGAS NADA: el cron cataloga lo que queda",
+                "solo, en las próximas pasadas (ver [triggers] en wrangler.toml).",
+                "Recarga esta dirección solo si tienes prisa.",
+              ]
+            : [
+                "LISTO: el catálogo está indexado entero.",
+                "",
+                "Los productos nuevos los recoge el cron solo. Esta dirección",
+                "queda para mirar cómo va o para forzar una pasada.",
+              ]),
+          "",
+        ].join("\n")
+      );
+    }
+
     if (url.pathname === "/probar-hoja") {
       let informe = `CÓDIGO DESPLEGADO: ${VERSION}\n\n` + (await diagnosticoHoja(env));
 
@@ -659,7 +775,76 @@ export default {
 
     return texto200(`bot activo · ${VERSION}\n`);
   },
+
+  // EL ÍNDICE SE LLENA SOLO.
+  //
+  // Todo el cotejo visual depende de él: con el índice, la descripción de
+  // la foto del cliente se compara contra las de TODO el catálogo en
+  // código, sin gastar un token, y solo los más parecidos van a una
+  // llamada. Sin él, el bot se queda preguntando el nombre.
+  //
+  // Llenarlo a mano serían recargas de /indexar-catalogo, y una tarea que
+  // depende de que alguien recargue no se hace. Misma lección que la
+  // columna "mostrados" y la tabla de contactos: lo que se pueda resolver
+  // desde el archivo que sí se copia, se resuelve ahí.
+  async scheduled(evento, env, ctx) {
+    ctx.waitUntil(indexarLoQueFalte(env));
+  },
 };
+
+// Cuánto se le permite tardar a una pasada. Cloudflare corta las tareas
+// largas, y no hace falta terminar en una: lo que quede lo agarra la
+// siguiente.
+const PRESUPUESTO_CRON_MS = 60000;
+const POR_TANDA_CRON = 40;
+const MAXIMO_TANDAS = 5;
+
+async function indexarLoQueFalte(env) {
+  const hasta = Date.now() + PRESUPUESTO_CRON_MS;
+
+  for (let tanda = 1; tanda <= MAXIMO_TANDAS; tanda++) {
+    const r = await indexarTanda(env, { cuantos: POR_TANDA_CRON });
+
+    if (!r.ok) {
+      console.error("Indexación automática: no pude arrancar —", r.error);
+      return;
+    }
+
+    // Ya estaba todo mirado. Es el caso normal una vez lleno el índice, y
+    // no cuesta ni una llamada al modelo.
+    if (!r.pendientes) {
+      if (r.quitados) console.log(`Índice: quité ${r.quitados} producto(s) que ya no están`);
+      return;
+    }
+
+    console.log(
+      `Indexación automática: ${r.indexados} de ${r.intentados} en esta tanda; ` +
+        `faltan ${r.faltan} de ${r.indexables}`
+    );
+
+    // Ni uno salió: no es que falte trabajo, es que algo está mal (sin
+    // saldo, sin permiso, o fotos de Drive privadas). Insistir solo gasta.
+    if (r.ningunoSalio) {
+      console.error(
+        `Indexación automática: no salió ninguno de ${r.intentados} con ${r.modelo}. ` +
+          (r.corto || "Revisa saldo, permisos de OpenAI y que las fotos de Drive sean públicas.")
+      );
+      return;
+    }
+
+    if (!r.faltan) {
+      console.log("Índice completo: el cotejo visual ya puede mirar el catálogo entero.");
+      return;
+    }
+
+    if (r.corto || Date.now() >= hasta) {
+      console.log(
+        `Indexación automática: corto aquí, faltan ${r.faltan}. Sigo en la próxima pasada.`
+      );
+      return;
+    }
+  }
+}
 
 function queAtender(env, crudo) {
   const modo = (env.META_MODO || "todo").toLowerCase();
@@ -985,12 +1170,24 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // nada— y el resultado se le entrega a la IA de texto como un dato más
   // del contexto: es ELLA quien decide qué decirle al cliente.
   let marcaFoto = "";
+  // La frase con lo que la IA vio. Es TODO lo que hay para ordenar los
+  // candidatos: aquí no se usan rasgos ni color (ver indice.js).
+  let vistoFoto = "";
+  // La visión llegó al MODELO, no se quedó en la marca.
+  let modeloNombrado = false;
   if (foto) {
     const identificacion = await identificarEnImagen(env, foto, catalogo);
     if (identificacion) {
+      // La descripción se registra entera a propósito: es lo único que
+      // distingue un equipo de otro cuando el nombre falla, así que si uno
+      // sale mal hay que poder leer qué vio exactamente.
       console.log(
         `La IA de visión vio: "${identificacion.visto || ""}" → busco: "${identificacion.buscar}"`
       );
+      vistoFoto = identificacion.visto || "";
+      modeloNombrado =
+        !identificacion.pedirNombreExacto &&
+        String(identificacion.buscar).toUpperCase() !== "NADA";
       marcaFoto = marcarIdentificacion(
         identificacion.buscar,
         identificacion.pedirNombreExacto,
@@ -1040,7 +1237,15 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   }
 
   const { productos, respuestaCliente, termino, esConsultaDeAsesor, buscoSinExito, hayMas } =
-    await decidir({ env, salida, texto: mensaje.texto, historialPrevio });
+    await decidir({
+      env,
+      salida,
+      texto: mensaje.texto,
+      historialPrevio,
+      foto,
+      vistoFoto,
+      modeloNombrado,
+    });
 
   // El precio que va en cada ficha depende de lo que preguntó el cliente
   // (Cashea, divisas, o el de por defecto). Se resuelve ACÁ y las fichas
@@ -1245,9 +1450,12 @@ function marcarIdentificacion(buscar, pedirNombreExacto, esHistoria) {
   if (String(buscar).toUpperCase() === "NADA") {
     return (
       encabezado +
-      "NO SE PUDO IDENTIFICAR NINGÚN MODELO NI MARCA CON SEGURIDAD. " +
-      "Pregúntale con naturalidad cuál le interesa, como preguntaría una " +
-      "vendedora. NUNCA le pidas que mande otra foto" +
+      "NO SE PUDO PONERLE NOMBRE AL MODELO. Se le van a enseñar los del " +
+      "catálogo que más se parecen a su foto, así que escribe una frase " +
+      "corta y cálida que lo invite a mirarlos y decir cuál es. " +
+      "PROHIBIDO decir que no lo reconoces, que no sabes o que no se ve; " +
+      "PROHIBIDO pedirle el nombre del modelo —si lo supiera lo habría " +
+      "escrito en vez de mandar una foto— y PROHIBIDO pedirle otra foto" +
       (esHistoria ? ": ya tienes la imagen delante." : ".") +
       "]"
     );
@@ -1257,8 +1465,10 @@ function marcarIdentificacion(buscar, pedirNombreExacto, esHistoria) {
     return (
       encabezado +
       `SE RECONOCIÓ LA MARCA "${buscar}", PERO NO EL MODELO EXACTO. ` +
-      "Muéstrale esa marca Y pídele el modelo exacto, las dos cosas en el " +
-      "mismo mensaje.]"
+      "Muéstrale lo que hay de esa marca y pregúntale CUÁL DE ESOS es el " +
+      "suyo. No le pidas el nombre del modelo: el cliente que manda una " +
+      "foto casi nunca lo sabe, y preguntárselo lo deja sin salida. " +
+      "Elegir entre lo que tiene delante sí puede.]"
     );
   }
 
@@ -1322,7 +1532,19 @@ function sinBienvenida(respuesta) {
 // De lo que escribió el modelo a lo que se le manda al cliente: se limpia el
 // término, se le quita el color, se busca en la hoja y se decide si la
 // respuesta del modelo sirve o hay que sustituirla.
-async function decidir({ env, salida, texto, historialPrevio }) {
+async function decidir({
+  env,
+  salida,
+  texto,
+  historialPrevio,
+  // La foto del cliente, ya en data URI. Solo viene en mensajes con
+  // imagen, y es lo que habilita el cotejo visual contra el catálogo.
+  foto = "",
+  // Lo que la IA de visión describió de esa foto.
+  vistoFoto = "",
+  // Nombró un modelo concreto, no solo la marca.
+  modeloNombrado = false,
+}) {
   // El color se busca en lo que escribió EL CLIENTE, no en el término que
   // escribió el modelo: si el modelo ya lo quitó por su cuenta, el cliente
   // igual lo preguntó y el asesor tiene que enterarse.
@@ -1426,6 +1648,81 @@ async function decidir({ env, salida, texto, historialPrevio }) {
       otrasCapacidades = capacidadesDe(productos);
       console.log(
         `El modelo SÍ está, en ${comoSeDicen(otrasCapacidades) || "capacidades que el título no dice"}`
+      );
+    }
+  }
+
+  // COTEJO VISUAL (solo si esto vino de una foto).
+  //
+  // Hasta aquí el reconocimiento pasó por un NOMBRE: la IA de visión dijo
+  // "Redmi Note 14" y se buscó esa palabra. Si el nombre no acertó, no hay
+  // productos — o hay diez de la marca, sin saber cuál es el de la foto.
+  //
+  // Esto compara la foto del cliente contra las fotos REALES de la hoja y
+  // saca el equipo que es. Ver ./cotejo.js: cuando no está seguro devuelve
+  // null y todo sigue igual que sin él.
+  let cotejoAcerto = false;
+  if (foto) {
+    const cotejo = await cotejoPorImagen({
+      env,
+      foto,
+      textoCliente: texto,
+      productos,
+      termino,
+      visto: vistoFoto,
+      nombreFiable: modeloNombrado,
+    });
+
+    if (cotejo) {
+      cotejoAcerto = true;
+      productos = cotejo.productos;
+      hayMas = false;
+      salida.respuesta = alAzar(ENCONTRE_EL_DE_LA_FOTO);
+      salida.historial = conNota(
+        salida.historial,
+        `Le mostré ${cotejo.elegido.titulo} (identificado por la foto).`
+      );
+    }
+  }
+
+  // LO QUE SE LE ENSEÑA AL CLIENTE VA EN EL ORDEN DE LA FOTO.
+  //
+  // Aprendido en el bot de calzado, donde fue el fallo más tonto y más
+  // caro: el orden se aplicaba solo a la copia que se le pasa al modelo
+  // para cotejar, y lo que salía por Instagram era la lista tal cual la
+  // devolvía la fuente. El bot sabía cuál era el bueno y lo mandaba en
+  // tercer lugar.
+  if (foto && productos.length > 1 && !cotejoAcerto) {
+    productos = await ordenarPorLaFoto(env, productos, { visto: vistoFoto });
+  }
+
+  // TENIENDO EL CATÁLOGO INDEXADO, NO SE LE PREGUNTA EL NOMBRE.
+  //
+  // Si el cotejo se abstuvo y la búsqueda por nombre no dejó nada, el bot
+  // contestaba "no logro ver bien el modelo, ¿sabes cómo se llama?". Con
+  // la hoja indexada eso es absurdo por dos razones: el bot SÍ sabe qué
+  // hay, y quien manda una foto casi nunca sabe el nombre — si lo supiera
+  // lo habría escrito.
+  //
+  // Así que en vez de preguntar, se le ENSEÑA: la descripción de su foto
+  // se compara contra las del índice —en código, sin gastar un token— y
+  // salen los que más se le parecen. NO SE AFIRMA QUE SEA NINGUNO: la
+  // frase pregunta cuál es. Esa es la diferencia con el cotejo, que sí
+  // afirma y por eso exige confianza alta.
+  if (foto && !productos.length && vistoFoto) {
+    const parecidos = await parecidosDeLaFoto(env, vistoFoto, PARECIDOS_DEL_INDICE);
+
+    if (parecidos.length) {
+      productos = parecidos;
+      hayMas = false;
+      salida.respuesta = alAzar(ES_ALGUNO_DE_ESTOS);
+      salida.historial = conNota(
+        salida.historial,
+        `No se pudo afirmar el modelo de la foto; le enseñé ${parecidos.length} parecidos del catálogo.`
+      );
+      console.log(
+        `Sin nada que mostrar: enseño ${parecidos.length} parecidos del índice ` +
+          "en vez de preguntarle el nombre"
       );
     }
   }

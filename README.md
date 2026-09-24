@@ -33,6 +33,28 @@ Tres capas, y cada una arregla el fallo de la anterior:
    - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
    - **Indexar el catálogo una sola vez** ← **esto es lo que se hizo.** Ver abajo.
 
+### EPICELL: el cotejo visual, portado de Invictus (24-sep-2026)
+
+Lo que se aprendió en el bot de calzado, llevado al de teléfonos. **Archivos nuevos en `bot-telefonos-epicell/`:** `src/indice.js`, `src/cotejo.js`, `src/prompts/indexar.txt`, `src/prompts/cotejo.txt`.
+
+**Qué NO se portó, y por qué.**
+
+- **Los 15 rasgos.** Son de calzado —cámara de aire, swoosh, jumpman, tres franjas, puntera de concha— y no hay equivalente útil para un teléfono. Con lo aprendido en Invictus resultó que no hacían falta: lo que resolvió los casos difíciles fue la **similitud por descripción**, que es agnóstica de categoría porque el peso de las palabras se calcula sobre el propio catálogo. Así que Epicell se salta los rasgos y `identificar.js` entero.
+- **El color.** Fuera **por decisión del dueño**, y con razón: el mismo equipo se vende en cinco colores, el vidrio refleja la luz de la tienda y las historias llevan filtros. En calzado sí se usa, porque ahí el título dice el color y el cliente lo pide. Los nombres de color están en la lista de palabras vacías de `indice.js` para que no puntúen ni por accidente.
+- **El barrido.** Epicell lee de Google Sheets y la hoja se trae entera de una, así que el problema de paginación y cupo que tenía Shopify no se plantea.
+
+**Qué sí se portó:** el índice en D1 con clave por foto, el cron que lo llena solo, el refresco de precios sin gastar modelo, el ranking por descripción con pesos TF-IDF, **enseñar en vez de preguntar**, el orden que ve el cliente, y las dos protecciones que salieron de fallos reales de Invictus — *el índice no sustituye un nombre que ya acertó* y *la alarma cuando las filas se pisan*.
+
+**Es más barato:** 82 productos contra 581. La indexación entera cabe en una pasada del cron.
+
+**Prompts propios de teléfono.** `indexar.txt` pide lo que distingue un equipo: cuántas cámaras y cómo están puestas, el tipo de muesca, el material, y lo que esté escrito en el equipo o la caja. `cotejo.txt` decide por la disposición de cámaras primero, y avisa explícitamente de que decenas de modelos comparten "tres cámaras en un cuadrado negro" y eso no alcanza para decidir.
+
+### Un fallo del peso de las palabras, encontrado portando (24-sep-2026)
+
+La fórmula TF-IDF era `log(total/veces)`: una palabra que sale en **todos** los productos vale exactamente **0**. Si la descripción de la foto solo trae palabras comunes (`"telefono con tres camaras"`), el total da 0 y **no puntúa nadie**. Lo encontró una prueba del port con un catálogo de dos equipos: devolvía lista vacía en vez de ordenar.
+
+Corregido a `log(1 + total/veces)` **en los dos bots**: una palabra común sigue valiendo poco (0,69) pero no cero, y el orden entre raras y comunes no cambia. En Invictus el fallo degradaba en silencio —la descripción dejaba de desempatar— porque ahí el ranking suma además rasgos y color; en Epicell, donde la descripción es lo único, dejaba la lista vacía.
+
 ### Dos fallos que se veían igual y no lo eran (24-sep-2026)
 
 Reportados por el dueño el mismo día:

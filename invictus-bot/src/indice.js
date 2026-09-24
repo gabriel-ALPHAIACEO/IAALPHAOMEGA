@@ -346,10 +346,15 @@ export function pesoDeLasPalabras(indice) {
     }
   }
 
+  // log(1 + total/veces), NO log(total/veces). Con el segundo, una palabra
+  // que sale en TODOS los productos vale exactamente 0 — y si la foto solo
+  // trae palabras comunes, el total da 0 y la descripción no desempata
+  // nada. Lo encontró una prueba del bot de teléfonos. Con el +1 una
+  // palabra común sigue valiendo poco pero no cero.
   const total = indice.length || 1;
   const peso = new Map();
   for (const [palabra, veces] of enCuantas) {
-    peso.set(palabra, Math.log(total / veces));
+    peso.set(palabra, Math.log(1 + total / veces));
   }
   return peso;
 }

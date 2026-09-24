@@ -16,6 +16,8 @@
 import promptTexto from "./prompts/texto.txt";
 import listaCatalogo from "./prompts/catalogo.txt";
 import promptVision from "./prompts/vision.txt";
+import promptIndexar from "./prompts/indexar.txt";
+import promptCotejo from "./prompts/cotejo.txt";
 
 // La lista de nombres vive en un archivo aparte (prompts/catalogo.txt) y se
 // pega dentro de texto.txt al arrancar, donde dice {{CATALOGO}}. Así hay UN
@@ -55,6 +57,52 @@ const MODELO_POR_DEFECTO = "gpt-4o-mini";
 // La identificación corre en un modelo aparte, normalmente más fuerte que
 // el de texto: ya no tiene que redactar nada, solo mirar bien la foto.
 const MODELO_VISION_POR_DEFECTO = "gpt-4o";
+
+// Con el que se cataloga la hoja. Son decenas de fotos, así que va el
+// mini: su cupo por minuto es mucho más alto y para una foto de producto
+// limpia, sobre fondo liso, alcanza de sobra.
+const MODELO_INDICE_POR_DEFECTO = "gpt-4o-mini";
+
+// HASTA CUÁNDO NO VALE LA PENA VOLVER A PEDIRLE NADA A UN MODELO.
+//
+// OpenAI limita los tokens por minuto (TPM) de cada modelo POR SEPARADO,
+// no de la cuenta entera: gpt-4o anda justo y gpt-4o-mini tiene mucho
+// más. Con un número compartido, un 429 del grande apagaba también al
+// chico sin motivo.
+//
+// Solo lo consulta lo que puede esperar: la indexación y el barrido del
+// cotejo. Identificar la foto del cliente y redactar su respuesta se
+// intentan SIEMPRE — mejor un 429 en una de ellas que dejarlo sin
+// respuesta por prudencia.
+const limitados = new Map();
+
+export function estaLimitado(modelo) {
+  return Date.now() < (limitados.get(modelo) || 0);
+}
+
+// Espera a que vuelva el cupo, hasta un máximo. Devuelve true si al salir
+// hay cupo. Lo usa la indexación, que no tiene a nadie esperando.
+export async function esperarCupo(modelo, maximoMs = 25000) {
+  const hasta = limitados.get(modelo) || 0;
+  const falta = hasta - Date.now();
+
+  if (falta <= 0) return true;
+  if (falta > maximoMs) return false;
+
+  console.log(`Espero ${Math.ceil(falta / 1000)}s a que vuelva el cupo de ${modelo}`);
+  await new Promise((seguir) => setTimeout(seguir, falta + 250));
+  return true;
+}
+
+// Los nombres de modelo en un solo sitio, para que quien pregunta por el
+// límite pregunte por el mismo modelo con el que después va a llamar.
+export function modeloDeVision(env) {
+  return env.OPENAI_MODELO_VISION || MODELO_VISION_POR_DEFECTO;
+}
+
+export function modeloDeIndice(env) {
+  return env.OPENAI_MODELO_INDICE || MODELO_INDICE_POR_DEFECTO;
+}
 
 // SCHEMA ESTRICTO PARA LA IDENTIFICACIÓN.
 //
@@ -137,6 +185,12 @@ async function llamar(
     if (respuesta.status === 429) {
       const cupo = /Limit \d+[^.]*/i.exec(detalle)?.[0] || "";
       const segundos = /try again in ([\d.]+)s/i.exec(detalle)?.[1] || "";
+
+      // Se apunta HASTA CUÁNDO no vale la pena insistir con ESTE modelo.
+      // Sin esto, estaLimitado() no sabría nada y el barrido seguiría
+      // mandando llamadas que ya se sabe que van a fallar.
+      const espera = Math.min(Math.ceil(Number(segundos) || 20), 60);
+      limitados.set(cuerpo.model, Date.now() + espera * 1000);
       console.error(
         `OpenAI se quedó sin cupo por minuto (${cuerpo.model})` +
           (cupo ? ` · ${cupo}` : "") +
@@ -235,4 +289,127 @@ function normalizar(salida) {
     buscar: String(datos.buscar || "NADA").trim(),
     historial: String(datos.historial || "").trim(),
   };
+}
+
+/* ── Catalogar la hoja y cotejar contra ella ────────────────────────── */
+
+// SCHEMA ESTRICTO PARA EL COTEJO VISUAL.
+//
+// Se elige por NÚMERO, no por título. Si se le pidiera devolver el
+// nombre, el modelo lo parafrasearía ("Redmi Note 14 Pro Plus" por
+// "REDMI NOTE 14 PRO+ 8/256") y después habría que adivinar a cuál se
+// refería. Con un índice no hay nada que interpretar: o es uno de los
+// que se le mandaron, o es 0.
+const ESQUEMA_COTEJO = {
+  name: "cotejo_catalogo",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      eleccion: { type: "integer" },
+      confianza: { type: "string", enum: ["alta", "media", "baja"] },
+      porque: { type: "string" },
+    },
+    required: ["eleccion", "confianza", "porque"],
+    additionalProperties: false,
+  },
+};
+
+// Mira UNA foto de producto de la hoja y devuelve la frase con lo que se
+// ve. Es lo que se guarda en el índice (ver indice.js).
+//
+// Usa su propio prompt, corto, no el de visión entero: para catalogar no
+// hacen falta las reglas de venta ni la escalera de confianza, y mandarlas
+// multiplicaba por diez el gasto de cada foto.
+export async function describirProducto(env, urlImagen, { modelo = "" } = {}) {
+  if (!urlImagen) return null;
+
+  const salida = await llamar(
+    env,
+    promptIndexar,
+    [
+      // En baja: son fotos de producto limpias y lo que hay que leer —el
+      // número de cámaras, la muesca, el acabado— se ve igual.
+      { type: "image_url", image_url: { url: urlImagen, detail: "low" } },
+      { type: "text", text: "Cataloga este producto." },
+    ],
+    { maxTokens: 200, schema: ESQUEMA_IDENTIFICACION, modelo: modelo || modeloDeIndice(env) }
+  );
+
+  const datos = extraerJson(salida);
+  if (!datos) return null;
+
+  const visto = String(datos.visto || "").trim();
+  return visto ? { visto } : null;
+}
+
+// Le pone al modelo la foto del cliente al lado de las fotos reales del
+// catálogo y le pregunta cuál es el mismo equipo. Devuelve el producto
+// elegido, o null si no lo tiene claro.
+export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
+  if (!foto || !candidatos?.length) return null;
+
+  const contenido = [
+    // La del cliente en alta: es la que hay que leer al detalle, y suele
+    // venir con filtros, lejos o con stickers encima.
+    { type: "image_url", image_url: { url: foto, detail: "high" } },
+    { type: "text", text: "↑ ESTA es la foto del cliente. Abajo, el catálogo:" },
+  ];
+
+  candidatos.forEach((producto, i) => {
+    contenido.push({ type: "text", text: `${i + 1}. ${producto.titulo}` });
+    contenido.push({
+      type: "image_url",
+      image_url: { url: producto.imagen, detail: "low" },
+    });
+  });
+
+  contenido.push({
+    type: "text",
+    text: `El cliente escribió: ${textoCliente ? `"${textoCliente}"` : "(nada, solo mandó la foto)"}`,
+  });
+
+  const salida = await llamar(env, promptCotejo, contenido, {
+    maxTokens: 300,
+    schema: ESQUEMA_COTEJO,
+    modelo: modeloDeVision(env),
+  });
+
+  const datos = extraerJson(salida);
+  if (!datos) {
+    // Si fue el cupo, ya se avisó arriba con el motivo real. Repetirlo por
+    // cada lote esconde la causa.
+    if (!estaLimitado(modeloDeVision(env))) {
+      console.error("El cotejo visual no devolvió JSON válido");
+    }
+    return null;
+  }
+
+  const indice = Number(datos.eleccion);
+  const confianza = String(datos.confianza || "").toLowerCase();
+  const porque = String(datos.porque || "").slice(0, 200);
+
+  if (!indice) {
+    console.log(`Cotejo visual: ninguno del catálogo es el de la foto (${porque})`);
+    return null;
+  }
+
+  if (!Number.isInteger(indice) || indice < 1 || indice > candidatos.length) {
+    console.error(`Cotejo visual: índice fuera de rango (${datos.eleccion})`);
+    return null;
+  }
+
+  const elegido = candidatos[indice - 1];
+
+  // SOLO "ALTA" LLEGA AL CLIENTE. Lo que sale de aquí se convierte en una
+  // ficha con precio y botón de compra; con una corazonada no se manda.
+  if (confianza !== "alta") {
+    console.log(
+      `Cotejo visual: "${elegido.titulo}" con confianza ${confianza} — no lo uso (${porque})`
+    );
+    return null;
+  }
+
+  console.log(`Cotejo visual: la foto es "${elegido.titulo}" (${porque})`);
+  return elegido;
 }
