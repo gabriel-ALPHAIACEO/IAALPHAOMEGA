@@ -29,11 +29,17 @@ las usa también donde no tocan. Se corta por los dos lados:
 La lista escrita sigue existiendo, pero solo donde toca: cuando el cliente
 pide una lista, y la manda el sistema desde la hoja.
 
-**Y ya que EPICELL no tiene tienda online:** las frases que mandaban "al
-catálogo" cambian solas cuando `URL_CATALOGO` no está puesto. "Tengo más de
-ese modelo" ya no dice "en el catálogo los ves todos" sino que ofrece
-seguir por el chat; y "¿qué más tienen?" ahora abre la lista por marcas, con
-un botón por marca, en vez de mandar a nadie a ninguna parte.
+**Y ya que EPICELL no tiene tienda online:** el mensaje que iba pegado
+debajo del carrusel —"Tengo más de ese modelo 😊 En el catálogo los ves
+todos 👇"— **ya no se manda**. No se sustituyó por otra frase: un tercer
+mensaje detrás de las fotos es una notificación más para no decir nada.
+Cuando `URL_CATALOGO` tenga una dirección de verdad, vuelve solo con su
+botón, sin tocar el código.
+
+Igual con el resto: "¿qué más tienen?" ahora abre la lista por marcas, con
+un botón por marca, en vez de mandar a nadie a ninguna parte; y cuando no
+se encuentra un modelo, la respuesta se queda en el asesor, sin la coletilla
+del catálogo.
 
 ## Hecho: la lista de productos, con sus botones (24-sep-2026)
 

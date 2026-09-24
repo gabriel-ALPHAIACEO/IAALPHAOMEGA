@@ -266,25 +266,30 @@ const AQUI_LOS_TIENES = [
 const HAY_MAS_EN_CATALOGO =
   "Tengo más de ese modelo 😊 En el catálogo los ves todos 👇";
 
-// LO MISMO, PARA UNA TIENDA SIN CATÁLOGO WEB.
+// SIN TIENDA ONLINE, ESE MENSAJE NO SE MANDA (24-sep-2026, decisión del
+// dueño).
 //
-// EPICELL no tiene tienda online, así que mandar al cliente "al catálogo"
-// es mandarlo a ninguna parte — y hasta hoy, con URL_CATALOGO sin poner,
-// literalmente a una página inventada. Cuando no hay catálogo, estas dos
-// frases dicen lo mismo pero por el chat, que es donde sí hay quien
-// atienda.
-const HAY_MAS_SIN_CATALOGO =
-  "Tengo más de ese modelo 😊 Dime cuál te gustó y te paso todos los detalles";
+// Iba pegado debajo del carrusel —"Tengo más de ese modelo 😊 En el
+// catálogo los ves todos 👇"— y manda a una tienda que EPICELL no tiene.
+// No se sustituye por otra frase: se quita. Un tercer mensaje detrás de
+// las fotos es una notificación más para no decir nada.
+//
+// Cuando haya catálogo de verdad (URL_CATALOGO puesto), vuelve solo con su
+// botón, sin tocar el código.
 
+// Lo que sí se queda, porque no habla de ninguna tienda: cuando no se
+// encuentra el modelo, la respuesta sigue siendo el asesor.
 const SIN_RESULTADOS_SIN_CATALOGO =
   "Déjame confirmarte ese modelo con un asesor y te escribo en un momento 😊";
 
-function fraseHayMas(env) {
-  return hayCatalogo(env) ? HAY_MAS_EN_CATALOGO : HAY_MAS_SIN_CATALOGO;
-}
-
 function fraseSinResultados(env) {
   return hayCatalogo(env) ? SIN_RESULTADOS : SIN_RESULTADOS_SIN_CATALOGO;
+}
+
+// ¿Se le dice que hay más de ese modelo? Solo si hay una tienda a la que
+// mandarlo. Vive aparte para poder comprobarlo sin levantar el bot entero.
+function hayQueDecirQueHayMas(env) {
+  return hayCatalogo(env);
 }
 
 // Los datos que el catálogo NO guarda y que decide una persona. Cuando el
@@ -1733,9 +1738,13 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (paraMostrar.length) {
     await mandar(() => enviarTexto(env, mensaje.igsid, leDigo), leDigo);
     await mandar(() => enviarFichas(env, mensaje.igsid, paraMostrar));
-    if (hayMas) {
-      const hayMasFrase = fraseHayMas(env);
-      await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, hayMasFrase), hayMasFrase);
+    // Solo si hay una tienda de verdad a la que mandarlo. Sin catálogo no
+    // sale nada: el cliente se queda con sus fotos y su pregunta.
+    if (hayMas && hayQueDecirQueHayMas(env)) {
+      await mandar(
+        () => enviarBotonCatalogo(env, mensaje.igsid, HAY_MAS_EN_CATALOGO),
+        HAY_MAS_EN_CATALOGO
+      );
     }
   } else if (buscoSinExito && !sinSaberQueEs) {
     await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, leDigo), leDigo);
