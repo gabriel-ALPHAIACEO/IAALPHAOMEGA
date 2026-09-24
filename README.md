@@ -33,6 +33,28 @@ Tres capas, y cada una arregla el fallo de la anterior:
    - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
    - **Indexar el catálogo una sola vez** ← **esto es lo que se hizo.** Ver abajo.
 
+### El barrido a Shopify ya no corre con el catálogo indexado (24-sep-2026)
+
+Capturado en producción por el dueño, en `wrangler tail`. Una respuesta a una historia con `"Precio"`:
+
+```
+Índice: 581 productos guardados, los 10 más parecidos a la foto van al cotejo
+Cotejo visual: ninguno del catálogo es el de la foto
+Catálogo completo: 581 productos                      ← llamada a Shopify
+Barrido del catálogo: miro 20 de 539 sin mirar (2 lotes de 10)
+Cotejo visual: ninguno ...
+Barrido: no encontré el de la foto entre los 20 que miré
+```
+
+**El índice se consultaba y acto seguido se ignoraba.** Con los 581 ya indexados, el bot miraba los 10 mejores, fallaba, y entonces pedía el catálogo ENTERO a Shopify para barrer 20 productos elegidos por **parecido de título** — con un término que en ese mensaje era `"NADA"`. Dos llamadas más al modelo, medio minuto del cliente, y **peores candidatos que los que acababa de descartar**: el índice ordena por los rasgos de la foto; el barrido, por palabras de un título que no existía. El comentario del código ya decía *"solo hace falta si el catálogo NO está indexado"* — pero el código no lo comprobaba.
+
+**Ahora:**
+
+- **Se baja por el ranking del índice**, hasta 3 rondas de 10 (`RONDAS_DEL_INDICE`). Son los 30 productos que más se parecen a la foto de todo el catálogo, no veinte cualesquiera. Si acierta en la ronda 1, no gasta las otras.
+- **Con el índice por encima de 200 filas (`INDICE_SUFICIENTE`), el barrido no corre.** Lo que había que mirar ya se miró.
+- **Por debajo de eso el barrido sigue siendo la red** — indexación a medias, tienda recién desplegada, o una tienda sin índice como El Emperador. Y `COTEJO_BARRIDO = "no"` lo sigue apagando.
+- Si OpenAI se queda sin cupo entre rondas, corta ahí en vez de encadenar llamadas que ya se sabe que fallan.
+
 ### Con una foto, el bot enseña — no pregunta (24-sep-2026)
 
 Con el catálogo ya indexado, pedirle al cliente el nombre del modelo es absurdo por dos razones: **el bot sí sabe qué hay**, y **quien manda una foto casi nunca sabe el nombre** — si lo supiera, lo habría escrito. Aun así el bot terminaba en `"No logro identificar bien ese modelo 😅 ¿Sabes cómo se llama?"` cada vez que el cotejo se abstenía.

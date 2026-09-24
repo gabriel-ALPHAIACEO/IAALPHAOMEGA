@@ -107,6 +107,17 @@ const MAXIMO_CATALOGO = 600;
 // va a arreglar.
 const DESDE_EL_INDICE = 10;
 
+// Cuántas rondas se bajan por el ranking del índice antes de rendirse.
+// Tres rondas son 30 productos, los 30 que MÁS se parecen a la foto de
+// todo el catálogo. Más que eso ya no son candidatos, son relleno.
+const RONDAS_DEL_INDICE = 3;
+
+// A partir de cuántas filas se considera que el índice ES el catálogo, y
+// barrer Shopify deja de tener sentido. Por debajo de esto la indexación
+// va a medias y el barrido todavía puede encontrar lo que al índice le
+// falta.
+const INDICE_SUFICIENTE = 200;
+
 export async function cotejoPorImagen({
   env,
   foto,
@@ -185,28 +196,78 @@ export async function cotejoPorImagen({
     }
   }
 
-  // EL ÍNDICE: TODO EL CATÁLOGO, EN UNA SOLA LLAMADA.
+  // EL ÍNDICE: TODO EL CATÁLOGO, ORDENADO POR PARECIDO.
   //
-  // Si el catálogo está indexado (ver indice.js y /indexar-catalogo),
-  // acá se compara —en código, sin gastar modelo ni cupo— los rasgos de
-  // la foto contra los de los cientos de productos guardados, y solo los
-  // 10 más parecidos van a una llamada de cotejo.
+  // Los rasgos de la foto se comparan contra los de los cientos de
+  // productos guardados —en código, sin gastar modelo ni cupo— y solo los
+  // mejores van a una llamada de cotejo. Es la forma de mirar el catálogo
+  // entero sin las veinte llamadas que el cupo de OpenAI no aguanta.
   //
-  // Es la forma de mirar el catálogo entero sin las veinte llamadas que
-  // el cupo de OpenAI no aguanta. Por eso va ANTES del barrido a ciegas:
-  // si hay índice, el barrido casi nunca hace falta.
-  const delIndice = await candidatosDelIndice(env, rasgos, yaMirados);
-  if (delIndice.length >= 1) {
-    const elegido = await cotejar(env, foto, delIndice, textoCliente, 1, yaMirados, DESDE_EL_INDICE);
-    if (elegido) return resultado(elegido, productos);
+  // SE BAJA POR EL RANKING, NO SE MIRA UNA VEZ Y YA (24-sep-2026). Antes
+  // era una sola ronda de 10: si el par no estaba entre esos diez, se
+  // pasaba al barrido a ciegas. Ahora, si la primera ronda falla, van los
+  // diez siguientes, y los diez siguientes. Son candidatos ordenados por
+  // parecido real, así que la ronda 2 sigue siendo mejor apuesta que
+  // veinte productos cualesquiera de Shopify.
+  const indice = await leerIndiceSeguro(env);
+
+  if (indice.length) {
+    for (let ronda = 1; ronda <= RONDAS_DEL_INDICE; ronda++) {
+      const candidatos = mejoresPorRasgos(indice, rasgos, DESDE_EL_INDICE + yaMirados.size)
+        .filter((p) => !yaMirados.has(clave(p)))
+        .slice(0, DESDE_EL_INDICE);
+
+      if (!candidatos.length) break;
+
+      console.log(
+        `Índice (ronda ${ronda}): ${indice.length} productos guardados, ` +
+          `miro los ${candidatos.length} más parecidos que aún no vi`
+      );
+
+      const elegido = await cotejar(env, foto, candidatos, textoCliente, 1, yaMirados, DESDE_EL_INDICE);
+      if (elegido) return resultado(elegido, productos);
+
+      // Si OpenAI se quedó sin cupo, las rondas siguientes fallarían
+      // igual y el cliente está esperando.
+      if (estaLimitado(modeloDeVision(env))) {
+        console.log("Índice: OpenAI sin cupo, corto aquí");
+        break;
+      }
+    }
+
+    // EL BARRIDO NO CORRE CON EL CATÁLOGO INDEXADO (crítico — esto era un
+    // gasto puro).
+    //
+    // Capturado en producción el 24-sep: con los 581 ya indexados, el bot
+    // miraba los 10 del índice, fallaba, y acto seguido pedía el catálogo
+    // ENTERO a Shopify para barrer "20 de 539" elegidos por parecido de
+    // TÍTULO. Dos llamadas más al modelo, medio minuto del cliente, y
+    // peores candidatos que los que ya había descartado: el índice ordena
+    // por los rasgos de la foto, el barrido por palabras del título de un
+    // término que en este caso era "NADA".
+    //
+    // Si el índice cubre el catálogo, lo que hay que mirar ya se miró.
+    if (indice.length >= INDICE_SUFICIENTE) {
+      console.log(
+        `No barro Shopify: el índice ya cubre el catálogo (${indice.length} productos) ` +
+          `y ya miré los ${yaMirados.size} más parecidos a esta foto`
+      );
+      return null;
+    }
   }
 
   // ÚLTIMO RECURSO: MIRARLOS TODOS, A CIEGAS.
   //
-  // Solo hace falta si el catálogo NO está indexado. Es caro y el cupo
-  // de OpenAI apenas deja mirar unos pocos por mensaje, así que es una
-  // red por si acaso, no la vía principal.
+  // Solo se llega aquí si el catálogo NO está indexado —recién desplegado,
+  // o una tienda que todavía no corrió su indexación—. Es caro y el cupo
+  // de OpenAI apenas deja mirar unos pocos por mensaje: es una red por si
+  // acaso, no la vía principal.
   if (!barrer) return null;
+  console.log(
+    indice.length
+      ? `Índice con solo ${indice.length} productos: no cubre el catálogo, barro Shopify`
+      : "Sin índice: barro Shopify a ciegas"
+  );
 
   const elegido = await barrerCatalogo(env, foto, textoCliente, { termino, yaMirados });
   if (!elegido) return null;
@@ -214,32 +275,16 @@ export async function cotejoPorImagen({
   return resultado(elegido, productos);
 }
 
-// Los del índice que más se parecen a la foto, quitando los que el
-// modelo ya descartó en las rondas anteriores.
-async function candidatosDelIndice(env, rasgos, yaMirados) {
-  if (!env.DB || !rasgos) return [];
-
-  let indice = [];
+// El índice entero, una sola vez. Sin él el bot sigue funcionando: solo
+// se queda sin su mejor atajo y cae al barrido.
+async function leerIndiceSeguro(env) {
+  if (!env.DB) return [];
   try {
-    indice = await leerIndice(env.DB);
+    return await leerIndice(env.DB);
   } catch (error) {
-    // Sin índice el bot sigue funcionando: solo se queda sin este atajo.
     console.error("No pude leer el índice del catálogo:", error?.message || error);
     return [];
   }
-
-  if (!indice.length) return [];
-
-  const mejores = mejoresPorRasgos(indice, rasgos, DESDE_EL_INDICE + yaMirados.size)
-    .filter((p) => !yaMirados.has(clave(p)))
-    .slice(0, DESDE_EL_INDICE);
-
-  console.log(
-    `Índice: ${indice.length} productos guardados, los ${mejores.length} ` +
-      "más parecidos a la foto van al cotejo"
-  );
-
-  return mejores;
 }
 
 // Compara la foto contra TODO el catálogo, en lotes y en paralelo.
