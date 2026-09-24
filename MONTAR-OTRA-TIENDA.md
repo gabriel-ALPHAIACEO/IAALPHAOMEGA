@@ -3,6 +3,11 @@
 Guía de principio a fin. Está escrita para El Emperador, pero sirve igual
 para cualquier tienda que venga después.
 
+> **Si la computadora no tiene Node instalado, empieza por
+> `ARMAR-DESDE-CERO.md`.** Esa guía cubre el paso previo a todo esto:
+> instalar Node, armar la carpeta desde el `.zip` y correr `npm install`.
+> Sin eso, ningún comando de aquí funciona.
+
 ## Lo que hay que entender antes de empezar
 
 **El código es el mismo para todas las tiendas.** Todo lo que hay en `src/`
@@ -15,6 +20,9 @@ Lo único que cambia son dos cosas:
 | `wrangler.toml` | credenciales, dominio de Shopify, WhatsApp, y `TIENDA = "emperador"` |
 | `src/tiendas/emperador.js` | nombre, horarios, calidad, catálogo y términos de búsqueda |
 
+(`package.json`, `.gitignore` y `.nvmrc` también son iguales en las dos
+carpetas: no llevan nada de una tienda en concreto.)
+
 Cuando arregle un fallo, pegas los mismos archivos de `src/` en las dos
 carpetas y las dos quedan arregladas. Esa es toda la gracia de hacerlo así.
 
@@ -22,13 +30,20 @@ carpetas y las dos quedan arregladas. Esa es toda la gracia de hacerlo así.
 
 ## Paso 1 — La carpeta
 
-Copia la carpeta entera de Invictus a una nueva, por ejemplo
-`C:\Users\ivoo\Documents\emperador-bot`.
+Lo más rápido: descomprimir el `emperador-bot.zip` que te mandé en
+`C:\Users\ivoo\Documents\`. Ya viene con el `wrangler.toml` de El
+Emperador renombrado y con el `package.json`. Luego, dentro de la carpeta:
 
-Dentro de la carpeta nueva:
+```
+npm install
+```
+
+A mano, si prefieres: copia la carpeta entera de Invictus a una nueva, por
+ejemplo `C:\Users\ivoo\Documents\emperador-bot`, y dentro de la nueva:
 
 1. Borra `wrangler.toml`.
 2. Renombra `wrangler.emperador.toml` → `wrangler.toml`.
+3. Corre `npm install`.
 
 `src/` se queda exactamente como está. No se toca.
 
@@ -172,6 +187,7 @@ que sí existen devolvieran cero — y el cliente creería que no hay stock.
 | | Invictus | El Emperador |
 |---|---|---|
 | Archivos de `src/` | los mismos | los mismos |
+| `package.json` | el mismo | el mismo |
 | Worker | `invictus-bot` | `emperador-bot` |
 | Base D1 | propia | propia |
 | App de Meta + `IG_TOKEN` | propia | propia |

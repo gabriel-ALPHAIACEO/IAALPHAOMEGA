@@ -1,0 +1,12 @@
+# Lo que instala npm. Se regenera con "npm install"; nunca se copia a mano.
+node_modules/
+
+# Cache de wrangler (build local, estado de "wrangler dev").
+.wrangler/
+
+# Variables locales para "wrangler dev". Lleva claves: NUNCA se sube.
+.dev.vars
+
+# Basura del sistema
+.DS_Store
+Thumbs.db

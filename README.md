@@ -70,11 +70,15 @@ El mismo código atiende a varias tiendas. Lo que cambia por tienda son dos arch
 - `parecidos.js` se comparte a propósito: el parecido entre un Vapormax y un TN es de los zapatos, no de quién los venda. Si una tienda no maneja un término, la búsqueda devuelve cero y se pasa a la siguiente alternativa.
 - **El Emperador vende doble A y triple A**, no 1.1 como Invictus. Como son dos gamas y el bot no puede saber de cuál es un par concreto (ve el título y la foto, no la gama), su sección de calidad nombra las dos y manda al asesor cuando preguntan por un modelo en particular. Decir "triple A" de un par que es doble A es la equivocación más cara que podría cometer.
 - Guía de montaje paso a paso: `MONTAR-OTRA-TIENDA.md`.
+- Máquina desde cero (instalar Node, armar la carpeta, `npm install`): `ARMAR-DESDE-CERO.md`.
 
 ### Estructura
 
 ```
 worker/
+  package.json           dependencias (wrangler) y comandos: npm run probar / desplegar / ver-logs
+  .gitignore             lo que nunca se sube: node_modules, .wrangler, .dev.vars
+  .nvmrc                 versión de Node con la que se trabaja (22)
   wrangler.toml          configuración del Worker (vars, binding de D1, binding de prompts .txt)
   migrations/
     0001_contactos.sql   crea la tabla de memoria en D1
