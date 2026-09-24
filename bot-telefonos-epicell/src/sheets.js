@@ -848,3 +848,33 @@ function columnasExtra(productos) {
     `  ${[...nombres].join(" | ")}`,
   ];
 }
+
+// LA MISMA FOTO, PERO MÁS PEQUEÑA, SOLO PARA MANDÁRSELA AL MODELO.
+//
+// enlaceDeImagen() pide =w1000, que está bien para una ficha que ve una
+// persona. Pero al cotejar se le mandan hasta 10 fotos a OpenAI en una
+// sola llamada, y tiene que descargarlas TODAS antes de mirar nada. Si
+// tarda, la llamada entera falla con "invalid_image_url" y se pierden los
+// 10 candidatos, no solo el que pesaba. Pasó en el bot de calzado.
+//
+// A 512px y en "detail: low" el modelo no ve ni un pixel menos: a esa
+// resolución la imagen se reescala igual antes de mirarla.
+//
+// No cambia lo que se guarda en el índice a propósito: la clave sigue
+// siendo la URL de la ficha, y esto se aplica solo al mandarla. Así el
+// arreglo no obliga a reindexar nada.
+const ANCHO_PARA_EL_MODELO = 512;
+
+export function urlPequena(url) {
+  const limpia = String(url || "");
+  if (!limpia) return "";
+
+  // Las de Google Drive llevan el ancho pegado al final con "=w".
+  if (/lh3\.googleusercontent\.com/i.test(limpia)) {
+    return limpia.replace(/=w\d+(-h\d+)?$/i, "") + `=w${ANCHO_PARA_EL_MODELO}`;
+  }
+
+  // Cualquier otra cosa se devuelve tal cual: mejor una foto grande que
+  // una URL rota.
+  return limpia;
+}

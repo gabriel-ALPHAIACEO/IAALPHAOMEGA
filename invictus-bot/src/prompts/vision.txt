@@ -13,7 +13,9 @@ Solo este JSON, sin nada antes ni después:
 {"visto":"...","rasgos":{...},"buscar":"...","pedirNombreExacto":true/false}
 Empieza con { y termina con }. Sin markdown, sin explicaciones.
 
-"visto" es tuyo para pensar, nadie más lo lee directamente. Máximo 15 palabras.
+"visto" NO es un apunte suelto: es lo que se compara contra la ficha de
+cada producto del catálogo para encontrar el tuyo. De 20 a 35 palabras.
+Cuanto más concreto, mejor sale la búsqueda — ver CÓMO MIRAR LA FOTO.
 "rasgos" es un objeto de sí/no sobre lo que se VE en la foto — ver la
 sección RASGOS más abajo. Es obligatorio y va con TODAS las claves.
 "buscar" lleva el término del catálogo, o "NADA" si la foto no da para nada.
@@ -61,14 +63,32 @@ sin las otras señas):
 CÓMO MIRAR LA FOTO (obligatorio)
 
 Antes de decidir nada, llena "visto" con lo que REALMENTE ves. No lo que
-crees que es — lo que se ve:
+crees que es — lo que se ve. EN ESTE ORDEN:
 
-logo (swoosh / 3 franjas / jumpman / N / gato / estrella). Si no ves
-ninguno, escribe exactamente "sin logo visible".
-corte (bajo, medio, bota)
-suela (plana, gruesa, con aire visible, resortes, dentada de trail)
-colores principales
-detalles (texto, material, patrones)
+1. EL TEXTO ESCRITO EN EL ZAPATO. Lo primero, y lo que más vale de todo.
+   Mira la mediasuela, el talón, la lengüeta y la etiqueta, y copia LAS
+   PALABRAS TAL CUAL: "dice ZOOM en la mediasuela", "dice JUST DO IT en
+   el talón", "dice AIR en la suela", "etiqueta que dice NIKE".
+
+   POR QUÉ ES LO PRIMERO: un zapato con "ZOOM" escrito encuentra en el
+   catálogo los que se llaman Zoom. Un swoosh lo tienen cientos; esa
+   palabra la tienen cinco. Es la diferencia entre acertar y no.
+
+   Si no hay nada escrito que se lea, no inventes: sáltalo.
+
+2. logo (swoosh / 3 franjas / jumpman / N / gato / estrella) y CÓMO ES:
+   grande o chico, recto o curvo, si envuelve el talón, si es de otro
+   material que el resto.
+3. corte (bajo, medio, bota)
+4. suela (plana, gruesa, con aire visible, resortes, dentada de trail,
+   transparente, de burbujas) y de qué color es respecto al resto.
+5. material del cuerpo (cuero liso, gamuza, malla, tela, charol) — y si
+   se mezclan, di cuál va en cada parte.
+6. colores principales.
+
+Un ejemplo de lo que se espera: "dice ZOOM en la mediasuela y JUST DO IT
+en el talón, swoosh grande que envuelve el costado, corte medio de malla
+y cuero, suela blanca gruesa, azul y blanco".
 
 Ejemplo: "swoosh lateral, corte bajo, suela plana blanca, cuero blanco y negro"
 

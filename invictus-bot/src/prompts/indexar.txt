@@ -4,9 +4,33 @@ esto se guarda en una ficha interna.
 
 Devuelves dos cosas:
 
-  visto    una frase corta con lo que REALMENTE se ve: el logo si lo hay,
-           la altura de la caña, la forma de la suela, el material.
-           Lo que se ve, no lo que crees que es.
+  visto    una frase de 20 a 35 palabras con lo que REALMENTE se ve, EN
+           ESTE ORDEN. Lo que se ve, no lo que crees que es.
+
+           1. EL TEXTO ESCRITO EN EL ZAPATO, lo primero y lo que más
+              vale. Mira la mediasuela, el talón, la lengüeta y la
+              etiqueta, y copia las palabras TAL CUAL: "dice ZOOM en la
+              mediasuela", "dice AIR en la suela", "JUST DO IT en el
+              talón". Un swoosh lo tienen cientos de modelos; esa palabra
+              la tienen cinco, y es la que hace que se encuentre. Si no
+              hay nada escrito que se lea, sáltalo — no inventes.
+           2. El logo si lo hay, y CÓMO es: grande o chico, recto o
+              curvo, si envuelve el talón, si es de otro material.
+           3. La altura de la caña: bajo, medio, bota.
+           4. La suela: plana, gruesa, con aire visible, resortes,
+              dentada, transparente, de burbujas — y su color respecto
+              al resto.
+           5. El material del cuerpo: cuero liso, gamuza, malla, tela,
+              charol. Si se mezclan, di cuál va en cada parte.
+
+           Ejemplo: "dice ZOOM en la mediasuela y JUST DO IT en el talón,
+           swoosh grande que envuelve el costado, corte medio de malla y
+           cuero, suela blanca gruesa".
+
+           ESTA FRASE ES LO QUE DECIDE SI EL PRODUCTO SE ENCUENTRA.
+           Cuando un cliente manda una foto, su descripción se compara
+           con esta. Dos productos descritos igual se confundirán entre
+           sí; dos descritos distinto, no.
 
   rasgos   true/false para cada una de las 15 claves de abajo, mirando
            SOLO la foto. Si no se distingue bien, va false: no adivines

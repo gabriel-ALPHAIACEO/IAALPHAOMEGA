@@ -33,6 +33,40 @@ Tres capas, y cada una arregla el fallo de la anterior:
    - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
    - **Indexar el catálogo una sola vez** ← **esto es lo que se hizo.** Ver abajo.
 
+### La foto del catálogo pesaba demasiado, y la descripción decía muy poco (24-sep-2026)
+
+Un cliente mandó por chat un Nike Zoom blanco y azul. Del registro salieron dos fallos distintos.
+
+#### 1. Una foto pesada tumbaba la ronda entera
+
+```
+Índice (ronda 3): 581 productos guardados, miro los 10 más parecidos...
+(error) El modelo respondió 400 · "Unable to download content from the provided
+        URL before the timeout" · code: "invalid_image_url"
+(error) El cotejo visual no devolvió JSON válido
+```
+
+`featuredImage { url }` devuelve la imagen **original** de Shopify, que en esta tienda son fotos de varios MB. Con diez en una sola llamada, OpenAI tiene que descargarlas todas antes de mirar nada y se pasa de su propio tiempo. **La llamada entera falla: se pierden los 10 candidatos, no solo el que pesaba.**
+
+- **`urlPequena()`** pide la misma foto a 512px. En `detail: "low"` el modelo no ve ni un pixel menos, porque a esa resolución la reescala igual antes de mirarla. **No cambia la clave del índice**, así que el arreglo no obliga a reindexar.
+- **Y si aun así una foto no se puede bajar, ya no cuesta la ronda.** `llamar()` avisa del motivo, y el cotejo reintenta una vez con la primera mitad — que además son los más parecidos, porque vienen ordenados. Si la foto rota estaba en la otra mitad, la ronda se salva entera.
+- Lo mismo en EPICELL, con las de Google Drive: de `=w1000` a `=w512`.
+
+#### 2. La descripción no decía lo único que servía
+
+La visión reportó: `"swoosh lateral, corte medio, detalles azul y blanco"`. Cientos de zapatos encajan con eso.
+
+Lo que la foto tenía y nadie miró: **"ZOOM" escrito en la mediasuela**, "JUST DO IT" en el talón, la etiqueta NIKE. Un swoosh lo tienen cientos de modelos; la palabra `ZOOM` la tienen cinco — y el catálogo tiene un `Nike zoom`.
+
+Dos causas, las dos en el prompt:
+
+- **`visto` tenía un máximo de 15 palabras**, y el texto del zapato iba en el ÚLTIMO lugar de la lista de qué mirar. Se cortaba siempre.
+- **`indexar.txt` no pedía el texto en absoluto**, así que las fichas del catálogo tampoco lo tenían.
+
+Ahora, en los dos prompts y en los dos bots: **el texto escrito en el producto va primero**, con su propia explicación de por qué vale más que el logo, y el límite sube a 20-35 palabras.
+
+**Esto sí obliga a reindexar** (`/indexar-catalogo?rehacer=si`): las fichas guardadas se escribieron con el prompt viejo y no traen el texto. Es el único cambio de esta tanda que lo pide.
+
 ### EPICELL: el cotejo visual, portado de Invictus (24-sep-2026)
 
 Lo que se aprendió en el bot de calzado, llevado al de teléfonos. **Archivos nuevos en `bot-telefonos-epicell/`:** `src/indice.js`, `src/cotejo.js`, `src/prompts/indexar.txt`, `src/prompts/cotejo.txt`.

@@ -18,6 +18,7 @@ import listaCatalogo from "./prompts/catalogo.txt";
 import promptVision from "./prompts/vision.txt";
 import promptIndexar from "./prompts/indexar.txt";
 import promptCotejo from "./prompts/cotejo.txt";
+import { urlPequena } from "./sheets.js";
 
 // La lista de nombres vive en un archivo aparte (prompts/catalogo.txt) y se
 // pega dentro de texto.txt al arrancar, donde dice {{CATALOGO}}. Así hay UN
@@ -330,7 +331,7 @@ export async function describirProducto(env, urlImagen, { modelo = "" } = {}) {
     [
       // En baja: son fotos de producto limpias y lo que hay que leer —el
       // número de cámaras, la muesca, el acabado— se ve igual.
-      { type: "image_url", image_url: { url: urlImagen, detail: "low" } },
+      { type: "image_url", image_url: { url: urlPequena(urlImagen), detail: "low" } },
       { type: "text", text: "Cataloga este producto." },
     ],
     { maxTokens: 200, schema: ESQUEMA_IDENTIFICACION, modelo: modelo || modeloDeIndice(env) }
@@ -360,7 +361,7 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
     contenido.push({ type: "text", text: `${i + 1}. ${producto.titulo}` });
     contenido.push({
       type: "image_url",
-      image_url: { url: producto.imagen, detail: "low" },
+      image_url: { url: urlPequena(producto.imagen), detail: "low" },
     });
   });
 

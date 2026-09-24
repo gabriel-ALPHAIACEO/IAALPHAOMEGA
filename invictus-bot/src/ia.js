@@ -23,6 +23,7 @@ import listaCatalogo from "./prompts/catalogo.txt";
 import listaModelos from "./prompts/modelos.txt";
 import promptIndexar from "./prompts/indexar.txt";
 import { RASGOS_CLAVE } from "./identificar.js";
+import { urlPequena } from "./shopify.js";
 
 // EL CATÁLOGO SE PEGA AL PROMPT AL ARRANCAR, NO EN CADA MENSAJE.
 //
@@ -301,7 +302,7 @@ async function llamar(
   env,
   sistema,
   contenido,
-  { maxTokens = 1024, json = true, schema = null, modelo = "" } = {}
+  { maxTokens = 1024, json = true, schema = null, modelo = "", alFallar = null } = {}
 ) {
   const cuerpo = {
     model: modelo || env.OPENAI_MODELO || MODELO_POR_DEFECTO,
@@ -343,6 +344,17 @@ async function llamar(
 
   if (!respuesta.ok) {
     const detalle = await respuesta.text();
+
+    // Se avisa del MOTIVO a quien llamó, para que pueda reaccionar. El
+    // caso que lo pidió: una foto del catálogo que OpenAI no consigue
+    // descargar tumba la llamada entera y con ella los 10 candidatos de
+    // esa ronda. Quien llama puede reintentar con menos.
+    if (typeof alFallar === "function") {
+      alFallar({
+        estado: respuesta.status,
+        deImagen: /invalid_image_url|Unable to download|Timeout while downloading/i.test(detalle),
+      });
+    }
 
     // 429 = límite de tokens por minuto de la organización. No es un
     // fallo del código ni de la petición: es que no queda cupo en este
@@ -440,7 +452,41 @@ export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) 
 // alta. Cualquier fallo (el modelo no responde, un índice fuera de
 // rango) devuelve null: esto es una mejora oportunista, nunca puede
 // dejar peor al cliente de lo que estaba sin ella.
+// UNA FOTO QUE NO SE PUEDE DESCARGAR NO PUEDE COSTAR LA RONDA ENTERA.
+//
+// Pasó en producción: OpenAI devolvió 400 "invalid_image_url" en la
+// tercera ronda y se perdieron los 10 candidatos, no solo el de la foto
+// mala. Ahora, cuando el fallo es de imagen, se reintenta UNA vez con la
+// primera mitad — que además son los más parecidos, porque vienen
+// ordenados. Si la foto rota estaba en la segunda mitad, la ronda se
+// salva entera.
+//
+// Solo un reintento, y solo partiendo por la mitad: buscar cuál de los
+// diez es la mala costaría más llamadas de las que vale la pena.
 export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
+  const elegido = await unCotejo(env, foto, candidatos, textoCliente);
+  if (elegido !== FALLO_DE_IMAGEN) return elegido;
+
+  if (candidatos.length < 2) {
+    console.error("Cotejo visual: no pude descargar la foto del catálogo y no queda con qué reintentar");
+    return null;
+  }
+
+  const mitad = candidatos.slice(0, Math.ceil(candidatos.length / 2));
+  console.log(
+    `Cotejo visual: OpenAI no pudo bajar alguna foto del catálogo; ` +
+      `reintento con los ${mitad.length} más parecidos`
+  );
+
+  const segundo = await unCotejo(env, foto, mitad, textoCliente);
+  return segundo === FALLO_DE_IMAGEN ? null : segundo;
+}
+
+// Marca interna: distingue "no es ninguno" (null) de "la llamada se cayó
+// por una foto que no se pudo bajar", que sí merece reintento.
+const FALLO_DE_IMAGEN = Symbol("fallo de imagen");
+
+async function unCotejo(env, foto, candidatos, textoCliente) {
   if (!foto || !candidatos?.length) return null;
 
   const contenido = [
@@ -458,7 +504,7 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
     // fracción de lo que costaría en alta.
     contenido.push({
       type: "image_url",
-      image_url: { url: producto.imagen, detail: "low" },
+      image_url: { url: urlPequena(producto.imagen), detail: "low" },
     });
   });
 
@@ -467,11 +513,17 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
     text: `El cliente escribió: ${textoCliente ? `"${textoCliente}"` : "(nada, solo mandó la foto)"}`,
   });
 
+  let falloDeImagen = false;
   const salida = await llamar(env, promptCotejo, contenido, {
     maxTokens: 300,
     schema: ESQUEMA_COTEJO,
     modelo: modeloDeVision(env),
+    alFallar: ({ deImagen }) => {
+      falloDeImagen = deImagen;
+    },
   });
+
+  if (falloDeImagen) return FALLO_DE_IMAGEN;
 
   const datos = extraerJson(salida);
   if (!datos) {
@@ -544,7 +596,7 @@ export async function rasgosDeProducto(env, urlImagen, { modelo = "" } = {}) {
     env,
     promptIndexar,
     [
-      { type: "image_url", image_url: { url: urlImagen, detail: DETALLE_INDICE } },
+      { type: "image_url", image_url: { url: urlPequena(urlImagen), detail: DETALLE_INDICE } },
       { type: "text", text: "Cataloga este producto." },
     ],
     {

@@ -14,7 +14,12 @@ Solo este JSON, sin nada antes ni después:
 
 Empieza con { y termina con }. Sin markdown, sin explicaciones.
 
-"visto" es tuyo para pensar, nadie más lo lee directamente. Máximo 15 palabras.
+"visto" NO es un apunte suelto: es lo que se compara contra la ficha de
+cada producto del catálogo para encontrar el tuyo. De 20 a 35 palabras.
+LO PRIMERO, SIEMPRE: lo que esté ESCRITO en el equipo o en la caja, copiado
+tal cual ("dice Redmi Note 14 en la caja"). Después las cámaras de atrás
+—cuántas y cómo están puestas—, la muesca o isla de la pantalla, y el
+material. El color no hace falta: no se usa para nada.
 "buscar" lleva el término del catálogo, o "NADA" si la foto no da para nada.
 "pedirNombreExacto" es true cuando solo reconoces la marca o familia, no el
 modelo exacto — ver ESCALERA DE CONFIANZA más abajo. Si "buscar" es "NADA",

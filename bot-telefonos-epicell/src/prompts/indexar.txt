@@ -9,25 +9,26 @@ Devuelves un solo campo que importe:
 
 QUÉ TIENE QUE LLEVAR ESA FRASE, EN ESTE ORDEN:
 
-1. QUÉ ES. Teléfono, tablet, reloj, audífonos, corneta, cargador, cable,
+1. LO QUE ESTÉ ESCRITO, LO PRIMERO DE TODO. Si se lee una marca o un modelo en el equipo o en
+   la caja, ponlo tal cual: "dice Redmi Note 14 en la caja". Es el dato
+   más valioso de todos.
+
+2. QUÉ ES. Teléfono, tablet, reloj, audífonos, corneta, cargador, cable,
    power bank, funda, consola... Si no distingues el tipo, dilo: "equipo
    de tecnología sin identificar".
 
-2. LA PARTE DE ATRÁS, que es donde se reconoce un teléfono: cuántas
+3. LA PARTE DE ATRÁS, que es donde se reconoce un teléfono: cuántas
    cámaras hay y cómo están puestas. Di el número y la forma:
    "tres cámaras en cuadrado arriba a la izquierda", "dos cámaras en
    vertical", "una sola cámara centrada", "cuatro cámaras en círculo".
 
-3. LA PANTALLA, si se ve de frente: muesca de gota, muesca ancha, isla
+4. LA PANTALLA, si se ve de frente: muesca de gota, muesca ancha, isla
    dinámica, agujero centrado, agujero a la izquierda, sin nada, bordes
    curvos, bordes planos.
 
-4. EL CUERPO: material y acabado — vidrio brillante, mate, plástico,
+5. EL CUERPO: material y acabado — vidrio brillante, mate, plástico,
    metal, cuero. Si es plegable, dilo, que eso lo cambia todo.
 
-5. LO QUE ESTÉ ESCRITO. Si se lee una marca o un modelo en el equipo o en
-   la caja, ponlo tal cual: "dice Redmi Note 14 en la caja". Es el dato
-   más valioso de todos.
 
 QUÉ NO PONER:
 

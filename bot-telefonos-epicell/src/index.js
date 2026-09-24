@@ -79,7 +79,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-24 (9) · cotejo visual: reconoce el equipo por la foto, no por el nombre";
+const VERSION = "2026-09-24 (10) · fotos en 512px y lo escrito en la caja manda";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
