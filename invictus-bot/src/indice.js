@@ -323,6 +323,19 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
 
   const pendientes = indexables.filter((p) => rehacer || !guardados.has(p.imagen));
 
+  // EL PRECIO SE REFRESCA SIN GASTAR MODELO.
+  //
+  // Las fichas que se le mandan al cliente pueden salir del índice (el
+  // cotejo elige de ahí, y también los parecidos que se enseñan cuando no
+  // se puede afirmar cuál es). Si el precio guardado es el del día que se
+  // indexó, el cliente ve un precio que ya no es — y eso se descubre al
+  // cobrar, que es el peor momento.
+  //
+  // Mirar la foto cuesta una llamada al modelo; copiar el precio no cuesta
+  // nada: ya viene en la respuesta de Shopify que se acaba de pedir. Así
+  // que se actualiza en cada pasada, aunque el producto ya esté indexado.
+  const refrescados = await refrescarPrecios(env.DB, indice, indexables);
+
   const tanda = pendientes.slice(0, cuantos);
   const modelo = modeloDeIndice(env);
   const indexados = [];
@@ -400,6 +413,7 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
     pendientes: pendientes.length,
     faltan,
     quitados,
+    refrescados,
     corto,
     modelo,
     ningunoSalio,
@@ -414,4 +428,37 @@ async function contarFilas(db) {
   } catch {
     return 0;
   }
+}
+
+
+// De a cuántas filas se actualizan por llamada a D1. Son escrituras
+// baratas, pero mandar 581 en una sola tanda es pedir un fallo.
+const REFRESCO_POR_TANDA = 50;
+
+// Copia el precio y el enlace de Shopify a las filas ya indexadas cuando
+// cambiaron. No toca los rasgos ni la foto: eso es lo que costó mirar.
+async function refrescarPrecios(db, indice, productos) {
+  const deShopify = new Map(productos.map((p) => [p.imagen, p]));
+
+  const cambiados = indice.filter((fila) => {
+    const hoy = deShopify.get(fila.imagen);
+    return hoy && (String(hoy.precio || "") !== String(fila.precio || "") ||
+                   String(hoy.url || "") !== String(fila.url || ""));
+  });
+
+  if (!cambiados.length) return 0;
+
+  for (let i = 0; i < cambiados.length; i += REFRESCO_POR_TANDA) {
+    await db.batch(
+      cambiados.slice(i, i + REFRESCO_POR_TANDA).map((fila) => {
+        const hoy = deShopify.get(fila.imagen);
+        return db
+          .prepare("UPDATE catalogo SET precio = ?, url = ?, titulo = ? WHERE imagen = ?")
+          .bind(hoy.precio || "", hoy.url || "", hoy.titulo, fila.imagen);
+      })
+    );
+  }
+
+  console.log(`Índice: actualicé precio o enlace de ${cambiados.length} producto(s), sin mirar ninguna foto`);
+  return cambiados.length;
 }

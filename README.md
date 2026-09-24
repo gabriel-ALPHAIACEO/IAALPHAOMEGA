@@ -33,6 +33,21 @@ Tres capas, y cada una arregla el fallo de la anterior:
    - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
    - **Indexar el catálogo una sola vez** ← **esto es lo que se hizo.** Ver abajo.
 
+### Con una foto, el bot enseña — no pregunta (24-sep-2026)
+
+Con el catálogo ya indexado, pedirle al cliente el nombre del modelo es absurdo por dos razones: **el bot sí sabe qué hay**, y **quien manda una foto casi nunca sabe el nombre** — si lo supiera, lo habría escrito. Aun así el bot terminaba en `"No logro identificar bien ese modelo 😅 ¿Sabes cómo se llama?"` cada vez que el cotejo se abstenía.
+
+**Qué pasaba.** El cotejo visual solo muestra producto con confianza `alta` (y está bien: lo que sale de ahí es una ficha con precio y botón de compra). Cuando decía `media`, y la búsqueda por nombre tampoco había dejado nada, no quedaba nada que mostrar y la respuesta que el modelo de texto ya había escrito —"no sé, ¿cómo se llama?"— salía tal cual.
+
+**Qué hace ahora.** `parecidosDeLaFoto()` en `cotejo.js`: compara los 15 rasgos de la foto contra los del índice **en código, sin una sola llamada al modelo ni un token del cupo**, y devuelve los 6 que más puntúan. El bot los enseña con un `"Mira, ¿es alguno de estos? 👇"`.
+
+- **No afirma nada.** Esa es la diferencia con el cotejo, que sí afirma y por eso exige confianza alta. Aquí se enseña y se pregunta *cuál*, que es lo que hace una vendedora con el zapato delante.
+- **Elegir sí puede; nombrar no.** La rama de "reconocí la marca pero no el modelo" también cambió: antes pedía el nombre exacto, ahora muestra lo de esa marca y pregunta cuál de esos es.
+- **Los prompts dejaron de enseñar la respuesta mala.** En `texto.txt` ya no está `"No logro identificar"` ni `"¿Sabes cómo se llaman?"`, y la instrucción es explícita: prohibido decir que no lo reconoces, prohibido pedir el nombre del modelo, prohibido pedir otra foto.
+- **Cuando la historia es un vídeo y no hay imagen, sigue preguntando** — y debe: ahí no hay rasgos contra los que comparar, así que no hay nada que enseñar. Eso no se tocó.
+
+**Los precios del índice se refrescan solos.** Como ahora se mandan fichas que salen del índice, un precio guardado el día que se indexó sería un precio viejo en pantalla. Mirar la foto cuesta una llamada al modelo; copiar el precio no cuesta nada —ya viene en la respuesta de Shopify que el cron acaba de pedir—, así que `indexarTanda()` actualiza precio, enlace y título de **todas** las filas en cada pasada, sin volver a mirar ninguna imagen. Sale en `/indexar-catalogo` como `Precio o enlace actualizados: N`.
+
 ### Las dos listas de productos: `catalogo.txt` y `modelos.txt`
 
 | Archivo | Qué trae | A qué prompt va | Peso |

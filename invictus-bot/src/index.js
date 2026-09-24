@@ -37,7 +37,7 @@ import { alternativasPara } from "./parecidos.js";
 import { separarColor, filtrarPorColor, terminoDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
-import { cotejoPorImagen } from "./cotejo.js";
+import { cotejoPorImagen, parecidosDeLaFoto } from "./cotejo.js";
 import { leerIndice, indexarTanda } from "./indice.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
@@ -70,7 +70,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-24 (11) · la visión ya sabe qué modelos existen (modelos.txt)";
+const VERSION = "2026-09-24 (12) · con foto enseña parecidos del índice en vez de preguntar";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -98,6 +98,25 @@ const ENCONTRE_EL_DE_LA_FOTO = [
   "¡Lo encontré! 😊 Aquí lo tienes 👇",
   "¡Ese mismo lo manejamos! 👟 Mira 👇",
 ];
+
+// NO SE PUDO AFIRMAR CUÁL ES, PERO EL CATÁLOGO INDEXADO SÍ TIENE
+// CANDIDATOS QUE SE LE PARECEN.
+//
+// Ninguna de estas frases afirma nada: enseñan y preguntan cuál, que es
+// lo que hace una vendedora con el zapato delante. Lo que NO se hace más
+// es pedirle el nombre de un modelo que el cliente no sabe nombrar —
+// para eso está la foto, y para eso se indexó el catálogo entero.
+const ES_ALGUNO_DE_ESTOS = [
+  "Mira, ¿es alguno de estos? 👇",
+  "Tengo estos que se parecen mucho 👟 ¿Es alguno?",
+  "A ver si es uno de estos 👇 Dime cuál y te paso el precio 😊",
+  "Creo que puede ser alguno de estos 👟 Échales un ojo 👇",
+  "Estos son los que más se le parecen 👇 ¿Alguno es el que viste?",
+];
+
+// Cuántos se le enseñan. Suficientes para que esté el suyo, pocos para
+// que pueda mirarlos: veinte fichas no se revisan, se ignoran.
+const PARECIDOS_DEL_INDICE = 6;
 
 // Hay un modelo parecido que enseñarle: van con fichas debajo.
 const TE_OFREZCO_PARECIDOS = [
@@ -523,6 +542,9 @@ export default {
           (r.fallados
             ? `No se pudieron catalogar: ${r.fallados} — el motivo exacto sale\n` +
               "en `wrangler tail`. Si son 429, es cupo: espera un minuto.\n"
+            : "") +
+          (r.refrescados
+            ? `Precio o enlace actualizados: ${r.refrescados} (sin mirar ninguna foto)\n`
             : "") +
           (r.quitados ? `Quitados del índice (ya no están en Shopify): ${r.quitados}\n` : "") +
           "\n" +
@@ -1313,9 +1335,12 @@ function marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar =
   if (String(buscar).toUpperCase() === "NADA") {
     return (
       encabezado +
-      "NO SE PUDO IDENTIFICAR NINGÚN MODELO NI MARCA CON SEGURIDAD. " +
-      "Pregúntale con naturalidad cuál le interesa, como preguntaría una " +
-      "vendedora. NUNCA le pidas que mande otra foto" +
+      "NO SE PUDO PONERLE NOMBRE AL MODELO. Se le van a enseñar los del " +
+      "catálogo que más se parecen a su foto, así que escribe una frase " +
+      "corta y cálida que lo invite a mirarlos y decir cuál es. " +
+      "PROHIBIDO decir que no lo reconoces, que no sabes o que no se ve; " +
+      "PROHIBIDO pedirle el nombre del modelo —si lo supiera lo habría " +
+      "escrito en vez de mandar una foto— y PROHIBIDO pedirle otra foto" +
       (esHistoria ? ": ya tienes la imagen delante." : ".") +
       "]"
     );
@@ -1339,8 +1364,10 @@ function marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar =
     return (
       encabezado +
       `SE RECONOCIÓ LA MARCA "${buscar}", PERO NO EL MODELO EXACTO. ` +
-      "Muéstrale esa marca Y pídele el nombre exacto del modelo, las dos " +
-      "cosas en el mismo mensaje.]"
+      "Muéstrale lo que hay de esa marca y pregúntale CUÁL DE ESOS es el " +
+      "suyo. No le pidas el nombre del modelo: el cliente que manda una " +
+      "foto casi nunca lo sabe, y preguntárselo lo deja sin salida. " +
+      "Elegir entre lo que tiene delante sí puede.]"
     );
   }
 
@@ -1515,6 +1542,45 @@ async function decidir({
       salida.historial = conNota(
         salida.historial,
         `Le mostré ${cotejo.elegido.titulo} (identificado por la foto).`
+      );
+    }
+  }
+
+  // TENIENDO EL CATÁLOGO INDEXADO, NO SE LE PREGUNTA EL NOMBRE.
+  //
+  // Hasta aquí, si el cotejo se abstuvo y la búsqueda por nombre no dejó
+  // nada, el bot contestaba "no logro identificar ese modelo, ¿sabes cómo
+  // se llama?". Con los 581 productos indexados eso es absurdo por dos
+  // razones: el bot SÍ sabe qué hay, y el cliente que manda una foto casi
+  // nunca sabe el nombre — si lo supiera, lo habría escrito.
+  //
+  // Así que en vez de preguntar, se le ENSEÑA: los rasgos de su foto se
+  // comparan contra los del índice —en código, sin gastar un token ni
+  // tocar el cupo de OpenAI— y salen los que más se le parecen.
+  //
+  // NO SE AFIRMA QUE SEA NINGUNO. La frase que acompaña pregunta cuál es,
+  // no dice "es este". Esa es la diferencia con el cotejo, que sí afirma
+  // y por eso exige confianza alta.
+  if (foto && !productos.length && rasgos) {
+    const parecidos = await parecidosDeLaFoto(env, rasgos, PARECIDOS_DEL_INDICE);
+
+    if (parecidos.length) {
+      productos = parecidos;
+      habiaDelModelo = parecidos.length;
+
+      // No es que haya más escondidos: son los más parecidos de TODO el
+      // catálogo. Mandarlo al enlace ahora sería alejarlo de su zapato.
+      hayMasEnCatalogo = false;
+
+      salida.respuesta = alAzar(ES_ALGUNO_DE_ESTOS);
+      salida.historial = conNota(
+        salida.historial,
+        `No se pudo afirmar el modelo de la foto; le enseñé ${parecidos.length} parecidos del catálogo.`
+      );
+
+      console.log(
+        `Sin nada que mostrar: enseño ${parecidos.length} parecidos del índice ` +
+          "en vez de preguntarle el nombre"
       );
     }
   }

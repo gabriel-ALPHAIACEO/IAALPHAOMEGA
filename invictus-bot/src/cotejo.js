@@ -424,3 +424,40 @@ async function cotejar(
 function primeraPalabra(termino) {
   return String(termino || "").trim().split(/\s+/)[0] || "";
 }
+
+
+// LOS DEL CATÁLOGO QUE MÁS SE PARECEN A LA FOTO, SIN GASTAR UN TOKEN.
+//
+// Esto NO es el cotejo: no le pregunta nada al modelo y no afirma que
+// ninguno sea el de la foto. Compara los 15 rasgos contra los del índice
+// —aritmética, milisegundos, cero llamadas— y devuelve los que más
+// puntúan.
+//
+// Para qué. Cuando el cotejo se abstiene y la búsqueda por nombre no dejó
+// nada, el bot se quedaba preguntando "¿sabes cómo se llama?". Teniendo
+// el catálogo entero indexado eso es absurdo: sabe qué hay y sabe a qué
+// se parece la foto. Enseñarle cinco y preguntarle cuál es vende; pedirle
+// el nombre de un zapato que no sabe nombrar, no.
+export async function parecidosDeLaFoto(env, rasgos, cuantos = 6) {
+  if (!env.DB || !rasgos) return [];
+
+  let indice = [];
+  try {
+    indice = await leerIndice(env.DB);
+  } catch (error) {
+    console.error("No pude leer el índice para buscar parecidos:", error?.message || error);
+    return [];
+  }
+
+  if (!indice.length) return [];
+
+  const mejores = mejoresPorRasgos(indice, rasgos, cuantos).filter((p) => p.titulo && p.imagen);
+
+  if (mejores.length) {
+    console.log(
+      `Parecidos del índice (sin gastar modelo): ${mejores.map((p) => p.titulo).join(" · ")}`
+    );
+  }
+
+  return mejores;
+}
