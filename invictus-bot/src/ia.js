@@ -24,6 +24,7 @@ import listaModelos from "./prompts/modelos.txt";
 import promptIndexar from "./prompts/indexar.txt";
 import { RASGOS_CLAVE } from "./identificar.js";
 import { urlPequena } from "./shopify.js";
+import { comoDataUri } from "./imagen.js";
 
 // EL CATÁLOGO SE PEGA AL PROMPT AL ARRANCAR, NO EN CADA MENSAJE.
 //
@@ -496,17 +497,53 @@ async function unCotejo(env, foto, candidatos, textoCliente) {
     { type: "text", text: "↑ ESTA es la foto del cliente. Abajo, el catálogo:" },
   ];
 
+  // LAS FOTOS DEL CATÁLOGO VIAJAN DENTRO DE LA LLAMADA (24-sep-2026).
+  //
+  // Antes se le pasaba a OpenAI la URL de Shopify y ERA ELLA quien tenía
+  // que descargarla. Eso se rompía una y otra vez:
+  //
+  //   400 · "Unable to download content from the provided URL before the
+  //          timeout" · code: invalid_image_url
+  //
+  // Y cuando pasa, no falla una foto: falla la llamada entera y se pierden
+  // los diez candidatos de esa ronda. Encima el reintento vuelve a gastar.
+  //
+  // Ahora las baja el Worker —que está al lado del CDN, tarda
+  // milisegundos y tiene la caché de Cloudflare delante— y las manda ya
+  // convertidas. OpenAI no sale a Internet a buscar nada, así que ese
+  // error desaparece de raíz.
+  //
+  // Se bajan las PEQUEÑAS (urlPequena) y van en "detail: low": son fotos
+  // de producto limpias, con el zapato centrado sobre fondo liso, y a esa
+  // resolución la silueta y la suela se leen igual.
+  const fotos = await Promise.all(
+    candidatos.map((producto) => fotoDelCatalogo(env, producto.imagen))
+  );
+
+  const conFoto = [];
   candidatos.forEach((producto, i) => {
-    contenido.push({ type: "text", text: `${i + 1}. ${producto.titulo}` });
-    // Las del catálogo en baja: son fotos de producto limpias, con el
-    // zapato centrado y sobre fondo liso. La silueta y la suela se leen
-    // igual de bien, y así una comparación contra 8 productos cuesta una
-    // fracción de lo que costaría en alta.
-    contenido.push({
-      type: "image_url",
-      image_url: { url: urlPequena(producto.imagen), detail: "low" },
-    });
+    // Una foto que no se pudo bajar se queda fuera, y ya está: antes esa
+    // sola tumbaba la ronda entera.
+    if (!fotos[i]) return;
+    conFoto.push(producto);
+    contenido.push({ type: "text", text: `${conFoto.length}. ${producto.titulo}` });
+    contenido.push({ type: "image_url", image_url: { url: fotos[i], detail: "low" } });
   });
+
+  if (!conFoto.length) {
+    console.error("Cotejo visual: no pude bajar NINGUNA foto del catálogo");
+    return null;
+  }
+
+  if (conFoto.length < candidatos.length) {
+    console.log(
+      `Cotejo visual: ${candidatos.length - conFoto.length} foto(s) del catálogo no se ` +
+        `pudieron bajar; sigo con las otras ${conFoto.length}`
+    );
+  }
+
+  // A partir de aquí los números que ve el modelo son los de "conFoto".
+  candidatos = conFoto;
 
   contenido.push({
     type: "text",
@@ -649,4 +686,37 @@ function normalizar(salida) {
     buscar: String(datos.buscar || "NADA").trim(),
     historial: String(datos.historial || "").trim(),
   };
+}
+
+
+// LAS FOTOS DEL CATÁLOGO, BAJADAS UNA SOLA VEZ.
+//
+// El mismo producto sale en varias rondas y en varios mensajes, y su foto
+// no cambia. Guardarla mientras viva el Worker ahorra descargas y hace
+// que la ronda 2 y la 3 salgan casi instantáneas.
+//
+// El tope existe porque un isolate no puede crecer sin freno: con 40
+// fotos de 512px son unos pocos MB, de sobra para una conversación.
+const MAXIMO_FOTOS_GUARDADAS = 40;
+const fotosDelCatalogo = new Map();
+
+async function fotoDelCatalogo(env, url) {
+  if (!url) return "";
+  if (fotosDelCatalogo.has(url)) return fotosDelCatalogo.get(url);
+
+  const { uri } = await comoDataUri(env, urlPequena(url), { silencioso: true });
+
+  // SOLO SE GUARDAN LAS QUE SÍ BAJARON.
+  //
+  // La primera versión guardaba también el fallo, para no reintentar. Pero
+  // un tropiezo de un momento —el CDN lento, un corte de red— dejaba ese
+  // producto fuera del cotejo durante toda la vida del Worker, que son
+  // minutos y muchos clientes. Reintentar una descarga que falla rápido
+  // cuesta mucho menos que perder un producto del catálogo.
+  if (uri) {
+    if (fotosDelCatalogo.size >= MAXIMO_FOTOS_GUARDADAS) fotosDelCatalogo.clear();
+    fotosDelCatalogo.set(url, uri);
+  }
+
+  return uri;
 }

@@ -113,12 +113,31 @@ const MAXIMO_CATALOGO = 600;
 // foto según sus rasgos guardados, así que con 10 sobra: si no está
 // entre los diez más parecidos de todo el catálogo, mirar veinte no lo
 // va a arreglar.
-const DESDE_EL_INDICE = 10;
+// BAJÓ DE 10 A 8, Y LAS RONDAS DE 3 A 2 (24-sep-2026).
+//
+// La cuenta que lo pidió, sacada del registro de producción:
+//
+//   OpenAI puso límite de tokens por minuto en gpt-4o · Limit 30000,
+//   Used 24768, Requested 9374
+//
+// Cada ronda son ~9.400 tokens, y el cupo de gpt-4o son 30.000 por
+// MINUTO. O sea que tres rondas se comían el minuto entero de la tienda
+// por UNA sola foto: el siguiente cliente que mandara otra se quedaba sin
+// cotejo.
+//
+// Y ya no hacen falta tantas: desde que las descripciones traen el texto
+// del zapato, la primera ronda acierta mucho más. Dos rondas de ocho son
+// ~15.000 tokens, la mitad, y dejan sitio para el resto de la tienda.
+const DESDE_EL_INDICE = 8;
 
-// Cuántas rondas se bajan por el ranking del índice antes de rendirse.
-// Tres rondas son 30 productos, los 30 que MÁS se parecen a la foto de
-// todo el catálogo. Más que eso ya no son candidatos, son relleno.
-const RONDAS_DEL_INDICE = 3;
+// Cuántas rondas se bajan por el ranking antes de rendirse. Dos rondas
+// son los 16 que MÁS se parecen a la foto de todo el catálogo. Si no está
+// entre esos dieciséis, una tercera ronda no lo va a encontrar — y el
+// cupo de gpt-4o no da para más (ver arriba).
+//
+// Se puede subir desde wrangler.toml con COTEJO_RONDAS cuando la cuenta
+// de OpenAI aguante más.
+const RONDAS_DEL_INDICE = 2;
 
 // A partir de cuántas filas se considera que el índice ES el catálogo, y
 // barrer Shopify deja de tener sentido. Por debajo de esto la indexación
@@ -287,7 +306,9 @@ export async function cotejoPorImagen({
   }
 
   if (indice.length) {
-    for (let ronda = 1; ronda <= RONDAS_DEL_INDICE; ronda++) {
+    const rondas = Number(env.COTEJO_RONDAS) || RONDAS_DEL_INDICE;
+
+    for (let ronda = 1; ronda <= rondas; ronda++) {
       const candidatos = mejoresPorRasgos(indice, rasgos, DESDE_EL_INDICE + yaMirados.size, color, visto)
         .filter((p) => !yaMirados.has(clave(p)))
         .slice(0, DESDE_EL_INDICE);

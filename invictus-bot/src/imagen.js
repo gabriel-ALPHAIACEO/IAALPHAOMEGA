@@ -25,7 +25,7 @@ const MAXIMO_MB = 15;
 //   "video"     la historia es un vídeo: no se puede mirar, pero se atiende
 //   "caducada"  el enlace ya no sirve
 //   "otro"      cualquier otra cosa
-export async function comoDataUri(env, url) {
+export async function comoDataUri(env, url, { silencioso = false } = {}) {
   const enlace = String(url || "").trim();
 
   // Si ya viene en data URI, no hay nada que traer. Va primero: un data URI
@@ -77,7 +77,11 @@ export async function comoDataUri(env, url) {
     return { uri: "", motivo: "otro" };
   }
 
-  console.log(`Imagen descargada: ${tipo}, ${Math.round(datos.byteLength / 1024)} KB`);
+  // Las del catálogo se bajan de diez en diez y llenarían el registro sin
+  // decir nada: la que importa es la del cliente.
+  if (!silencioso) {
+    console.log(`Imagen descargada: ${tipo}, ${Math.round(datos.byteLength / 1024)} KB`);
+  }
   return { uri: `data:${tipo};base64,${aBase64(datos)}`, motivo: "" };
 }
 

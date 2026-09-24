@@ -70,7 +70,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-24 (19) · un rechazo del cotejo gana al nombre, y lo del nombre ya no se pierde";
+const VERSION = "2026-09-24 (20) · las fotos las baja el Worker, y el color filtra sobre todo el modelo";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -117,6 +117,16 @@ const ES_ALGUNO_DE_ESTOS = [
 // Cuántos se le enseñan. Suficientes para que esté el suyo, pocos para
 // que pueda mirarlos: veinte fichas no se revisan, se ignoran.
 const PARECIDOS_DEL_INDICE = 6;
+
+// Lo que cabe en un carrusel de Instagram.
+const MAXIMO_EN_CARRUSEL = 10;
+
+// Cuántos se le piden a Shopify cuando después hay que filtrar por color.
+// Tiene que cubrir con holgura el modelo más repetido del catálogo: hay
+// trece "Air Force One" y diecisiete "New Balance 9060 Dama", y si el
+// color pedido cae fuera de lo que se pidió, el bot dice que no hay algo
+// que sí tiene.
+const CUANTOS_PARA_FILTRAR = 60;
 
 // Hay un modelo parecido que enseñarle: van con fichas debajo.
 const TE_OFREZCO_PARECIDOS = [
@@ -1512,7 +1522,25 @@ async function decidir({
   // Shopify no hay forma honesta de saber cuántos habría de ESE color.
   let hayMasEnCatalogo = false;
   if (aBuscar) {
-    const resultado = await buscarProductos(env, aBuscar);
+    // CUANDO HAY QUE FILTRAR POR COLOR, SE PIDEN MUCHOS MÁS (24-sep-2026).
+    //
+    // Capturado en producción. El cliente escribió "Air Force One marrón
+    // blanco", que EXISTE en el catálogo — y el bot contestó que no hay:
+    //
+    //   Color pedido: blanco + marrón · busco: "Air Force One"
+    //   Del modelo había 10; en blanco + marrón quedan 0
+    //   Sin resultados para "Air Force One"
+    //
+    // El catálogo tiene TRECE "Air Force One" y la búsqueda pedía diez.
+    // El filtro de color corre aquí, sobre lo que llegó, así que se
+    // aplicaba a una lista ya recortada: el marrón y blanco estaba en los
+    // tres que nunca se pidieron.
+    //
+    // El filtro tiene que ser lo último que recorte, nunca lo segundo. Se
+    // pide un grupo grande, se filtra por color, y lo que quede se recorta
+    // después al tamaño del carrusel.
+    const cuantosPedir = colores.length && sinColor ? CUANTOS_PARA_FILTRAR : undefined;
+    const resultado = await buscarProductos(env, aBuscar, cuantosPedir);
     productos = resultado.productos;
     habiaDelModelo = productos.length;
 
@@ -1523,6 +1551,11 @@ async function decidir({
       console.log(
         `Del modelo había ${habiaDelModelo}; en ${colores.join(" + ")} quedan ${productos.length}`
       );
+      // Ahora sí, al tamaño del carrusel.
+      if (productos.length > MAXIMO_EN_CARRUSEL) {
+        hayMasEnCatalogo = true;
+        productos = productos.slice(0, MAXIMO_EN_CARRUSEL);
+      }
     } else {
       hayMasEnCatalogo = resultado.hayMas;
     }

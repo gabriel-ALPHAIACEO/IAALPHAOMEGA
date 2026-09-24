@@ -79,7 +79,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-24 (11) · un rechazo del cotejo gana al nombre";
+const VERSION = "2026-09-24 (12) · las fotos las baja el Worker, no OpenAI";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA

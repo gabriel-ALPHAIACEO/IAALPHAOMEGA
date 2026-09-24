@@ -35,7 +35,7 @@ const DESDE_EL_INDICE = 8;
 // Cuántas rondas se bajan por el ranking antes de rendirse. Tres rondas
 // son 24 equipos, los 24 que MÁS se parecen a la foto de todo el
 // catálogo. Más que eso ya no son candidatos, son relleno.
-const RONDAS_DEL_INDICE = 3;
+const RONDAS_DEL_INDICE = 2;
 
 // Cuántos del mismo modelo se enseñan detrás del de la foto.
 const MAXIMO_HERMANOS = 9;
@@ -133,7 +133,9 @@ export async function cotejoPorImagen({
   // La descripción de la foto se compara contra las guardadas —en código,
   // sin gastar modelo ni cupo— y solo los mejores van a una llamada. Se
   // baja por el ranking: si la ronda 1 falla, van los 8 siguientes.
-  for (let ronda = 1; ronda <= RONDAS_DEL_INDICE; ronda++) {
+  const rondas = Number(env.COTEJO_RONDAS) || RONDAS_DEL_INDICE;
+
+  for (let ronda = 1; ronda <= rondas; ronda++) {
     const candidatos = mejoresPorDescripcion(indice, visto, DESDE_EL_INDICE + yaMirados.size)
       .filter((p) => !yaMirados.has(clave(p)))
       .slice(0, DESDE_EL_INDICE);

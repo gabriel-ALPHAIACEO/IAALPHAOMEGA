@@ -33,6 +33,36 @@ Tres capas, y cada una arregla el fallo de la anterior:
    - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
    - **Indexar el catálogo una sola vez** ← **esto es lo que se hizo.** Ver abajo.
 
+### Las fotos del catálogo las baja el Worker, no OpenAI (24-sep-2026)
+
+El `invalid_image_url` seguía saliendo aunque las fotos ya se pedían a 512px, y cada mensaje con foto se comía el cupo entero del minuto:
+
+```
+(error) 400 · "Unable to download content from the provided URL before the timeout"
+(error) OpenAI puso límite de tokens por minuto en gpt-4o · Limit 30000, Used 24768
+```
+
+**La causa de fondo era el reparto de trabajo.** Se le pasaba a OpenAI la URL de Shopify y **era ella** quien tenía que salir a descargarla. Con diez URLs por llamada, basta que una tarde para que falle la llamada entera — y con ella se pierden los diez candidatos, no solo el que tardó. Pedirlas más pequeñas ayudó, pero no quitó la dependencia: Shopify genera el tamaño nuevo en la primera petición, y ahí es cuando más tarda.
+
+**Ahora las baja el Worker** —que está al lado del CDN, tarda milisegundos y tiene la caché de Cloudflare delante— y las manda ya convertidas dentro de la llamada. **OpenAI no sale a Internet a buscar nada, así que ese error desaparece de raíz.**
+
+- **Una foto que no baja ya no cuesta la ronda:** se queda fuera y los demás siguen, renumerados para que el índice que devuelve el modelo siga apuntando al producto correcto. Antes tumbaba las diez.
+- **Se guardan mientras vive el Worker**, así que la ronda 2 no vuelve a bajarlas. Solo se cachean las que sí bajaron: cachear un fallo dejaba ese producto fuera del cotejo durante minutos por un tropiezo de un segundo.
+- **Y se gasta la mitad.** Las rondas bajan de 3 a 2 y los candidatos de 10 a 8: de ~30 fotos por mensaje a 16, de ~28.000 tokens a ~15.000. El cupo de gpt-4o son 30.000 **por minuto** para toda la tienda, así que antes una sola foto se lo comía y el siguiente cliente se quedaba sin cotejo. Se puede subir con `COTEJO_RONDAS` cuando la cuenta aguante más.
+
+### "Air Force One marrón blanco" existía y el bot dijo que no (24-sep-2026)
+
+```
+Meta → ATIENDO texto: "Air Force One marrón blanco"
+Color pedido: blanco + marrón · busco: "Air Force One"
+Del modelo había 10; en blanco + marrón quedan 0
+Sin resultados para "Air Force One"
+```
+
+El catálogo tiene **trece** `Air Force One` y la búsqueda pedía **diez**. El filtro de color corre en el Worker, sobre lo que llegó — así que se aplicaba a una lista ya recortada, y `Air Force One marrón blanco Caballero` estaba entre los tres que nunca se pidieron.
+
+**El filtro de color tiene que ser lo último que recorte, nunca lo segundo.** Ahora, cuando hay color que filtrar, se piden 60 (cubre con holgura el modelo más repetido: 17 `New Balance 9060 Dama`), se filtra, y lo que quede se recorta al tamaño del carrusel. Una búsqueda sin color sigue pidiendo 10, como antes.
+
 ### El bot enseñó diez 9060 justo después de decir que ninguno era (24-sep-2026)
 
 El cliente mandó un **New Balance 2000** por chat y recibió **9060**. El registro lo cuenta entero:

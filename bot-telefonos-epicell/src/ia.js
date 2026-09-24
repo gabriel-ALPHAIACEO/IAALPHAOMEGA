@@ -19,6 +19,7 @@ import promptVision from "./prompts/vision.txt";
 import promptIndexar from "./prompts/indexar.txt";
 import promptCotejo from "./prompts/cotejo.txt";
 import { urlPequena } from "./sheets.js";
+import { comoDataUri } from "./imagen.js";
 
 // La lista de nombres vive en un archivo aparte (prompts/catalogo.txt) y se
 // pega dentro de texto.txt al arrancar, donde dice {{CATALOGO}}. Así hay UN
@@ -357,13 +358,45 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
     { type: "text", text: "↑ ESTA es la foto del cliente. Abajo, el catálogo:" },
   ];
 
+  // LAS FOTOS DEL CATÁLOGO VIAJAN DENTRO DE LA LLAMADA.
+  //
+  // Antes se le pasaba a OpenAI la URL de Drive y ERA ELLA quien tenía que
+  // descargarla. Eso se rompía con un 400 "invalid_image_url", y cuando
+  // pasa no falla una foto: falla la llamada entera y se pierden todos los
+  // candidatos de esa ronda.
+  //
+  // Ahora las baja el Worker y las manda ya convertidas. OpenAI no sale a
+  // Internet a buscar nada, así que ese error desaparece de raíz — y de
+  // paso deja de importar si Drive va lento ese día.
+  const fotos = await Promise.all(
+    candidatos.map((producto) => fotoDelCatalogo(env, producto.imagen))
+  );
+
+  const conFoto = [];
   candidatos.forEach((producto, i) => {
-    contenido.push({ type: "text", text: `${i + 1}. ${producto.titulo}` });
-    contenido.push({
-      type: "image_url",
-      image_url: { url: urlPequena(producto.imagen), detail: "low" },
-    });
+    // Una foto que no se pudo bajar se queda fuera, y ya está.
+    if (!fotos[i]) return;
+    conFoto.push(producto);
+    contenido.push({ type: "text", text: `${conFoto.length}. ${producto.titulo}` });
+    contenido.push({ type: "image_url", image_url: { url: fotos[i], detail: "low" } });
   });
+
+  if (!conFoto.length) {
+    console.error(
+      "Cotejo visual: no pude bajar NINGUNA foto del catálogo. " +
+        "¿Están las de Drive en \"Cualquiera con el enlace\"?"
+    );
+    return null;
+  }
+
+  if (conFoto.length < candidatos.length) {
+    console.log(
+      `Cotejo visual: ${candidatos.length - conFoto.length} foto(s) no se pudieron bajar; ` +
+        `sigo con las otras ${conFoto.length}`
+    );
+  }
+
+  candidatos = conFoto;
 
   contenido.push({
     type: "text",
@@ -413,4 +446,31 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
 
   console.log(`Cotejo visual: la foto es "${elegido.titulo}" (${porque})`);
   return elegido;
+}
+
+
+// Las fotos del catálogo, bajadas una sola vez. El mismo producto sale en
+// varias rondas y en varios mensajes, y su foto no cambia.
+const MAXIMO_FOTOS_GUARDADAS = 40;
+const fotosDelCatalogo = new Map();
+
+async function fotoDelCatalogo(env, url) {
+  if (!url) return "";
+  if (fotosDelCatalogo.has(url)) return fotosDelCatalogo.get(url);
+
+  const { uri } = await comoDataUri(env, urlPequena(url), { silencioso: true });
+
+  // SOLO SE GUARDAN LAS QUE SÍ BAJARON.
+  //
+  // La primera versión guardaba también el fallo, para no reintentar. Pero
+  // un tropiezo de un momento —el CDN lento, un corte de red— dejaba ese
+  // producto fuera del cotejo durante toda la vida del Worker, que son
+  // minutos y muchos clientes. Reintentar una descarga que falla rápido
+  // cuesta mucho menos que perder un producto del catálogo.
+  if (uri) {
+    if (fotosDelCatalogo.size >= MAXIMO_FOTOS_GUARDADAS) fotosDelCatalogo.clear();
+    fotosDelCatalogo.set(url, uri);
+  }
+
+  return uri;
 }
