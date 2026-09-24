@@ -36,7 +36,15 @@
 import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
 import { cotejarConCatalogo, estaLimitado, modeloDeVision } from "./ia.js";
 import { terminosCompatibles } from "./identificar.js";
-import { leerIndice, mejoresPorRasgos, parecidoDeRasgos, puntosDeColor } from "./indice.js";
+import {
+  leerIndice,
+  mejoresPorRasgos,
+  parecidoDeRasgos,
+  puntosDeColor,
+  puntosDeDescripcion,
+  palabrasDe,
+  pesoDeLasPalabras,
+} from "./indice.js";
 
 // Cuántas fotos del catálogo se le mandan al modelo. Con 8 se cubre de
 // sobra una marca del catálogo, y cada una en "detail: low" cuesta poco.
@@ -132,6 +140,11 @@ export async function cotejoPorImagen({
   // suela plana, sin logo"). Desempata los zapatos lisos, que en los 15
   // rasgos empatan todos entre sí.
   visto = "",
+  // La IA de visión nombró un MODELO concreto, no solo la marca. Si
+  // además la búsqueda por ese nombre devolvió producto, lo que hay que
+  // enseñar ya está encontrado y el índice no pinta nada: solo puede
+  // irse a otro modelo. Ver más abajo.
+  nombreFiable = false,
   // El modelo se nombró pero su detalle distintivo no se ve en la foto
   // (ver identificar.js). Entonces el cotejo ya no está desempatando
   // entre varios: está VERIFICANDO que el que se encontró sea el de la
@@ -177,7 +190,7 @@ export async function cotejoPorImagen({
   // Y ORDENADOS POR COLOR Y RASGOS, que es lo que arregla el "me mostró
   // otro color": diez Adidas sin ordenar son diez tiros al aire, y el
   // modelo solo ve los 8 primeros.
-  const pila = ordenar(unir(porRasgos, productos), { color, rasgos, indice });
+  const pila = ordenar(unir(porRasgos, productos), { color, rasgos, indice, visto });
 
   // Todo lo que ya se le puso delante al modelo. Lo que descartó no se
   // le vuelve a mostrar en el barrido: sería pagar dos veces por la
@@ -205,7 +218,7 @@ export async function cotejoPorImagen({
       const elegido = await cotejar(
         env,
         foto,
-        ordenar(unir(pila, deLaMarca), { color, rasgos, indice }),
+        ordenar(unir(pila, deLaMarca), { color, rasgos, indice, visto }),
         textoCliente,
         minimo,
         yaMirados
@@ -227,6 +240,27 @@ export async function cotejoPorImagen({
   // diez siguientes, y los diez siguientes. Son candidatos ordenados por
   // parecido real, así que la ronda 2 sigue siendo mejor apuesta que
   // veinte productos cualesquiera de Shopify.
+  // EL ÍNDICE NO SUSTITUYE UN NOMBRE QUE YA ACERTÓ (crítico — 24-sep-2026).
+  //
+  // Caso real: una historia con unos Jordan 40. La visión los nombró bien,
+  // la búsqueda devolvió los 5 Jordan 40 del catálogo, el cotejo no llegó
+  // a "alta" sobre ninguno... y entonces las rondas del índice miraban los
+  // 581 productos, encontraban un "Jordan Lukka" que también lleva jumpman,
+  // y ESE se le mandaba al cliente — descartando los 5 Jordan 40 buenos,
+  // porque resultado() se queda con el elegido y sus hermanos.
+  //
+  // El índice existe para cuando el NOMBRE falla. Si el nombre acertó y
+  // trajo producto, lo que se enseña son esos: como mucho hay que
+  // ordenarlos, nunca cambiarlos por otro modelo. Devolver null aquí deja
+  // que decidir() muestre lo que encontró la búsqueda, que es lo correcto.
+  if (nombreFiable && productos.length) {
+    console.log(
+      `La búsqueda por "${termino}" trajo ${productos.length} producto(s) y la visión ` +
+        "nombró el modelo: no toco el índice, esos son los que hay que enseñar"
+    );
+    return null;
+  }
+
   if (indice.length) {
     for (let ronda = 1; ronda <= RONDAS_DEL_INDICE; ronda++) {
       const candidatos = mejoresPorRasgos(indice, rasgos, DESDE_EL_INDICE + yaMirados.size, color, visto)
@@ -447,17 +481,24 @@ const MAXIMO_HERMANOS = 9;
 // índice—, así que se emparejan por la URL de su foto, que es la clave
 // del índice. El que no esté indexado puntúa solo por color, y queda
 // detrás de los que sí: es lo correcto, de ese no sabemos nada.
-function ordenar(productos, { color, rasgos, indice }) {
+function ordenar(productos, { color, rasgos, indice, visto = "" }) {
   if (!color && !rasgos) return productos;
 
   const porFoto = new Map((indice || []).map((p) => [p.imagen, p]));
+
+  // El peso de cada palabra se calcula UNA vez sobre todo el catálogo, no
+  // una por producto: hacerlo dentro del bucle sería recorrer las 581
+  // descripciones por cada candidato.
+  const delaFoto = palabrasDe(visto);
+  const peso = delaFoto.size ? pesoDeLasPalabras(indice || []) : new Map();
 
   return [...productos]
     .map((producto, orden) => {
       const guardado = porFoto.get(producto.imagen);
       const puntos =
         puntosDeColor(producto.titulo, color) +
-        (guardado ? parecidoDeRasgos(guardado.rasgos, rasgos) : 0);
+        (guardado ? parecidoDeRasgos(guardado.rasgos, rasgos) : 0) +
+        (guardado ? puntosDeDescripcion(guardado.visto, delaFoto, peso) : 0);
       // "orden" mantiene estable el orden original entre empatados.
       return { producto, puntos, orden };
     })
@@ -566,4 +607,34 @@ export async function parecidosDeLaFoto(env, rasgos, cuantos = 6, color = "", vi
   }
 
   return mejores;
+}
+
+
+// ORDENA LO QUE SE LE VA A ENSEÑAR AL CLIENTE.
+//
+// EL FALLO QUE ARREGLA (24-sep-2026). Una historia con unos Adidas
+// Adistar XLG blancos, y el cliente recibió el beige. El orden por color
+// ya existía, pero se aplicaba SOLO a la copia que se le pasa al modelo
+// para cotejar. Lo que sale por Instagram era la lista tal cual la
+// devolvió Shopify, en el orden que le diera la gana.
+//
+// O sea: el bot sabía cuál era el bueno y lo mandaba en tercer lugar.
+//
+// Se usa cuando el cotejo no llegó a afirmar nada pero la búsqueda sí
+// trajo producto — que es el caso más frecuente de todos.
+export async function ordenarPorLaFoto(env, productos, { color, rasgos, visto } = {}) {
+  if (productos.length < 2) return productos;
+  if (!color && !rasgos) return productos;
+
+  const indice = await leerIndiceSeguro(env);
+  const ordenados = ordenar(productos, { color, rasgos, indice, visto });
+
+  if (ordenados[0] !== productos[0]) {
+    console.log(
+      `Reordeno para el cliente: primero "${ordenados[0].titulo}"` +
+        (color ? ` (color de la foto: ${color})` : "")
+    );
+  }
+
+  return ordenados;
 }

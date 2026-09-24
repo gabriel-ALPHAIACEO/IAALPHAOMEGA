@@ -33,6 +33,35 @@ Tres capas, y cada una arregla el fallo de la anterior:
    - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
    - **Indexar el catálogo una sola vez** ← **esto es lo que se hizo.** Ver abajo.
 
+### Dos fallos que se veían igual y no lo eran (24-sep-2026)
+
+Reportados por el dueño el mismo día:
+
+1. *"Pregunté en una historia (salía un Jordan 40) y me mostró unos Jordan Lukka."*
+2. *"Otra historia con unos Adidas Adistar XLG blancos, y me mostró uno beige."*
+
+**Descartado primero:** que `sinTalla()` se comiera el "40" de Jordan 40. No lo hace — solo quita el número cuando va detrás de `talla`/`size`/`número`, y está comprobado: `"Jordan 40"` → `"Jordan 40"`.
+
+#### 1. El índice sustituía un nombre que ya había acertado
+
+La visión nombró bien el Jordan 40, la búsqueda devolvió los 5 del catálogo, y el cotejo no llegó a confianza `alta` sobre ninguno. Hasta ahí, bien. Pero entonces **las rondas del índice se lanzaban igual**, miraban los 581 productos, encontraban un `Jordan Lukka` —que también lleva jumpman y también es bota de basket— y ESE se le mandaba al cliente. Peor: `resultado()` se queda con el elegido y sus hermanos, así que **los 5 Jordan 40 buenos se descartaban**.
+
+El índice existe para cuando el NOMBRE falla. Si el nombre acertó y trajo producto, lo que se enseña son esos: como mucho hay que ordenarlos, nunca cambiarlos por otro modelo. Ahora `cotejoPorImagen` recibe `nombreFiable` (la visión llegó al modelo, no solo a la marca) y con eso corta antes de tocar el índice.
+
+#### 2. El orden por color no llegaba al cliente
+
+Este es el más tonto y el más caro. El orden por color **ya existía desde la versión 14** — pero se aplicaba solo a la copia que se le pasa al modelo para cotejar. Lo que sale por Instagram era la lista **tal cual la devolvió Shopify**.
+
+O sea: el bot sabía cuál era el bueno y lo mandaba en tercer lugar.
+
+```
+Shopify devolvía:   XLG beige | XLG (blanco) | XLG gris
+el cliente veía:    XLG beige   ← el primero del carrusel
+ahora ve:           XLG (blanco) | XLG beige | XLG gris
+```
+
+`ordenarPorLaFoto()` ordena lo que de verdad se envía, por color + rasgos + descripción. Corre cuando el cotejo no afirmó nada y la búsqueda sí trajo producto — que es el caso más frecuente de todos. Si el cotejo sí acertó no hace falta: ese ya viene primero.
+
 ### Los zapatos sin logo (24-sep-2026)
 
 Caso real: `"sin logo visible, corte bajo, suela blanca plana, cuero blanco"`. El bot miró 30 candidatos y falló los 30.

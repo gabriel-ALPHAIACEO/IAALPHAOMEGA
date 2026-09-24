@@ -37,7 +37,7 @@ import { alternativasPara } from "./parecidos.js";
 import { separarColor, filtrarPorColor, terminoDeColor, nombreDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
-import { cotejoPorImagen, parecidosDeLaFoto } from "./cotejo.js";
+import { cotejoPorImagen, parecidosDeLaFoto, ordenarPorLaFoto } from "./cotejo.js";
 import { leerIndice, indexarTanda } from "./indice.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
@@ -70,7 +70,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-24 (15) · los zapatos sin logo se desempatan por su descripción";
+const VERSION = "2026-09-24 (16) · el nombre acertado manda, y el orden que ve el cliente es el de la foto";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -615,6 +615,7 @@ export default {
         rasgos: identificacion.rasgos,
         colorFoto: nombreDeColor(identificacion.color),
         vistoFoto: identificacion.visto || "",
+        modeloNombrado: !pedirNombreExacto && String(buscar).toUpperCase() !== "NADA",
         porConfirmar: Boolean(confirmar),
       });
 
@@ -1030,6 +1031,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   let colorFoto = "";
   // La frase de lo que la IA vio. Desempata los zapatos sin logo.
   let vistoFoto = "";
+  // La visión llegó al MODELO, no se quedó en la marca.
+  let modeloNombrado = false;
   // El modelo se nombró pero el detalle que lo confirmaría no se ve en la
   // foto (ver identificar.js). Se busca igual, y el cotejo visual lo
   // verifica contra la foto real del catálogo — incluso si hay un solo
@@ -1057,6 +1060,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       rasgosFoto = identificacion.rasgos;
       colorFoto = nombreDeColor(identificacion.color);
       vistoFoto = identificacion.visto || "";
+      modeloNombrado = !pedirNombreExacto && String(buscar).toUpperCase() !== "NADA";
       porConfirmar = Boolean(confirmar);
     } else {
       console.error(
@@ -1132,6 +1136,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     rasgos: rasgosFoto,
     colorFoto,
     vistoFoto,
+    modeloNombrado,
     porConfirmar,
   });
 
@@ -1469,6 +1474,9 @@ async function decidir({
   // Lo que la IA describió de la foto. Es lo único que distingue un
   // zapato liso de otro: en los 15 rasgos, todos los lisos empatan.
   vistoFoto = "",
+  // La visión nombró un MODELO concreto, no solo la marca. Si además la
+  // búsqueda encontró producto, el índice no debe cambiarlo por otro.
+  modeloNombrado = false,
   // El modelo se identificó pero sin confirmar del todo: el cotejo pasa a
   // verificar, no solo a desempatar.
   porConfirmar = false,
@@ -1535,6 +1543,7 @@ async function decidir({
   // Esto compara la foto del cliente contra las fotos REALES del
   // catálogo y saca el par que es. Ver ./cotejo.js: no corre siempre, y
   // cuando no está seguro devuelve null y todo sigue igual que sin él.
+  let cotejoAcerto = false;
   if (foto) {
     const cotejo = await cotejoPorImagen({
       env,
@@ -1545,6 +1554,7 @@ async function decidir({
       rasgos,
       color: colorFoto,
       visto: vistoFoto,
+      nombreFiable: modeloNombrado,
       verificar: porConfirmar,
       // El barrido del catálogo completo es el último recurso y el único
       // paso caro de todo esto. Se apaga con COTEJO_BARRIDO = "no".
@@ -1552,6 +1562,7 @@ async function decidir({
     });
 
     if (cotejo) {
+      cotejoAcerto = true;
       productos = cotejo.productos;
       habiaDelModelo = productos.length;
 
@@ -1568,6 +1579,26 @@ async function decidir({
         `Le mostré ${cotejo.elegido.titulo} (identificado por la foto).`
       );
     }
+  }
+
+  // LO QUE SE LE ENSEÑA AL CLIENTE VA EN EL ORDEN DE LA FOTO (crítico).
+  //
+  // Caso real (24-sep): una historia con unos Adidas Adistar XLG blancos,
+  // y el cliente recibió el beige. El orden por color YA existía, pero se
+  // aplicaba solo a la copia que se le pasa al modelo para cotejar; lo que
+  // sale por Instagram era la lista tal cual la devolvió Shopify.
+  //
+  // O sea: el bot sabía cuál era el bueno y lo mandaba en tercer lugar.
+  //
+  // Esto corre cuando el cotejo no afirmó nada —el caso más frecuente— y
+  // la búsqueda sí trajo producto. Si el cotejo SÍ acertó, no hace falta:
+  // ese ya viene primero de cotejo.js.
+  if (foto && productos.length > 1 && !cotejoAcerto) {
+    productos = await ordenarPorLaFoto(env, productos, {
+      color: colorFoto,
+      rasgos,
+      visto: vistoFoto,
+    });
   }
 
   // TENIENDO EL CATÁLOGO INDEXADO, NO SE LE PREGUNTA EL NOMBRE.

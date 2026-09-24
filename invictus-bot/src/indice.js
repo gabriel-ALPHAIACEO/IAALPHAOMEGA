@@ -322,7 +322,7 @@ const VACIAS = new Set([
   "color","se","ve","visible","tiene","lleva","parte","lado","lateral","foto",
 ]);
 
-function palabrasDe(texto) {
+export function palabrasDe(texto) {
   return new Set(
     String(texto || "")
       .normalize("NFD")
@@ -337,7 +337,7 @@ function palabrasDe(texto) {
 // Cuánto vale cada palabra: mucho si sale en pocas descripciones, casi
 // nada si sale en todas. Es el peso que hace que "gamuza" mande sobre
 // "suela" sin tener que escribir a mano ninguna lista.
-function pesoDeLasPalabras(indice) {
+export function pesoDeLasPalabras(indice) {
   const enCuantas = new Map();
 
   for (const producto of indice) {
@@ -354,7 +354,7 @@ function pesoDeLasPalabras(indice) {
   return peso;
 }
 
-function puntosDeDescripcion(vistoDelCatalogo, delaFoto, peso) {
+export function puntosDeDescripcion(vistoDelCatalogo, delaFoto, peso) {
   if (!delaFoto.size) return 0;
 
   const delProducto = palabrasDe(vistoDelCatalogo);
