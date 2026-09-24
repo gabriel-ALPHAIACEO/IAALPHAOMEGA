@@ -62,6 +62,11 @@ export async function cotejoPorImagen({
 
   const indice = await leerIndiceSeguro(env);
 
+  // ¿Llegó el cotejo a MIRAR los que encontró la búsqueda por nombre? Si
+  // los miró y dijo que ninguno era, eso es una opinión sobre el NOMBRE, y
+  // hay que hacerle caso.
+  let losDelNombreFueronRechazados = false;
+
   // PRIMERO, LO QUE YA ENCONTRÓ LA BÚSQUEDA, ORDENADO.
   if (productos.length >= 2) {
     const elegido = await cotejar(
@@ -72,6 +77,7 @@ export async function cotejoPorImagen({
       2
     );
     if (elegido) return resultado(elegido, productos, indice);
+    losDelNombreFueronRechazados = true;
   }
 
   // EL ÍNDICE NO SUSTITUYE UN NOMBRE QUE YA ACERTÓ (crítico).
@@ -85,12 +91,25 @@ export async function cotejoPorImagen({
   // El índice existe para cuando el NOMBRE falla. Si el nombre acertó y
   // trajo producto, lo que se enseña son esos: como mucho hay que
   // ordenarlos, nunca cambiarlos por otro modelo.
-  if (nombreFiable && productos.length) {
+  // PERO UN RECHAZO DEL COTEJO GANA AL NOMBRE. Si el cotejo miró los del
+  // nombre y dijo que ninguno es, el nombre no es de fiar: se sigue al
+  // índice. Y no hay nada que perder haciéndolo, porque resultado()
+  // guarda los del nombre detrás del elegido. (Caso real en el bot de
+  // calzado: la visión se inventó un "9060" y se le enseñaban diez 9060
+  // aunque el cotejo acabara de decir que ninguno era.)
+  if (nombreFiable && productos.length && !losDelNombreFueronRechazados) {
     console.log(
-      `La búsqueda por "${termino}" trajo ${productos.length} producto(s) y la visión ` +
-        "nombró el modelo: no toco el índice, esos son los que hay que enseñar"
+      `La búsqueda por "${termino}" trajo ${productos.length} producto(s), la visión ` +
+        "nombró el modelo y el cotejo no los descartó: no toco el índice"
     );
     return null;
+  }
+
+  if (nombreFiable && losDelNombreFueronRechazados) {
+    console.log(
+      `El cotejo miró los ${productos.length} de "${termino}" y dijo que ninguno es: ` +
+        "el nombre no es de fiar, busco en el índice"
+    );
   }
 
   // LA MARCA, cuando la búsqueda por nombre no dejó nada.
@@ -258,7 +277,25 @@ function resultado(elegido, productos, indice = []) {
     console.log(`Del mismo modelo hay ${hermanos.length} más: van detrás del de la foto`);
   }
 
-  return { elegido, productos: [elegido, ...hermanos.slice(0, MAXIMO_HERMANOS)] };
+  // Y DETRÁS, LO QUE ENCONTRÓ LA BÚSQUEDA POR NOMBRE. Antes se tiraba, y
+  // eso convertía un acierto del índice en una apuesta: si se equivocaba,
+  // el cliente perdía también lo que la búsqueda SÍ había encontrado.
+  // Guardarlos detrás quita la elección imposible.
+  const delNombre = productos.filter(
+    (p) => p.titulo !== elegido.titulo && !hermanos.some((h) => h.titulo === p.titulo)
+  );
+
+  if (delNombre.length) {
+    console.log(
+      `Detrás van los ${delNombre.length} que encontró la búsqueda: si me equivoqué, ` +
+        "el cliente los tiene igual delante"
+    );
+  }
+
+  return {
+    elegido,
+    productos: [elegido, ...hermanos.slice(0, MAXIMO_HERMANOS), ...delNombre].slice(0, 10),
+  };
 }
 
 function clave(producto) {

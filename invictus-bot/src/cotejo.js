@@ -197,9 +197,15 @@ export async function cotejoPorImagen({
   // misma respuesta.
   const yaMirados = new Set();
 
+  // ¿Llegó el cotejo a MIRAR los que encontró la búsqueda por nombre? Si
+  // los miró y dijo que ninguno era, eso es una opinión sobre el NOMBRE, y
+  // hay que hacerle caso.
+  let losDelNombreFueronRechazados = false;
+
   if (pila.length >= minimo) {
     const elegido = await cotejar(env, foto, pila, textoCliente, minimo, yaMirados);
     if (elegido) return resultado(elegido, productos, indice);
+    losDelNombreFueronRechazados = productos.length > 0;
   }
 
   // Ni los rasgos ni la búsqueda dieron con él. Queda la marca, que es lo
@@ -253,12 +259,31 @@ export async function cotejoPorImagen({
   // trajo producto, lo que se enseña son esos: como mucho hay que
   // ordenarlos, nunca cambiarlos por otro modelo. Devolver null aquí deja
   // que decidir() muestre lo que encontró la búsqueda, que es lo correcto.
-  if (nombreFiable && productos.length) {
+  // PERO UN RECHAZO DEL COTEJO GANA AL NOMBRE (24-sep-2026).
+  //
+  // Caso real: el cliente mandó un New Balance 2000. La visión vio "N
+  // grande, suela con cápsulas, malla blanca" y de ahí se sacó un "9060"
+  // que no había leído en ninguna parte. La búsqueda trajo 10 nueveses
+  // mil sesenta, el cotejo los miró y dijo —con razón, y explicándolo—
+  // que la suela del cliente era más bulbosa que la de todos ellos... y
+  // este guard los enseñaba igual.
+  //
+  // Si el cotejo MIRÓ los del nombre y los rechazó, el nombre no es de
+  // fiar: se sigue al índice. Y ya no hay nada que perder haciéndolo,
+  // porque resultado() guarda los del nombre detrás del elegido.
+  if (nombreFiable && productos.length && !losDelNombreFueronRechazados) {
     console.log(
-      `La búsqueda por "${termino}" trajo ${productos.length} producto(s) y la visión ` +
-        "nombró el modelo: no toco el índice, esos son los que hay que enseñar"
+      `La búsqueda por "${termino}" trajo ${productos.length} producto(s), la visión ` +
+        "nombró el modelo y el cotejo no los descartó: no toco el índice"
     );
     return null;
+  }
+
+  if (nombreFiable && losDelNombreFueronRechazados) {
+    console.log(
+      `El cotejo miró los ${productos.length} de "${termino}" y dijo que ninguno es: ` +
+        "el nombre no es de fiar, busco en el índice"
+    );
   }
 
   if (indice.length) {
@@ -451,14 +476,10 @@ function resultado(elegido, productos, indice = []) {
 
   // SALIÓ DEL ÍNDICE O DE LA MARCA: SE LE ENSEÑA CON SUS HERMANOS.
   //
-  // Antes aquí se mandaba el elegido SOLO, para no enterrarlo entre siete
-  // que no tienen que ver. Pero en este catálogo el mismo título se
-  // repite una vez por color —hay 17 "New Balance 9060 Dama"—, así que
-  // los que comparten título son EL MISMO ZAPATO en otros colores. Eso no
-  // es ruido: es exactamente lo que el cliente quiere ver después del
-  // suyo.
-  //
-  // El de la foto va PRIMERO y los demás detrás.
+  // En este catálogo el mismo título se repite una vez por color —hay 17
+  // "New Balance 9060 Dama"—, así que los que comparten título son EL
+  // MISMO ZAPATO en otros colores. Eso no es ruido: es lo que el cliente
+  // quiere ver después del suyo. El de la foto va PRIMERO.
   const hermanos = indice.filter(
     (p) => p.titulo === elegido.titulo && p.imagen !== elegido.imagen && p.imagen
   );
@@ -467,7 +488,37 @@ function resultado(elegido, productos, indice = []) {
     console.log(`Del mismo modelo hay ${hermanos.length} más: van detrás del de la foto`);
   }
 
-  return { elegido, productos: [elegido, ...hermanos.slice(0, MAXIMO_HERMANOS)] };
+  // Y DETRÁS, LO QUE ENCONTRÓ LA BÚSQUEDA POR NOMBRE (24-sep-2026).
+  //
+  // Antes esto se tiraba: si el par salía del índice, el cliente recibía
+  // solo ese. Los dos fallos reportados salen de ahí, y son el mismo por
+  // los dos lados:
+  //
+  //   · Historia con unos Jordan 40. El índice eligió un "Jordan Lukka" y
+  //     los 5 Jordan 40 que la búsqueda SÍ había encontrado se perdieron.
+  //   · Foto de un New Balance 2000. La visión se inventó "9060", y para
+  //     no repetir lo anterior se le enseñaban los 9060 aunque el cotejo
+  //     acabara de decir que ninguno era.
+  //
+  // Guardarlos detrás quita la elección imposible: si el índice acierta,
+  // el bueno va primero; si se equivoca, el cliente todavía ve lo que la
+  // búsqueda encontró, en la misma ficha. Ninguno de los dos casos acaba
+  // peor que antes.
+  const delNombre = productos.filter(
+    (p) => p.titulo !== elegido.titulo && !hermanos.some((h) => h.titulo === p.titulo)
+  );
+
+  if (delNombre.length) {
+    console.log(
+      `Detrás van los ${delNombre.length} que encontró la búsqueda: si me equivoqué, ` +
+        "el cliente los tiene igual delante"
+    );
+  }
+
+  return {
+    elegido,
+    productos: [elegido, ...hermanos.slice(0, MAXIMO_HERMANOS), ...delNombre].slice(0, 10),
+  };
 }
 
 // Cuántos del mismo modelo se enseñan detrás del de la foto. El carrusel

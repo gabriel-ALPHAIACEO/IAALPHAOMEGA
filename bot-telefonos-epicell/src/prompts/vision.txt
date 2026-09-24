@@ -148,6 +148,24 @@ solo la marca y el tipo —"iPhone Pro" con "pedirNombreExacto":true— en vez
 de "iPhone 15 Pro" mal elegido.
 
 
+EL NÚMERO DEL MODELO NO SE ADIVINA (crítico)
+
+En teléfonos esto duele todavía más que en otras tiendas: un Redmi Note
+13, un 14 y un 15 se parecen muchísimo, y lo mismo pasa con los Galaxy A,
+los Camon y los Note de Infinix.
+
+LA REGLA. Un NÚMERO solo va en "buscar" si LO LEÍSTE — en el equipo, en
+la caja o en la etiqueta— y lo pusiste en "visto" copiado tal cual.
+
+Si no lo leíste, escribe la familia SIN número ("Redmi Note", "Galaxy A",
+"Camon") y pon "pedirNombreExacto": true. Entonces el sistema compara tu
+foto contra las fotos reales del catálogo y encuentra el bueno él solo,
+que es exactamente para lo que existe.
+
+Quedarte en la familia NO es fallar. Inventar el número, en cambio, manda
+al cliente diez equipos que no son el suyo, y encima con la seguridad de
+haber acertado.
+
 ESCALERA DE CONFIANZA (crítico)
 
 No adivines. Baja un escalón cada vez que dudes.

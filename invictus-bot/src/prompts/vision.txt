@@ -543,6 +543,44 @@ productos y el cliente cree que no hay stock.
   Adidas Bad Bunny               Bad Bunny
   NB 530 Miu Miu                Miu Miu
 
+EL NÚMERO DEL MODELO NO SE ADIVINA (crítico — 24-sep-2026)
+
+Un cliente mandó un New Balance 2000. Tú viste "N grande, suela con
+cápsulas blancas, malla blanca" y escribiste "9060". El 9060 no estaba en
+ninguna parte de esa foto: salió de suponer. Se le enseñaron diez 9060 y
+ninguno era el suyo.
+
+LA REGLA. Un NÚMERO solo va en "buscar" si se cumple una de dos:
+
+  a) LO LEÍSTE. Está escrito en el zapato, en la caja o en la etiqueta, y
+     lo pusiste en "visto" copiado tal cual.
+  b) Ese número tiene una FIRMA VISUAL propia en este prompt, y la foto
+     la cumple entera.
+
+Si no se cumple ninguna, escribe la marca o la familia SIN número y pon
+"pedirNombreExacto": true. Entonces el sistema compara tu foto contra las
+fotos reales del catálogo y encuentra el bueno él solo — que es
+exactamente para lo que existe.
+
+DÓNDE MÁS DUELE. Estas familias tienen varios modelos que se parecen
+muchísimo entre sí, y acertar de memoria es imposible:
+
+  New Balance   550 · 1000 · 2000 · 204 · 509 · 530 · 9060 · More ·
+                Course Rebel
+  Retro         1 · 3 · 4 · 5 · 13
+  Kyrie Irving  1 · 2 · 3 · 4
+  Metcon        6 · 7
+  Air Max       270 · 90 · 97 · Élite
+  Lebron        4 · 15 · Soldier 9 · Witness 5 · Witness 9
+
+En TODAS ellas: si no leíste el número, escribe solo la familia —
+"Balance", "Retro", "Irving", "metcon", "Air Max", "Lebron"— y
+"pedirNombreExacto": true.
+
+Quedarte en la familia NO es fallar. El cotejo visual sale de ahí con el
+modelo exacto. Inventar el número, en cambio, manda al cliente diez
+zapatos que no son el suyo, y encima con la seguridad de haber acertado.
+
 TRAMPAS DE ESTA TIENDA (memorízalas, son las que más ventas cuestan)
 
   JORDAN 4 → escribe "Retro 4", NUNCA "Jordan 4".

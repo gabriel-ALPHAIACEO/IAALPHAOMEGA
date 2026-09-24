@@ -33,6 +33,33 @@ Tres capas, y cada una arregla el fallo de la anterior:
    - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
    - **Indexar el catálogo una sola vez** ← **esto es lo que se hizo.** Ver abajo.
 
+### El bot enseñó diez 9060 justo después de decir que ninguno era (24-sep-2026)
+
+El cliente mandó un **New Balance 2000** por chat y recibió **9060**. El registro lo cuenta entero:
+
+```
+La IA de visión vio: "N grande lateral, suela con cápsulas blancas, malla blanca"
+                     · color: blanco → busco: "9060"
+Busqué "9060": 10 resultado(s)
+Cotejo visual: ninguno del catálogo es el de la foto (la suela del cliente tiene
+               una apariencia más bulbosa en comparación con las opciones...)
+La búsqueda por "9060" trajo 10 producto(s) y la visión nombró el modelo:
+               no toco el índice, esos son los que hay que enseñar
+```
+
+**El cotejo acertó y el código lo ignoró.** Miró los diez 9060, dijo que ninguno era, y hasta explicó por qué. Y acto seguido el guard `nombreFiable` —que yo había puesto el día anterior para el caso de los Jordan 40— los enseñaba igual.
+
+**Dónde estaba mi error.** Ese guard nació de un caso donde el nombre era CORRECTO (Jordan 40) y el cotejo simplemente no llegaba a confianza alta. Lo escribí como "si la visión nombró el modelo, el índice no toca nada" — sin distinguir *el cotejo no pudo confirmarlo* de *el cotejo dijo que no es*. Son cosas distintas y la segunda es una opinión sobre el nombre.
+
+**Dos cambios, y juntos quitan la elección imposible:**
+
+1. **Un rechazo del cotejo gana al nombre.** Si el cotejo miró los del nombre y los descartó a todos, el nombre no es de fiar y se sigue al índice.
+2. **Lo que encontró la búsqueda ya no se tira.** Antes, si el par salía del índice, `resultado()` devolvía solo ese. Ahora los del nombre van **detrás** del elegido, en la misma ficha. Si el índice acierta, el bueno va primero; si se equivoca, el cliente todavía ve lo que la búsqueda encontró. **Ninguno de los dos casos reportados acaba peor que antes** — y el de los Jordan 40 acaba mejor, porque los cinco buenos ya no desaparecen.
+
+**Y la causa de raíz: la visión se inventó el número.** De *"N grande, suela con cápsulas, malla blanca"* salió un `9060` que no estaba escrito en ninguna parte. El catálogo tiene New Balance 550, 1000, 2000, 204, 509, 530, 9060, More y Course Rebel: acertar de memoria entre ellos es imposible.
+
+Regla nueva en `vision.txt`, en los dos bots: **un número solo va en `buscar` si se leyó** en el zapato, la caja o la etiqueta, o si ese modelo tiene una firma visual propia en el prompt. Si no, va la familia sin número y `pedirNombreExacto: true` — que es justo lo que enciende el cotejo visual. Con la lista de las familias donde más duele: Retro, Kyrie, Metcon, Air Max, Lebron y New Balance.
+
 ### La foto del catálogo pesaba demasiado, y la descripción decía muy poco (24-sep-2026)
 
 Un cliente mandó por chat un Nike Zoom blanco y azul. Del registro salieron dos fallos distintos.
