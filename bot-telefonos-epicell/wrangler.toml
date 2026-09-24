@@ -106,6 +106,20 @@ OPENAI_MODELO_VISION = "gpt-4o"
 # cuando quiera con FRASE_DESPAUSAR, sin esperar a que venza.
 PAUSA_HORAS = "4"
 
+# CADA CUANTOS MINUTOS DE SILENCIO DEL ASESOR EL BOT RETOMA LA CONVERSACION.
+#
+# La pausa protege al asesor que esta atendiendo, no al que se fue. Si el
+# cliente vuelve a escribir y el asesor lleva estos minutos sin decir una
+# palabra, el bot contesta en vez de dejarlo hablando solo.
+#
+# Cada mensaje del asesor reinicia el reloj, asi que mientras este
+# atendiendo el bot no se mete. Y si quiere el silencio de vuelta, le basta
+# con escribir una linea en el chat.
+#
+# Con PAUSA_HORAS = "4", esto es lo que evita que una pausa equivocada
+# cueste cuatro horas de silencio con un cliente que esta preguntando.
+PAUSA_VUELVE_MIN = "10"
+
 # La frase con la que el asesor le DEVUELVE la conversacion al bot, desde el
 # mismo chat de Instagram. Basta con que aparezca dentro del mensaje; no
 # importan tildes, mayusculas ni signos. El cliente la lee, asi que tiene

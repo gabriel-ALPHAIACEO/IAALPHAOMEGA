@@ -31,6 +31,7 @@ export async function cargarContacto(db, id) {
       mostrados: [],
       ultima_respuesta: "",
       ultimos_productos: [],
+      ultimos_textos: [],
       publicacion: null,
     };
   }
@@ -57,6 +58,10 @@ export async function cargarContacto(db, id) {
     // volver a enseñárselos sin buscar otra vez —"¿y en divisas?"— sin
     // depender de que el modelo acierte el término dos veces seguidas.
     ultimos_productos: leerLista(fila.ultimos_productos),
+    // Los últimos mensajes de TEXTO que salieron de la cuenta por mano del
+    // bot. Es la segunda forma de reconocer su propio eco, la que funciona
+    // aunque el mid no cuadre (ver esEcoPorTexto).
+    ultimos_textos: leerLista(fila.ultimos_textos),
     // La publicación del feed que acaba de compartir, si fue hace poco. Es
     // lo que une los DOS webhooks de "compartir + preguntar" en una sola
     // respuesta (ver publicacion.js).
@@ -174,17 +179,68 @@ function normalizar(titulo) {
 // humano y se pausa a sí mismo. Pasó en producción: cinco de siete
 // conversaciones quedaron mudas. Por eso el mid se guarda inmediatamente
 // después de enviar, antes de Slack y antes de cualquier otra cosa lenta.
-export async function marcarEnvio(db, id, mids, cuando = Date.now()) {
-  await db
-    .prepare(
-      `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, ultimo_envio)
-       VALUES (?, '', '', 0, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         mids_enviados = excluded.mids_enviados,
-         ultimo_envio = excluded.ultimo_envio`
-    )
-    .bind(id, JSON.stringify(mids.slice(-MAX_MIDS)), cuando)
-    .run();
+export async function marcarEnvio(db, id, mids, cuando = Date.now(), textos = []) {
+  const guardar = () =>
+    db
+      .prepare(
+        `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, ultimo_envio, ultimos_textos)
+         VALUES (?, '', '', 0, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           mids_enviados = excluded.mids_enviados,
+           ultimo_envio = excluded.ultimo_envio,
+           ultimos_textos = excluded.ultimos_textos`
+      )
+      .bind(
+        id,
+        JSON.stringify(mids.slice(-MAX_MIDS)),
+        cuando,
+        JSON.stringify(textos.slice(-MAX_TEXTOS).map(huella))
+      )
+      .run();
+
+  try {
+    await guardar();
+  } catch (error) {
+    if (!faltaColumna(error)) throw error;
+    await asegurarColumnas(db, { aunqueYaSeRevisara: true });
+    await guardar();
+  }
+}
+
+// EL ECO SE RECONOCE TAMBIÉN POR EL TEXTO (24-sep-2026).
+//
+// EL FALLO QUE ESTO ARREGLA. El bot se pausaba solo con clientes a los que
+// ningún asesor había tocado, y desde esa pausa dejaba de responder aunque
+// el cliente siguiera preguntando. La pausa la dispara el eco de un mensaje
+// que salió de la cuenta y cuyo mid el bot no reconoce como suyo — y el mid
+// falla más de lo que parecía: si el envío no devolvió identificador, si la
+// escritura en D1 llegó tarde, o si Meta manda el eco con otro.
+//
+// El texto no falla. Si lo que rebota es palabra por palabra lo que el bot
+// acaba de escribir, es suyo, y no hay más que discutir. Se guardan los
+// últimos, no solo el último, porque un turno manda varios mensajes.
+//
+// Se compara por "huella": sin mayúsculas, sin tildes, sin espacios de más
+// y recortado. Un asesor que copie y pegue EXACTAMENTE un mensaje del bot
+// no pausaría; es un precio ridículo comparado con una hora de silencio
+// con un cliente que está preguntando.
+const MAX_TEXTOS = 6;
+const LARGO_HUELLA = 160;
+
+function huella(texto) {
+  return String(texto || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, LARGO_HUELLA);
+}
+
+export function esEcoPorTexto(contacto, texto) {
+  const suya = huella(texto);
+  if (!suya) return false;
+  return (contacto.ultimos_textos || []).some((guardada) => guardada === suya);
 }
 
 // La red de seguridad del párrafo de arriba: aunque el mid no aparezca en
@@ -195,10 +251,22 @@ export async function marcarEnvio(db, id, mids, cuando = Date.now()) {
 // sin atención durante horas.
 const VENTANA_ECO_PROPIO_MS = 90 * 1000;
 
-export function envioReciente(contacto, ahora = Date.now()) {
+export function envioReciente(contacto, ahora = Date.now(), ventana = VENTANA_ECO_PROPIO_MS) {
   const ultimo = Number(contacto.ultimo_envio) || 0;
-  return ultimo > 0 && ahora - ultimo < VENTANA_ECO_PROPIO_MS;
+  return ultimo > 0 && ahora - ultimo < ventana;
 }
+
+// UN ECO SIN TEXTO CASI SIEMPRE ES NUESTRO CARRUSEL.
+//
+// Las fichas de producto salen como adjunto, así que su eco vuelve sin una
+// sola letra: no hay texto que comparar y, si además el mid no cuadró, lo
+// único que queda es el reloj. Por eso aquí la ventana es más ancha que los
+// 90 segundos: un turno que manda texto + fichas + botón puede tardar.
+//
+// Lo que se pierde: un asesor que mande una FOTO en esos minutos no pausa
+// el bot. Lo que se gana: el carrusel del propio bot deja de pausarlo. En
+// cuanto ese asesor escriba una línea, la pausa entra igual.
+export const VENTANA_ECO_SIN_TEXTO_MS = 5 * 60 * 1000;
 
 export async function guardarContacto(db, contacto) {
   // Solo guardamos los últimos: la lista existe para reconocer ecos recientes,
@@ -323,6 +391,9 @@ const COLUMNAS_SOLAS = [
   // búsqueda, y el bot terminaba mandándolo al asesor o enseñando otra
   // cosa. Con ella se le vuelven a mostrar LOS MISMOS, con el otro precio.
   ["ultimos_productos", "TEXT NOT NULL DEFAULT '[]'"],
+  // Las huellas de los últimos textos que mandó el bot, para reconocer su
+  // propio eco aunque el mid no cuadre (ver esEcoPorTexto).
+  ["ultimos_textos", "TEXT NOT NULL DEFAULT '[]'"],
   // LA PUBLICACIÓN DEL FEED QUE ACABA DE COMPARTIR.
   //
   // Compartir y preguntar son dos mensajes, y llegan como dos webhooks en
@@ -472,6 +543,7 @@ const COLUMNAS = [
   ["nombre_completo", "se crea sola"],
   ["usuario", "se crea sola"],
   ["ultimos_productos", "se crea sola"],
+  ["ultimos_textos", "se crea sola"],
   ["publicacion", "se crea sola"],
 ];
 

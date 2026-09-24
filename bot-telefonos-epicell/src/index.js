@@ -68,7 +68,9 @@ import {
   despausar,
   estaPausado,
   esEcoPropio,
+  esEcoPorTexto,
   envioReciente,
+  VENTANA_ECO_SIN_TEXTO_MS,
   asegurarColumnas,
   guardarPerfil,
   comoSeLlama,
@@ -433,6 +435,34 @@ const ASESOR_CALLADO_MS = 15 * 60 * 1000;
 // retrasa ni un milisegundo.
 const ESPERA_POR_LA_PREGUNTA_MS = 5000;
 
+// CUANTO AGUANTA UNA PAUSA CON EL ASESOR CALLADO (24-sep-2026).
+//
+// EL PROBLEMA QUE ESTO RESUELVE, dicho por el dueno: "pausa a los clientes
+// sin razon y si siguen preguntando deja de responder".
+//
+// Las dos mitades importan. Una pausa falsa se puede colar por varios
+// caminos —un eco con un mid que no cuadra, una escritura en D1 que llego
+// tarde— y taparlos uno por uno no garantiza que no aparezca el siguiente.
+// Lo que si se puede garantizar es el DANO: que una pausa no sobreviva si
+// del otro lado no hay nadie.
+//
+// Asi que la pausa deja de ser un cheque en blanco de una hora. Si el
+// cliente vuelve a escribir y el asesor lleva este rato sin decir una
+// palabra, el bot retoma la conversacion y contesta. Un asesor que esta
+// atendiendo escribe, y cada mensaje suyo reinicia el reloj: a ese no se
+// le pisa nunca.
+//
+// Se cambia en wrangler.toml (PAUSA_VUELVE_MIN) sin tocar el codigo.
+const VUELVE_SI_EL_ASESOR_CALLA_MIN = 10;
+
+function minutosParaVolver(env) {
+  const puesto = Number(env.PAUSA_VUELVE_MIN);
+  return puesto > 0 ? puesto : VUELVE_SI_EL_ASESOR_CALLA_MIN;
+}
+
+const NOTA_VOLVI_SOLO =
+  "El asesor dejo de escribir y el cliente seguia preguntando: volvi a atender.";
+
 
 export default {
   async fetch(request, env, ctx) {
@@ -559,6 +589,7 @@ export default {
           `  URL_CATALOGO        ${env.URL_CATALOGO && !/CAMBIA-ESTO/i.test(env.URL_CATALOGO) ? env.URL_CATALOGO : "FALTA"}`,
           `  WHATSAPP            ${String(env.WHATSAPP || "").replace(/\D/g, "") ? "puesto" : "sin poner (no sale el botón Comprar)"}`,
           `  PAUSA_HORAS         ${env.PAUSA_HORAS || `${PAUSA_HORAS_POR_DEFECTO} (por defecto)`}`,
+          `  PAUSA_VUELVE_MIN    ${minutosParaVolver(env)} min   (si el asesor calla ese rato y el cliente escribe, el bot retoma)`,
           `  FRASE_DESPAUSAR     "${fraseDespausar(env)}"   (el asesor la manda en el chat y el bot vuelve)`,
           `  OPENAI_MODELO       ${env.OPENAI_MODELO || "gpt-4o-mini (por defecto)"}   (el que redacta)`,
           `  OPENAI_MODELO_VISION ${env.OPENAI_MODELO_VISION || "gpt-4o (por defecto)"}   (el que mira las fotos)`,
@@ -837,15 +868,19 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // antes y no manda nada.
   let mids = [];
   let enviadoEn = 0;
+  // Y los textos que salieron, que es la otra forma de reconocer el eco
+  // propio: el mid falla a veces, el texto no (ver esEcoPorTexto).
+  let textos = [];
 
-  const mandar = async (hacer) => {
+  const mandar = async (hacer, texto = "") => {
     const mid = await hacer();
     if (!mid) return "";
 
     rastro.respondio = true;
     mids = agregarMid(mids, mid);
+    if (texto) textos = [...textos, texto];
     enviadoEn = Date.now();
-    await marcarEnvio(env.DB, mensaje.igsid, mids, enviadoEn);
+    await marcarEnvio(env.DB, mensaje.igsid, mids, enviadoEn, textos);
     return mid;
   };
   // El eco de un mensaje que salió de la cuenta: el nuestro (el bot
@@ -858,6 +893,20 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     const contacto = await cargarContacto(env.DB, mensaje.igsid);
 
     if (esEcoPropio(contacto, mensaje.mid)) return; // eco nuestro, ya anotado
+
+    // EL MID NO ES LA UNICA PRUEBA, Y NO ES LA MEJOR.
+    //
+    // Si lo que rebota dice palabra por palabra lo que el bot acaba de
+    // escribir, es del bot. Da igual que el mid no cuadre —el envio pudo no
+    // devolverlo, o la escritura en D1 llegar tarde—: un asesor no escribe
+    // por casualidad la misma frase con los mismos emojis.
+    if (esEcoPorTexto(contacto, mensaje.texto)) {
+      console.log(
+        `Eco de ${mensaje.igsid} con mid desconocido, pero el texto es el que ` +
+          "mando el bot: es suyo, no pauso."
+      );
+      return;
+    }
 
     // EL ASESOR LE DEVUELVE LA CONVERSACIÓN AL BOT (ver FRASE_DESPAUSAR).
     //
@@ -887,6 +936,18 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       return;
     }
 
+    // UN ECO SIN UNA SOLA LETRA es casi siempre nuestro carrusel de fichas,
+    // que sale como adjunto y vuelve sin texto que comparar. Con una
+    // ventana mas ancha que la de arriba, porque un turno que manda texto +
+    // fichas + boton tarda unos segundos mas.
+    if (!mensaje.texto && envioReciente(contacto, Date.now(), VENTANA_ECO_SIN_TEXTO_MS)) {
+      console.log(
+        `Eco sin texto de ${mensaje.igsid} justo despues de un envio del bot: ` +
+          "es el carrusel propio, no pauso."
+      );
+      return;
+    }
+
     // ÚLTIMA OPORTUNIDAD ANTES DE PAUSAR.
     //
     // Nada de lo de arriba es concluyente cuando el bot está a mitad de
@@ -899,7 +960,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     await new Promise((seguir) => setTimeout(seguir, ESPERA_ANTES_DE_PAUSAR_MS));
     const alSegundoVistazo = await cargarContacto(env.DB, mensaje.igsid);
 
-    if (esEcoPropio(alSegundoVistazo, mensaje.mid) || envioReciente(alSegundoVistazo)) {
+    if (
+      esEcoPropio(alSegundoVistazo, mensaje.mid) ||
+      esEcoPorTexto(alSegundoVistazo, mensaje.texto) ||
+      envioReciente(alSegundoVistazo) ||
+      (!mensaje.texto && envioReciente(alSegundoVistazo, Date.now(), VENTANA_ECO_SIN_TEXTO_MS))
+    ) {
       console.log(
         `Eco de ${mensaje.igsid}: al segundo vistazo era del propio bot, no pauso.`
       );
@@ -908,7 +974,16 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
     const horas = Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO;
     await pausar(env.DB, mensaje.igsid, horas);
-    console.log(`Asesor humano le escribió a ${mensaje.igsid}: bot pausado ${horas}h`);
+
+    // CON EL TEXTO DELANTE. Una pausa que no se explica son treinta minutos
+    // de suposiciones cuando el dueno dice "el bot no responde"; con esta
+    // linea, `wrangler tail` dice que mensaje la provoco y se ve en el acto
+    // si de verdad lo escribio una persona.
+    console.log(
+      `PAUSO ${mensaje.igsid} ${horas}h — eco ajeno mid:${mensaje.mid} ` +
+        `texto:${JSON.stringify(String(mensaje.texto || "(sin texto)").slice(0, 80))} ` +
+        `(vuelvo solo si el asesor calla ${minutosParaVolver(env)} min)`
+    );
 
     // Sin aviso a Slack. Antes salía un "BOT EN PAUSA — la conversación es
     // tuya" con cada mensaje del asesor, y no le decía nada que no supiera:
@@ -936,10 +1011,45 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const contacto = await asegurarPerfil(env, await cargarContacto(env.DB, mensaje.igsid));
   mids = contacto.mids_enviados;
 
+  textos = contacto.ultimos_textos;
+
   if (estaPausado(contacto)) {
-    console.log(`Bot pausado para ${mensaje.igsid}: no respondo`);
-    await avisarQueYaLoAtienden(env, mensaje, contacto, mandar);
-    return;
+    // ¿SIGUE HABIENDO ALGUIEN DEL OTRO LADO?
+    //
+    // pausado_hasta se fija en "ahora + horas" con CADA mensaje del asesor,
+    // asi que restando las horas se sabe cuando escribio por ultima vez. Si
+    // lleva un buen rato callado y el cliente sigue preguntando, la pausa ya
+    // no protege a nadie: solo deja al cliente hablando solo.
+    const horasDePausa = Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO;
+    const calladoMin =
+      (Date.now() - (Number(contacto.pausado_hasta) - horasDePausa * 60 * 60 * 1000)) / 60000;
+
+    if (calladoMin >= minutosParaVolver(env)) {
+      await despausar(env.DB, mensaje.igsid, NOTA_VOLVI_SOLO);
+      contacto.pausado_hasta = 0;
+      console.log(
+        `El asesor lleva ${Math.round(calladoMin)} min callado y ${mensaje.igsid} ` +
+          "volvio a escribir: retomo la conversacion."
+      );
+
+      await avisarAsesor(env, {
+        ...paraElAviso(contacto),
+        igsid: mensaje.igsid,
+        mensaje: mensaje.texto || "(mandó una foto)",
+        respuesta: "El bot volvió a atender esta conversación.",
+        motivo: "EL BOT RETOMA",
+        historial:
+          `Llevabas ${Math.round(calladoMin)} min sin escribir y el cliente seguía ` +
+          "preguntando. Si la quieres de vuelta, escríbele: el bot se aparta solo.",
+      });
+    } else {
+      console.log(
+        `Bot pausado para ${mensaje.igsid} (el asesor escribió hace ` +
+          `${Math.round(calladoMin)} min): no respondo`
+      );
+      await avisarQueYaLoAtienden(env, mensaje, contacto, mandar);
+      return;
+    }
   }
 
   // LA PUBLICACIÓN QUE COMPARTIÓ DESDE EL FEED.
@@ -984,7 +1094,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (historialPrevio && !imagenCruda && !publicacion && esSoloSaludo(mensaje.texto)) {
     const respuesta = saludoDeVuelta(nombre, mensaje.texto);
     console.log(`Saludo de vuelta → ${JSON.stringify(respuesta)}`);
-    await mandar(() => enviarTexto(env, mensaje.igsid, respuesta));
+    await mandar(() => enviarTexto(env, mensaje.igsid, respuesta), respuesta);
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
@@ -1010,7 +1120,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   ) {
     const respuesta = fraseDeCatalogo(nombre);
     console.log(`Pidió ver más → ${JSON.stringify(respuesta)}`);
-    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuesta));
+    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuesta), respuesta);
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
@@ -1051,7 +1161,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
         precio: subtituloDeFicha(p, false, false),
       }));
 
-      await mandar(() => enviarTexto(env, mensaje.igsid, respuesta));
+      await mandar(() => enviarTexto(env, mensaje.igsid, respuesta), respuesta);
       await mandar(() => enviarFichas(env, mensaje.igsid, fichas));
 
       await guardarContacto(env.DB, {
@@ -1113,7 +1223,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
           `Pidió divisas: le repito ${previos.map((p) => p.titulo).join(", ")} con el precio en divisas`
         );
 
-        await mandar(() => enviarTexto(env, mensaje.igsid, respuesta));
+        await mandar(() => enviarTexto(env, mensaje.igsid, respuesta), respuesta);
         await mandar(() =>
           enviarFichas(
             env,
@@ -1234,7 +1344,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const salida = await responderTexto(env, entrada);
 
   if (!salida) {
-    await mandar(() => enviarTexto(env, mensaje.igsid, FALLO_TECNICO));
+    await mandar(() => enviarTexto(env, mensaje.igsid, FALLO_TECNICO), FALLO_TECNICO);
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
@@ -1305,15 +1415,15 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // como texto limpio: el cliente que se va al catálogo se va de la
   // conversación.
   if (paraMostrar.length) {
-    await mandar(() => enviarTexto(env, mensaje.igsid, leDigo));
+    await mandar(() => enviarTexto(env, mensaje.igsid, leDigo), leDigo);
     await mandar(() => enviarFichas(env, mensaje.igsid, paraMostrar));
     if (hayMas) {
-      await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, HAY_MAS_EN_CATALOGO));
+      await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, HAY_MAS_EN_CATALOGO), HAY_MAS_EN_CATALOGO);
     }
   } else if (buscoSinExito && !sinSaberQueEs) {
-    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, leDigo));
+    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, leDigo), leDigo);
   } else {
-    await mandar(() => enviarTexto(env, mensaje.igsid, leDigo));
+    await mandar(() => enviarTexto(env, mensaje.igsid, leDigo), leDigo);
   }
 
   const escalada = hayEscalada({
@@ -1495,7 +1605,8 @@ async function avisarQueYaLoAtienden(env, mensaje, contacto, mandar) {
 
   // mandar() ya lo anota en D1 en el momento: el eco de este mismo aviso
   // no puede volver y parecer el mensaje de otro asesor.
-  await mandar(() => enviarTexto(env, mensaje.igsid, alAzar(YA_TE_ATIENDEN)));
+  const aviso = alAzar(YA_TE_ATIENDEN);
+  await mandar(() => enviarTexto(env, mensaje.igsid, aviso), aviso);
 
   const silencio = Date.now() - ultimoDelAsesor;
   if (silencio < ASESOR_CALLADO_MS) return;

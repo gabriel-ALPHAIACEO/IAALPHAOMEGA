@@ -1,5 +1,50 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: las pausas falsas dejan de costar horas (24-sep-2026)
+
+**El síntoma, dicho por el dueño:** *"pausa a los clientes sin razón y si
+siguen preguntando deja de responder"*.
+
+Lo primero, para que quede escrito: **la pausa de EPICELL ya era idéntica a
+la de Invictus** — el bloque del eco, `envioReciente`, la segunda mirada a
+los 4 s, `avisarQueYaLoAtienden`, `FRASE_DESPAUSAR`, los pausados en
+`/estado`. Se comparó línea por línea. Copiar Invictus no arreglaba nada:
+el fallo está en el diseño que comparten los dos.
+
+Una pausa nace de un eco cuyo `mid` el bot no reconoce como suyo, y ese
+`mid` falla por varios caminos: un envío que no devolvió identificador, una
+escritura en D1 que llegó tarde, un eco que Meta manda con otro. Taparlos de
+uno en uno no garantiza que no aparezca el siguiente. Así que se atacó por
+los dos lados:
+
+**Que la pausa falsa sea mucho más difícil.**
+
+- **El eco se reconoce también por el TEXTO.** Si lo que rebota dice palabra
+  por palabra lo que el bot acaba de escribir, es suyo, aunque el `mid` no
+  cuadre. Se guardan las huellas de los últimos 6 mensajes (columna nueva
+  `ultimos_textos`, se crea sola), normalizadas: sin tildes, sin mayúsculas
+  y recortadas.
+- **El eco del carrusel ya no pausa.** Las fichas salen como adjunto y su
+  eco vuelve sin una sola letra: no hay texto que comparar. Para ese caso la
+  ventana del "lo acabo de mandar yo" pasa de 90 s a 5 min. Lo que se
+  pierde: un asesor que mande una FOTO en esos minutos no pausa el bot; en
+  cuanto escriba una línea, la pausa entra igual.
+
+**Que, si aun así ocurre, no cueste horas.**
+
+- **El bot retoma solo.** Si el cliente vuelve a escribir y el asesor lleva
+  `PAUSA_VUELVE_MIN` minutos (10 por defecto) sin decir una palabra, el bot
+  contesta en vez de dejarlo hablando solo, y avisa por Slack. Cada mensaje
+  del asesor reinicia el reloj, así que al que está atendiendo no se le pisa
+  nunca — y si quiere el silencio de vuelta, le basta con escribir una línea.
+- Con `PAUSA_HORAS = "4"`, esto es la diferencia entre que una pausa
+  equivocada cueste **cuatro horas** o **diez minutos**.
+
+**Y que la próxima se diagnostique en diez segundos.** Cuando el bot pausa
+de verdad, el registro ya no dice solo "bot pausado": dice `PAUSO <id> 4h —
+eco ajeno mid:... texto:"..."`. Con el texto delante se ve en el acto si lo
+escribió una persona o era el propio bot.
+
 ## Hecho: el precio en divisas se responde (24-sep-2026)
 
 **El fallo.** El bot le mostró dos Samsung A57, el cliente escribió *"Precio
