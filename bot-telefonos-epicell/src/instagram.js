@@ -111,12 +111,21 @@ export function enviarFichas(env, igsid, productos) {
       image_url: p.imagen || "",
     };
 
-    // Los mismos dos botones que por ManyChat: ver el producto y, debajo,
-    // comprar por WhatsApp con el mensaje ya escrito. Si no se muestran
-    // iguales por los dos caminos, el cliente ve una tienda distinta según
-    // por dónde le escriba.
+    // EL BOTÓN "VER PRODUCTO" ESTÁ APAGADO (24-sep-2026, decisión del dueño).
+    //
+    // Llevaba al cliente a la ficha del producto, y EPICELL no tiene tienda
+    // online: ese botón no lleva a ninguna parte. Un botón que no cumple lo
+    // que promete cuesta más que no tener botón.
+    //
+    // PARA VOLVER A PONERLO, apuntando a donde haga falta: pon esto en true
+    // y, en la línea de abajo, cambia "p.url" por la dirección que toque y
+    // "Ver producto" por su nombre nuevo. El resto del sistema no se entera.
+    const VER_PRODUCTO = false;
+
     const botones = [];
-    if (p.url) botones.push({ type: "web_url", url: p.url, title: "Ver producto" });
+    if (VER_PRODUCTO && p.url) {
+      botones.push({ type: "web_url", url: p.url, title: "Ver producto" });
+    }
 
     const comprar = enlaceWhatsapp(env.WHATSAPP, p.titulo);
     if (comprar) botones.push({ type: "web_url", url: comprar, title: "Comprar" });
@@ -135,7 +144,29 @@ export function enviarFichas(env, igsid, productos) {
   });
 }
 
+// UN BOTÓN A UNA DIRECCIÓN QUE NO EXISTE ES PEOR QUE NINGÚN BOTÓN.
+//
+// URL_CATALOGO viene con un marcador de relleno en el wrangler.toml
+// ("https://CAMBIA-ESTO.com"). Si nadie lo cambió —que es el caso de
+// EPICELL, que no tiene tienda online— el bot estaba mandando a sus
+// clientes un botón "Ver catálogo" que abre una página inventada.
+//
+// Así que el botón sale SOLO si hay una dirección de verdad. Si no, se
+// manda el mismo texto sin botón: el cliente recibe la respuesta igual y
+// nadie acaba en una página que no existe.
+const SIN_PONER = /^$|CAMBIA-ESTO|PENDIENTE|PON_AQUI|TU-CUENTA|ejemplo\.com|localhost/i;
+
+export function hayCatalogo(env) {
+  const url = String(env?.URL_CATALOGO || "").trim();
+  return /^https?:\/\//i.test(url) && !SIN_PONER.test(url);
+}
+
 export function enviarBotonCatalogo(env, igsid, texto) {
+  if (!hayCatalogo(env)) {
+    console.log("URL_CATALOGO sin poner: mando el texto sin el botón del catálogo");
+    return enviarTexto(env, igsid, texto);
+  }
+
   return enviar(env, igsid, {
     attachment: {
       type: "template",
@@ -145,6 +176,34 @@ export function enviarBotonCatalogo(env, igsid, texto) {
         buttons: [{ type: "web_url", url: env.URL_CATALOGO, title: "Ver catálogo" }],
       },
     },
+  });
+}
+
+// UN MENSAJE CON SUS BOTONES DE RESPUESTA (quick replies).
+//
+// Son los botones que Instagram pinta DEBAJO del mensaje y que el cliente
+// toca en vez de escribir. Se usan para la lista de productos: "¿Quieres
+// ver las imágenes de esta lista?" con "¡Sí, claro!" y "No, gracias".
+//
+// Cuando el cliente toca uno, llega un mensaje normal cuyo texto es el
+// título del botón, y además con el "payload" que pusimos aquí — que es lo
+// que el bot mira para saber qué tocó, sin depender de cómo esté escrito
+// el título (ver leerMensaje).
+//
+// Instagram admite 13 como máximo y recorta los títulos largos: 20
+// caracteres, y eso contando los emojis.
+export function enviarConOpciones(env, igsid, texto, opciones) {
+  const botones = (opciones || []).slice(0, 13).map(({ titulo, payload }) => ({
+    content_type: "text",
+    title: recortar(String(titulo || ""), 20),
+    payload: String(payload || titulo || "").slice(0, 1000),
+  }));
+
+  if (!botones.length) return enviarTexto(env, igsid, texto);
+
+  return enviar(env, igsid, {
+    text: recortar(texto, 1000),
+    quick_replies: botones,
   });
 }
 
@@ -261,6 +320,7 @@ export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
       foto: "",
       historia: { url: "", id: "" },
       publicacion: { url: "", titulo: "", enlace: "" },
+      opcion: "",
     };
   }
   if (mensaje.is_deleted) return descartar("un mensaje borrado");
@@ -306,6 +366,10 @@ export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
     foto,
     historia,
     publicacion,
+    // Qué botón de respuesta tocó, si tocó uno. Va aparte del texto a
+    // propósito: el texto es lo que se lee en la conversación, esto es lo
+    // que el bot puede reconocer sin ambigüedad.
+    opcion: String(mensaje.quick_reply?.payload || "").trim(),
   };
 }
 

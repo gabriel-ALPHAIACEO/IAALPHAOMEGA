@@ -39,6 +39,12 @@ import {
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideVerMas, fraseDeCatalogo } from "./catalogo.js";
+import {
+  pideLista,
+  marcasDelCatalogo,
+  marcaEnTexto,
+  mensajesDeLista,
+} from "./lista.js";
 import { pideVerLoRecomendado, productosRecomendados } from "./recomendados.js";
 import { separarColor } from "./color.js";
 import {
@@ -84,6 +90,7 @@ import {
   enviarTexto,
   enviarFichas,
   enviarBotonCatalogo,
+  enviarConOpciones,
   obtenerPerfil,
 } from "./instagram.js";
 
@@ -292,6 +299,47 @@ const CONSULTA_DE_ASESOR =
 //
 // Si algún día aparece una tercera forma de pago sin datos, esto vuelve:
 // una constante acá y una condición en esConsultaDeAsesor.
+
+/* ── "MÁNDAME LA LISTA DE SAMSUNG" ────────────────────────────────
+   El cliente que pide una lista está mirando qué hay, no buscando un
+   modelo. Se le manda la lista ESCRITA —que se lee de un vistazo y cabe
+   entera— y las fotos se le ofrecen después, con dos botones. Ver
+   lista.js para el porqué.
+   ───────────────────────────────────────────────────────────────── */
+
+// Lo que viaja en el botón. El bot mira ESTO, no el título: así el
+// título se puede cambiar cuando se quiera sin romper nada.
+// Y el de cada marca cuando se le preguntan cuál quiere: "LISTA_Samsung".
+const OPCION_MARCA = "LISTA_MARCA_";
+
+const OPCION_VER_SI = "LISTA_VER_IMAGENES_SI";
+const OPCION_VER_NO = "LISTA_VER_IMAGENES_NO";
+
+const TITULO_VER_SI = "¡Sí, claro!";
+const TITULO_VER_NO = "No, gracias";
+
+const PREGUNTA_IMAGENES = "¿Quieres ver las imágenes de esta lista? 📸";
+
+const AQUI_LAS_IMAGENES = [
+  "¡Aquí las tienes! 👇",
+  "¡Listo! Mira 👇",
+  "¡Con gusto! Te las muestro 👇",
+];
+
+const SIN_IMAGENES = [
+  "¡Listo! 😊 Si quieres ver alguno en particular, dime cuál y te lo muestro",
+  "¡De acuerdo! 😊 Cualquier equipo de esos que te interese, dime el nombre",
+  "¡Perfecto! Si te llama la atención alguno, dímelo y te paso los detalles 😊",
+];
+
+// El cliente contesta que sí sin tocar el botón: "si", "dale", "claro".
+// Solo cuenta cuando lo ÚLTIMO que se le preguntó fue justamente eso.
+const DICE_QUE_SI = /^\s*(s[ií]|s[ií]\s*(claro|porfa|por favor|please)|claro|dale|ok|oka|okay|va|bueno|de una|obvio|perfecto|mu[eé]strame\w*|ens[eé][ñn]a\w*)\s*[.!]*\s*$/i;
+const DICE_QUE_NO = /^\s*(no|nop|no gracias|no, gracias|as[ií] est[aá] bien|despu[eé]s|luego|ahorita no)\s*[.!]*\s*$/i;
+
+function leOfrecimosLasImagenes(contacto) {
+  return String(contacto?.ultima_respuesta || "").includes("las imágenes de esta lista");
+}
 
 // Lo que se le dice cuando vuelve a pedir lo mismo en divisas. No hace
 // falta buscar nada: son los equipos que acaba de ver.
@@ -1155,6 +1203,161 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       ultima_respuesta: frase,
     });
     return;
+  }
+
+  // ── ¿QUIERE LAS IMÁGENES DE LA LISTA QUE ACABA DE RECIBIR? ──────
+  //
+  // Llega por el botón (mensaje.opcion) o escrito a mano ("dale", "sí").
+  // Lo escrito solo cuenta si lo último que le preguntamos fue eso: un
+  // "dale" suelto en otra parte de la conversación no es esto.
+  const respondeALaLista = !mensaje.opcion && leOfrecimosLasImagenes(contacto);
+
+  if (mensaje.opcion === OPCION_VER_SI || (respondeALaLista && DICE_QUE_SI.test(mensaje.texto))) {
+    const enElCatalogo = await catalogoCompleto(env);
+    const previos = enElCatalogo.filter((p) =>
+      contacto.ultimos_productos.some((titulo) => despejar(titulo) === despejar(p.titulo))
+    );
+
+    if (previos.length) {
+      const respuesta = alAzar(AQUI_LAS_IMAGENES);
+      console.log(`Quiere las imágenes de la lista: ${previos.length} ficha(s)`);
+
+      await mandar(() => enviarTexto(env, mensaje.igsid, respuesta), respuesta);
+      await mandar(() =>
+        enviarFichas(
+          env,
+          mensaje.igsid,
+          previos.map((p) => ({ ...p, precio: subtituloDeFicha(p, false, false) }))
+        )
+      );
+
+      await guardarContacto(env.DB, {
+        ...contacto,
+        nombre,
+        historial: conNota(historialPrevio, "Le mostré las imágenes de la lista."),
+        mids_enviados: mids,
+        ultimo_envio: enviadoEn || Date.now(),
+        ultima_respuesta: respuesta,
+      });
+      return;
+    }
+
+    console.log("Dijo que sí a las imágenes, pero no queda lista guardada: sigo normal");
+  }
+
+  if (mensaje.opcion === OPCION_VER_NO || (respondeALaLista && DICE_QUE_NO.test(mensaje.texto))) {
+    const respuesta = alAzar(SIN_IMAGENES);
+    await mandar(() => enviarTexto(env, mensaje.igsid, respuesta), respuesta);
+    await guardarContacto(env.DB, {
+      ...contacto,
+      nombre,
+      historial: conNota(historialPrevio, "No quiso ver las imágenes de la lista."),
+      mids_enviados: mids,
+      ultimo_envio: enviadoEn || Date.now(),
+      ultima_respuesta: respuesta,
+    });
+    return;
+  }
+
+  // ── "MÁNDAME LA LISTA DE X" ─────────────────────────────────────
+  //
+  // Va antes del modelo por lo mismo que "muéstrame esos": no hay nada que
+  // redactar. La hoja dice qué hay, y el modelo, con veinte equipos
+  // delante, acaba eligiendo diez y quedándose corto.
+  // Si tocó el botón de una marca, ya sabemos cuál es: no hace falta que
+  // el mensaje diga "lista" — el botón ES el pedido de lista.
+  const marcaDelBoton = mensaje.opcion.startsWith(OPCION_MARCA)
+    ? mensaje.opcion.slice(OPCION_MARCA.length)
+    : "";
+
+  if (!imagenCruda && !publicacion && (marcaDelBoton || pideLista(mensaje.texto))) {
+    const enElCatalogo = await catalogoCompleto(env);
+    const marcas = marcasDelCatalogo(enElCatalogo);
+    const marca =
+      marcaDelBoton ||
+      marcaEnTexto(mensaje.texto, marcas) ||
+      nombraDelCatalogo(mensaje.texto, enElCatalogo);
+
+    // Pidió "la lista" a secas: no se elige por él. Se le enseñan las
+    // marcas que hay, con un botón por marca para que no tenga ni que
+    // escribir.
+    if (!marca) {
+      const pregunta = "¡Claro que sí! 😊 ¿De cuál marca te mando la lista? 👇";
+      console.log(`Pidió lista sin marca: ofrezco ${marcas.length} marca(s)`);
+
+      await mandar(
+        () =>
+          enviarConOpciones(
+            env,
+            mensaje.igsid,
+            pregunta,
+            marcas
+              .slice(0, 11)
+              .map(({ nombre: m }) => ({ titulo: m, payload: `${OPCION_MARCA}${m}` }))
+          ),
+        pregunta
+      );
+
+      await guardarContacto(env.DB, {
+        ...contacto,
+        nombre,
+        historial: conNota(historialPrevio, "Pidió una lista; le pregunté de cuál marca."),
+        mids_enviados: mids,
+        ultimo_envio: enviadoEn || Date.now(),
+        ultima_respuesta: pregunta,
+      });
+      return;
+    }
+
+    // 60 es de sobra para la marca más grande de la hoja, y lo que no
+    // quepa en los dos mensajes se dice con su número.
+    const { productos: deLaMarca } = await buscarProductos(env, marca, 60);
+
+    if (deLaMarca.length) {
+      const conCasheaAhora = PREGUNTA_CASHEA.test(mensaje.texto);
+      const conDivisasAhora = PREGUNTA_DIVISAS.test(mensaje.texto);
+
+      const { mensajes, puestas, faltan } = mensajesDeLista(deLaMarca, {
+        cabecera: `Estos son los ${marca} que tenemos 👇`,
+        precioDe: (producto) => precioParaMostrar(producto, conCasheaAhora, conDivisasAhora),
+      });
+
+      console.log(
+        `Lista de "${marca}": ${deLaMarca.length} equipo(s), ${puestas} en el mensaje` +
+          (faltan ? `, ${faltan} fuera` : "")
+      );
+
+      for (const parte of mensajes) {
+        await mandar(() => enviarTexto(env, mensaje.igsid, parte), parte);
+      }
+
+      const pregunta =
+        (faltan ? `Y me quedan ${faltan} más de esa marca 😊\n\n` : "") + PREGUNTA_IMAGENES;
+
+      await mandar(
+        () =>
+          enviarConOpciones(env, mensaje.igsid, pregunta, [
+            { titulo: TITULO_VER_SI, payload: OPCION_VER_SI },
+            { titulo: TITULO_VER_NO, payload: OPCION_VER_NO },
+          ]),
+        pregunta
+      );
+
+      await guardarContacto(env.DB, {
+        ...contacto,
+        nombre,
+        historial: conNota(historialPrevio, `Le mandé la lista de ${marca}. Ya busqué: ${marca}.`),
+        mids_enviados: mids,
+        ultimo_envio: enviadoEn || Date.now(),
+        ultima_respuesta: pregunta,
+        // Las diez primeras son las que caben en un carrusel: son las que
+        // se le enseñan si dice que sí.
+        ultimos_productos: deLaMarca.slice(0, 10).map((producto) => producto.titulo),
+      });
+      return;
+    }
+
+    console.log(`Pidió la lista de "${marca}" y no hay nada: sigo por el camino normal`);
   }
 
   // Quien ya escribió antes y vuelve con un "hola" suelto no necesita al

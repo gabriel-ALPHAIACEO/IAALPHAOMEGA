@@ -1,5 +1,48 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: la lista de productos, con sus botones (24-sep-2026)
+
+Quien pide una lista no está buscando un modelo: está mirando qué hay. Y el
+carrusel es lo peor para eso — entran diez, hay que deslizar uno por uno y
+de una marca con veinte el cliente ve diez sin saber que hay más.
+
+Ahora:
+
+1. **"Mándame la lista de Samsung"** → la lista **escrita**, una línea por
+   equipo con su precio, en uno o dos mensajes como mucho. Si no caben
+   todos, dice cuántos quedaron fuera.
+2. Debajo, **"¿Quieres ver las imágenes de esta lista? 📸"** con dos
+   botones: **¡Sí, claro!** y **No, gracias**.
+3. Si dice que sí —tocando el botón o escribiendo "dale"—, van las fichas
+   con foto de esos mismos equipos. Si dice que no, se le ofrece seguir por
+   el que le interese.
+
+**Si pide "la lista" sin decir marca**, no se elige por él: se le enseñan
+las marcas que hay en la hoja, **un botón por marca**, y al tocar una llega
+su lista. Las marcas salen de la propia hoja (la primera palabra del
+título), así que entra una marca nueva sin tocar el código.
+
+Nada de esto pasa por el modelo: la hoja dice qué hay, y el modelo con
+veinte equipos delante acaba eligiendo diez y quedándose corto.
+
+## Hecho: fuera el botón "Ver producto" (24-sep-2026)
+
+EPICELL no tiene tienda online, así que ese botón de las fichas no llevaba
+a ninguna parte. Se apagó con una línea (`const VER_PRODUCTO = false` en
+`instagram.js`), con las instrucciones al lado para volver a encenderlo
+apuntando a donde haga falta.
+
+**Y de paso, uno peor:** `URL_CATALOGO` seguía con el marcador de relleno
+del wrangler.toml (`https://CAMBIA-ESTO.com`), así que cada vez que el bot
+mandaba el botón "Ver catálogo" —cuando no encuentra algo, cuando piden ver
+más— estaba mandando a sus clientes a una página inventada. Ahora ese botón
+**solo sale si hay una dirección de verdad**; si no, va el mismo texto sin
+botón.
+
+Queda pendiente decidir algo de producto: sin catálogo web, las frases que
+dicen "aquí tienes el catálogo completo" suenan raras aunque ya no lleven
+botón. Se pueden reescribir para que ofrezcan seguir buscando en el chat.
+
 ## Hecho: el post compartido no llegaba como "share" (24-sep-2026)
 
 **La prueba, en el propio registro del dueño:**
