@@ -7,6 +7,8 @@ export const HOJA = `Nombre,Precio Divisas ($),Precio Cashea,Foto
 Samsung A57,310,95,https://x/a57.jpg
 Samsung A17,180,60,https://x/a17.jpg
 Poco M8 pro 5G,185,62,https://x/poco.jpg
+Poco X8 pro 5G,210,70,https://x/pocox8.jpg
+Poco C81 pro,120,40,https://x/pococ81.jpg
 Samsung Cable Tipo C 1Metro,8,,https://x/c1.jpg
 Skydolphing cable 4 en 1 S40E,10,,https://x/c2.jpg`;
 

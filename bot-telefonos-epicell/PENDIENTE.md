@@ -1,5 +1,40 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: nunca más "no tengo" de algo que sí está (24-sep-2026)
+
+Del registro del dueño, y es el peor error que puede cometer este bot:
+
+```
+Cliente: "Tienes Poco X8 pro?"
+Buscó:   "Poco" → 4 resultados
+Mandó:   "No tengo el Poco X8 Pro en este momento 😊 Pero te muestro los
+          equipos de la marca Poco..."
+Fichas:  Poco X8 pro 5G · Poco M8 pro 5G · Poco M8 pro 5G · Poco C81 pro
+```
+
+**El primer equipo del carrusel era el que decía no tener.** El cliente lee
+"no tengo" y se va, con la foto de lo suyo pasándole por delante.
+
+La causa fue la sección que se añadió el mismo día sobre buscar la
+categoría: le enseñó al modelo a decir "ese no lo manejo, pero mira estos".
+Arreglado por los dos lados:
+
+- **En el código:** antes de mandar, se mira si entre los productos que van
+  a salir está lo que el cliente nombró. Si está y la respuesta dice "no
+  tengo" (o "no hay", "no me queda", "agotado"…), la frase se cambia por un
+  sí. Si NO está —pidió un modelo que no existe y se le enseñan otros de la
+  marca—, la frase del modelo se respeta: ahí es la verdad.
+- **En el prompt:** prohibido decir que no hay algo, en cualquiera de sus
+  formas. El modelo escribe ANTES de que se haga la búsqueda, así que esa
+  frase es siempre una apuesta — y la lista que tiene delante está llena de
+  erratas y nombres raros. Si de verdad no hay nada, el sistema lo ve y
+  responde por él pasando al asesor.
+
+**Y de paso, buscar lo que le pidieron.** El cliente dijo "Poco X8 pro" y
+la búsqueda se hizo con "Poco" a secas: por eso salieron cuatro equipos en
+vez del suyo. El prompt ahora dice que la marca sola es para cuando el
+cliente no nombra más que la marca.
+
 ## Hecho: fotos y precio en vez de un inventario escrito (24-sep-2026)
 
 ```

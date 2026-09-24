@@ -368,6 +368,34 @@ function leOfrecimosLasImagenes(contacto) {
   return String(contacto?.ultima_respuesta || "").includes("las imágenes de esta lista");
 }
 
+// DECIR "NO TENGO" DE ALGO QUE SÍ ESTÁ (crítico).
+//
+// EL FALLO QUE ESTO ARREGLA, del registro del dueño:
+//
+//   Cliente:  "Tienes Poco X8 pro?"
+//   Buscó:    "Poco" → 4 resultados
+//   Mandó:    "No tengo el Poco X8 Pro en este momento 😊 Pero te muestro
+//              los equipos de la marca Poco..."
+//   Fichas:   Poco X8 pro 5G · Poco M8 pro 5G · Poco M8 pro 5G · Poco C81
+//
+// El primer equipo del carrusel ERA el que decía no tener. El cliente lee
+// "no tengo" y se va; la foto de lo que pidió le pasa por delante sin que
+// la mire.
+//
+// El modelo escribe ANTES de ver el resultado de la búsqueda, así que esa
+// frase es siempre una apuesta. Aquí ya no: si entre lo que se le va a
+// enseñar está lo que pidió, la negación se cambia por un sí, y se cambia
+// en código, que es lo único que ve las dos cosas a la vez.
+const AFIRMA_QUE_NO_HAY =
+  /\bno\s+(?:lo\s+|la\s+|los\s+|las\s+|me\s+|te\s+)?(?:tengo|tenemos|manejo|manejamos|hay|queda|quedan|contamos|dispongo)\b|\bno\s+(?:est[aá]|est[aá]n)\s+disponible|\bagotad[oa]/i;
+
+const SI_LO_TENGO = [
+  "¡Claro que sí! Aquí lo tienes 👇",
+  "¡Sí lo tengo! Mira 👇",
+  "¡Por supuesto! Te lo muestro 👇",
+  "¡Claro! Este es 👇",
+];
+
 // NO TENGO ESE, PERO MIRA ESTOS.
 //
 // EL FALLO QUE ESTO ARREGLA (24-sep-2026). "Precio de los cables dophin" y
@@ -2498,6 +2526,25 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     console.log("Preguntó por las formas de pago: mando Cashea y Krece tal cual");
   }
 
+  // ¿ENTRE LO QUE LE VAMOS A ENSEÑAR ESTÁ LO QUE PIDIÓ?
+  //
+  // Se mira contra los productos que de verdad van a salir, con las
+  // palabras del cliente: si pidió "Poco X8 pro" y en el carrusel está
+  // "Poco X8 pro 5G", entonces lo tenemos, y cualquier "no tengo" que haya
+  // escrito el modelo es falso.
+  //
+  // Cuando NO está —pidió un modelo que no existe y se le enseñan otros de
+  // la marca— la frase del modelo se respeta: ahí decir "ese no lo tengo"
+  // es la verdad, y es lo que toca.
+  const loQuePidio = productos.length ? nombraDelCatalogo(texto, productos) : "";
+  const leMuestroLoQuePidio = Boolean(loQuePidio);
+
+  if (leMuestroLoQuePidio && AFIRMA_QUE_NO_HAY.test(salida.respuesta)) {
+    console.log(
+      `El modelo dijo que no hay, y "${loQuePidio}" está en el carrusel: le cambio la respuesta`
+    );
+  }
+
   // Si ya se conocen, se le quita la bienvenida aunque el modelo la haya
   // escrito. Es el fallo que más se nota: saludar dos veces.
   const respuestaFinal = historialPrevio ? sinBienvenida(salida.respuesta) : salida.respuesta;
@@ -2527,6 +2574,9 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     // Los equipos se le muestran igual: lo único que no sabemos es la
     // capacidad, no el producto.
     respuestaCliente = alAzar(SIN_DATO_DE_CAPACIDAD);
+  } else if (leMuestroLoQuePidio && AFIRMA_QUE_NO_HAY.test(respuestaFinal)) {
+    // Dijo que no hay algo que sí está en el carrusel que va debajo.
+    respuestaCliente = alAzar(SI_LO_TENGO);
   } else if (porCategoria) {
     // Lo que escribió el modelo no vale aquí: él creía que no había nada
     // que enseñar, o peor, iba a recitar la lista. Hay fotos que mandar.

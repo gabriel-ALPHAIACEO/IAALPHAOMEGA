@@ -80,5 +80,30 @@ r = await turno({ texto: "", fila: { historial: "Pidió Poco M8." } });
 comprobar("mensaje vacío: ni busca ni inventa", fichas(r.enviados).length, 0);
 comprobar("y avisa que no le llegó", /no me lleg|no pude abrir|se me trab/i.test(textos(r.enviados)[0]), true);
 
+// ── 10. NUNCA decir "no tengo" de algo que sí está ──────────────
+r = await turno({
+  texto: "Tienes Poco X8 pro?",
+  respuestaDelModelo: {
+    respuesta: "No tengo el Poco X8 Pro en este momento 😊 Pero te muestro los equipos de la marca Poco 👇",
+    buscar: "Poco",
+  },
+  fila: { historial: "Ya di la bienvenida." },
+});
+comprobar("el Poco X8 sale en el carrusel", fichas(r.enviados).some((f) => /X8/i.test(f.title)), true);
+comprobar("y el texto ya NO dice que no hay", /no tengo/i.test(textos(r.enviados)[0]), false);
+comprobar("dice que sí", /claro|s[ií] lo tengo|por supuesto/i.test(textos(r.enviados)[0]), true);
+
+// Pero si de verdad no está, la frase del modelo se respeta
+r = await turno({
+  texto: "Tienes Poco Z99 ultra?",
+  respuestaDelModelo: {
+    respuesta: "Ese no lo manejo 😊 Pero te muestro los Poco que tengo 👇",
+    buscar: "Poco",
+  },
+  fila: { historial: "Ya di la bienvenida." },
+});
+comprobar("lo que NO existe se sigue diciendo", /no lo manejo/i.test(textos(r.enviados)[0]), true);
+comprobar("y aun así le enseña alternativas", fichas(r.enviados).length > 0, true);
+
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);
