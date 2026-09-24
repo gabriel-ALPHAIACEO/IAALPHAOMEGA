@@ -34,6 +34,18 @@ binding = "DB"
 database_name = "invictus-bot-db"
 database_id = "PENDIENTE_pega_aqui_el_database_id_que_imprime_wrangler_d1_create"
 
+# --- El catalogo se pone al dia solo -----------------------------------
+# Cloudflare llama al Worker a estas horas (UTC) y el bot vuelve a leer
+# TODOS los productos publicados en Shopify, para que la IA sepa que
+# existen. Sin esto solo conoce la lista que alguien pego a mano en
+# src/tiendas/invictus.js, y lo que entre despues no lo ofrece nunca.
+#
+# Cuatro veces al dia: 3am, 9am, 3pm y 9pm hora de Venezuela (UTC-4).
+# Si subes productos y no quieres esperar, entra a:
+#   https://invictus-bot.<tu-subdominio>.workers.dev/indice?sincronizar=1
+[triggers]
+crons = ["0 1,7,13,19 * * *"]
+
 [vars]
 # QUE TIENDA ATIENDE ESTE WORKER. Tiene que coincidir con un archivo de
 # src/tiendas/ (invictus.js, emperador.js). De aqui salen el nombre con el

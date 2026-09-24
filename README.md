@@ -88,6 +88,7 @@ worker/
     estado.js               memoria en D1: historial, nombre, pausa por asesor humano
     identificar.js          red de seguridad determinista para lo que identifica la IA en una foto
     shopify.js              búsqueda de productos (Admin GraphQL API)
+    indice.js               indexa TODO el catálogo de Shopify en D1 y arma con él el bloque de catálogo del prompt
     color.js                separa el color del término de búsqueda y filtra por color
     historial.js            arma el contexto que ve el modelo (separa pasado/presente, recorta historial)
     catalogo.js              detecta que piden el catálogo POR SU NOMBRE, y que piden ver algo distinto de lo ya visto
@@ -113,6 +114,28 @@ worker/
   - **19-sep-2026 (5) — schema JSON estricto.** Con (4) desplegado, la MISMA foto volvió a salir "Air Max 270", sin cambio. Causa: `json_object` (modo suelto) solo garantiza JSON válido, no que traiga las claves que el prompt pide — "rasgos" se podía quedar afuera sin aviso, dejando a `identificar.js` sin nada que verificar. Se cambió a `response_format: json_schema` con `strict:true` en la llamada de visión: la API de OpenAI ahora garantiza que "rasgos" viene siempre con las 15 claves exactas. `identificar.js` exporta `RASGOS_CLAVE` como fuente única de verdad; `ia.js` la importa para armar el schema.
   - **21-sep-2026 (6) — el prompt de visión no sabía qué era una historia.** `index.js` le manda `[EL CLIENTE RESPONDIÓ A UNA HISTORIA — la imagen que ves ES la historia]` desde que se retiró ManyChat, pero `vision.txt` nunca mencionaba ese marcador: el modelo recibía una instrucción que no estaba entrenado a leer, justo en el mensaje más valioso que llega (quien responde a una historia ya vio el zapato y lo quiere). Sección nueva **"CUANDO LA FOTO ES UNA HISTORIA"**: la imagen es de la tienda y no del cliente, hay que ignorar precios y stickers superpuestos, con varios pares se elige por lo que escribió el cliente ("las negras", "la segunda") y si no dice nada el que sale más grande, y está prohibido pedir otra foto o decir que no se ve la historia. El nivel 4 cambia en historias: en vez de "¿me mandas una foto?", se pregunta cuál le gustó. Tres ejemplos nuevos.
   - **Cobertura del catálogo — pendiente de fotos reales.** Sin acceso a la tienda (`8vds1e-jw.myshopify.com` bloqueada por la política de red de este entorno), las firmas se escribieron con conocimiento general de sneakers bien documentados. ~10 nombres del catálogo no se reconocen con confianza y se dejaron sin firma a propósito (mejor sin firma que con una inventada): `Adidas Gallagher/Gallangher`, `Adidas Swicth/Switch`, `Jordan Lukka`, `Nike ava Rover`, `Nike bailleli`, `Nike Hiperset`, `Nike Hiperdunk`, `Nike Alpha`, `Nike DN/DN 8`, `DC shoes acsed/ascend`, `Adidas Adistar XLG`, `nike a'ja wilson a'one`. Si el dueño manda 1-2 fotos reales de cada uno, se completan. Los títulos genéricos sin silueta propia ("Adidas caballero", "Nike Dama", "X promoción", "Nike react/zoom/pulse") se dejaron sin firma a propósito.
+
+### El catálogo que ve la IA (indexación) — 24-sep-2026
+
+**El problema.** La IA solo ofrece lo que sabe que existe. Esa lista de nombres vivía escrita a mano dentro de `src/tiendas/<tienda>.js` (~316 títulos), y había que volver a pegarla cada vez que entraba mercancía. Entre una pegada y la siguiente, **todo lo nuevo era invisible**: el cliente preguntaba por un modelo que sí estaba en la tienda y el bot no lo ofrecía, o se inventaba un término y la búsqueda devolvía cero.
+
+**Cómo funciona ahora.** `src/indice.js` recorre el catálogo entero de Shopify (Admin GraphQL, páginas de 250, mismo filtro `status:active` que usa la búsqueda), guarda los títulos en la tabla `catalogo` de D1 y arma con ellos los dos bloques de catálogo del prompt — el de texto (`{{CATALOGO}}`) y el de visión (`{{CATALOGO_VISION}}`).
+
+- **Se refresca solo.** `[triggers] crons` en `wrangler.toml`: 4 veces al día (3am, 9am, 3pm y 9pm hora de Venezuela). El handler `scheduled()` de `index.js` es quien lo dispara.
+- **Y a mano cuando haga falta.** `/indice` enseña lo que hay indexado; `/indice?sincronizar=1` lo rehace en el momento y **lista los productos nuevos** — que es justo lo que hay que revisar para ver si alguno necesita su término.
+- **La lista escrita a mano queda de respaldo, no se borra.** Si el índice está vacío (primer despliegue), si D1 no responde o si Shopify falla, `tienda.js` se queda con ella. El bot nunca se queda sin catálogo por culpa del índice. `/estado` dice cuál de las dos está usando.
+- **La tabla se crea sola** (`CREATE TABLE IF NOT EXISTS` en la primera sincronización). `migrations/0004_catalogo.sql` existe para instalaciones limpias, pero **no hace falta correrla** — misma lección que la columna `mostrados` (ver 6b abajo): los archivos se copian a mano, así que un arreglo no puede depender de que alguien recuerde un comando.
+- **Un fallo nunca vacía el índice.** Si Shopify devuelve cero productos (token caducado, permiso retirado, mal día de la API) la sincronización se aborta y deja el índice anterior intacto, porque hacerle caso dejaría al bot sin catálogo y sin saber por qué. Lo mismo con cualquier error HTTP.
+- **Lo retirado desaparece.** Lo que no aparece en una pasada se borra, así que el bot deja de ofrecer lo que la tienda ya no vende.
+- **El prompt se rearma solo cuando cambia el catálogo.** La clave del cacheo de `ia.js` lleva una huella de la lista: mientras el catálogo sea el mismo se reusa el prompt armado, y en cuanto entra mercancía se arma uno nuevo sin reiniciar nada.
+
+**Lo que el índice NO reemplaza: la tabla de TÉRMINOS.** Sigue siendo a mano, y así debe ser. El índice dice **qué hay**; los términos dicen **cómo lo pide el cliente** (`"tn"` → `TN`, `"jordan 4"` → `Retro 4`, `"chancla"` → `Chola`). Eso no se deduce de los títulos. Por eso `/indice?sincronizar=1` lista lo que entró nuevo: para revisar si alguno se pide con un nombre que no está en su título.
+
+**Tope de prompt:** 1500 títulos. Más que eso encarece cada mensaje del día; si una tienda crece tanto, sale un aviso en `wrangler tail`.
+
+**Probado en simulación** (Shopify y D1 falsos, sin acceso a la tienda real desde este entorno): paginación de 600 productos en 3 páginas, títulos repetidos descartados, alta y baja de productos detectadas, resguardo ante Shopify vacío y ante error 401, los dos bloques del prompt, y la vuelta a la lista a mano cuando no hay base.
+
+**Pendiente de la primera pasada real.** Al desplegar, entrar a `/indice?sincronizar=1` una vez y comprobar que el total cuadra con los productos publicados en Shopify.
 
 ### Problemas conocidos / pendientes
 

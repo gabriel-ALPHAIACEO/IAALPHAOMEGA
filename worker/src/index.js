@@ -27,6 +27,7 @@ import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo } from "./catalogo.js";
 import { alternativasPara } from "./parecidos.js";
 import { tiendaDe } from "./tienda.js";
+import { sincronizarIndice, titulosIndexados, revisarIndice } from "./indice.js";
 import { separarColor, filtrarPorColor, terminoDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
@@ -56,7 +57,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-22 · multi-tienda (Invictus + El Emperador)";
+const VERSION = "2026-09-24 · catálogo indexado desde Shopify";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -312,6 +313,11 @@ export default {
       // tenga las columnas de hoy. Eso se comprueba de verdad, aquí.
       const base = await revisarBase(env.DB, env.D1_NOMBRE);
 
+      // Y si el catálogo que ve la IA es el de Shopify de hoy o la lista
+      // vieja escrita a mano. Es la diferencia entre vender lo que entró
+      // esta semana y no saber que existe.
+      const indice = await revisarIndice(env);
+
       return texto200(
         [
           `TIENDA              ${tiendaDe(env).nombre}   (TIENDA = "${env.TIENDA || "invictus"}")`,
@@ -342,6 +348,11 @@ export default {
           "BASE DE DATOS (D1) — la memoria del bot entre mensajes",
           ...base.lineas,
           "",
+          "CATÁLOGO — lo que la IA sabe que existe",
+          ...indice,
+          "  Ver la lista entera:  /indice",
+          "  Rehacerla ahora:      /indice?sincronizar=1",
+          "",
           "ManyChat está retirado. Este Worker es el único canal: habla",
           "directo con la API de Instagram y guarda su propia memoria en D1.",
           "",
@@ -349,6 +360,76 @@ export default {
           "Instagram, no con la de Configuración → Básica. Si el registro",
           "dice que la firma no cuadra, carga la otra:",
           "  npx wrangler secret put META_APP_SECRET_IG",
+          "",
+        ].join("\n")
+      );
+    }
+
+    // EL CATÁLOGO QUE DE VERDAD ESTÁ USANDO EL BOT.
+    //
+    //   /indice                 qué tiene indexado ahora mismo
+    //   /indice?sincronizar=1   lo rehace desde Shopify en el momento
+    //
+    // Lo segundo es para cuando acabas de subir productos y no quieres
+    // esperar a que el cron pase: entras a la dirección y ya.
+    if (url.pathname === "/indice") {
+      if (url.searchParams.get("sincronizar")) {
+        const resultado = await sincronizarIndice(env);
+
+        if (!resultado.ok) {
+          return texto200(
+            `NO SE PUDO REHACER EL ÍNDICE\n\n${resultado.error}\n\n` +
+              "El catálogo anterior sigue intacto: el bot no se queda mudo\n" +
+              "por esto. Arregla lo de arriba y vuelve a entrar aquí.\n"
+          );
+        }
+
+        const nuevos = resultado.nuevos.length
+          ? ["", `PRODUCTOS NUEVOS (${resultado.nuevos.length})`,
+             ...resultado.nuevos.map((t) => `  ${t}`),
+             "",
+             "Estos ya los conoce el bot. Si alguno se pide con un nombre",
+             "que no está en su título —como \"tn\" para Air Max Plus—,",
+             "agrégalo a la tabla de TÉRMINOS de src/tiendas/" +
+               `${String(env.TIENDA || "invictus").toLowerCase()}.js.`]
+          : ["", "Ningún producto nuevo desde la última pasada."];
+
+        return texto200(
+          [
+            "ÍNDICE REHECHO",
+            "",
+            `  Productos        ${resultado.total}`,
+            `  Retirados        ${resultado.retirados}`,
+            `  Páginas leídas   ${resultado.paginas}`,
+            ...nuevos,
+            "",
+          ].join("\n")
+        );
+      }
+
+      const titulos = await titulosIndexados(env, { frescos: true });
+
+      if (!titulos.length) {
+        return texto200(
+          "EL ÍNDICE ESTÁ VACÍO\n\n" +
+            "El bot está usando la lista de productos escrita a mano en\n" +
+            `src/tiendas/${String(env.TIENDA || "invictus").toLowerCase()}.js, que es la de la última vez\n` +
+            "que alguien la pegó.\n\n" +
+            "Para llenarlo desde Shopify ahora mismo:\n" +
+            "  /indice?sincronizar=1\n"
+        );
+      }
+
+      return texto200(
+        [
+          `ÍNDICE DE ${tiendaDe(env).nombreMayusculas}`,
+          "",
+          `  ${titulos.length} productos publicados en Shopify.`,
+          "  Esta es la lista que ve la IA en cada mensaje.",
+          "",
+          "  Para rehacerla ahora:  /indice?sincronizar=1",
+          "",
+          ...titulos.map((t) => `  ${t}`),
           "",
         ].join("\n")
       );
@@ -411,6 +492,34 @@ export default {
     }
 
     return new Response(`bot de ${tiendaDe(env).nombre}\n`, { status: 200 });
+  },
+
+  // EL CATÁLOGO SE PONE AL DÍA SOLO.
+  //
+  // Cloudflare llama aquí según el horario de [triggers] en wrangler.toml.
+  // Sin esto, la IA solo conoce la mercancía que había el día en que
+  // alguien pegó la lista a mano — y lo que entró después no lo ofrece
+  // nunca, porque para ella no existe.
+  //
+  // Si falla, no pasa nada grave: el índice anterior se queda como estaba
+  // y el bot sigue vendiendo con él. El motivo sale en `wrangler tail`, y
+  // /estado dice de cuándo es lo que está usando.
+  async scheduled(evento, env, ctx) {
+    ctx.waitUntil(
+      (async () => {
+        const resultado = await sincronizarIndice(env);
+        if (!resultado.ok) {
+          console.error("No se pudo poner al día el catálogo:", resultado.error);
+          return;
+        }
+        if (resultado.nuevos.length) {
+          console.log(
+            `Productos nuevos en el catálogo: ${resultado.nuevos.slice(0, 20).join(" · ")}` +
+              (resultado.nuevos.length > 20 ? ` (y ${resultado.nuevos.length - 20} más)` : "")
+          );
+        }
+      })()
+    );
   },
 };
 

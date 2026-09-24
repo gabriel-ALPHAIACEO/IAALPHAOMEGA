@@ -4,22 +4,42 @@ import promptTexto from "./prompts/texto.txt";
 import promptVision from "./prompts/vision.txt";
 import { RASGOS_CLAVE } from "./identificar.js";
 import { tiendaDe, rellenar } from "./tienda.js";
+import { bloquesDeCatalogo } from "./indice.js";
 
 // Los prompts vienen con marcadores ({{TIENDA}}, {{CATALOGO}}...) y aquí se
 // rellenan con los datos de la tienda que atiende este Worker.
 //
 // SE GUARDA EL RESULTADO. Son mil líneas de texto y el reemplazo daría
-// igual en cada mensaje, porque la tienda no cambia mientras el Worker
-// viva. Se hace una vez por arranque y ya.
+// igual en cada mensaje. Se arma una vez y se reusa.
+//
+// LO QUE CAMBIÓ CON EL ÍNDICE. El catálogo ya no es fijo: indice.js lo
+// saca de Shopify cada pocas horas. Por eso la clave del guardado lleva
+// además la HUELLA de la lista de productos — mientras el catálogo sea el
+// mismo se reusa el prompt de siempre, y en cuanto entra mercancía nueva la
+// huella cambia y se arma uno nuevo, sin reiniciar nada.
 const armados = new Map();
 
-function prompt(env, plantilla, clave) {
+// Cada prompt armado ocupa lo suyo. Con dos plantillas y algún cambio de
+// catálogo de por medio, más de esto son versiones viejas que ya no vuelven
+// a salir.
+const MAX_ARMADOS = 6;
+
+async function prompt(env, plantilla, clave) {
   const tienda = tiendaDe(env);
-  const cache = `${tienda.nombre}:${clave}`;
+
+  // Si el índice no tiene nada, esto viene vacío y rellenar() se queda con
+  // la lista escrita a mano de la tienda. Nunca lanza.
+  const delIndice = await bloquesDeCatalogo(env);
+
+  const cache = `${tienda.nombre}:${clave}:${delIndice.huella || "a-mano"}`;
 
   if (!armados.has(cache)) {
-    armados.set(cache, rellenar(plantilla, tienda));
-    console.log(`Prompt "${clave}" armado para ${tienda.nombre}`);
+    if (armados.size >= MAX_ARMADOS) armados.clear();
+    armados.set(cache, rellenar(plantilla, tienda, delIndice));
+    console.log(
+      `Prompt "${clave}" armado para ${tienda.nombre} ` +
+        `(catálogo: ${delIndice.huella ? `índice ${delIndice.huella}` : "lista a mano"})`
+    );
   }
 
   return armados.get(cache);
@@ -117,14 +137,16 @@ async function llamar(env, sistema, contenido, { maxTokens = 1024, json = true, 
 }
 
 export async function responderTexto(env, entrada) {
-  const salida = await llamar(env, prompt(env, promptTexto, "texto"), [{ type: "text", text: entrada }]);
+  const salida = await llamar(env, await prompt(env, promptTexto, "texto"), [
+    { type: "text", text: entrada },
+  ]);
   return normalizar(salida);
 }
 
 export async function responderImagen(env, urlImagen, entrada) {
   const salida = await llamar(
     env,
-    prompt(env, promptVision, "vision"),
+    await prompt(env, promptVision, "vision"),
     [
       // detail:"high" fuerza la resolución máxima que admite el modelo. Sin
       // esto, OpenAI decide solo ("auto") y en fotos de producto —donde hay

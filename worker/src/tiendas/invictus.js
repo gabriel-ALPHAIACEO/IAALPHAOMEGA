@@ -6,10 +6,23 @@
 // toca ni una línea de código.
 //
 // QUÉ ACTUALIZAR CUANDO CAMBIE LA TIENDA:
-//   catalogo   cuando se agreguen o quiten productos en Shopify
 //   terminos   cuando un término de búsqueda no encuentre lo que debería
 //   horarios   si cambian
 //   calidad    si cambia lo que se vende
+//
+//   catalogo   YA NO HACE FALTA TOCARLO (24-sep-2026). Desde que existe
+//              src/indice.js, la lista de productos sale sola de Shopify
+//              varias veces al día y esa es la que ve la IA. Lo de abajo
+//              quedó como respaldo: es lo que se usa si el índice todavía
+//              no corrió, si D1 no responde o si Shopify falla. Se puede
+//              dejar envejecer sin miedo. Para ver cuál de las dos está
+//              usando el bot ahora mismo, entra a /estado.
+//
+//              Lo que SÍ sigue siendo a mano es "terminos": el índice dice
+//              QUÉ HAY, y los términos dicen CÓMO LO PIDE EL CLIENTE
+//              ("tn" → TN, "jordan 4" → Retro 4). Eso no se deduce de los
+//              títulos. /indice?sincronizar=1 lista lo que entró nuevo,
+//              justo para que revises si alguno necesita su término.
 
 export const invictus = {
   // Como se nombra a si misma ante el cliente. Va en la bienvenida.
