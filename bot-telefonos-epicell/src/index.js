@@ -268,6 +268,28 @@ const CONSULTA_DE_ASESOR =
 // Si algún día aparece una tercera forma de pago sin datos, esto vuelve:
 // una constante acá y una condición en esConsultaDeAsesor.
 
+// Lo que se le dice cuando vuelve a pedir lo mismo en divisas. No hace
+// falta buscar nada: son los equipos que acaba de ver.
+const PRECIOS_EN_DIVISAS = [
+  "¡Claro que sí! 💵 Estos son los precios en divisas 👇",
+  "¡Con gusto! 💵 Aquí te van en divisas 👇",
+  "¡Por supuesto! Te los paso en divisas 💵 👇",
+];
+
+// Compartió una publicación y no hay forma de saber qué equipo es: ni la
+// imagen, ni su pie de foto, ni lo que escribió el cliente lo nombran.
+//
+// Se le PREGUNTA. Lo que no se hace nunca es contestar con el equipo del
+// que se venía hablando: pasó en producción —un cliente mandó el enlace
+// de una publicación del POCO M8 PRO y el bot le contestó con el Samsung
+// A57, que era el de la conversación anterior—. Enseñar el equipo
+// equivocado con seguridad es peor que preguntar.
+const PUBLICACION_SIN_IDENTIFICAR = [
+  "¡Claro que sí! 😊 Dime cuál de los equipos de esa publicación te interesa y te paso el precio",
+  "¡Con gusto! ¿Cuál viste en esa publicación? Dime el modelo y te lo muestro enseguida",
+  "¡Por supuesto! 😊 Dime el nombre del equipo que viste ahí y te doy toda la información",
+];
+
 // La plataforma de compra a crédito. Cuando el cliente la nombra, se le
 // muestra el precio Cashea de la ficha junto al precio normal.
 const PREGUNTA_CASHEA = /\bcashea\b/i;
@@ -1044,6 +1066,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
         mids_enviados: mids,
         ultimo_envio: enviadoEn || Date.now(),
         ultima_respuesta: respuesta,
+        ultimos_productos: recomendados.map((p) => p.titulo),
       });
       return;
     }
@@ -1052,6 +1075,73 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       "Pidió ver lo recomendado, pero en el último mensaje no reconocí " +
         "ningún producto del catálogo: sigo por el camino normal."
     );
+  }
+
+  // "¿Y EN DIVISAS?" — LOS MISMOS EQUIPOS, CON EL OTRO PRECIO.
+  //
+  // EL FALLO QUE ESTO ARREGLA (24-sep-2026). El bot le mostró dos Samsung
+  // A57, el cliente preguntó "Precio en divisas?" y recibió "Eso te lo
+  // confirma un asesor en un momento 😊". Ni buscó ni mostró nada: ese
+  // mensaje no nombra ningún equipo, así que no había término de búsqueda,
+  // y el modelo —que no tenía nada dicho sobre divisas— tiró por el asesor.
+  //
+  // Pero el dato sí lo tenemos: los precios de la hoja YA están en divisas.
+  // Lo único que faltaba era saber DE QUÉ equipos habla, y eso no hay que
+  // adivinarlo: son los del último carrusel, guardados en D1.
+  //
+  // Va antes del modelo, como "muéstrame esos", por la misma razón: no hay
+  // nada que redactar ni que buscar, hay que volver a enseñar lo mismo.
+  if (
+    !imagenCruda &&
+    !publicacion &&
+    PREGUNTA_DIVISAS.test(mensaje.texto) &&
+    contacto.ultimos_productos.length
+  ) {
+    const enElCatalogo = await catalogoCompleto(env);
+
+    // Si nombra un equipo —"¿cuánto es el iPhone 15 en divisas?"— no está
+    // hablando de los de antes: que siga el camino normal y se busque lo
+    // que pidió. La ficha saldrá en divisas igual.
+    if (!nombraDelCatalogo(mensaje.texto, enElCatalogo)) {
+      const previos = enElCatalogo.filter((p) =>
+        contacto.ultimos_productos.some((titulo) => despejar(titulo) === despejar(p.titulo))
+      );
+
+      if (previos.length) {
+        const respuesta = alAzar(PRECIOS_EN_DIVISAS);
+        console.log(
+          `Pidió divisas: le repito ${previos.map((p) => p.titulo).join(", ")} con el precio en divisas`
+        );
+
+        await mandar(() => enviarTexto(env, mensaje.igsid, respuesta));
+        await mandar(() =>
+          enviarFichas(
+            env,
+            mensaje.igsid,
+            previos.map((p) => ({ ...p, precio: subtituloDeFicha(p, false, true) }))
+          )
+        );
+
+        await guardarContacto(env.DB, {
+          ...contacto,
+          nombre,
+          historial: conNota(
+            historialPrevio,
+            `Le repetí en divisas: ${previos.map((p) => p.titulo).join(", ")}.`
+          ),
+          mids_enviados: mids,
+          ultimo_envio: enviadoEn || Date.now(),
+          ultima_respuesta: respuesta,
+          ultimos_productos: previos.map((p) => p.titulo),
+        });
+        return;
+      }
+
+      console.log(
+        "Pidió divisas, pero los equipos del último carrusel ya no están " +
+          "en el catálogo: sigo por el camino normal."
+      );
+    }
   }
 
   const minutosCallado = minutosDesde(contacto.ultimo_envio);
@@ -1076,6 +1166,10 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // nada— y el resultado se le entrega a la IA de texto como un dato más
   // del contexto: es ELLA quien decide qué decirle al cliente.
   let marcaFoto = "";
+  // Lo que la IA de visión sacó de la imagen, si sacó algo. Se guarda
+  // aparte porque más abajo hay una decisión que depende de si de verdad
+  // SABEMOS qué equipo es, y no de si el modelo escribió algo.
+  let equipoDeLaPublicacion = "";
   if (foto) {
     const identificacion = await identificarEnImagen(env, foto, catalogo, {
       esPublicacion: Boolean(publicacion),
@@ -1090,6 +1184,10 @@ async function atenderMeta(env, mensaje, rastro = {}) {
         esHistoria,
         Boolean(publicacion)
       );
+
+      if (String(identificacion.buscar).toUpperCase() !== "NADA") {
+        equipoDeLaPublicacion = identificacion.buscar;
+      }
     } else {
       console.error("La IA de visión no respondió: sigo solo con el texto");
       foto = "";
@@ -1168,28 +1266,61 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     precio: subtituloDeFicha(p, conCashea, conDivisas),
   }));
 
+  // NO SABEMOS QUÉ EQUIPO ES EL DE LA PUBLICACIÓN: SE PREGUNTA (crítico).
+  //
+  // EL FALLO QUE ESTO ARREGLA (24-sep-2026). Un cliente mandó el enlace de
+  // una publicación del POCO M8 PRO y el bot le contestó con el Samsung
+  // A57 — el equipo del que se venía hablando en esa conversación. El
+  // enlace no se pudo abrir, la imagen no estaba, y el modelo rellenó el
+  // hueco con lo único que tenía delante: el historial.
+  //
+  // Un hueco no se rellena con el pasado. Si ni la visión, ni la ficha del
+  // enlace, ni el pie de la publicación, ni lo que escribió el cliente
+  // nombran un equipo, entonces NO SE SABE — y se pregunta. Esto es código,
+  // no una instrucción del prompt, justamente porque el modelo ya demostró
+  // que ahí se deja llevar.
+  const sinSaberQueEs =
+    Boolean(publicacion) &&
+    !publicacion.soloContexto &&
+    !equipoDeLaPublicacion &&
+    !publicacion.termino &&
+    !nombraDelCatalogo(
+      `${publicacion.titulo || ""} ${publicacion.descripcion || ""} ${mensaje.texto}`,
+      await catalogoCompleto(env)
+    );
+
+  if (sinSaberQueEs) {
+    console.log(
+      `Publicación de ${mensaje.igsid} sin identificar: pregunto cuál es en vez ` +
+        `de contestar con el equipo anterior${termino ? ` (el modelo iba a buscar "${termino}")` : ""}`
+    );
+  }
+
+  const paraMostrar = sinSaberQueEs ? [] : fichas;
+  const leDigo = sinSaberQueEs ? alAzar(PUBLICACION_SIN_IDENTIFICAR) : respuestaCliente;
+
   // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO. El botón sale en dos casos:
   // buscamos lo que pidió y no apareció, o hay más de los que caben en el
   // carrusel. Una pregunta de vendedora —"¿lo quieres nuevo o usado?"— sale
   // como texto limpio: el cliente que se va al catálogo se va de la
   // conversación.
-  if (fichas.length) {
-    await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
-    await mandar(() => enviarFichas(env, mensaje.igsid, fichas));
+  if (paraMostrar.length) {
+    await mandar(() => enviarTexto(env, mensaje.igsid, leDigo));
+    await mandar(() => enviarFichas(env, mensaje.igsid, paraMostrar));
     if (hayMas) {
       await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, HAY_MAS_EN_CATALOGO));
     }
-  } else if (buscoSinExito) {
-    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente));
+  } else if (buscoSinExito && !sinSaberQueEs) {
+    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, leDigo));
   } else {
-    await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
+    await mandar(() => enviarTexto(env, mensaje.igsid, leDigo));
   }
 
   const escalada = hayEscalada({
-    respuesta: respuestaCliente,
-    productos,
-    esConsultaDeAsesor,
-    buscoSinExito,
+    respuesta: leDigo,
+    productos: paraMostrar,
+    esConsultaDeAsesor: esConsultaDeAsesor && !sinSaberQueEs,
+    buscoSinExito: buscoSinExito && !sinSaberQueEs,
   });
 
   if (escalada) {
@@ -1197,7 +1328,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       ...paraElAviso(contacto),
       igsid: mensaje.igsid,
       mensaje: textoCliente,
-      respuesta: respuestaCliente,
+      respuesta: leDigo,
       motivo: motivo({ esConsultaDeAsesor }),
       historial: salida.historial || historialPrevio,
       busco: termino,
@@ -1209,12 +1340,25 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   await guardarContacto(env.DB, {
     id: mensaje.igsid,
     nombre,
-    historial: recortarHistorial(salida.historial || historialPrevio),
+    // Si no supimos qué equipo era el de la publicación, el historial NO
+    // puede quedarse con lo que el modelo había escrito —hablaba del
+    // equipo anterior— o el próximo mensaje volvería al mismo error.
+    historial: recortarHistorial(
+      sinSaberQueEs
+        ? conNota(historialPrevio, "Compartió una publicación que no pude identificar: le pregunté cuál es.")
+        : salida.historial || historialPrevio
+    ),
     pausado_hasta: contacto.pausado_hasta,
     mids_enviados: mids,
     // Lo que se le acaba de decir, tal cual. Es lo que hace posible el
     // "muéstrame esos" del próximo mensaje (ver recomendados.js).
-    ultima_respuesta: respuestaCliente,
+    ultima_respuesta: leDigo,
+    // Y los títulos de lo que acaba de ver, para el "¿y en divisas?" que
+    // viene detrás. Si este turno no mostró nada, se queda lo de antes:
+    // una pregunta suelta no borra el carrusel del que está hablando.
+    ultimos_productos: paraMostrar.length
+      ? paraMostrar.map((p) => p.titulo)
+      : contacto.ultimos_productos,
     // Si TODOS los envíos fallaron, enviadoEn sigue en 0 y no hay que pisar
     // la marca anterior con un cero.
     ultimo_envio: enviadoEn || contacto.ultimo_envio,
@@ -1316,7 +1460,12 @@ async function publicacionDelTurno(env, mensaje, contacto) {
   const suPropiaImagen = Boolean(mensaje.foto || mensaje.historia?.url);
 
   if (guardada.atendida || suPropiaImagen) {
-    return { ...guardada, imagen: "" };
+    // Ya se contestó por ella, o el cliente mandó algo suyo que manda más.
+    // Sigue sirviendo de contexto —"¿y ese cuánto sale?" habla de eso— pero
+    // no vuelve a mirarse la imagen, y NO entra en el guardián de "no sé
+    // qué equipo es": eso es para la publicación que llega ahora, no para
+    // una conversación que ya iba por buen camino.
+    return { ...guardada, imagen: "", soloContexto: true };
   }
 
   // Se marca ANTES de llamar al modelo: la llamada tarda segundos, y es en
@@ -1537,6 +1686,44 @@ function contexto(
     minutosDesdeElUltimo: minutos,
     catalogo,
   });
+}
+
+// ¿ESTE TEXTO NOMBRA ALGÚN EQUIPO DEL CATÁLOGO?
+//
+// Se usa para dos decisiones donde equivocarse cuesta caro:
+//
+//   · "¿y en divisas?" — si NO nombra nada, habla de lo que acaba de ver,
+//     y hay que volver a mostrarle eso mismo.
+//   · una publicación compartida que no se pudo identificar — si ni la
+//     publicación ni el cliente nombran un equipo, se pregunta; nunca se
+//     contesta con el equipo de la conversación anterior.
+//
+// Se mira en los dos sentidos: el título entero dentro del texto ("Poco
+// M8 Pro 8/256" cuando el cliente escribió justo eso) y las primeras
+// palabras del título ("Poco M8 Pro" dentro de un texto que dice "POCO M8
+// PRO", aunque el título del catálogo siga con la capacidad).
+function nombraDelCatalogo(texto, productos) {
+  const donde = despejar(texto);
+  if (!donde || !productos?.length) return "";
+
+  for (const producto of productos) {
+    const titulo = despejar(producto.titulo);
+    if (titulo.length >= 4 && donde.includes(titulo)) return producto.titulo;
+
+    const principio = titulo.split(" ").slice(0, 3).join(" ");
+    if (principio.length >= 6 && donde.includes(principio)) return producto.titulo;
+  }
+
+  return "";
+}
+
+function despejar(texto) {
+  return String(texto || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // De la marca de tiempo del último envío a minutos, para contexto().
@@ -1788,8 +1975,15 @@ async function decidir({ env, salida, texto, historialPrevio }) {
 //   · Ninguna de las dos → precio Cashea solo, que es el que se muestra
 //     primero por defecto. Si el producto no tiene precio Cashea cargado en
 //     la hoja, se usa el de divisas para no dejar la ficha sin precio.
+// La etiqueta que va PEGADA al monto cuando el cliente pidió divisas.
+// Sin ella son dos cifras sueltas —la de la hoja y la de Cashea— y el
+// cliente no sabe cuál acaba de pedir.
+const ETIQUETA_DIVISA = "Precio DIVISA";
+
 function precioParaMostrar(producto, conCashea, conDivisas) {
-  if (conDivisas) return producto.precio || "Precio: consúltalo";
+  if (conDivisas) {
+    return producto.precio ? `${producto.precio} · ${ETIQUETA_DIVISA}` : "Precio: consúltalo";
+  }
 
   // Los DOS precios juntos: aquí sí van con su nombre. Sin etiqueta
   // serían dos cifras seguidas y el cliente no sabría cuál es cuál —

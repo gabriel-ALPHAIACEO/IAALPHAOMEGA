@@ -1,5 +1,50 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: el precio en divisas se responde (24-sep-2026)
+
+**El fallo.** El bot le mostró dos Samsung A57, el cliente escribió *"Precio
+en divisas?"* y recibió *"Eso te lo confirma un asesor en un momento 😊"*.
+Ni buscó ni mostró nada.
+
+Dos causas, las dos arregladas:
+
+1. **El prompt no decía nada de divisas.** Los precios de la hoja YA están
+   en divisas (la columna que usa es `Precio Divisas ($)`), pero el modelo
+   no lo sabía, y ante la duda tiró por el asesor. Sección nueva en
+   `texto.txt`: **LOS PRECIOS EN DIVISAS SÍ LOS DAS**.
+2. **"¿Y en divisas?" no nombra ningún equipo**, así que no había término de
+   búsqueda y no había nada que mostrar. Ahora los títulos del último
+   carrusel quedan guardados en D1 (columna `ultimos_productos`, se crea
+   sola) y esa pregunta **vuelve a mostrar los mismos equipos**, sin buscar
+   otra vez y sin pasar por el modelo — igual que "muéstrame esos".
+
+Y en la ficha, el monto va con su etiqueta: **`$310 · Precio DIVISA`**. Solo
+cuando el cliente pregunta por divisas; por defecto la ficha sigue con el
+precio Cashea, y si pregunta por Cashea siguen saliendo los dos.
+
+Si nombra un equipo —"¿cuánto el iPhone 15 en divisas?"— no se repite nada:
+se busca lo que pidió, y la ficha sale igual con la etiqueta.
+
+## Hecho: una publicación sin identificar se pregunta, no se supone (24-sep-2026)
+
+**El fallo.** Un cliente mandó el enlace de una publicación del **POCO M8
+PRO** y el bot contestó con el **Samsung A57** — el equipo del que se venía
+hablando antes en esa conversación. El enlace no se pudo abrir, la imagen no
+estaba, y el modelo rellenó el hueco con lo único que tenía delante: el
+historial.
+
+**Un hueco no se rellena con el pasado.** Ahora hay un guardián en el código
+—no una instrucción del prompt, que ya demostró que ahí se deja llevar—: si
+ni la IA de visión, ni la ficha del enlace, ni el pie de la publicación, ni
+lo que escribió el cliente nombran un equipo del catálogo, el bot **pregunta
+cuál es** y no muestra nada. El historial de ese turno tampoco se queda con
+lo que el modelo había escrito, para que el mensaje siguiente no vuelva al
+mismo error.
+
+El reconocimiento se hace contra el catálogo en los dos sentidos: el título
+entero dentro del texto, y las primeras palabras del título — así "POCO M8
+PRO" encuentra el "Poco M8 Pro 8/256" de la hoja.
+
 ## Hecho: las publicaciones compartidas del feed (24-sep-2026)
 
 **El fallo.** Un cliente compartió por el chat la publicación del SAMSUNG

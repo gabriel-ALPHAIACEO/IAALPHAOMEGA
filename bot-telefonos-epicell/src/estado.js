@@ -30,6 +30,7 @@ export async function cargarContacto(db, id) {
       ultimo_envio: 0,
       mostrados: [],
       ultima_respuesta: "",
+      ultimos_productos: [],
       publicacion: null,
     };
   }
@@ -52,6 +53,10 @@ export async function cargarContacto(db, id) {
     // Lo último que se le dijo, tal cual salió. Es de donde se recupera
     // "muéstrame esos".
     ultima_respuesta: fila.ultima_respuesta || "",
+    // Los títulos del ÚLTIMO carrusel que se le mandó. Es lo que permite
+    // volver a enseñárselos sin buscar otra vez —"¿y en divisas?"— sin
+    // depender de que el modelo acierte el término dos veces seguidas.
+    ultimos_productos: leerLista(fila.ultimos_productos),
     // La publicación del feed que acaba de compartir, si fue hace poco. Es
     // lo que une los DOS webhooks de "compartir + preguntar" en una sola
     // respuesta (ver publicacion.js).
@@ -215,6 +220,7 @@ export async function guardarContacto(db, contacto) {
     // Se recorta: es para volver sobre el último mensaje, no para
     // guardarse conversaciones enteras en cada fila.
     String(contacto.ultima_respuesta || "").slice(0, MAX_ULTIMA_RESPUESTA),
+    JSON.stringify((contacto.ultimos_productos || []).slice(0, 10)),
   ];
 
   // Los tres campos del perfil NUNCA se borran desde aquí: si el que llama
@@ -224,8 +230,8 @@ export async function guardarContacto(db, contacto) {
   const guardar = () =>
     db
       .prepare(
-        `INSERT INTO contactos (id, nombre, nombre_completo, usuario, historial, pausado_hasta, mids_enviados, ultimo_envio, mostrados, ultima_respuesta)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO contactos (id, nombre, nombre_completo, usuario, historial, pausado_hasta, mids_enviados, ultimo_envio, mostrados, ultima_respuesta, ultimos_productos)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            nombre = COALESCE(NULLIF(excluded.nombre, ''), contactos.nombre),
            nombre_completo = COALESCE(NULLIF(excluded.nombre_completo, ''), contactos.nombre_completo),
@@ -235,7 +241,8 @@ export async function guardarContacto(db, contacto) {
            mids_enviados = excluded.mids_enviados,
            ultimo_envio = excluded.ultimo_envio,
            mostrados = excluded.mostrados,
-           ultima_respuesta = excluded.ultima_respuesta`
+           ultima_respuesta = excluded.ultima_respuesta,
+           ultimos_productos = excluded.ultimos_productos`
       )
       .bind(...datos)
       .run();
@@ -309,6 +316,13 @@ const COLUMNAS_SOLAS = [
   // Con el mensaje literal se puede volver sobre él y sacar los modelos
   // que nombró, que es exactamente lo que el cliente está pidiendo ver.
   ["ultima_respuesta", "TEXT NOT NULL DEFAULT ''"],
+  // LOS TÍTULOS DEL ÚLTIMO CARRUSEL QUE SE LE MANDÓ.
+  //
+  // "¿Y en divisas?" no nombra ningún equipo: habla de los que acaba de
+  // ver. Sin esta lista había que volver a adivinar el término de
+  // búsqueda, y el bot terminaba mandándolo al asesor o enseñando otra
+  // cosa. Con ella se le vuelven a mostrar LOS MISMOS, con el otro precio.
+  ["ultimos_productos", "TEXT NOT NULL DEFAULT '[]'"],
   // LA PUBLICACIÓN DEL FEED QUE ACABA DE COMPARTIR.
   //
   // Compartir y preguntar son dos mensajes, y llegan como dos webhooks en
@@ -457,6 +471,7 @@ const COLUMNAS = [
   ["mostrados", "0003_mostrados"],
   ["nombre_completo", "se crea sola"],
   ["usuario", "se crea sola"],
+  ["ultimos_productos", "se crea sola"],
   ["publicacion", "se crea sola"],
 ];
 
