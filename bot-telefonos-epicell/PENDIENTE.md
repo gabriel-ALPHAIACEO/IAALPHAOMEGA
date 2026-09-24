@@ -1,5 +1,40 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: la lista escrita no se pega encima de las fotos (24-sep-2026)
+
+El cliente pidió *"me mandas las fotos de los cables?"* y recibió las fotos
+con los siete nombres escritos encima:
+
+```
+Claro, aquí tienes los cables que tengo disponibles 👇
+🔹 Samsung Cable Tipo C 1Metro
+🔹 Yookie Cable 2 en 1 CB97
+...
+```
+
+…y debajo, el carrusel con esas mismas fotos y esos mismos nombres. Dos
+veces lo mismo, y las fotos empujadas media pantalla hacia abajo.
+
+Lo escribía el modelo, que desde que aprendió a dar formato a las listas
+las usa también donde no tocan. Se corta por los dos lados:
+
+- **En el código:** cuando el turno va a mandar fichas, las líneas
+  enumeradas del texto se quitan antes de enviarlo. Se queda la frase de
+  arriba y la pregunta del final; si el mensaje era solo la lista, se
+  sustituye por "¡Aquí los tienes! 👇".
+- **En el prompt:** sección nueva **CUÁNDO NO VA UNA LISTA**. Si va a
+  buscar, no enumera — y además no puede saber qué va a encontrar, así que
+  una lista escrita por él puede nombrar equipos que luego no aparecen.
+
+La lista escrita sigue existiendo, pero solo donde toca: cuando el cliente
+pide una lista, y la manda el sistema desde la hoja.
+
+**Y ya que EPICELL no tiene tienda online:** las frases que mandaban "al
+catálogo" cambian solas cuando `URL_CATALOGO` no está puesto. "Tengo más de
+ese modelo" ya no dice "en el catálogo los ves todos" sino que ofrece
+seguir por el chat; y "¿qué más tienen?" ahora abre la lista por marcas, con
+un botón por marca, en vez de mandar a nadie a ninguna parte.
+
 ## Hecho: la lista de productos, con sus botones (24-sep-2026)
 
 Quien pide una lista no está buscando un modelo: está mirando qué hay. Y el

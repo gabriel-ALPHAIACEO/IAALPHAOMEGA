@@ -91,6 +91,7 @@ import {
   enviarFichas,
   enviarBotonCatalogo,
   enviarConOpciones,
+  hayCatalogo,
   obtenerPerfil,
 } from "./instagram.js";
 
@@ -264,6 +265,27 @@ const AQUI_LOS_TIENES = [
 // catálogo, que es donde sí están todos.
 const HAY_MAS_EN_CATALOGO =
   "Tengo más de ese modelo 😊 En el catálogo los ves todos 👇";
+
+// LO MISMO, PARA UNA TIENDA SIN CATÁLOGO WEB.
+//
+// EPICELL no tiene tienda online, así que mandar al cliente "al catálogo"
+// es mandarlo a ninguna parte — y hasta hoy, con URL_CATALOGO sin poner,
+// literalmente a una página inventada. Cuando no hay catálogo, estas dos
+// frases dicen lo mismo pero por el chat, que es donde sí hay quien
+// atienda.
+const HAY_MAS_SIN_CATALOGO =
+  "Tengo más de ese modelo 😊 Dime cuál te gustó y te paso todos los detalles";
+
+const SIN_RESULTADOS_SIN_CATALOGO =
+  "Déjame confirmarte ese modelo con un asesor y te escribo en un momento 😊";
+
+function fraseHayMas(env) {
+  return hayCatalogo(env) ? HAY_MAS_EN_CATALOGO : HAY_MAS_SIN_CATALOGO;
+}
+
+function fraseSinResultados(env) {
+  return hayCatalogo(env) ? SIN_RESULTADOS : SIN_RESULTADOS_SIN_CATALOGO;
+}
 
 // Los datos que el catálogo NO guarda y que decide una persona. Cuando el
 // cliente pregunta por uno, se avisa al asesor aunque el bot le esté
@@ -1270,7 +1292,18 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     ? mensaje.opcion.slice(OPCION_MARCA.length)
     : "";
 
-  if (!imagenCruda && !publicacion && (marcaDelBoton || pideLista(mensaje.texto))) {
+  // Y SIN TIENDA ONLINE, "¿QUÉ MÁS TIENEN?" TAMBIÉN ES UNA LISTA.
+  //
+  // Con catálogo web, ese mensaje se resuelve con el enlace (más abajo).
+  // Sin él, mandarlo a ninguna parte sería la peor respuesta: se le
+  // enseñan las marcas que hay y elige, que es lo que haría un vendedor.
+  const quiereVerMasSinCatalogo = !hayCatalogo(env) && pideVerMas(mensaje.texto);
+
+  if (
+    !imagenCruda &&
+    !publicacion &&
+    (marcaDelBoton || pideLista(mensaje.texto) || quiereVerMasSinCatalogo)
+  ) {
     const enElCatalogo = await catalogoCompleto(env);
     const marcas = marcasDelCatalogo(enElCatalogo);
     const marca =
@@ -1686,7 +1719,11 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   }
 
   const paraMostrar = sinSaberQueEs ? [] : fichas;
-  const leDigo = sinSaberQueEs ? alAzar(PUBLICACION_SIN_IDENTIFICAR) : respuestaCliente;
+  const leDigo = sinSaberQueEs
+    ? alAzar(PUBLICACION_SIN_IDENTIFICAR)
+    : paraMostrar.length
+      ? sinListaPegada(respuestaCliente)
+      : respuestaCliente;
 
   // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO. El botón sale en dos casos:
   // buscamos lo que pidió y no apareció, o hay más de los que caben en el
@@ -1697,7 +1734,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     await mandar(() => enviarTexto(env, mensaje.igsid, leDigo), leDigo);
     await mandar(() => enviarFichas(env, mensaje.igsid, paraMostrar));
     if (hayMas) {
-      await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, HAY_MAS_EN_CATALOGO), HAY_MAS_EN_CATALOGO);
+      const hayMasFrase = fraseHayMas(env);
+      await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, hayMasFrase), hayMasFrase);
     }
   } else if (buscoSinExito && !sinSaberQueEs) {
     await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, leDigo), leDigo);
@@ -2092,6 +2130,47 @@ function contexto(
   });
 }
 
+// LA LISTA ESCRITA ES PARA LAS LISTAS, NO PARA LAS FOTOS.
+//
+// EL FALLO QUE ESTO ARREGLA (24-sep-2026, visto por el dueño). El cliente
+// pidió "las fotos de los cables" y recibió las fotos... con los siete
+// nombres escritos encima:
+//
+//   Claro, aquí tienes los cables que tengo disponibles 👇
+//   🔹 Samsung Cable Tipo C 1Metro
+//   🔹 Samsung Cable Tipo C 2metros
+//   ... y debajo, el carrusel con esas mismas fotos y esos mismos nombres
+//
+// Es decir dos veces lo mismo, y encima empuja las fotos media pantalla
+// hacia abajo. Cada ficha ya lleva su nombre y su precio debajo de la
+// imagen: enumerarlos antes no aporta nada.
+//
+// Cuándo SÍ va la lista escrita: cuando el cliente pide una lista y no hay
+// fotos de por medio (ver lista.js). Por eso esto solo se aplica en el
+// momento de mandar fichas.
+const LINEA_DE_LISTA = /^\s*(?:[🔹🔸🔵⚪🟡💎▪️▫️•·]|[-*]\s|\d+[.)])\s*/u;
+
+function sinListaPegada(texto) {
+  const lineas = String(texto || "").split("\n");
+  const cuantas = lineas.filter((linea) => LINEA_DE_LISTA.test(linea)).length;
+
+  // Una línea suelta con viñeta no es una lista: puede ser parte de la
+  // frase. Con dos ya está enumerando.
+  if (cuantas < 2) return texto;
+
+  const limpio = lineas
+    .filter((linea) => !LINEA_DE_LISTA.test(linea))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  console.log(`Quité ${cuantas} línea(s) de lista del texto: van las fichas debajo`);
+
+  // Si al quitar la lista no queda nada que decir, es que el mensaje ERA
+  // la lista: se sustituye por la frase que presenta el carrusel.
+  return limpio || "¡Aquí los tienes! 👇";
+}
+
 // ¿ESTE TEXTO NOMBRA ALGÚN EQUIPO DEL CATÁLOGO?
 //
 // Se usa para dos decisiones donde equivocarse cuesta caro:
@@ -2356,7 +2435,7 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     // capacidad, no el producto.
     respuestaCliente = alAzar(SIN_DATO_DE_CAPACIDAD);
   } else if (buscoSinExito) {
-    respuestaCliente = SIN_RESULTADOS;
+    respuestaCliente = fraseSinResultados(env);
   }
 
   return {
