@@ -1,5 +1,4 @@
-// Cerebro del bot de ventas. El MISMO código atiende a varias tiendas:
-// cuál, lo dice la variable TIENDA en wrangler.toml (ver tienda.js).
+// Cerebro del bot de ventas de EL EMPERADOR (calzado).
 //
 // 19-sep-2026: se retiró ManyChat. Antes había DOS apps recibiendo el mismo
 // webhook de Meta —la de ManyChat y esta— y cada una respondía por su
@@ -14,35 +13,54 @@
 //
 // 21-sep-2026: se borraron manychat.js y manychat-campo.js, ya sin uso.
 //
+// 22-sep-2026: la identificación de fotos se separó en dos pasos. Antes
+// una sola llamada de visión describía la foto Y redactaba la respuesta
+// para el cliente. Ahora identificarEnImagen() (ia.js) SOLO identifica —
+// rasgos y "buscar"—, esa identificación se verifica en identificar.js, y
+// lo que sale de ahí se le entrega a la IA de texto como un dato más del
+// contexto: es ella quien redacta, con el mismo tono que usa siempre. Por
+// eso ya no existe responderImagen(): todo mensaje, tenga foto o no, pasa
+// por responderTexto().
+//
 // OJO si aparecen archivos extraños en la carpeta de despliegue: existió en
 // paralelo otra versión de ESTE MISMO bot (repo estherzzerpa/
 // challenge-javascript) donde ManyChat seguía siendo el canal y la memoria
 // vivía en KV. Si ves un memoria.js o un nombre.js sueltos, son de esa otra
 // versión y NO van con este código — mezclarlos rompe el arranque.
 
-import { responderTexto, responderImagen } from "./ia.js";
-import { buscarProductos } from "./shopify.js";
+import {
+  responderTexto,
+  identificarEnImagen,
+  rasgosDeProducto,
+  esperarCupo,
+  modeloDeIndice,
+} from "./ia.js";
+import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo } from "./catalogo.js";
 import { alternativasPara } from "./parecidos.js";
-import { tiendaDe } from "./tienda.js";
 import { separarColor, filtrarPorColor, terminoDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
 import { cotejoPorImagen } from "./cotejo.js";
+import { leerIndice, guardarIndexados, limpiarLosQueYaNoEstan } from "./indice.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
   cargarContacto,
   guardarContacto,
   marcarEnvio,
   pausar,
+  despausar,
   estaPausado,
   esEcoPropio,
   envioReciente,
   yaLoVio,
   conProductosMostrados,
   revisarBase,
+  asegurarColumnas,
+  guardarPerfil,
+  comoSeLlama,
 } from "./estado.js";
 import {
   firmaValida,
@@ -50,14 +68,15 @@ import {
   enviarTexto,
   enviarFichas,
   enviarBotonCatalogo,
-  obtenerNombre,
+  obtenerPerfil,
+  fotogramaDeHistoria,
 } from "./instagram.js";
 
 // Se sube a mano en cada entrega, y sale en /estado. Existe por una razón
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-22 · cotejo visual contra el catálogo de Shopify";
+const VERSION = "2026-09-23 (7) · indexar con foto liviana: lo caro era la imagen";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -69,21 +88,16 @@ const SIN_RESULTADOS =
 // La talla la confirma una persona: el catálogo no guarda qué tallas quedan.
 const SOLO_TALLA = "Eso te lo confirma un asesor en un momento 😊";
 
-// Cuando el cliente pide ver más y ya vio TODO lo que hay de ese modelo.
-//
-// Esto sí se puede decir sin mentir, y es la diferencia con SIN_RESULTADOS:
-// aquí no estamos adivinando si el producto existe — se lo mandamos
-// nosotros hace dos mensajes. Lo que se acabó es lo que queda por enseñar.
-//
-// Ninguna lleva "en un momento": eso dispararía el aviso al asesor, y aquí
-// no hay nada que un asesor tenga que hacer.
-
 // Cuando el cotejo visual encontró en el catálogo el zapato de la foto.
 //
-// Sustituye a lo que había escrito el modelo, que en este punto casi
-// siempre es una pregunta ("¿sabes cómo se llama?"): la foto ya nos lo
-// dijo. Ninguna afirma el modelo por su nombre —el título va en la
-// ficha, debajo— ni promete talla o stock, que eso no lo sabemos.
+// Sustituye a lo que escribió la IA de texto, que en este punto casi
+// siempre es una pregunta ("¿sabes cómo se llama?") o un "mira esta
+// marca": la marcaFoto que recibió decía que no se reconoció el modelo,
+// porque el cotejo corre DESPUÉS de que ella redactó. La foto ya nos lo
+// dijo, así que se lo enseñamos en vez de preguntárselo.
+//
+// Ninguna afirma el modelo por su nombre —el título va en la ficha,
+// debajo— ni promete talla o stock, que eso no lo sabemos.
 const ENCONTRE_EL_DE_LA_FOTO = [
   "¡Ese sí lo tenemos! 😍 Mira 👇",
   "¡Claro que sí! Es este 👟 Te lo muestro 👇",
@@ -97,6 +111,19 @@ const TE_OFREZCO_PARECIDOS = [
   "De ese ya te mostré todo lo que hay 👟 Échale un ojo a estos, que te pueden gustar 👇",
   "Ya te enseñé todos los de ese 😊 Te muestro otros parecidos, a ver qué te parecen 👇",
   "No me queda ninguno más de ese modelo 👀 Pero estos van por el mismo estilo, mira 👇",
+];
+
+// 22-sep-2026: caso real en producción — el cliente pidió "On Cloud", vio
+// 10 fichas (el máximo que admite un carrusel de Instagram), preguntó
+// "¿solo tienes esos?" y el bot le ofreció Salomon en vez del catálogo,
+// porque de los 10 que ya había mostrado ninguno era "nuevo". El problema
+// no era que ya hubiera visto todo — es que SÍ había más de ese modelo,
+// solo que nunca se llegaron a buscar porque el carrusel tiene tope de 10.
+// Con "hayMas" (ver shopify.js) el código ahora distingue los dos casos.
+const HAY_MAS_EN_CATALOGO = [
+  "¡Tengo bastantes más de esos! 😊 Aquí tienes el catálogo completo, ahí los ves todos 👇",
+  "¡Claro que hay más! 👟 Te dejo el catálogo completo, ahí están todos los que tengo",
+  "¡Sí, hay varios más! 😊 Mira el catálogo completo, ahí los ves todos 👇",
 ];
 
 // No quedó nada nuevo ni parecido: ahí sí el catálogo ayuda de verdad.
@@ -171,6 +198,47 @@ const AVISO_PAUSA_CADA_MS = 10 * 60 * 1000;
 // que termine, y poco para que el cliente se quede tirado. Se puede tocar
 // en wrangler.toml sin tocar el código, y admite decimales: 0.5 = 30 min.
 const PAUSA_HORAS_POR_DEFECTO = 1;
+
+// DEVOLVERLE LA CONVERSACIÓN AL BOT DESDE EL MISMO CHAT.
+//
+// El asesor terminó y quiere que el bot siga. Antes había que esperar a que
+// venciera la pausa o pegar un comando en la terminal. Ahora basta con que
+// el asesor mande, en ese mismo chat, un mensaje que contenga esta frase:
+//
+//   "Te dejo con la asistente virtual, ella te sigue ayudando 😊"
+//
+// Lo cómodo es tenerlo como RESPUESTA GUARDADA de Instagram: sale como un
+// botón justo encima del teclado del chat y se manda con un toque. El
+// cliente lo lee como una despedida normal del asesor —que es lo que es—
+// y el bot vuelve a atenderlo desde su siguiente mensaje.
+//
+// Se compara sin tildes, sin mayúsculas y sin signos, y basta con que la
+// frase aparezca DENTRO del mensaje: "Listo! te dejo con la asistente 👋"
+// también vale. Se cambia en wrangler.toml (FRASE_DESPAUSAR) sin tocar código.
+const FRASE_DESPAUSAR_POR_DEFECTO = "te dejo con la asistente";
+
+// Lo que el bot anota en el historial al recibir la conversación de vuelta,
+// para no saludar de cero a alguien con quien un asesor ya estuvo hablando.
+const NOTA_DESPAUSADO = "Un asesor lo atendió a mano y me devolvió la conversación.";
+
+function fraseDespausar(env) {
+  return String(env.FRASE_DESPAUSAR || FRASE_DESPAUSAR_POR_DEFECTO).trim();
+}
+
+function esFraseDeDespausar(env, texto) {
+  const frase = sinSignos(fraseDespausar(env));
+  return Boolean(frase) && sinSignos(texto).includes(frase);
+}
+
+function sinSignos(texto) {
+  return String(texto || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9ñ\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 // Cuánto se espera antes de dar por bueno que un eco no es nuestro. Es el
 // tiempo que le damos a la otra petición —la que está respondiendo al
@@ -324,15 +392,25 @@ export default {
 
       // Que el binding esté puesto no significa que la tabla exista ni que
       // tenga las columnas de hoy. Eso se comprueba de verdad, aquí.
-      const base = await revisarBase(env.DB, env.D1_NOMBRE);
+      const base = await revisarBase(env.DB, {
+        fraseDespausar: fraseDespausar(env),
+        // Para que los comandos que imprime se puedan copiar tal cual:
+        // cada bot tiene SU base, y estado.js es el mismo archivo en todos.
+        base: env.D1_NOMBRE || "tu-base-d1",
+      });
+
+      // Cuántos productos tiene el índice del catálogo. Sin índice, el
+      // cotejo visual se queda sin su vía buena y cae al barrido corto,
+      // que con el cupo de OpenAI apenas mira unos pocos por mensaje.
+      let indexados = 0;
+      try {
+        indexados = (await leerIndice(env.DB)).length;
+      } catch {
+        indexados = -1;
+      }
 
       return texto200(
         [
-          `TIENDA              ${tiendaDe(env).nombre}   (TIENDA = "${env.TIENDA || "invictus"}")`,
-          "  El mismo código atiende varias tiendas. Si aquí sale la que no",
-          "  es, el bot se presenta con el nombre de otro negocio y busca en",
-          "  el catálogo equivocado: revisa TIENDA en wrangler.toml.",
-          "",
           `CÓDIGO DESPLEGADO   ${VERSION}`,
           "  Si esta línea no coincide con la última versión que pegaste,",
           "  el despliegue no llegó: vuelve a correr `wrangler deploy`.",
@@ -352,12 +430,34 @@ export default {
           `  URL_CATALOGO        ${env.URL_CATALOGO || "FALTA"}`,
           `  WHATSAPP            ${String(env.WHATSAPP || "").replace(/\D/g, "") ? "puesto" : "sin poner (no sale el botón Comprar)"}`,
           `  PAUSA_HORAS         ${env.PAUSA_HORAS || `${PAUSA_HORAS_POR_DEFECTO} (por defecto)`}   (se cuenta desde el ULTIMO mensaje del asesor)`,
+          `  FRASE_DESPAUSAR     "${fraseDespausar(env)}"   (el asesor la manda en el chat y el bot vuelve)`,
+          `  OPENAI_MODELO       ${env.OPENAI_MODELO || "gpt-4o-mini (por defecto)"}   (el que redacta las respuestas)`,
+          `  OPENAI_MODELO_VISION ${env.OPENAI_MODELO_VISION || "gpt-4o (por defecto)"}   (el que identifica las fotos)`,
+          `  COTEJO_BARRIDO      ${env.COTEJO_BARRIDO === "no" ? "no (apagado)" : "si"}   (mirar el catálogo cuando el nombre no acierta)`,
+          "",
+          "ÍNDICE DEL CATÁLOGO — lo que hace que el cotejo mire TODO",
+          indexados > 0
+            ? `  ${indexados} productos indexados.`
+            : indexados === 0
+              ? "  VACÍO. El cotejo visual solo puede mirar unos pocos productos\n" +
+                "  por mensaje (el cupo de OpenAI no da para más a ciegas).\n" +
+                "  Abre /indexar-catalogo para llenarlo; hay que repetirlo\n" +
+                "  hasta que diga LISTO."
+              : "  No se pudo leer (¿falta la base de datos?).",
+          indexados > 0
+            ? "  Vuelve a correr /indexar-catalogo cuando agregues productos."
+            : "",
           "",
           "BASE DE DATOS (D1) — la memoria del bot entre mensajes",
           ...base.lineas,
           "",
           "ManyChat está retirado. Este Worker es el único canal: habla",
           "directo con la API de Instagram y guarda su propia memoria en D1.",
+          "",
+          "Las fotos se identifican en dos pasos: primero una IA de visión",
+          "dedicada (OPENAI_MODELO_VISION) que solo describe y verifica",
+          "rasgos, y luego la IA de texto redacta la respuesta al cliente",
+          "con ese dato ya corregido (ver identificar.js).",
           "",
           "Los webhooks de Instagram se firman con la clave del producto",
           "Instagram, no con la de Configuración → Básica. Si el registro",
@@ -370,6 +470,129 @@ export default {
 
     // Prueba la vista del bot con una imagen cualquiera, sin depender de
     // un webhook real: /probar-imagen?url=https://...
+    // INDEXAR EL CATÁLOGO. Se corre a mano desde el navegador, por
+    // tandas, y hay que volver a correrlo cuando se agregan productos.
+    //
+    // Mira cada foto del catálogo UNA vez con el modelo de visión y
+    // guarda sus 15 rasgos en D1 (ver indice.js). Después, cuando un
+    // cliente manda una foto, sus rasgos se comparan con los guardados
+    // sin gastar una sola llamada, y solo los 10 más parecidos van al
+    // cotejo. Es lo que permite mirar el catálogo entero con el cupo de
+    // OpenAI que hay.
+    if (url.pathname === "/indexar-catalogo") {
+      if (!env.DB) {
+        return texto200(
+          "No hay base de datos conectada, y el índice vive ahí.\n" +
+            "Revisa el binding DB en wrangler.toml (mira /estado).\n"
+        );
+      }
+
+      // Con 20 en 20, un catálogo de 600 son 30 recargas a mano y nadie
+      // llega al final. La tanda puede ser grande porque la foto va en
+      // detail:"low" (ver DETALLE_INDICE en ia.js): con la foto pesada
+      // entraban 7 por minuto, no 40.
+      const cuantos = Math.min(Number(url.searchParams.get("cuantos")) || 40, 100);
+      const rehacer = url.searchParams.get("rehacer") === "si";
+
+      const { productos } = await traerCatalogoCompleto(
+        env,
+        Number(env.COTEJO_MAXIMO) || 600
+      );
+
+      if (!productos.length) {
+        return texto200(
+          "Shopify no devolvió productos.\n\n" +
+            "Revisa SHOPIFY_TIENDA y el secreto SHOPIFY_TOKEN; el motivo\n" +
+            "exacto sale en `wrangler tail`.\n"
+        );
+      }
+
+      const indice = await leerIndice(env.DB);
+      // Se reindexa un producto si nunca se miró o si le cambiaron la
+      // foto: la URL del CDN de Shopify cambia con la imagen, así que
+      // comparar la URL alcanza para saberlo.
+      const guardados = new Map(indice.map((p) => [p.titulo, p]));
+      const pendientes = productos.filter((p) => {
+        if (!p.imagen) return false;
+        if (rehacer) return true;
+        const antes = guardados.get(p.titulo);
+        return !antes || antes.imagen !== p.imagen;
+      });
+
+      const tanda = pendientes.slice(0, cuantos);
+      const indexados = [];
+      const modelo = modeloDeIndice(env);
+      let corto = "";
+
+      // De a POCOS a la vez: el cupo por minuto de OpenAI es el techo de
+      // todo esto, y reventarlo acá solo hace que la tanda falle entera.
+      //
+      // Si se acaba el cupo NO se abandona: acá no hay ningún cliente
+      // esperando, así que se espera a que vuelva y se sigue. Solo se
+      // corta si la espera es tan larga que conviene que la persona
+      // recargue la página.
+      for (let i = 0; i < tanda.length; i += 4) {
+        if (!(await esperarCupo(modelo))) {
+          corto = "Me quedé sin cupo de OpenAI a mitad de la tanda.";
+          console.log("Indexación: sin cupo y la espera es larga, corto la tanda");
+          break;
+        }
+
+        const resultados = await Promise.all(
+          tanda.slice(i, i + 4).map(async (producto) => {
+            // Prompt propio, no el de visión completo: ver
+            // rasgosDeProducto() en ia.js.
+            const visto = await rasgosDeProducto(env, producto.imagen, { modelo });
+            return visto ? { ...producto, visto: visto.visto, rasgos: visto.rasgos } : null;
+          })
+        );
+
+        indexados.push(...resultados.filter(Boolean));
+      }
+
+      // Ni uno solo. Casi siempre es la clave de OpenAI (sin saldo, o sin
+      // permiso para este modelo), y decirlo acá ahorra media hora de
+      // recargar la página esperando que cambie algo.
+      if (tanda.length && !indexados.length) {
+        return texto200(
+          `No pude indexar NINGUNO de los ${tanda.length} que intenté, con ${modelo}.\n\n` +
+            (corto ? `${corto}\n\n` : "") +
+            "El motivo exacto sale en `wrangler tail`. Los dos habituales:\n" +
+            "  · la cuenta de OpenAI se quedó sin saldo\n" +
+            `  · la clave no tiene permiso para "${modelo}"\n\n` +
+            "Si en el registro ves 429 con \"tokens per min\", es solo cupo:\n" +
+            "espera un minuto y vuelve a abrir esta dirección.\n"
+        );
+      }
+
+      await guardarIndexados(env.DB, indexados);
+
+      const faltan = pendientes.length - indexados.length;
+      let quitados = 0;
+      if (!faltan) {
+        quitados = await limpiarLosQueYaNoEstan(
+          env.DB,
+          productos.map((p) => p.titulo)
+        );
+      }
+
+      return texto200(
+        `Catálogo en Shopify: ${productos.length} productos\n` +
+          `Ya estaban indexados: ${indice.length}\n` +
+          `Indexados en esta tanda: ${indexados.length} (con ${modelo})\n` +
+          (quitados ? `Quitados del índice (ya no están en Shopify): ${quitados}\n` : "") +
+          "\n" +
+          (faltan > 0
+            ? `FALTAN ${faltan}. Vuelve a abrir esta misma dirección para\n` +
+              "seguir con la próxima tanda. Si dice que faltan los mismos\n" +
+              "una y otra vez, mira `wrangler tail`: casi siempre es el\n" +
+              "cupo por minuto de OpenAI (429) y basta con esperar.\n"
+            : "LISTO: el catálogo está indexado entero.\n\n" +
+              "Vuelve a correr esto cuando agregues productos nuevos. Los\n" +
+              "que ya están no se vuelven a mirar, así que es barato.\n")
+      );
+    }
+
     if (url.pathname === "/probar-imagen") {
       const imagen = url.searchParams.get("url") || "";
       if (!urlValida(imagen)) {
@@ -391,32 +614,47 @@ export default {
         );
       }
 
-      const salida = await responderImagen(
-        env,
-        descargada,
-        contexto("", "", "(mandó una foto)", "")
-      );
-      if (!salida) {
+      const identificacion = await identificarEnImagen(env, descargada);
+      if (!identificacion) {
         return texto200(
-          "El modelo no pudo con esa imagen.\n\n" +
+          "La IA de visión no pudo con esa imagen.\n\n" +
             "Casi siempre es una de estas:\n" +
-            "  · el enlace caducó (los de Instagram duran horas)\n" +
-            "  · no es una imagen, es una página\n" +
-            "  · no queda saldo en OpenAI\n\n" +
+            "  · no queda saldo en OpenAI\n" +
+            "  · OPENAI_MODELO_VISION no existe o no admite imágenes\n\n" +
             "En `wrangler tail` sale el motivo exacto.\n"
         );
       }
 
+      const { buscar, pedirNombreExacto, corregido, confirmar } =
+        validarIdentificacion(identificacion);
+      const marca = marcarIdentificacion(buscar, pedirNombreExacto, false, confirmar);
+
+      const salida = await responderTexto(env, contexto("", "", "(mandó una foto)", marca));
+      if (!salida) {
+        return texto200(
+          "La IA de visión sí identificó algo, pero la IA de texto no pudo\n" +
+            "redactar la respuesta. Revisa `wrangler tail` para el motivo.\n"
+        );
+      }
+
+      // Con la foto y los rasgos, para que esta ruta pruebe TAMBIÉN el
+      // cotejo visual y no solo la identificación: es la única forma de
+      // ver qué elige sin tener que escribirle al bot por Instagram.
       const { productos, respuestaCliente, termino } = await decidir({
         env,
         salida,
         texto: "",
         historialPrevio: "",
+        foto: descargada,
+        rasgos: identificacion.rasgos,
+        porConfirmar: Boolean(confirmar),
       });
 
       return texto200(
-        `El modelo vio: ${salida.buscar}\n` +
-          `Le diría al cliente: ${respuestaCliente}\n` +
+        `La IA de visión vio: ${identificacion.buscar}` +
+          (corregido ? ` (corregido a "${buscar}" porque sus rasgos lo contradecían)` : "") +
+          (confirmar ? " (sin confirmar: falta ver un detalle, lo verifica el cotejo)" : "") +
+          `\nLe diría al cliente: ${respuestaCliente}\n` +
           `Buscó: ${termino || "(nada)"}\n` +
           `Encontró: ${productos.length}\n` +
           productos.map((p) => `   ${p.titulo}  —  ${p.precio}`).join("\n") +
@@ -424,7 +662,7 @@ export default {
       );
     }
 
-    return new Response(`bot de ${tiendaDe(env).nombre}\n`, { status: 200 });
+    return new Response(`bot activo · ${VERSION}\n`, { status: 200 });
   },
 };
 
@@ -489,7 +727,14 @@ async function atenderConRed(env, mensaje) {
       }
     }
 
+    // El nombre, si ya lo teníamos. Si la base es justo lo que falló, el
+    // aviso sale igual, solo que con el ID.
+    const cliente = await cargarContacto(env.DB, mensaje.igsid)
+      .then(paraElAviso)
+      .catch(() => ({}));
+
     await avisarAsesor(env, {
+      ...cliente,
       igsid: mensaje.igsid,
       mensaje: mensaje.texto || "(sin texto)",
       respuesta: rastro.respondio
@@ -542,9 +787,26 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // y el bot se aparta unas horas para no hablar por encima de ella.
   if (mensaje.tipo === "eco") {
     if (!mensaje.igsid || !mensaje.mid) return;
+    await prepararBase(env);
     const contacto = await cargarContacto(env.DB, mensaje.igsid);
 
     if (esEcoPropio(contacto, mensaje.mid)) return; // eco nuestro, ya anotado
+
+    // EL ASESOR LE DEVUELVE LA CONVERSACIÓN AL BOT (ver FRASE_DESPAUSAR).
+    //
+    // Va ANTES de la red de envioReciente a propósito: si el bot acaba de
+    // mandar el "ya te atienden" y el asesor contesta con la frase en ese
+    // mismo minuto, esa red se tragaría el eco y el bot seguiría callado.
+    //
+    // Se espera un poco más que la otra rama: si el asesor mandó otro
+    // mensaje justo antes, su pausa todavía está en camino (tarda
+    // ESPERA_ANTES_DE_PAUSAR_MS) y no puede aterrizar DESPUÉS de esto.
+    if (esFraseDeDespausar(env, mensaje.texto)) {
+      await new Promise((seguir) => setTimeout(seguir, ESPERA_ANTES_DE_PAUSAR_MS + 1000));
+      await despausar(env.DB, mensaje.igsid, NOTA_DESPAUSADO);
+      console.log(`El asesor le devolvió ${mensaje.igsid} al bot: vuelvo a atender`);
+      return;
+    }
 
     // El mid no aparece, pero el bot acaba de mandar algo: es su propio eco
     // que ganó la carrera contra el guardado. Pausar aquí sería dejar al
@@ -581,24 +843,15 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     await pausar(env.DB, mensaje.igsid, horas);
     console.log(`Asesor humano le escribió a ${mensaje.igsid}: bot pausado ${horas}h`);
 
-    // Y SE AVISA. Una pausa deja al bot mudo durante horas con ese cliente,
-    // y hasta hoy eso no se veía en ninguna parte: ni en Slack, ni en
-    // Instagram, ni en /estado. El dueño lo vivió dos veces como "el bot se
-    // rompió" cuando en realidad estaba haciendo exactamente su trabajo.
+    // Sin aviso a Slack. Antes salía un "BOT EN PAUSA — la conversación es
+    // tuya" con cada mensaje del asesor, y no le decía nada que no supiera:
+    // él mismo acababa de escribir. Lo que sí sirve se queda: el "ya te
+    // atienden" al cliente y el "TE ESTÁN ESPERANDO" si el asesor se
+    // distrae (ver avisarQueYaLoAtienden).
     //
-    // Si un día son demasiados avisos porque los asesores contestan mucho,
-    // se quita este bloque y ya: la pausa sigue funcionando igual.
-    await avisarAsesor(env, {
-      igsid: mensaje.igsid,
-      mensaje: "(un asesor escribió a mano desde Instagram)",
-      respuesta:
-        `El bot no le responderá durante ${horas}h desde tu último mensaje. ` +
-        "Si el cliente escribe, solo le confirma que ya lo atiendes.",
-      motivo: "BOT EN PAUSA — la conversación es tuya",
-      historial:
-        "Si fue sin querer y quieres que el bot siga atendiendo, en /estado " +
-        "sale el comando para reanudarlo.",
-    });
+    // Lo que se aprovecha es para guardar su nombre, que así sale en
+    // /estado y en ese aviso aunque el cliente no vuelva a escribir.
+    await asegurarPerfil(env, alSegundoVistazo);
     return;
   }
 
@@ -607,7 +860,13 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       `texto:${JSON.stringify(mensaje.texto.slice(0, 60))}`
   );
 
-  const contacto = await cargarContacto(env.DB, mensaje.igsid);
+  await prepararBase(env);
+
+  // El perfil se busca UNA vez por cliente y queda guardado: su nombre para
+  // saludarlo, y nombre completo + @ para que el asesor sepa quién es en
+  // Slack y en /estado. Se hace antes de mirar la pausa para que el aviso
+  // "TE ESTÁN ESPERANDO" también salga con nombre.
+  const contacto = await asegurarPerfil(env, await cargarContacto(env.DB, mensaje.igsid));
   mids = contacto.mids_enviados;
 
   if (estaPausado(contacto)) {
@@ -619,12 +878,10 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const esHistoria = mensaje.tipo === "historia";
   const imagenCruda = mensaje.historia.url || mensaje.foto || "";
 
-  // El nombre se busca una sola vez por cliente y se guarda: no hace falta
-  // gastar una llamada a la Graph API en cada mensaje.
-  let nombre = contacto.nombre;
-  if (!nombre) {
-    nombre = primerNombre(await obtenerNombre(env, mensaje.igsid));
-  }
+  // Solo el primer nombre, y solo si es un nombre de persona (ver
+  // primerNombre). Si no lo es, se le atiende sin nombre: mejor eso que un
+  // "¡Hola, jonathanrodric982101!".
+  const nombre = contacto.nombre;
 
   const historialPrevio = contacto.historial;
   const textoCliente =
@@ -675,41 +932,77 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   const minutosCallado = minutosDesde(contacto.ultimo_envio);
 
-  const entrada = contexto(
-    nombre,
-    historialPrevio,
-    textoCliente,
-    esHistoria ? "[EL CLIENTE RESPONDIÓ A UNA HISTORIA — la imagen que ves ES la historia]" : "",
-    esHistoria,
-    minutosCallado
-  );
-
   // La foto se descarga aquí y viaja dentro de la petición. Pasarle a
   // OpenAI el enlace del CDN de Instagram no funciona: le responde 403.
   let foto = "";
   let porQueNo = "";
   if (imagenCruda) {
     ({ uri: foto, motivo: porQueNo } = await comoDataUri(env, imagenCruda));
+
+    // La historia era un vídeo: último intento antes de rendirse. Meta
+    // guarda una miniatura de cada vídeo; si la da para historias, es una
+    // imagen normal y el bot la mira como cualquier otra foto. Si no la
+    // da, se sigue exactamente como antes (ver instagram.js).
+    if (!foto && porQueNo === "video" && mensaje.historia.id) {
+      const miniatura = await fotogramaDeHistoria(env, mensaje.historia.id);
+      if (miniatura) {
+        ({ uri: foto, motivo: porQueNo } = await comoDataUri(env, miniatura));
+      }
+    }
+  }
+
+  // Si hay foto, primero se identifica con la IA de visión —dedicada,
+  // normalmente un modelo más fuerte porque ya no tiene que redactar
+  // nada— y se verifica contra sus propios rasgos (ver identificar.js).
+  // El resultado se le entrega a la IA de texto como un dato más del
+  // contexto: es ELLA quien decide qué decirle al cliente y cómo seguir
+  // la conversación, con el mismo tono variado que usa para cualquier
+  // otro mensaje. Antes una sola llamada hacía las dos cosas a la vez —
+  // mirar y redactar—, y competían por la atención del modelo.
+  let marcaFoto = "";
+  // Los rasgos que la IA marcó en la foto siguen vivos después de
+  // identificar: el cotejo visual los usa para elegir contra QUÉ
+  // productos comparar, en vez de contra los primeros que devuelva
+  // Shopify (ver cotejo.js).
+  let rasgosFoto = null;
+  // El modelo se nombró pero el detalle que lo confirmaría no se ve en la
+  // foto (ver identificar.js). Se busca igual, y el cotejo visual lo
+  // verifica contra la foto real del catálogo — incluso si hay un solo
+  // resultado, que es cuando más falta hace.
+  let porConfirmar = false;
+  if (foto) {
+    const identificacion = await identificarEnImagen(env, foto);
+    if (identificacion) {
+      const { buscar, pedirNombreExacto, confirmar } = validarIdentificacion(identificacion);
+
+      // SIN ESTA LÍNEA NO SE PUEDE DEPURAR NADA. Un barrido que no
+      // encuentra y un nombre mal identificado se ven igual en los
+      // registros si no queda escrito qué vio y qué va a buscar.
+      console.log(
+        `La IA de visión vio: "${identificacion.visto}" → busco: "${buscar}"` +
+          (confirmar ? " (sin confirmar)" : "")
+      );
+
+      marcaFoto = marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar);
+      rasgosFoto = identificacion.rasgos;
+      porConfirmar = Boolean(confirmar);
+    } else {
+      console.error(
+        "La IA de visión no respondió: trato la foto como si no se hubiera podido ver"
+      );
+      foto = "";
+      porQueNo = porQueNo || "otro";
+    }
   }
 
   // Si no se puede mirar, NO es el final del camino. La mayoría de las
   // historias son vídeo, y el cliente que responde a una historia es el que
   // más cerca está de comprar: se le atiende por lo que escribió.
-  const salida = foto
-    ? await responderImagen(env, foto, entrada)
-    : imagenCruda
-      ? await responderTexto(
-          env,
-          contexto(
-            nombre,
-            historialPrevio,
-            textoCliente,
-            marcarSinVer(porQueNo),
-            esHistoria,
-            minutosCallado
-          )
-        )
-      : await responderTexto(env, entrada);
+  const marca = imagenCruda ? (foto ? marcaFoto : marcarSinVer(porQueNo)) : "";
+
+  const entrada = contexto(nombre, historialPrevio, textoCliente, marca, esHistoria, minutosCallado);
+
+  const salida = await responderTexto(env, entrada);
 
   // Y si además el modelo falla, la pregunta se la hacemos nosotros, que es
   // infinitamente mejor que decirle que el sistema se trabó.
@@ -735,7 +1028,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       ultimo_envio: enviadoEn || Date.now(),
     });
     await avisarAsesor(env, {
-      nombre,
+      ...paraElAviso(contacto),
       igsid: mensaje.igsid,
       mensaje: textoCliente,
       respuesta: "EL MODELO FALLÓ — nadie le respondió",
@@ -752,6 +1045,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     preguntoTalla,
     buscoSinExito,
     seAcabaron,
+    hayMasDelCatalogo,
     alternativa,
   } = await decidir({
     env,
@@ -763,6 +1057,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     // cuenta: quien manda una foto está pidiendo ESE zapato, no otro.
     pideMas: !imagenCruda && pideMasVariedad(mensaje.texto),
     foto,
+    rasgos: rasgosFoto,
+    porConfirmar,
   });
 
   // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO (crítico).
@@ -786,9 +1082,11 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (productos.length) {
     await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
     await mandar(() => enviarFichas(env, mensaje.igsid, productos));
-  } else if (buscoSinExito || seAcabaron) {
-    // Dos motivos distintos, misma salida: el cliente quería ver algo y no
-    // hay nada que enseñarle. Ahí el enlace de la tienda sí es una ayuda.
+  } else if (buscoSinExito || seAcabaron || hayMasDelCatalogo) {
+    // Tres motivos distintos, misma salida: el cliente quería ver algo y no
+    // hay nada (más) que enseñarle en una ficha. Ahí el enlace de la tienda
+    // sí es una ayuda — incluido cuando SÍ hay más, pero no caben en un
+    // carrusel de 10 (hayMasDelCatalogo, ver decidir()).
     await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente));
   } else {
     // Conversación: preguntas, dudas, cortesías. Texto limpio, sin botón.
@@ -804,7 +1102,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   if (escalada) {
     await avisarAsesor(env, {
-      nombre,
+      ...paraElAviso(contacto),
       igsid: mensaje.igsid,
       mensaje: textoCliente,
       respuesta: respuestaCliente,
@@ -866,13 +1164,60 @@ async function avisarQueYaLoAtienden(env, mensaje, contacto, mandar) {
   if (silencio < ASESOR_CALLADO_MS) return;
 
   await avisarAsesor(env, {
-    nombre: contacto.nombre,
+    ...paraElAviso(contacto),
     igsid: mensaje.igsid,
     mensaje: mensaje.texto || "(mandó una foto)",
     respuesta: "El bot está en pausa: solo le dijo que ya lo atienden.",
     motivo: "TE ESTÁN ESPERANDO",
     historial: `Tomaste esta conversación hace ${Math.round(silencio / 60000)} min y el cliente volvió a escribir.`,
   });
+}
+
+// Las columnas nuevas (nombre_completo, usuario, mostrados) se crean solas
+// la primera vez. Si la revisión falla, se sigue igual: guardarContacto
+// tiene su propio rescate, y /estado dice qué pasa con la base.
+async function prepararBase(env) {
+  try {
+    await asegurarColumnas(env.DB);
+  } catch (error) {
+    console.error("No pude revisar las columnas de la base:", error?.message || error);
+  }
+}
+
+// Busca el perfil de Instagram del cliente si todavía no lo tenemos, y lo
+// guarda. Devuelve el contacto con los datos puestos.
+//
+// Se considera "ya buscado" en cuanto hay nombre completo o @: con eso ya no
+// se vuelve a gastar una llamada. Si Instagram no devolvió nada (token sin
+// permiso, perfil restringido), se reintenta en el mensaje siguiente.
+async function asegurarPerfil(env, contacto) {
+  if (contacto.nombre_completo || contacto.usuario) return contacto;
+
+  const perfil = await obtenerPerfil(env, contacto.id);
+  if (!perfil.nombre_completo && !perfil.usuario) return contacto;
+
+  const conPerfil = {
+    ...contacto,
+    ...perfil,
+    nombre: contacto.nombre || primerNombre(perfil.nombre_completo),
+  };
+
+  try {
+    await guardarPerfil(env.DB, contacto.id, conPerfil);
+    console.log(`Perfil guardado: ${comoSeLlama(conPerfil)} (${contacto.id})`);
+  } catch (error) {
+    console.error("No se pudo guardar el perfil:", error?.message || error);
+  }
+  return conPerfil;
+}
+
+// Lo que el aviso de Slack necesita para decir QUIÉN es el cliente.
+function paraElAviso(contacto = {}) {
+  return {
+    nombre: contacto.nombre || "",
+    nombreCompleto: contacto.nombre_completo || "",
+    usuario: contacto.usuario || "",
+  };
 }
 
 function agregarMid(lista, mid) {
@@ -918,16 +1263,64 @@ function marcarSinVer(motivo) {
   );
 }
 
+// El bloque de contexto que le dice a la IA de texto qué encontró la IA de
+// visión en la foto. Reemplaza a la vieja responderImagen(): la
+// identificación ya pasó por identificar.js antes de llegar aquí, así que
+// lo que se le pasa a la IA de texto es el dato ya corregido — ella no
+// tiene que desconfiar de él, solo redactar con su propio tono, exactamente
+// como con cualquier otro mensaje.
+function marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar = false) {
+  const encabezado = esHistoria
+    ? "[EL CLIENTE RESPONDIÓ A UNA HISTORIA — la imagen que ves ES la historia. "
+    : "[EL CLIENTE MANDÓ UNA FOTO DE UN CALZADO. ";
+
+  if (String(buscar).toUpperCase() === "NADA") {
+    return (
+      encabezado +
+      "NO SE PUDO IDENTIFICAR NINGÚN MODELO NI MARCA CON SEGURIDAD. " +
+      "Pregúntale con naturalidad cuál le interesa, como preguntaría una " +
+      "vendedora. NUNCA le pidas que mande otra foto" +
+      (esHistoria ? ": ya tienes la imagen delante." : ".") +
+      "]"
+    );
+  }
+
+  // Se reconoció el modelo pero un detalle suyo no se alcanza a ver, así
+  // que no se afirma: se le muestra y se le pregunta si es ese. Si el
+  // cotejo visual lo confirma después contra la foto del catálogo, esta
+  // respuesta se reemplaza por una segura antes de salir.
+  if (confirmar) {
+    return (
+      encabezado +
+      `SE VE UN "${buscar}", PERO NO SE PUDO CONFIRMAR DEL TODO: un detalle ` +
+      "del modelo no se alcanza a ver en la foto. Muéstraselo Y pregúntale " +
+      "si es ese el que le gustó, las dos cosas en el mismo mensaje. NO " +
+      "afirmes con seguridad que es ese.]"
+    );
+  }
+
+  if (pedirNombreExacto) {
+    return (
+      encabezado +
+      `SE RECONOCIÓ LA MARCA "${buscar}", PERO NO EL MODELO EXACTO. ` +
+      "Muéstrale esa marca Y pídele el nombre exacto del modelo, las dos " +
+      "cosas en el mismo mensaje.]"
+    );
+  }
+
+  return (
+    encabezado +
+    `SE IDENTIFICÓ: "${buscar}". Muéstraselo con naturalidad, como si el ` +
+    "cliente lo hubiera escrito él mismo.]"
+  );
+}
+
 // Lo que ve el modelo antes del mensaje del cliente. La construcción vive en
 // historial.js, que es donde está la regla de separar pasado y presente.
 //
 // "minutosCallado" es cuánto tiempo pasó desde que el bot le escribió por
 // última vez a esta persona. historial.js lo usa para avisarle al modelo
-// que no dé por hecho que se sigue hablando del mismo producto. Estuvo sin
-// conectar hasta el 21-sep-2026: el parámetro existía en historial.js pero
-// nadie se lo pasaba, así que siempre valía 0 y esa protección nunca se
-// activaba — el cliente que volvía a los tres días recibía el precio del
-// zapato de la vez pasada.
+// que no dé por hecho que se sigue hablando del mismo producto.
 function contexto(nombre, historial, texto, marca = "", esHistoriaNueva = false, minutosCallado = 0) {
   return contextoParaElModelo({
     nombre: primerNombre(nombre),
@@ -965,13 +1358,13 @@ function primerNombre(nombre) {
 // quita la presentación antes de que salga hacia el cliente. Solo se aplica
 // cuando hay historial, así que nunca toca la bienvenida de verdad.
 const PRESENTACION =
-  /^\s*[¡!]*\s*hola\b[^\n]{0,25}?\bsoy\s+la\s+asistente(\s+virtual)?(\s+de\s+[^\n,.!]{0,30})?\s*[👋😊🙌]*\s*[.!,]*\s*/i;
+  /^\s*[¡!]*\s*hola\b[^\n]{0,25}?\bsoy\s+la\s+asistente(\s+virtual)?(\s+de\s+[^\n]{0,30}?)?\s*[👋😊🙌]*\s*[.!,]*\s*/i;
 
 function sinBienvenida(respuesta) {
   const recortado = respuesta.replace(PRESENTACION, "").trim();
   // Si al quitarla no queda nada que decir, es que el mensaje era solo el
   // saludo: se sustituye por el saludo corto en vez de dejarlo vacío.
-  if (!recortado) return "¡Hola! ¿Qué andas buscando? 😊";
+  if (!recortado) return "¡Hola! ¿Qué estás buscando? 😊";
   return recortado.charAt(0).toUpperCase() + recortado.slice(1);
 }
 
@@ -988,23 +1381,14 @@ async function decidir({
   // La foto del cliente, ya en data URI. Solo viene en mensajes con
   // imagen, y es lo que habilita el cotejo visual contra el catálogo.
   foto = "",
+  // Lo que la IA de visión marcó que VE en esa foto. El cotejo elige por
+  // ahí contra qué productos comparar.
+  rasgos = null,
+  // El modelo se identificó pero sin confirmar del todo: el cotejo pasa a
+  // verificar, no solo a desempatar.
+  porConfirmar = false,
 }) {
   const preguntoTalla = PREGUNTA_TALLA.test(texto);
-
-  // Antes que nada: si esto vino de una foto, se revisa que "buscar" sea
-  // coherente con los rasgos que la propia IA marcó. Si dijo "Air Max 270"
-  // pero ella misma marcó que no hay cámara de aire, esto lo corrige ACÁ
-  // —determinístico, sin IA de por medio— antes de que el resto del
-  // código llegue a buscarlo en Shopify o a mandarlo. Se modifica "salida"
-  // en el momento para que tanto lo que sigue en esta función como lo que
-  // el llamador guarda después (salida.respuesta, salida.historial) ya
-  // vean la versión corregida.
-  const verificacion = validarIdentificacion(salida);
-  if (verificacion.corregido) {
-    salida.buscar = verificacion.buscar;
-    salida.respuesta = verificacion.respuesta;
-    salida.historial = verificacion.historial;
-  }
 
   // El modelo cuela la talla en el término cuando el cliente la nombra, y eso
   // devuelve cero productos siempre. Se le quita antes de buscar.
@@ -1028,8 +1412,15 @@ async function decidir({
 
   let productos = [];
   let habiaDelModelo = 0;
+  // "hayMasEnCatalogo": Shopify tenía más de los 10 que caben en un
+  // carrusel de Instagram. Solo es de fiar cuando NO se filtra por color
+  // después: filtrar por color puede bajar el conteo por debajo de 10 sin
+  // que eso signifique que ya no hay más — y sin volver a consultar
+  // Shopify no hay forma honesta de saber cuántos habría de ESE color.
+  let hayMasEnCatalogo = false;
   if (aBuscar) {
-    productos = await buscarProductos(env, aBuscar);
+    const resultado = await buscarProductos(env, aBuscar);
+    productos = resultado.productos;
     habiaDelModelo = productos.length;
 
     // Solo se filtra cuando el color no ES la búsqueda: si ya buscamos
@@ -1039,16 +1430,20 @@ async function decidir({
       console.log(
         `Del modelo había ${habiaDelModelo}; en ${colores.join(" + ")} quedan ${productos.length}`
       );
+    } else {
+      hayMasEnCatalogo = resultado.hayMas;
     }
 
-    if (!productos.length) {
-      console.log(`Sin resultados para "${aBuscar}"`);
-    }
+    console.log(
+      productos.length
+        ? `Busqué "${aBuscar}": ${productos.length} resultado(s)`
+        : `Sin resultados para "${aBuscar}"`
+    );
   }
 
   // COTEJO VISUAL (solo si esto vino de una foto).
   //
-  // Hasta aquí todo el reconocimiento pasó por un NOMBRE: la IA dijo
+  // Hasta aquí el reconocimiento pasó por un NOMBRE: la IA de visión dijo
   // "Vapormax" y se buscó esa palabra. Si el nombre no acertó, no hay
   // productos — o hay diez de la marca, sin saber cuál es el de la foto.
   //
@@ -1062,16 +1457,24 @@ async function decidir({
       textoCliente: texto,
       productos,
       termino: aBuscar,
+      rasgos,
+      verificar: porConfirmar,
+      // El barrido del catálogo completo es el último recurso y el único
+      // paso caro de todo esto. Se apaga con COTEJO_BARRIDO = "no".
+      barrer: env.COTEJO_BARRIDO !== "no",
     });
 
     if (cotejo) {
       productos = cotejo.productos;
       habiaDelModelo = productos.length;
 
-      // La respuesta que escribió el modelo puede estar preguntando qué
-      // modelo es —es lo que escribe cuando no lo reconoció, y también
-      // lo que deja identificar.js al bajar a marca. Ya lo sabemos: se
-      // lo enseñamos en vez de preguntárselo.
+      // Se sabe cuál es el par exacto, así que "hay más de los que caben
+      // en el carrusel" deja de aplicar: mandarlo al catálogo completo
+      // ahora sería alejarlo del zapato que acabamos de encontrarle.
+      hayMasEnCatalogo = false;
+
+      // La IA de texto redactó ANTES del cotejo, con una marcaFoto que
+      // decía que no se reconocía el modelo. Lo que escribió ya no vale.
       salida.respuesta = alAzar(ENCONTRE_EL_DE_LA_FOTO);
       salida.historial = conNota(
         salida.historial,
@@ -1096,22 +1499,35 @@ async function decidir({
   // volver a mostrárselo: ahí repetir es la respuesta correcta.
   let repetidos = false;
   let alternativa = "";
+  // 22-sep-2026: caso real — pidió "On Cloud", vio los 10 que caben en el
+  // carrusel, preguntó "¿solo tienes esos?" y el bot le ofreció Salomon.
+  // El problema no era "ya vio todo": Shopify SÍ tenía más de 10, solo que
+  // nunca se llegaron a pedir porque el carrusel tiene ese tope. Con
+  // hayMasEnCatalogo se distingue de "de verdad son todos los que hay".
+  let hayMasDelCatalogo = false;
   if (pideMas && productos.length) {
     const nuevos = productos.filter((p) => !yaLoVio(mostrados, p.titulo));
 
     if (nuevos.length) {
       console.log(`Pidió más: de ${productos.length} le quedan ${nuevos.length} sin ver`);
       productos = nuevos;
+    } else if (hayMasEnCatalogo) {
+      // No hace falta ir a buscar una marca parecida: lo que el cliente
+      // pidió TODAVÍA existe en el catálogo, solo no cupo en la ficha. El
+      // catálogo completo es donde de verdad están todos.
+      hayMasDelCatalogo = true;
+      productos = [];
+      console.log(`"${aBuscar}" tiene más de 10 en Shopify: mando el catálogo en vez de otra marca`);
     } else {
-      // Ya vio todo lo que hay de eso. En vez de repetirse o de soltarle el
-      // enlace, se le busca un modelo parecido — que es lo que haría un
-      // vendedor: sacar otro par del estante.
+      // Ahora sí, de verdad ya vio todo lo que hay de eso. En vez de
+      // repetirse o de soltarle el enlace, se le busca un modelo parecido —
+      // que es lo que haría un vendedor: sacar otro par del estante.
       repetidos = true;
       console.log(`Ya vio los ${productos.length} de "${aBuscar}"; busco parecidos`);
 
       for (const otro of alternativasPara(aBuscar).slice(0, MAXIMO_ALTERNATIVAS)) {
         const encontrados = await buscarProductos(env, otro);
-        const sinVer = encontrados.filter((p) => !yaLoVio(mostrados, p.titulo));
+        const sinVer = encontrados.productos.filter((p) => !yaLoVio(mostrados, p.titulo));
         if (sinVer.length) {
           productos = sinVer;
           alternativa = otro;
@@ -1137,7 +1553,7 @@ async function decidir({
   // modelo: pasamos al asesor sin afirmar que el producto no existe. Vale
   // igual si el modelo sí estaba pero no en ese color: el cliente pidió ese
   // color, y decirle que sí mostrándole otro es engañarlo.
-  const buscoSinExito = Boolean(aBuscar) && !productos.length && !seAcabaron;
+  const buscoSinExito = Boolean(aBuscar) && !productos.length && !seAcabaron && !hayMasDelCatalogo;
 
   // Preguntó la talla y no quedó nada que buscar: la talla la confirma una
   // persona, así que no se le da largas ni se le muestra el catálogo entero.
@@ -1155,6 +1571,8 @@ async function decidir({
   let respuestaCliente = respuestaFinal;
   if (soloTalla) {
     respuestaCliente = SOLO_TALLA;
+  } else if (hayMasDelCatalogo) {
+    respuestaCliente = alAzar(HAY_MAS_EN_CATALOGO);
   } else if (seAcabaron) {
     respuestaCliente = alAzar(YA_TE_MOSTRE_TODO);
   } else if (repetidos && alternativa) {
@@ -1171,6 +1589,7 @@ async function decidir({
     productos,
     buscoSinExito,
     seAcabaron,
+    hayMasDelCatalogo,
     alternativa,
     respuestaCliente,
   };

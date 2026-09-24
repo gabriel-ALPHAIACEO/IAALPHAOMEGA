@@ -1,14 +1,3 @@
-# ---------------------------------------------------------------------
-# ESTE ARCHIVO ES LO UNICO QUE CAMBIA ENTRE UNA TIENDA Y OTRA.
-#
-# Todo lo que hay en src/ es IDENTICO en las dos carpetas de despliegue.
-# Cuando se arregla un fallo, se pegan los mismos archivos de src/ en las
-# dos y listo: no hay que acordarse de aplicar el arreglo dos veces.
-#
-# Para El Emperador: usa wrangler.emperador.toml (renombralo a
-# wrangler.toml en SU carpeta).
-# ---------------------------------------------------------------------
-
 name = "invictus-bot"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
@@ -32,18 +21,9 @@ fallthrough = true
 [[d1_databases]]
 binding = "DB"
 database_name = "invictus-bot-db"
-database_id = "PENDIENTE_pega_aqui_el_database_id_que_imprime_wrangler_d1_create"
+database_id = "b7cc27df-dbcf-4188-b0f2-c00a1629d1e2"
 
 [vars]
-# QUE TIENDA ATIENDE ESTE WORKER. Tiene que coincidir con un archivo de
-# src/tiendas/ (invictus.js, emperador.js). De aqui salen el nombre con el
-# que el bot se presenta, sus horarios, lo que responde sobre la calidad,
-# su catalogo de productos y su tabla de terminos de busqueda.
-TIENDA = "invictus"
-
-# Solo para que /estado imprima el comando correcto cuando algo falla.
-D1_NOMBRE = "invictus-bot-db"
-
 # Enlace que se le manda al cliente cuando no hay productos que mostrar
 URL_CATALOGO = "https://8vds1e-jw.myshopify.com/"
 
@@ -72,26 +52,76 @@ META_MODO = "todo"
 # casilla "Token de verificacion" al dar de alta el webhook.
 META_VERIFY_TOKEN = "invictus2026"
 
-# Modelo de OpenAI. Tiene que ser uno que sepa mirar imagenes.
+# Modelo de OpenAI que REDACTA las respuestas de texto (ya no necesita ver
+# imagenes: eso lo hace un modelo aparte, ver OPENAI_MODELO_VISION).
 OPENAI_MODELO = "gpt-4o-mini"
+
+# 22-sep-2026: modelo que IDENTIFICA las fotos. Antes era el mismo que
+# OPENAI_MODELO y hacia dos trabajos a la vez (mirar y redactar). Ahora que
+# solo tiene que mirar, vale la pena que sea el modelo completo: identifica
+# mejor que el "mini" y el costo extra es acotado porque el "mini" sigue
+# siendo el que atiende todo el texto.
+OPENAI_MODELO_VISION = "gpt-4o"
+
+# --- El barrido del catalogo ---------------------------------------------
+# Cuando el cliente manda una foto (o responde a una historia) y el zapato
+# no aparece buscando por su nombre, el bot compara la foto contra las
+# fotos del catalogo hasta encontrarlo.
+#
+# EL LIMITE NO ES EL CATALOGO, ES EL CUPO DE OPENAI. Tu organizacion
+# tiene 30.000 tokens por minuto en gpt-4o, y cada lote de fotos gasta
+# unos 8.500. Por eso el barrido mira unos POCOS productos por mensaje y
+# contesta: insistir mas da 429 y deja al cliente sin respuesta.
+#
+# Para barrer el catalogo COMPLETO hay dos caminos, los dos fuera de este
+# archivo: subir de tier en OpenAI (platform.openai.com, seccion Limits)
+# o indexar el catalogo una sola vez. Ver el README.
+#
+#   "si"  barrido activado   <- por defecto
+#   "no"  desactivado (el bot se rinde si el nombre no acierta)
+COTEJO_BARRIDO = "si"
+
+# Cuantos lotes de 10 fotos se miran POR MENSAJE. Con 2 el barrido entra
+# en el cupo aun contando la identificacion de la foto. Subilo solo
+# despues de subir de tier en OpenAI: con el cupo actual, mas lotes = 429.
+COTEJO_LOTES = "2"
+
+# Cuantos productos se traen de Shopify para ordenarlos y elegir a cuales
+# mirar. Traerlos no gasta modelo, asi que conviene que entren todos.
+COTEJO_MAXIMO = "600"
+
+# Modelo con el que se INDEXA el catalogo (abrir /indexar-catalogo). Son
+# cientos de fotos, asi que va el mini: tiene un cupo por minuto mucho mas
+# alto que el modelo grande y para una foto de producto limpia alcanza.
+# La foto del CLIENTE, que es una sola y decide la venta, sigue yendo a
+# OPENAI_MODELO_VISION.
+OPENAI_MODELO_INDICE = "gpt-4o-mini"
 
 # Cuantas horas se calla el bot despues de que un asesor le escribe a un
 # cliente a mano desde la app de Instagram (para no hablar por encima).
 #
 # SE CUENTA DESDE EL ULTIMO MENSAJE DEL ASESOR, no desde el primero: cada
-# vez que el asesor escribe, el reloj vuelve a empezar. Mientras este
-# atendiendo, la conversacion sigue siendo suya por mas que dure.
+# vez que el asesor escribe, el reloj vuelve a empezar.
 #
 # Mientras dura la pausa el cliente NO se queda a oscuras: si escribe, el
 # bot le confirma que ya lo atienden (una vez cada 10 minutos, no mas), y
-# si el asesor lleva 15 minutos callado le llega un aviso a Slack.
+# si el asesor lleva 15 minutos callado le llega un aviso a Slack
+# ("TE ESTAN ESPERANDO"). Ya NO sale el aviso "BOT EN PAUSA" con cada
+# mensaje del asesor.
 #
 # Admite decimales:  0.5 = 30 minutos   0.25 = 15 minutos
 #
-# CUIDADO CON BAJARLO MUCHO. El asesor esta hablando de tallas, envios,
-# pagos y descuentos, que es justo lo que el bot NO puede responder. Si la
-# pausa es de dos minutos, el bot se mete en medio del cierre de la venta.
-PAUSA_HORAS = "1"
+# Puede ser largo sin miedo: el asesor le devuelve la conversacion al bot
+# cuando quiera con FRASE_DESPAUSAR (abajo), sin esperar a que venza.
+PAUSA_HORAS = "4"
+
+# La frase con la que el asesor le DEVUELVE la conversacion al bot, desde el
+# mismo chat de Instagram. Basta con que aparezca dentro del mensaje; no
+# importan tildes, mayusculas ni signos. El cliente la lee, asi que tiene
+# que sonar a despedida normal. Lo comodo es guardarla como Respuesta
+# guardada de Instagram, por ejemplo:
+#   "Te dejo con la asistente virtual, ella te sigue ayudando 😊"
+FRASE_DESPAUSAR = "te dejo con la asistente"
 
 # ------------------------------------------------------------------------
 # Los secretos NO van aqui. Se cargan uno por uno con:

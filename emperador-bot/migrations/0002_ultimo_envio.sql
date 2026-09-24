@@ -1,0 +1,14 @@
+-- Cuando el bot mando su ultimo mensaje a este cliente (ms desde epoch).
+--
+-- Sirve para dos cosas:
+--
+--   1. Reconocer el eco propio cuando el mid todavia no se alcanzo a
+--      guardar. Meta devuelve un eco de cada mensaje que sale de la
+--      cuenta, y ese eco puede llegar antes de que el Worker termine de
+--      anotar el mid; sin esto, el bot confunde su propio mensaje con el
+--      de un asesor humano y se pausa a si mismo. Paso en produccion.
+--
+--   2. Saber cuanto tiempo lleva callada la conversacion, para avisarle
+--      al modelo que no de por hecho que se sigue hablando del mismo
+--      producto (ver minutosDesdeElUltimo en historial.js).
+ALTER TABLE contactos ADD COLUMN ultimo_envio INTEGER NOT NULL DEFAULT 0;

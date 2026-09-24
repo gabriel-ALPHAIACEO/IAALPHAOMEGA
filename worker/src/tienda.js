@@ -44,7 +44,7 @@ export function tiendaDe(env) {
 // dice {{TIENDA_MAYUSCULAS}}. Así el mismo texto de 1000 líneas —con todo
 // el tono, las reglas y los ejemplos que costaron tanto afinar— vale para
 // cualquier tienda, y lo único que se cambia por tienda son los datos.
-export function rellenar(prompt, tienda, delIndice = {}) {
+export function rellenar(prompt, tienda) {
   const valores = {
     TIENDA: tienda.nombre,
     TIENDA_MAYUSCULAS: tienda.nombreMayusculas,
@@ -58,17 +58,6 @@ export function rellenar(prompt, tienda, delIndice = {}) {
     CATALOGO: tienda.catalogo || SIN_CATALOGO,
     CATALOGO_VISION: tienda.catalogoVision || SIN_CATALOGO_VISION,
   };
-
-  // EL ÍNDICE MANDA SOBRE LA LISTA ESCRITA A MANO.
-  //
-  // indice.js saca los títulos de Shopify cada pocas horas, así que sabe de
-  // la mercancía que entró ayer y la lista de abajo no. Cuando el índice
-  // trae algo, gana él; cuando está vacío —primer despliegue, D1 caída, el
-  // cron todavía sin correr— se queda la lista de la tienda, que es vieja
-  // pero cierta. El bot nunca se queda sin catálogo por esto.
-  for (const clave of ["CATALOGO", "CATALOGO_VISION"]) {
-    if (delIndice[clave]) valores[clave] = delIndice[clave];
-  }
 
   return prompt.replace(/\{\{([A-Z_]+)\}\}/g, (entero, clave) =>
     clave in valores ? valores[clave] : entero

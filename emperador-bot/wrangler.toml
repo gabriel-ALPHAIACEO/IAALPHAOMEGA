@@ -1,0 +1,133 @@
+# ═══════════════════════════════════════════════════════════════════════
+#  EL EMPERADOR — calzado. Bot de Instagram.
+#
+#  CINCO COSAS QUE TIENES QUE CAMBIAR ANTES DE QUE ESTO FUNCIONE.
+#  Todas estan marcadas abajo con MAYUSCULAS, asi no se pasan por alto.
+#
+#   1. database_id     <- SIN ESTO EL DEPLOY NI ARRANCA. Se saca creando
+#                         la base:
+#                           npx.cmd wrangler d1 create emperador-bot-db
+#                         Ese comando imprime el id. Si ya existe, sacalo
+#                         con:  npx.cmd wrangler d1 list
+#                         Si falla por red, creala en dash.cloudflare.com
+#                         -> Storage & Databases -> D1.
+#                         (La tabla se crea sola en el primer mensaje: la
+#                         migracion ya no hace falta correrla a mano.)
+#   2. SHOPIFY_TIENDA  <- el dominio .myshopify.com de EL EMPERADOR.
+#                         NO el de Invictus: son dos tiendas distintas.
+#   3. URL_CATALOGO    <- el enlace de la tienda, para el boton "Ver
+#                         catalogo".
+#   4. WHATSAPP        <- el numero de EL EMPERADOR, para el boton
+#                         "Comprar" de cada ficha.
+#   5. META_VERIFY_TOKEN <- te lo inventas tu y lo escribes IGUAL en el
+#                         panel de Meta. Abajo hay uno puesto de ejemplo.
+#
+#  Y aparte los secretos, que NO van en este archivo: estan al final.
+# ═══════════════════════════════════════════════════════════════════════
+
+name = "emperador-bot"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Permite importar los prompts como texto. No lo toques.
+[[rules]]
+type = "Text"
+globs = ["**/*.txt"]
+fallthrough = true
+
+# --- Base de datos (D1) - la memoria del bot entre mensajes -------------
+# Sin esto el bot no recuerda nada de un mensaje al siguiente (vuelve a
+# saludar siempre, pierde el hilo de "y en negro?") y tampoco funciona la
+# pausa cuando un asesor contesta a mano.
+#
+# TIENE QUE SER UNA BASE PROPIA. Compartir la de Invictus mezclaria las
+# conversaciones de las dos tiendas en la misma tabla.
+[[d1_databases]]
+binding = "DB"
+database_name = "emperador-bot-db"
+database_id = "PEGA_AQUI_EL_DATABASE_ID"   # <-- (1) SIN ESTO EL DEPLOY FALLA
+
+[vars]
+# Solo para que /estado imprima el comando correcto cuando algo falla.
+D1_NOMBRE = "emperador-bot-db"
+
+# Enlace que se le manda al cliente cuando no hay productos que mostrar.
+URL_CATALOGO = "https://CAMBIA-ESTO.myshopify.com/"   # <-- (3)
+
+# Numero de WhatsApp de la tienda, para el boton "Comprar" de cada ficha.
+# En formato internacional, SIN el +, sin espacios y sin guiones:
+#   Venezuela  0412-123 45 67  ->  "584121234567"
+# Si lo dejas vacio, las fichas salen solo con "Ver producto".
+WHATSAPP = "PON_AQUI_TU_NUMERO"   # <-- (4)
+
+# Dominio de la tienda, el que termina en .myshopify.com (sin https://)
+SHOPIFY_TIENDA = "CAMBIA-ESTO.myshopify.com"   # <-- (2)
+
+# --- Meta es el unico canal --------------------------------------------
+# El webhook atiende texto, fotos, respuestas a historias y ecos (para la
+# pausa automatica). Todo lo demas -los "visto", las reacciones, los
+# comentarios- se descarta sin gastar nada.
+#
+#   "todo"   atiende todo tipo de mensaje  <- por defecto
+#   "off"    nada; el webhook queda desactivado
+META_MODO = "todo"
+
+# El que TU te inventas y escribes IGUAL en el panel de Meta, en la
+# casilla "Identificador de verificacion" al dar de alta el webhook.
+META_VERIFY_TOKEN = "emperador2026"   # <-- (5)
+
+# Modelo de OpenAI que REDACTA las respuestas de texto.
+OPENAI_MODELO = "gpt-4o-mini"
+
+# Modelo que MIRA las fotos (identificacion y cotejo visual). Como solo
+# tiene que mirar, vale la pena que sea el completo.
+OPENAI_MODELO_VISION = "gpt-4o"
+
+# Modelo con el que se INDEXA el catalogo (abrir /indexar-catalogo). Son
+# cientos de fotos, asi que va el mini: tiene un cupo por minuto mucho mas
+# alto y para una foto de producto limpia alcanza.
+OPENAI_MODELO_INDICE = "gpt-4o-mini"
+
+# --- El cotejo visual ---------------------------------------------------
+# Cuando el cliente responde a una historia o manda una foto y el zapato
+# no aparece buscando por su nombre, el bot compara la foto contra las
+# fotos del catalogo hasta encontrarlo.
+#
+# EL LIMITE NO ES EL CATALOGO, ES EL CUPO DE OPENAI. Por eso el barrido
+# mira unos POCOS productos por mensaje. Lo que hace que igual se pueda
+# mirar TODO el catalogo es el indice: abrir /indexar-catalogo una vez y
+# repetir hasta que diga LISTO.
+COTEJO_BARRIDO = "si"
+COTEJO_LOTES = "2"
+COTEJO_MAXIMO = "600"
+
+# Cuantas horas se calla el bot despues de que un asesor le escribe a un
+# cliente a mano desde la app de Instagram (para no hablar por encima).
+#
+# SE CUENTA DESDE EL ULTIMO MENSAJE DEL ASESOR: cada vez que el asesor
+# escribe, el reloj vuelve a empezar. Admite decimales: 0.5 = 30 minutos.
+PAUSA_HORAS = "4"
+
+# La frase con la que el asesor le DEVUELVE la conversacion al bot, desde
+# el mismo chat de Instagram. Basta con que aparezca dentro del mensaje.
+# El cliente la lee, asi que tiene que sonar a despedida normal. Lo comodo
+# es guardarla como Respuesta guardada de Instagram.
+FRASE_DESPAUSAR = "te dejo con la asistente"
+
+# ------------------------------------------------------------------------
+# Los secretos NO van aqui. Se cargan uno por uno con:
+#
+#   npx.cmd wrangler secret put OPENAI_API_KEY
+#   npx.cmd wrangler secret put SHOPIFY_TOKEN
+#   npx.cmd wrangler secret put SLACK_WEBHOOK
+#   npx.cmd wrangler secret put META_APP_SECRET_IG
+#   npx.cmd wrangler secret put IG_TOKEN
+#
+# OJO CON META_APP_SECRET_IG: Meta tiene DOS claves y las dos miden 32
+# caracteres, asi que no se distinguen a ojo. La que sirve es la del
+# producto Instagram, NO la de Configuracion -> Basica.
+#
+# Y OJO CON EL SHOPIFY_TOKEN: tiene que ser el de la Shopify de EL
+# EMPERADOR. Con el de Invictus el bot mostraria el catalogo de la otra
+# tienda sin dar ningun error.
+# ------------------------------------------------------------------------

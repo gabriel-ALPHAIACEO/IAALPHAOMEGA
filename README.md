@@ -2,6 +2,52 @@
 
 Repositorio de trabajo para los chatbots de IA de los distintos clientes. Punto de partida: **Invictus Shoes**.
 
+## Dónde está cada cosa (22-sep-2026)
+
+| Carpeta | Qué es |
+|---|---|
+| `invictus-bot/` | **Producción.** El código que atiende clientes hoy. Todo cambio para Invictus va acá. |
+| `worker/` | Rama **multi-tienda sin fusionar** (`tienda.js`, `tiendas/*.js`, prompts con `{{TIENDA}}`). Base más vieja: sin visión en dos pasos, sin `hayMas`, sin despausar, sin nombres de clientes. No copiar sus archivos a la carpeta de despliegue. |
+
+Lo que sigue describe el bot en general; donde hay diferencia, manda `invictus-bot/`.
+
+### Reconocimiento por foto: cómo quedó (lo más importante)
+
+Tres capas, y cada una arregla el fallo de la anterior:
+
+1. **`identificarEnImagen` (gpt-4o)** mira la foto y devuelve el modelo + 15 rasgos sí/no de lo que VE. Schema estricto: los rasgos no pueden faltar.
+2. **`identificar.js`** verifica ese nombre contra esos rasgos, sin IA de por medio. Y desde el 22-sep distingue dos cosas que antes trataba igual:
+   - **Un rasgo lo CONTRADICE** (la IA dijo "Air Max 270" y ella misma marcó suela redondeada sin cámara de aire) → se rechaza y se baja a la marca. Es el caso del Uplift, el fallo que originó todo esto.
+   - **Falta el rasgo que lo CONFIRMA, pero nada lo contradice** (dijo "Air Force One" y no marcó la pieza metálica del ojal, que es diminuta y en media foto no se ve) → **ya no se tira el nombre**. Se busca igual, marcado como *sin confirmar*, y lo verifica la capa 3. Tirar un nombre correcto por un detalle invisible era la contradicción que se veía a simple vista: "si sabe que es un AF1, ¿por qué no lo buscó?".
+3. **`cotejo.js` (cotejo visual)** compara la foto del cliente contra las fotos reales del catálogo de Shopify. Tiene dos modos:
+   - **Desempatar** — hay varios candidatos y hay que saber cuál es. Los candidatos se eligen **por los rasgos** (`terminosCompatibles`, la tabla de `identificar.js` leída al revés), no por el orden del catálogo.
+   - **Verificar** — la identificación venía sin confirmar. Ahí corre **aunque haya un solo resultado**, porque la pregunta no es "cuál" sino "¿es este?".
+
+   Y si con eso no aparece, **barre el catálogo** (`traerCatalogoCompleto` en `shopify.js`): trae todos los productos activos de Shopify —250 por llamada, un par de llamadas— y compara la foto contra todos, en lotes de 20 imágenes, de a 4 lotes en paralelo, parando en cuanto uno acierta. Los títulos que comparten palabra con lo que se buscó van primero, así que lo normal es que caiga en el primer lote. Es el único paso caro del bot y solo corre cuando lo barato ya falló; se apaga con `COTEJO_BARRIDO = "no"`.
+
+   **El techo del barrido no es el catálogo: es el cupo de OpenAI.** Primera prueba real (22-sep): catálogo de 400+, lotes de 20 fotos, y OpenAI devolvió `429 — Limit 30000 TPM, Used 13868, Requested 16908` desde el segundo lote. El cliente se quedó **sin respuesta**, porque Cloudflare cortó la tarea en segundo plano. La cuenta: un lote de 20 fotos son ~17.000 tokens y el cupo son 30.000 por minuto — no entran ni dos seguidos, y barrer 400 productos tardaría once minutos.
+
+   Por eso el barrido es ahora una pasada **corta y con presupuesto**: lotes de 10, de a 2, un tope de lotes por mensaje (`COTEJO_LOTES`, por defecto 2 = 20 productos) y un reloj de 15 s. Si OpenAI devuelve 429, `ia.js` lo anota y el barrido **se corta solo** en vez de insistir. La respuesta al cliente sale siempre.
+
+   **Para barrer el catálogo COMPLETO de verdad hay dos caminos, los dos fuera de este código:**
+   - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
+   - **Indexar el catálogo una sola vez** ← **esto es lo que se hizo.** Ver abajo.
+
+### El índice del catálogo (`indice.js` + `/indexar-catalogo`)
+
+El trabajo de mirar el catálogo no hace falta repetirlo en cada mensaje: el catálogo no cambia entre un cliente y el siguiente. Así que se mira **una vez**, se guardan los 15 rasgos de cada producto en D1, y cuando llega una foto sus rasgos se comparan con los guardados **en código, sin gastar una sola llamada ni un token de cupo**. Solo los 10 más parecidos van a un único cotejo.
+
+**De 20 llamadas por mensaje a 1**, y el cliente espera segundos en vez de minutos.
+
+- **Cómo se llena:** abrir `https://<worker>/indexar-catalogo` en el navegador. Trabaja por tandas de 20 y dice cuántos faltan; se repite hasta que diga `LISTO`. Hay que volver a correrlo al agregar productos — los que ya están no se vuelven a mirar, así que reindexar es barato.
+- **Con qué modelo:** `OPENAI_MODELO_INDICE` (por defecto `gpt-4o-mini`), que tiene un cupo por minuto mucho más alto y para una foto de producto limpia alcanza. La foto del **cliente** sigue yendo al modelo bueno.
+- **Cómo puntúa:** compartir un rasgo **presente** ("los dos tienen cámara de aire en el talón") vale 3; compartir uno ausente vale 1, porque casi todos los pares no tienen casi ningún rasgo y los "no" coinciden por defecto sin distinguir nada; diferir resta 2, porque un rasgo que uno tiene y el otro no es justo lo que descarta un modelo.
+- **Se mantiene solo:** un producto se reindexa si le cambió la foto (la URL del CDN de Shopify cambia con la imagen), y los que desaparecen de Shopify se borran del índice al terminar una pasada completa — si no, el bot podría enseñar la ficha de algo que ya no se vende.
+- **El cupo se cuenta por modelo.** Esto empezó siendo un solo número y estaba mal: OpenAI da un cupo por minuto **a cada modelo por separado**. Con un número compartido, un 429 de `gpt-4o` —que en esta cuenta pasa seguido— apagaba también la indexación, que corre con el mini y tenía cupo de sobra: la primera indexación real guardó **cero productos** sin que se entendiera por qué. Ahora cada modelo lleva su propia cuenta, y la indexación **espera** a que vuelva el cupo en vez de rendirse (puede hacerlo: no hay ningún cliente del otro lado). La respuesta a un cliente nunca espera.
+- **`/estado` dice cuántos hay indexados.** Si dice `VACÍO`, el cotejo se queda sin su vía buena y cae al barrido corto.
+
+   Solo la confianza **"alta"** llega al cliente. Si no confirma, no descarta nada: el bot muestra lo que encontró preguntando si es ese, que es lo honesto.
+
 ## Proyecto actual: Invictus Shoes
 
 Chatbot vendedor de calzado por Instagram (carrusel de productos vía Shopify).
@@ -71,6 +117,36 @@ El mismo código atiende a varias tiendas. Lo que cambia por tienda son dos arch
 - **El Emperador vende doble A y triple A**, no 1.1 como Invictus. Como son dos gamas y el bot no puede saber de cuál es un par concreto (ve el título y la foto, no la gama), su sección de calidad nombra las dos y manda al asesor cuando preguntan por un modelo en particular. Decir "triple A" de un par que es doble A es la equivocación más cara que podría cometer.
 - Guía de montaje paso a paso: `MONTAR-OTRA-TIENDA.md`.
 
+### Cotejo visual contra el catálogo (22-sep-2026)
+
+Hasta ahora **todo** el reconocimiento por foto terminaba en un nombre: la IA miraba la imagen, decía "Vapormax", y ese texto se buscaba en Shopify. Cuando el nombre no acertaba, no había búsqueda que valiera — y fallaba seguido (el Uplift saliendo como "Air Max 270", tres veces documentadas arriba). Es el fallo más caro del bot: quien responde a una historia ya vio el zapato y lo quiere, y recibía un "¿sabes cómo se llama?".
+
+`src/cotejo.js` + `src/prompts/cotejo.txt` cambian la pregunta. En vez de adivinar el nombre, se le ponen al modelo **la foto del cliente al lado de las fotos reales del catálogo** (Shopify ya devuelve `featuredImage` en cada resultado) y se le pregunta cuál es el mismo par. Comparar dos imágenes es mucho más fácil que recordar un nombre, y lo que sale es un producto REAL de la tienda —título exacto, precio y enlace— en vez de un término que ojalá exista.
+
+**Cuándo corre.** Cada cotejo es una llamada de visión más, así que no corre en cada mensaje. Solo con foto, y solo cuando la vía normal no dejó una respuesta buena:
+
+| Lo que devolvió la búsqueda por nombre | Qué hace el cotejo |
+|---|---|
+| **Nada** | Busca por la marca (la primera palabra del término) y cotea esos. Es el caso que más duele y el que más gana. |
+| **Varios** (típico cuando `identificar.js` bajó a nivel marca: "Nike" trae diez) | Los cotea y pone el acertado **primero**, sin descartar el resto. |
+| **Uno solo** | No corre. No hay nada que elegir, y descartarlo por una duda sería cambiar un resultado bueno por ninguno. |
+
+**Las decisiones que lo hacen seguro:**
+- **Se elige por número, no por título.** Si se le pidiera el nombre, el modelo lo parafrasearía ("Air Max 97 plateadas" por el título real) y habría que adivinar a cuál se refería. Con un índice, o es uno de los que se le mandaron o es 0. Garantizado con `json_schema` + `strict`, igual que la visión.
+- **Solo pasa la confianza "alta".** Lo que sale de aquí se convierte en una ficha con precio y botón de compra: con una corazonada no se manda. El prompt dice explícitamente que **"ninguno" (eleccion 0) es una respuesta correcta**, y prohíbe elegir "el más parecido" por no quedarse sin respuesta.
+- **El color se mira el último.** El mismo modelo existe en veinte colores, y una historia trae filtro, luz de tienda y stickers encima. Decide la suela, después el corte.
+- **Nunca empeora.** Si no está seguro, si el modelo falla o si Shopify no responde, devuelve `null` y el bot sigue exactamente igual que sin este archivo.
+
+**Costo.** La foto del cliente va en `detail:"high"` (hay que leerla al detalle); las del catálogo en `detail:"low"`, porque son fotos de producto limpias sobre fondo liso donde la silueta y la suela se leen igual de bien. Máximo 8 candidatos — subirlo además empeora la comparación: cuantos más pares mira, más fácil es que se conforme con el más parecido.
+
+**Pendiente de prueba real:** no hay acceso a la tienda desde este entorno, así que el cotejo está comprobado en su lógica de ramas (cuándo corre, cuándo no, qué manda) pero **no contra fotos reales del catálogo**. La primera prueba en vivo debería ser una respuesta a una historia de un modelo que el bot venía fallando.
+
+### La tabla de D1 se crea sola (22-sep-2026)
+
+`asegurarColumnas` en `estado.js` agregaba columnas, pero si la tabla **no existía** se rendía — y eso dejaba el arranque dependiendo de que alguien se acordara de correr `wrangler d1 migrations apply` a mano. En el primer arranque de EPICELL no se corrió: la base estaba creada pero vacía, y cada mensaje moría con `D1_ERROR: no such table: contactos`. El cliente escribió "Hola" y no recibió nada.
+
+Ahora la tabla se crea desde el código igual que las columnas (`CREATE TABLE IF NOT EXISTS`, que no pisa nada si ya está). Las migraciones siguen existiendo para quien prefiera correrlas, pero ya no son la única forma. Es la regla 3 del `CLAUDE.md`, que hasta ahora se cumplía a medias.
+
 ### Estructura
 
 ```
@@ -87,8 +163,9 @@ worker/
     instagram.js           firma del webhook, envío de mensajes/fichas, lectura de eventos (incluye ecos)
     estado.js               memoria en D1: historial, nombre, pausa por asesor humano
     identificar.js          red de seguridad determinista para lo que identifica la IA en una foto
+    cotejo.js               compara la foto del cliente con las fotos del catálogo y saca el par exacto
+    indice.js               el catálogo mirado una vez y guardado en D1: rasgos por producto
     shopify.js              búsqueda de productos (Admin GraphQL API)
-    indice.js               indexa TODO el catálogo de Shopify en D1 y arma con él el bloque de catálogo del prompt
     color.js                separa el color del término de búsqueda y filtra por color
     historial.js            arma el contexto que ve el modelo (separa pasado/presente, recorta historial)
     catalogo.js              detecta que piden el catálogo POR SU NOMBRE, y que piden ver algo distinto de lo ya visto
@@ -98,6 +175,7 @@ worker/
     prompts/
       texto.txt              prompt de conversación/ventas
       vision.txt              prompt de análisis de fotos (respuestas a historias / fotos directas)
+      cotejo.txt              prompt del cotejo visual: cuál del catálogo es el de la foto
 ```
 
 ### Prompts
@@ -114,28 +192,6 @@ worker/
   - **19-sep-2026 (5) — schema JSON estricto.** Con (4) desplegado, la MISMA foto volvió a salir "Air Max 270", sin cambio. Causa: `json_object` (modo suelto) solo garantiza JSON válido, no que traiga las claves que el prompt pide — "rasgos" se podía quedar afuera sin aviso, dejando a `identificar.js` sin nada que verificar. Se cambió a `response_format: json_schema` con `strict:true` en la llamada de visión: la API de OpenAI ahora garantiza que "rasgos" viene siempre con las 15 claves exactas. `identificar.js` exporta `RASGOS_CLAVE` como fuente única de verdad; `ia.js` la importa para armar el schema.
   - **21-sep-2026 (6) — el prompt de visión no sabía qué era una historia.** `index.js` le manda `[EL CLIENTE RESPONDIÓ A UNA HISTORIA — la imagen que ves ES la historia]` desde que se retiró ManyChat, pero `vision.txt` nunca mencionaba ese marcador: el modelo recibía una instrucción que no estaba entrenado a leer, justo en el mensaje más valioso que llega (quien responde a una historia ya vio el zapato y lo quiere). Sección nueva **"CUANDO LA FOTO ES UNA HISTORIA"**: la imagen es de la tienda y no del cliente, hay que ignorar precios y stickers superpuestos, con varios pares se elige por lo que escribió el cliente ("las negras", "la segunda") y si no dice nada el que sale más grande, y está prohibido pedir otra foto o decir que no se ve la historia. El nivel 4 cambia en historias: en vez de "¿me mandas una foto?", se pregunta cuál le gustó. Tres ejemplos nuevos.
   - **Cobertura del catálogo — pendiente de fotos reales.** Sin acceso a la tienda (`8vds1e-jw.myshopify.com` bloqueada por la política de red de este entorno), las firmas se escribieron con conocimiento general de sneakers bien documentados. ~10 nombres del catálogo no se reconocen con confianza y se dejaron sin firma a propósito (mejor sin firma que con una inventada): `Adidas Gallagher/Gallangher`, `Adidas Swicth/Switch`, `Jordan Lukka`, `Nike ava Rover`, `Nike bailleli`, `Nike Hiperset`, `Nike Hiperdunk`, `Nike Alpha`, `Nike DN/DN 8`, `DC shoes acsed/ascend`, `Adidas Adistar XLG`, `nike a'ja wilson a'one`. Si el dueño manda 1-2 fotos reales de cada uno, se completan. Los títulos genéricos sin silueta propia ("Adidas caballero", "Nike Dama", "X promoción", "Nike react/zoom/pulse") se dejaron sin firma a propósito.
-
-### El catálogo que ve la IA (indexación) — 24-sep-2026
-
-**El problema.** La IA solo ofrece lo que sabe que existe. Esa lista de nombres vivía escrita a mano dentro de `src/tiendas/<tienda>.js` (~316 títulos), y había que volver a pegarla cada vez que entraba mercancía. Entre una pegada y la siguiente, **todo lo nuevo era invisible**: el cliente preguntaba por un modelo que sí estaba en la tienda y el bot no lo ofrecía, o se inventaba un término y la búsqueda devolvía cero.
-
-**Cómo funciona ahora.** `src/indice.js` recorre el catálogo entero de Shopify (Admin GraphQL, páginas de 250, mismo filtro `status:active` que usa la búsqueda), guarda los títulos en la tabla `catalogo` de D1 y arma con ellos los dos bloques de catálogo del prompt — el de texto (`{{CATALOGO}}`) y el de visión (`{{CATALOGO_VISION}}`).
-
-- **Se refresca solo.** `[triggers] crons` en `wrangler.toml`: 4 veces al día (3am, 9am, 3pm y 9pm hora de Venezuela). El handler `scheduled()` de `index.js` es quien lo dispara.
-- **Y a mano cuando haga falta.** `/indice` enseña lo que hay indexado; `/indice?sincronizar=1` lo rehace en el momento y **lista los productos nuevos** — que es justo lo que hay que revisar para ver si alguno necesita su término.
-- **La lista escrita a mano queda de respaldo, no se borra.** Si el índice está vacío (primer despliegue), si D1 no responde o si Shopify falla, `tienda.js` se queda con ella. El bot nunca se queda sin catálogo por culpa del índice. `/estado` dice cuál de las dos está usando.
-- **La tabla se crea sola** (`CREATE TABLE IF NOT EXISTS` en la primera sincronización). `migrations/0004_catalogo.sql` existe para instalaciones limpias, pero **no hace falta correrla** — misma lección que la columna `mostrados` (ver 6b abajo): los archivos se copian a mano, así que un arreglo no puede depender de que alguien recuerde un comando.
-- **Un fallo nunca vacía el índice.** Si Shopify devuelve cero productos (token caducado, permiso retirado, mal día de la API) la sincronización se aborta y deja el índice anterior intacto, porque hacerle caso dejaría al bot sin catálogo y sin saber por qué. Lo mismo con cualquier error HTTP.
-- **Lo retirado desaparece.** Lo que no aparece en una pasada se borra, así que el bot deja de ofrecer lo que la tienda ya no vende.
-- **El prompt se rearma solo cuando cambia el catálogo.** La clave del cacheo de `ia.js` lleva una huella de la lista: mientras el catálogo sea el mismo se reusa el prompt armado, y en cuanto entra mercancía se arma uno nuevo sin reiniciar nada.
-
-**Lo que el índice NO reemplaza: la tabla de TÉRMINOS.** Sigue siendo a mano, y así debe ser. El índice dice **qué hay**; los términos dicen **cómo lo pide el cliente** (`"tn"` → `TN`, `"jordan 4"` → `Retro 4`, `"chancla"` → `Chola`). Eso no se deduce de los títulos. Por eso `/indice?sincronizar=1` lista lo que entró nuevo: para revisar si alguno se pide con un nombre que no está en su título.
-
-**Tope de prompt:** 1500 títulos. Más que eso encarece cada mensaje del día; si una tienda crece tanto, sale un aviso en `wrangler tail`.
-
-**Probado en simulación** (Shopify y D1 falsos, sin acceso a la tienda real desde este entorno): paginación de 600 productos en 3 páginas, títulos repetidos descartados, alta y baja de productos detectadas, resguardo ante Shopify vacío y ante error 401, los dos bloques del prompt, y la vuelta a la lista a mano cuando no hay base.
-
-**Pendiente de la primera pasada real.** Al desplegar, entrar a `/indice?sincronizar=1` una vez y comprobar que el total cuadra con los productos publicados en Shopify.
 
 ### Problemas conocidos / pendientes
 
