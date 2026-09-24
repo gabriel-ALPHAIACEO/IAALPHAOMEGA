@@ -28,7 +28,13 @@ const REFERENCIAS = [
   [["pila portatil", "pila para el telefono", "bateria portatil", "bateria externa",
     "cargador portatil", "power bank", "powerbank", "banco de energia",
     "cargar en la calle", "cargar el telefono en la calle", "cargar fuera de casa",
-    "cargar sin enchufe", "bateria de respaldo", "para cargar en la calle"], "Powerbank"],
+    "cargar sin enchufe", "bateria de respaldo", "para cargar en la calle",
+    // Escrito como suena. El buscador perdona dos erratas, y estas pasan
+    // de ahí: "paguerbank" está a tres letras de "powerbank". Una
+    // palabra en inglés que se escribe de oído no es una errata, es otra
+    // palabra, y por eso se lista en vez de dejársela al buscador.
+    "paguer bank", "paguerbank", "pauer bank", "pauerbank",
+    "poguer bank", "poguerbank", "poder bank"], "Powerbank"],
 
   [["taco", "bloque", "cubo", "adaptador de pared", "cargador de pared",
     "cargador de corriente", "enchufe"], "Cargador"],

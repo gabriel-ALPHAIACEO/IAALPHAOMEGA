@@ -75,22 +75,50 @@ export async function buscarProductos(env, termino, cuantos = 10) {
     palabras.every((palabra) => coincide(palabra, p.busqueda))
   );
 
-  // RESCATE 1 — LA PALABRA PARTIDA EN DOS.
+  // RESCATE 1 — LAS PALABRAS PEGADAS O PARTIDAS.
   //
-  // Un cliente escribió "Powerbank" y se fue sin respuesta. El modelo lo
-  // pasó a "power bank", y "bank" no empieza ninguna palabra de "Aorax
-  // Powerbank 10.000 mAh": queda en MEDIO de "powerbank". La regla de
-  // "todas las palabras" lo descartó teniendo el producto en la hoja.
+  // Los espacios no caen donde el título los tiene, y va en las dos
+  // direcciones:
   //
-  // Pasa igual con "mi band" / "miband", "selfie stick" / "selfiestick",
-  // "tipo c" / "tipoc". No es un caso raro: es cómo escribe la gente.
+  //   PARTE lo que va junto   "power bank"  por  "Powerbank"
+  //   PEGA lo que va aparte   "RedmiNote"   por  "Redmi Note"
   //
-  // Así que si la búsqueda estricta no encuentra nada, se prueba el
-  // término SIN ESPACIOS contra el título sin espacios. Solo se intenta
-  // cuando la primera pasada vino vacía, así que no afloja nada.
-  if (!encontrados.length && palabras.length > 1) {
+  // La primera versión de esto solo arreglaba la de arriba, y al probar
+  // los 82 productos con erratas se vio que la de abajo es igual de
+  // común: "Pocopro", "Tecnospark", "Redmipro".
+  //
+  // Se compara el término SIN ESPACIOS contra trozos del título también
+  // sin espacios: cada palabra, cada dos seguidas y cada tres seguidas.
+  // Con eso "redminote" encuentra "Redmi Note 17" sin que "note17" deje
+  // de encontrarse tampoco.
+  //
+  // Y perdona erratas, porque las dos cosas pasan a la vez: "powe bank",
+  // "pawer bank", "RedmixNote". Cada mitad suelta es demasiado corta
+  // para perdonarle nada; pegadas son una palabra larga que sí se puede
+  // comparar.
+  //
+  // Solo se intenta cuando la búsqueda estricta vino vacía, así que no
+  // afloja nada de lo que ya funciona.
+  if (!encontrados.length) {
     const pegado = palabras.join("");
-    encontrados = productos.filter((p) => p.busqueda.junto.includes(pegado));
+    const margen = erratasQueSePerdonan(pegado);
+
+    encontrados = productos.filter(({ busqueda }) => {
+      if (busqueda.junto.includes(pegado)) return true;
+      if (margen && trozosPegados(busqueda.piezas).some((t) => seParecen(pegado, t, margen))) {
+        return true;
+      }
+      // Y al revés: partir el pegado en dos y que cada mitad esté en el
+      // título, aunque en el título no vayan seguidas. "Pocopro" es
+      // "Poco X8 pro 5G" con un "X8" en medio, y "Aoraxcable" es "Aorax
+      // M659 cable": pegar dos palabras que el título tiene separadas
+      // por una tercera es de lo más normal cuando el cliente escribe de
+      // memoria.
+      return partirEnDos(pegado).some(
+        ([izquierda, derecha]) => coincide(izquierda, busqueda) && coincide(derecha, busqueda)
+      );
+    });
+
     if (encontrados.length) {
       console.log(`Sin resultados con "${palabras.join(" ")}", pero sí pegado: "${pegado}"`);
     }
@@ -145,45 +173,126 @@ function coincide(palabra, { piezas, junto }) {
   return /\d/.test(palabra) && /[a-z]/.test(palabra) && junto.includes(palabra);
 }
 
-// La misma comparación, perdonando UNA letra. Se usa solo cuando la
+// La misma comparación, perdonando erratas. Se usa solo cuando la
 // búsqueda de verdad ya falló: es el último intento antes de decirle al
 // cliente que no hay.
-function casiCoincide(palabra, { piezas }) {
-  if (palabra.length < 5 || /\d/.test(palabra)) return false;
-  return piezas.some((pieza) => pieza.length >= 4 && aUnaLetra(palabra, pieza));
+//
+// CUÁNTAS SE PERDONAN, Y POR QUÉ NO SIEMPRE UNA:
+//
+//   menos de 4 letras  ·  ninguna. Con 3 letras, perdonar una es
+//                         perdonarlo todo. Ahí se prefiere no encontrar.
+//   de 4 a 7 letras    ·  una.  ("Remi" por Redmi, "Cale" por Cable)
+//   8 o más            ·  dos.  Cuanto más larga la palabra, más sitios
+//                         hay donde equivocarse y menos posibilidad de
+//                         chocar con otro producto.
+//
+// El 4 salió midiendo, no a ojo: con 5 se perdían "Remi" y "Cale", que
+// son erratas normales; con 4 se recuperan y los 12 pares que no pueden
+// confundirse siguen sin confundirse. Con 3 ya no se probó: "A17" y
+// "A07" están a una letra, y mandar el teléfono equivocado es peor que
+// no encontrarlo.
+//
+// LO QUE HACE QUE ESTO SEA SEGURO no es el número, es DÓNDE corre: los
+// rescates solo se intentan cuando la búsqueda estricta volvió VACÍA.
+// Una búsqueda que ya encontró algo no se toca nunca, así que aflojar
+// acá no puede ensuciar un resultado bueno — solo puede rescatar uno
+// que iba a ser un "no hay".
+//
+// Los números NO se tocan nunca, en ninguna longitud: un 512 no es un
+// 128 por mucho que se parezcan, y mandarle el equipo equivocado al
+// cliente es peor que no encontrárselo.
+function erratasQueSePerdonan(palabra) {
+  if (palabra.length < 4 || /\d/.test(palabra)) return 0;
+  return palabra.length >= 8 ? 2 : 1;
 }
 
-// ¿Se llega de "a" a "b" con UN solo desliz? Cuenta como uno: una letra
-// cambiada, una de más, una que falta, o DOS LETRAS CAMBIADAS DE SITIO.
+// Cada palabra del título, cada dos seguidas y cada tres seguidas, sin
+// espacios. Para "Redmi Note 17 Pro": redmi, note, 17, pro, redminote,
+// note17, 17pro, redminote17, note17pro.
 //
-// Las dos cambiadas de sitio hay que contarlas aparte, y se me pasó en el
-// primer intento: "cargadro" por "cargador" son dos letras mal para
-// cualquier cuenta normal, y es de las erratas más comunes que hay —
-// dedos que llegan en el orden equivocado. Sin este caso, el rescate no
-// rescataba justo lo que más se escribe mal.
+// Hasta tres y no más: un término de búsqueda son 3 palabras como mucho
+// (lo dice el prompt), así que pasar de ahí es trabajo que no se usa, en
+// cada producto y en cada mensaje.
+function trozosPegados(piezas) {
+  const trozos = [];
+  for (let i = 0; i < piezas.length; i++) {
+    let junto = "";
+    for (let n = 0; n < 3 && i + n < piezas.length; n++) {
+      junto += piezas[i + n];
+      trozos.push(junto);
+    }
+  }
+  return trozos;
+}
+
+// Todas las formas de cortar una palabra en dos trozos de 3 letras o
+// más. "pocopro" da poc/opro, poco/pro, pocop/ro... y solo "poco"+"pro"
+// encuentra las dos en el título.
+//
+// Se corta a 3 letras porque por debajo de eso cualquier trozo está en
+// cualquier sitio, y esto acabaría devolviendo media tienda.
+function partirEnDos(palabra) {
+  const cortes = [];
+  for (let i = 3; i <= palabra.length - 3; i++) {
+    cortes.push([palabra.slice(0, i), palabra.slice(i)]);
+  }
+  return cortes;
+}
+
+function casiCoincide(palabra, { piezas }) {
+  const margen = erratasQueSePerdonan(palabra);
+  if (!margen) return false;
+  return piezas.some((pieza) => pieza.length >= 4 && seParecen(palabra, pieza, margen));
+}
+
+// ¿Se llega de "a" a "b" con "margen" deslices o menos? Cuenta como uno:
+// una letra cambiada, una de más, una que falta, o DOS LETRAS CAMBIADAS
+// DE SITIO ("cargadro" por "cargador"), que es de las erratas más
+// comunes que hay: dedos que llegan en el orden equivocado.
 //
 // Se compara contra el PRINCIPIO de la palabra del título, para que
 // "powerbanck" encuentre "powerbank 10.000 mah".
-function aUnaLetra(a, b) {
-  if (b.length > a.length + 1) b = b.slice(0, a.length + 1);
-  if (Math.abs(a.length - b.length) > 1) return false;
+//
+// Es la distancia de siempre, con dos cambios: se corta en cuanto se
+// pasa del margen, y no hay tabla entera, solo dos filas. Acá se compara
+// una palabra contra 83 productos en cada mensaje, con un cliente
+// esperando.
+function seParecen(a, b, margen) {
+  if (b.length > a.length + margen) b = b.slice(0, a.length + margen);
+  if (Math.abs(a.length - b.length) > margen) return false;
 
-  let i = 0, j = 0;
-  while (i < a.length && j < b.length && a[i] === b[j]) { i++; j++; }
+  let anterior = [];
+  let fila = Array.from({ length: b.length + 1 }, (_, j) => j);
 
-  // Iguales hasta el final salvo una letra suelta al borde.
-  if (i === a.length && j === b.length) return true;
+  for (let i = 1; i <= a.length; i++) {
+    const previa = fila;
+    fila = [i];
+    let mejor = i;
 
-  // Dos letras cambiadas de sitio, y el resto igual.
-  if (a.length === b.length && a[i] === b[j + 1] && a[i + 1] === b[j]) {
-    return a.slice(i + 2) === b.slice(j + 2);
+    for (let j = 1; j <= b.length; j++) {
+      const cuesta = a[i - 1] === b[j - 1] ? 0 : 1;
+      let valor = Math.min(
+        previa[j] + 1,          // sobra una letra en "a"
+        fila[j - 1] + 1,        // falta una letra en "a"
+        previa[j - 1] + cuesta  // letra cambiada
+      );
+
+      // Dos letras cambiadas de sitio: cuesta uno, no dos.
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        valor = Math.min(valor, anterior[j - 2] + 1);
+      }
+
+      fila[j] = valor;
+      if (valor < mejor) mejor = valor;
+    }
+
+    // Toda la fila se pasó del margen: no hay forma de arreglarlo más
+    // abajo, y seguir es gastar tiempo del cliente.
+    if (mejor > margen) return false;
+    anterior = previa;
   }
 
-  // Una cambiada, una de más, o una que falta: desde el primer desacuerdo,
-  // lo que queda tiene que coincidir exactamente.
-  if (a.length === b.length) return a.slice(i + 1) === b.slice(j + 1);
-  if (a.length > b.length) return a.slice(i + 1) === b.slice(j);
-  return a.slice(i) === b.slice(j + 1);
+  return fila[b.length] <= margen;
 }
 
 function paraBuscar(texto) {

@@ -77,7 +77,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-23 (7) · entiende descripciones y erratas + manda Cashea y Krece";
+const VERSION = "2026-09-24 (8) · erratas en todo el catálogo, tambien con los espacios mal";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
