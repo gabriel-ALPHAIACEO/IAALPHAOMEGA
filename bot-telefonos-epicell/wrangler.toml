@@ -1,29 +1,19 @@
 # ═══════════════════════════════════════════════════════════════════════
-#  CUATRO COSAS QUE TIENES QUE CAMBIAR ANTES DE QUE ESTO FUNCIONE
-#  Todas estan marcadas abajo con MAYUSCULAS, asi no se pasan por alto.
+#  EPICELL — configuracion del Worker.  YA ESTA TODO PUESTO.
 #
-#   1. database_id   <- SIN ESTO EL DEPLOY NI ARRANCA (es el error que da
-#                       "binding DB of type d1 must have a valid
-#                       database_id specified"). Se saca creando la base:
+#  Este archivo mezcla los datos reales de la cuenta (la base D1, la hoja
+#  de inventario, el WhatsApp, el token de Meta) con las cosas nuevas que
+#  se fueron agregando al bot. Se puede pegar tal cual.
 #
-#                         npx.cmd wrangler d1 create bot-telefonos-db
+#  Lo unico que NO esta aqui son los secretos (las claves). Van aparte,
+#  con "wrangler secret put": la lista completa esta al final del archivo.
 #
-#                       Ese comando imprime el id. Si falla por red
-#                       (ETIMEDOUT / ENETUNREACH), creala desde
-#                       dash.cloudflare.com -> Storage & Databases -> D1,
-#                       con el nombre bot-telefonos-db, y copia su
-#                       Database ID de ahi.
-#
-#                       Con el id puesto, ademas hay que correr una vez:
-#                         npx.cmd wrangler d1 migrations apply bot-telefonos-db --remote
-#
-#   2. SHEET_ID      <- el catalogo. Sin esto despliega pero no encuentra
-#                       ningun producto.
-#   3. URL_CATALOGO  <- el enlace que se le manda al cliente.
-#   4. WHATSAPP      <- si lo dejas vacio, las fichas salen sin el boton
-#                       "Comprar" (funciona igual, pero vendes menos).
-#
-#  Y aparte, los secretos, que NO van en este archivo. Estan al final.
+#  Lo que queda pendiente de tu lado, cuando quieras:
+#    · SHEET_NOMBRE tiene la fecha del inventario en el nombre. Cada vez
+#      que renombres la pestaña de la hoja, hay que cambiarlo aqui tambien
+#      o el bot deja de encontrar productos.
+#    · SLACK_WEBHOOK: sin ese secreto los avisos "te estan esperando" no
+#      le llegan a nadie (el bot atiende igual).
 # ═══════════════════════════════════════════════════════════════════════
 
 # Nombre del Worker. Es parte de su direccion:
@@ -45,17 +35,23 @@ fallthrough = true
 # 22-sep-2026: se retiro ManyChat, asi que el historial de cada
 # conversacion ya no vive en sus campos - vive aca. Sin esto el bot no
 # recuerda nada de un mensaje al siguiente (vuelve a saludar siempre,
-# pierde el hilo de "y en 256?", etc.) y tampoco funciona la pausa cuando
-# un asesor contesta a mano.
+# pierde el hilo de "y en 256?", etc.), no funciona la pausa cuando un
+# asesor contesta a mano, y los comentarios se responderian dos veces.
 #
-# Antes de desplegar hay que crear la base y correr la migracion:
+# La base ya esta creada. Si algun dia hay que rehacerla:
 #   npx wrangler d1 create bot-telefonos-db
 #   (ese comando imprime un database_id: pegalo abajo)
+#
+# Cuando se agregan tablas nuevas hay que correr, una vez:
 #   npx wrangler d1 migrations apply bot-telefonos-db --remote
+#
+# Las columnas que el bot fue necesitando despues (los ultimos textos, la
+# publicacion del turno) se crean solas al arrancar, no hacen falta
+# migraciones para eso.
 [[d1_databases]]
 binding = "DB"
 database_name = "bot-telefonos-db"
-database_id = "PEGA_AQUI_EL_DATABASE_ID"   # <-- (1) SIN ESTO EL DEPLOY FALLA
+database_id = "97f228cd-fc54-461b-9a55-b52371aff903"
 
 [vars]
 # El nombre de la base D1, SOLO para que /estado imprima los comandos ya
@@ -64,27 +60,44 @@ database_id = "PEGA_AQUI_EL_DATABASE_ID"   # <-- (1) SIN ESTO EL DEPLOY FALLA
 # corregirlos a mano. Tiene que ser el mismo database_name de arriba.
 D1_NOMBRE = "bot-telefonos-db"
 
-# El id de tu hoja de Google. Esta en la direccion de la hoja, entre /d/ y /edit:
+# --- EL INVENTARIO -----------------------------------------------------
+# El id de la hoja de Google. Esta en su direccion, entre /d/ y /edit:
 #   https://docs.google.com/spreadsheets/d/AQUI_ESTA_EL_ID/edit
-SHEET_ID = "PEGA_AQUI_EL_ID_DE_TU_HOJA"   # <-- (2)
+SHEET_ID = "1DP1SZkbHMjBMWALGzlM1C1q9nPalN4bt"
 
-# El nombre de la pestana donde esta el catalogo, tal como se ve abajo en la
-# hoja. Si no la renombraste, suele ser "Hoja 1" o "Sheet1".
-SHEET_NOMBRE = "Hoja 1"
+# El nombre de la pestaña donde esta el catalogo, tal como se ve en la
+# barra de abajo de la hoja.
+#
+# OJO: este nombre lleva la fecha del inventario. El dia que la pestaña se
+# renombre (por ejemplo a "INVENTARIO AL 011026"), hay que cambiarlo aqui
+# y volver a desplegar, o el bot no encuentra ningun producto y contesta
+# que no tiene nada. Se ve al instante en /estado.
+SHEET_NOMBRE = "INVENTARIO AL 050926"
 
-# Enlace que se le manda al cliente cuando no hay productos que mostrar.
-URL_CATALOGO = "https://CAMBIA-ESTO.com"   # <-- (3)
+# --- LA TIENDA ---------------------------------------------------------
+# Enlace del catalogo online. EPICELL no tiene tienda web, asi que va
+# vacio A PROPOSITO: con esto el bot no manda el boton "Ver catalogo" ni
+# nombra ningun catalogo en sus respuestas. Tampoco salen las fichas con
+# el boton "Ver producto" (eso esta apagado en el codigo, en
+# src/instagram.js, y se prende cambiando una sola linea).
+#
+# El dia que haya tienda, se pone el enlace aqui y los botones vuelven
+# solos, sin tocar nada mas.
+URL_CATALOGO = ""
 
 # Numero de WhatsApp de la tienda, para el boton "Comprar" de cada ficha.
-# En formato internacional, SIN el +, sin espacios y sin guiones:
-#   Venezuela  0412-123 45 67  ->  "584121234567"
-# Si lo dejas vacio, las fichas salen solo con "Ver producto".
-WHATSAPP = "PON_AQUI_TU_NUMERO"   # <-- (4)
+# Da igual si lleva el +, espacios o guiones: el codigo se queda solo con
+# los numeros. Si se deja vacio, las fichas salen sin ese boton.
+WHATSAPP = "+584225300707"
 
 # --- Meta es el unico canal ---------------------------------------------
-# El webhook atiende texto, fotos, respuestas a historias y ecos (para la
-# pausa automatica). Todo lo demas -los "visto", las reacciones, los
-# comentarios- se descarta sin gastar nada.
+# El webhook atiende texto, fotos, respuestas a historias, publicaciones
+# compartidas y ecos (para la pausa automatica). Todo lo demas -los
+# "visto", las reacciones, el "esta escribiendo"- se descarta sin gastar
+# nada.
+#
+# Eso es lo que se comio los creditos de Make: Meta manda cientos de
+# avisos al dia y Make pagaba una operacion por cada uno.
 #
 #   "todo"   atiende todo tipo de mensaje  <- por defecto
 #   "off"    nada; el webhook queda desactivado
@@ -94,7 +107,12 @@ META_MODO = "todo"
 #
 # Cuando alguien comenta "precio?" debajo de una foto, el bot le contesta
 # una linea en publico -para que se vea que aqui se atiende- y le abre el
-# privado con el equipo, su foto y su precio.
+# privado con el equipo de ESA publicacion, su foto y su precio.
+#
+# Para saber de que equipo habla mira, en este orden: lo que escribio el
+# cliente, el pie de la publicacion, y la foto de la publicacion. Si con
+# nada de eso lo identifica, le PREGUNTA por privado cual de los equipos
+# le interesa; nunca le enseña otra cosa.
 #
 #   "todo"     responde en publico Y abre el privado   <- por defecto
 #   "privado"  solo el privado, sin contestar en publico
@@ -114,23 +132,28 @@ COMENTARIOS = "todo"
 # "Identificador de verificacion" al dar de alta el webhook.
 META_VERIFY_TOKEN = "epiccell2026"
 
-# Modelo de OpenAI que REDACTA las respuestas de texto.
+# --- LOS MODELOS DE OPENAI ---------------------------------------------
+# Modelo que REDACTA las respuestas de texto.
 OPENAI_MODELO = "gpt-4o-mini"
 
-# Modelo que IDENTIFICA las fotos. Como solo tiene que mirar, vale la pena
+# Modelo que IDENTIFICA las fotos: las que manda el cliente y tambien la
+# de la publicacion donde comento. Como solo tiene que mirar, vale la pena
 # que sea el completo: identifica mejor que el "mini", y el costo extra es
 # acotado porque el "mini" sigue atendiendo todo el texto.
 OPENAI_MODELO_VISION = "gpt-4o"
 
+# --- LA PAUSA CUANDO CONTESTA UN ASESOR --------------------------------
 # Cuantas horas se calla el bot despues de que un asesor le escribe a un
 # cliente a mano desde la app de Instagram (para no hablar por encima).
 #
 # SE CUENTA DESDE EL ULTIMO MENSAJE DEL ASESOR: cada vez que el asesor
 # escribe, el reloj vuelve a empezar. Admite decimales: 0.5 = 30 minutos.
 #
-# Puede ser largo sin miedo: el asesor le devuelve la conversacion al bot
-# cuando quiera con FRASE_DESPAUSAR, sin esperar a que venza.
-PAUSA_HORAS = "4"
+# Estaba sin poner, asi que el bot venia usando 1 hora (su valor por
+# defecto). Queda escrito para que se vea, y se puede subir sin miedo: el
+# asesor le devuelve la conversacion cuando quiera con FRASE_DESPAUSAR, y
+# PAUSA_VUELVE_MIN ya evita los silencios largos por una pausa equivocada.
+PAUSA_HORAS = "1"
 
 # CADA CUANTOS MINUTOS DE SILENCIO DEL ASESOR EL BOT RETOMA LA CONVERSACION.
 #
@@ -142,16 +165,23 @@ PAUSA_HORAS = "4"
 # atendiendo el bot no se mete. Y si quiere el silencio de vuelta, le basta
 # con escribir una linea en el chat.
 #
-# Con PAUSA_HORAS = "4", esto es lo que evita que una pausa equivocada
-# cueste cuatro horas de silencio con un cliente que esta preguntando.
+# Esto es lo que evita que una pausa equivocada cueste horas de silencio
+# con un cliente que esta preguntando.
 PAUSA_VUELVE_MIN = "10"
 
-# La frase con la que el asesor le DEVUELVE la conversacion al bot, desde el
-# mismo chat de Instagram. Basta con que aparezca dentro del mensaje; no
+# La frase con la que el asesor le DEVUELVE la conversacion al bot, desde
+# el mismo chat de Instagram. Basta con que aparezca DENTRO del mensaje; no
 # importan tildes, mayusculas ni signos. El cliente la lee, asi que tiene
 # que sonar a despedida normal. Lo comodo es guardarla como Respuesta
-# guardada de Instagram.
-FRASE_DESPAUSAR = "te dejo con la asistente"
+# guardada de Instagram: sale como un boton encima del teclado.
+#
+# CUIDADO CON QUE SEA UNA FRASE DEMASIADO COMUN. Esta ("Estamos para
+# ayudarte!") es de las que un asesor escribe sin pensar en medio de una
+# conversacion — y en cuanto la escribe, el bot entiende que ya puede
+# volver a meterse, aunque el asesor siga atendiendo. Si eso llega a pasar,
+# conviene cambiarla por algo que solo se diga al despedirse, del estilo:
+#   "Te dejo con la asistente virtual, ella te sigue ayudando 😊"
+FRASE_DESPAUSAR = "Estamos para ayudarte!"
 
 # ------------------------------------------------------------------------
 # Los secretos NO van aqui. Se cargan uno por uno con:
@@ -164,6 +194,10 @@ FRASE_DESPAUSAR = "te dejo con la asistente"
 # OJO CON META_APP_SECRET_IG: Meta tiene DOS claves y las dos miden 32
 # caracteres, asi que no se distinguen a ojo. La que sirve es la del
 # producto Instagram, NO la de Configuracion -> Basica.
+#
+# EL IG_TOKEN NECESITA, ademas de los permisos de mensajes,
+# instagram_business_manage_comments — es el que deja contestar los
+# comentarios de las publicaciones (ver COMENTARIOS, arriba).
 #
 # MANYCHAT_SECRET ya no se usa. Podes borrarlo con:
 #   npx wrangler secret delete MANYCHAT_SECRET
