@@ -64,6 +64,15 @@ export const TRABAJO =
   "Por ahora tenemos el personal completo. Cuando necesitemos gente lo " +
   "publicamos en las historias, así que mantente pendiente 👀";
 
+// EL BOT NO PROMETE MANDAR LOS DATOS DE PAGO (25-sep-2026, decisión del
+// dueño). Enumera los métodos y se aparta: pasar la cuenta, confirmar el
+// monto y cerrar es trabajo de un asesor, y una promesa del bot que
+// después cumple una persona a destiempo es un cliente esperando con el
+// dinero en la mano.
+//
+// Quien pregunta esto está a un paso de pagar, así que index.js avisa al
+// asesor por Slack en el mismo momento ("PREGUNTÓ CÓMO PAGAR"). El aviso
+// NO depende de cómo esté redactada esta frase.
 export const PAGOS =
   "💳 MÉTODOS DE PAGO DISPONIBLES\n" +
   "\n" +
@@ -80,7 +89,7 @@ export const PAGOS =
   "🔹 Mercantil Panamá\n" +
   "🔹 Banesco Panamá\n" +
   "\n" +
-  "✅ Dime cuál te conviene y te paso los datos en un momento 😊";
+  "✅ Elige el que más te convenga 😊";
 
 // La ubicación se arma con lo que haya en wrangler.toml: la dirección
 // escrita, la foto del local y el enlace de Google Maps. Los tres se

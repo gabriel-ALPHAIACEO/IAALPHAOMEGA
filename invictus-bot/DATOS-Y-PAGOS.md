@@ -112,8 +112,16 @@ y las fichas salen igual: un dato de la tienda no puede costar una venta.
 El prompt los conoce en corto (sección **DATOS DE LA TIENDA**) justo para
 ese caso.
 
-**Quien pregunta cómo pagar está a un paso de pagar**, así que además sale
-el aviso a Slack con el motivo "PREGUNTÓ CÓMO PAGAR".
+**El bot no promete mandar los datos de pago.** Enumera los métodos y
+cierra con "Elige el que más te convenga 😊": pasar la cuenta, confirmar el
+monto y cerrar es trabajo de un asesor. Una promesa del bot que después
+cumple una persona a destiempo es un cliente esperando con el dinero en la
+mano.
+
+**Quien pregunta cómo pagar está a un paso de pagar**, así que en ese mismo
+momento sale el aviso a Slack con el motivo "PREGUNTÓ CÓMO PAGAR". Ese
+aviso **no depende** de cómo esté redactada la frase final: se dispara en el
+código.
 
 ### Lo que hay que rellenar
 

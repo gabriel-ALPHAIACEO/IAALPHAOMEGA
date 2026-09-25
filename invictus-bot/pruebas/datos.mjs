@@ -36,7 +36,8 @@ for (const [tema, texto] of Object.entries(RESPUESTAS)) {
 comprobar("horarios: los tres tramos", /lunes a viernes/i.test(RESPUESTAS.horarios) && /domingos/i.test(RESPUESTAS.horarios) && /feriados/i.test(RESPUESTAS.horarios), true);
 comprobar("envíos: ZOOM y MRW", /ZOOM/.test(RESPUESTAS.envios) && /MRW/.test(RESPUESTAS.envios), true);
 comprobar("pagos: los nueve métodos", ["Pago Móvil","Transferencia","Punto de venta","Zelle","PayPal","Zinli","Binance","Mercantil Panamá","Banesco Panamá"].every((m) => RESPUESTAS.pagos.includes(m)), true);
-comprobar("pagos: los datos los pasa una persona", /en un momento/i.test(RESPUESTAS.pagos), true);
+comprobar("pagos: NO promete mandar los datos", /te paso los datos|te env[ií]o los datos|escr[ií]beme/i.test(RESPUESTAS.pagos), false);
+comprobar("pagos: cierra invitando a elegir", /Elige el que m[aá]s te convenga/.test(RESPUESTAS.pagos), true);
 
 // ── La ubicación, con y sin datos ──────────────────────────────
 comprobar("sin dirección puesta, no la inventa", ubicacionDe({ DIRECCION: "PENDIENTE: la direccion completa" }).completa, false);
