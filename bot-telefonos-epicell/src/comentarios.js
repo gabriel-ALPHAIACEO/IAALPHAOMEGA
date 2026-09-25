@@ -95,15 +95,21 @@ export function respuestaPublicaSinPrivado() {
 
 /* ── Qué se contesta por privado ──────────────────────────────────── */
 
+// EL PRIVADO NOMBRA LA PUBLICACIÓN, Y EL EQUIPO.
+//
+// Es lo que hace que el cliente sepa, en la primera línea, que le están
+// contestando LO SUYO y no un mensaje automático cualquiera. Y si no se
+// supo de qué equipo hablaba, se le pregunta por los de ESA publicación —
+// nunca se le ofrece otra cosa.
 export function saludoPrivado(usuario, producto) {
-  const quien = usuario ? `@${usuario}` : "";
+  const quien = usuario ? ` @${usuario}` : "";
 
   if (producto) {
-    return `¡Hola${quien ? " " + quien : ""}! 😊 Vi tu comentario en la publicación, te paso la info 👇`;
+    return `¡Hola${quien}! 😊 Vi tu comentario en la publicación del ${producto}, te paso la info 👇`;
   }
 
   return (
-    `¡Hola${quien ? " " + quien : ""}! 😊 Vi tu comentario en la publicación. ` +
-    "¿Cuál de los equipos te interesa? Así te paso el precio"
+    `¡Hola${quien}! 😊 Vi tu comentario en la publicación. ` +
+    "¿Cuál de los equipos que salen ahí te interesa? Así te paso el precio"
   );
 }

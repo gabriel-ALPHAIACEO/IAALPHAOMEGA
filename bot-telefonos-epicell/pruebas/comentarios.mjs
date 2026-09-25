@@ -43,10 +43,11 @@ comprobar("el nuestro por usuario también", esNuestro({ de: "999", usuario: "EP
 comprobar("en público no va el precio", /\d+\s*\$|\$\s*\d+/.test(respuestaPublica()), false);
 comprobar("en público se le manda al DM", /DM/.test(respuestaPublica()), true);
 comprobar("el privado saluda por su usuario", saludoPrivado("perlita", "Samsung A57").includes("@perlita"), true);
-comprobar("y si no se sabe el equipo, pregunta", /cu[aá]l de los equipos/i.test(saludoPrivado("", "")), true);
+comprobar("y nombra la publicación y el equipo", /publicaci[oó]n del Samsung A57/.test(saludoPrivado("perlita", "Samsung A57")), true);
+comprobar("si no se sabe el equipo, pregunta por los de ESA publicación", /que salen ah[ií]/i.test(saludoPrivado("", "")), true);
 
 // ── El turno completo ──────────────────────────────────────────
-function montar({ privadoFalla = false } = {}) {
+function montar({ privadoFalla = false, sinPie = false, visionDice = "" } = {}) {
   const publicos = [];
   const privados = [];
   const DB = baseFalsa({ id: "cliente-del-comentario" });
@@ -77,10 +78,19 @@ function montar({ privadoFalla = false } = {}) {
     }
 
     // La publicación donde comentó
+    if (donde.includes("api.openai.com")) {
+      const cuerpo = JSON.stringify({ visto: "un telefono", buscar: visionDice || "NADA", pedirNombreExacto: false });
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: cuerpo } }] }) };
+    }
+
+    if (donde.includes("x/a57.jpg")) {
+      return { ok: true, status: 200, headers: { get: (k) => (k === "content-type" ? "image/jpeg" : null) }, arrayBuffer: async () => new ArrayBuffer(8) };
+    }
+
     if (donde.includes("18000000000000001")) {
       return { ok: true, status: 200, json: async () => ({
         id: "18000000000000001",
-        caption: "🔥 SAMSUNG A57 5G 12GB/512GB disponible",
+        caption: sinPie ? "🔥 Disponible ya 🔥 #epiccell" : "🔥 SAMSUNG A57 5G 12GB/512GB disponible",
         media_type: "IMAGE",
         media_url: "https://x/a57.jpg",
         permalink: "https://www.instagram.com/p/ABC/",
@@ -117,6 +127,41 @@ m = montar({ privadoFalla: true });
 await atenderComentario({ ...env, DB: m.DB }, { ...c, id: "sin-privado" });
 comprobar("sin privado: contesta en público igual", m.publicos.length, 1);
 comprobar("y lo invita a escribir", /escr[ií]benos por privado/i.test(m.publicos[0]), true);
+
+// ── COHERENCIA: siempre el equipo de ESA publicación ───────────
+//
+// El caso que reportó el dueño: alguien comenta "precio" en una
+// publicación y el bot contesta con otra cosa.
+
+// 1. El pie de la publicación manda
+m = montar();
+await atenderComentario({ ...env, DB: m.DB }, { ...c, id: "coherente-1", texto: "precio" });
+let fichas = m.privados.find((p) => p.attachment)?.attachment.payload.elements || [];
+comprobar("«precio» a secas: contesta con el equipo de la publicación", fichas[0]?.title, "Samsung A57");
+comprobar("y lo nombra en el saludo", /publicaci[oó]n del Samsung A57/.test(m.privados[0].text), true);
+
+// 2. Si él nombra otro equipo, manda el suyo
+m = montar();
+await atenderComentario({ ...env, DB: m.DB }, { ...c, id: "coherente-2", texto: "y el Poco M8 pro cuanto?" });
+fichas = m.privados.find((p) => p.attachment)?.attachment.payload.elements || [];
+comprobar("si pregunta por otro equipo, ese le muestra", fichas[0]?.title, "Poco M8 pro 5G");
+
+// 3. Publicación sin nombre en el pie y sin imagen: pregunta, NO inventa
+m = montar({ sinPie: true });
+await atenderComentario({ ...env, DB: m.DB }, { ...c, id: "coherente-3", texto: "precio" });
+comprobar("sin saber de qué habla: ninguna ficha", m.privados.some((p) => p.attachment), false);
+comprobar("y le pregunta por los de esa publicación", /que salen ah[ií]/i.test(m.privados[0].text), true);
+
+// 4. El pie no lo dice, pero la imagen sí (la lee la IA de visión)
+m = montar({ sinPie: true, visionDice: "Poco X8" });
+await atenderComentario({ ...env, DB: m.DB }, { ...c, id: "coherente-4", texto: "precio?" });
+fichas = m.privados.find((p) => p.attachment)?.attachment.payload.elements || [];
+comprobar("lo lee en la imagen de la publicación", fichas[0]?.title, "Poco X8 pro 5G");
+
+// 5. Se identifica algo que no está en el catálogo: pregunta igual
+m = montar({ sinPie: true, visionDice: "Nokia 3310" });
+await atenderComentario({ ...env, DB: m.DB }, { ...c, id: "coherente-5", texto: "precio?" });
+comprobar("si no lo tenemos, no manda otra cosa", m.privados.some((p) => p.attachment), false);
 
 // Los modos
 comprobar("por defecto, todo", modoComentarios({}), "todo");

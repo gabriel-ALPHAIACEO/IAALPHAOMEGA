@@ -1088,24 +1088,70 @@ async function atenderComentario(env, comentario, rastro = {}) {
 
   const modo = modoComentarios(env);
 
-  // QUÉ EQUIPO ES: lo dice la publicación donde comentó, sin preguntarle
-  // nada. Y si el comentario nombra otro, manda el comentario.
+  // DE QUÉ EQUIPO HABLA — Y NUNCA DE OTRO (crítico).
+  //
+  // EL FALLO QUE ESTO EVITA, dicho por el dueño: "alguien colocó precio en
+  // una publicación X y respondió otra cosa nada que ver". Un cliente que
+  // comenta debajo de una foto está preguntando por LO QUE SALE EN ESA
+  // FOTO. Contestarle con otro equipo es peor que no contestarle: le dice
+  // que del otro lado no miraron nada.
+  //
+  // Así que se busca en este orden, y solo se contesta con producto si
+  // alguno de los tres da algo:
+  //
+  //   1. LO QUE ESCRIBIÓ ÉL. Si nombra un equipo —"¿y el A17?"— manda eso,
+  //      aunque la publicación sea de otro: está preguntando por ese.
+  //   2. EL PIE DE LA PUBLICACIÓN. Casi siempre trae el nombre completo
+  //      con su capacidad.
+  //   3. LA IMAGEN DE LA PUBLICACIÓN. Es un arte promocional: el nombre
+  //      suele ir escrito encima, y la IA de visión lo lee. Es el mismo
+  //      camino que cuando el cliente comparte el post por el chat.
+  //
+  // Y si después de los tres no se sabe, NO se inventa: se le pregunta
+  // cuál de los que salen ahí le interesa. Preguntar es coherente;
+  // adivinar, no.
   const enElCatalogo = await catalogoCompleto(env);
   const publicacion = comentario.media ? await publicacionPorId(env, comentario.media) : null;
 
   const delComentario = nombraDelCatalogo(comentario.texto, enElCatalogo);
   const dePublicacion = publicacion ? nombraDelCatalogo(publicacion.titulo, enElCatalogo) : "";
-  const cual = delComentario || dePublicacion;
+
+  let cual = delComentario || dePublicacion;
+  let deDonde = delComentario ? "lo escribió él" : dePublicacion ? "lo dice el pie de la publicación" : "";
+
+  if (!cual && publicacion?.imagen) {
+    const { uri: foto } = await comoDataUri(env, publicacion.imagen);
+
+    if (foto) {
+      const catalogo = await listaDeTitulos(env);
+      const identificacion = await identificarEnImagen(env, foto, catalogo, {
+        esPublicacion: true,
+      });
+
+      const visto = String(identificacion?.buscar || "").trim();
+      if (visto && visto.toUpperCase() !== "NADA") {
+        cual = visto;
+        deDonde = "lo leyó en la imagen de la publicación";
+      }
+    }
+  }
 
   const productos = cual
     ? (await buscarProductos(env, terminoDeTitulo(cual), 10)).productos
     : [];
 
-  if (cual) {
-    console.log(
-      `El comentario habla de "${cual}" (${delComentario ? "lo escribió él" : "lo dice la publicación"}): ` +
-        `${productos.length} ficha(s)`
-    );
+  console.log(
+    cual
+      ? `El comentario habla de "${cual}" (${deDonde}): ${productos.length} ficha(s)`
+      : "No pude saber de qué equipo habla la publicación: le pregunto, no le invento otro"
+  );
+
+  // Y si lo que se identificó no existe en el catálogo, tampoco se le
+  // manda otra cosa: se le pregunta. Mejor una pregunta que un equipo que
+  // no tiene nada que ver con lo que estaba mirando.
+  if (cual && !productos.length) {
+    console.log(`"${cual}" no devolvió productos: le pregunto en vez de enseñarle otra cosa`);
+    cual = "";
   }
 
   // 1. El privado, que es donde se vende.
