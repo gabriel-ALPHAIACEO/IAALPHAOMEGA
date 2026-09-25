@@ -1,0 +1,17 @@
+-- Que productos YA se le mandaron a este cliente (titulos, en JSON).
+--
+-- EL PROBLEMA QUE RESUELVE. El bot no recordaba nada de lo que habia
+-- enseñado, asi que cuando el cliente pedia ver mas, se volvia a hacer la
+-- misma busqueda y le llegaba el MISMO carrusel. Paso en produccion:
+--
+--   Cliente:  "Nike vapormax"      -> le manda 2 Vapormax
+--   Cliente:  "no mas mas de esos?" -> le manda los MISMOS 2 Vapormax
+--   Cliente:  "son los mismos"
+--
+-- Con esta columna, cuando el cliente pide mas se descartan los que ya vio.
+-- Si no queda ninguno nuevo, el bot lo dice de frente y le ofrece un modelo
+-- parecido, en vez de repetirse (ver decidir() en index.js).
+--
+-- Solo se guardan los ultimos: es para no repetirse en una conversacion, no
+-- un archivo historico.
+ALTER TABLE contactos ADD COLUMN mostrados TEXT NOT NULL DEFAULT '[]';
