@@ -58,6 +58,12 @@ database_name = "bot-telefonos-db"
 database_id = "PEGA_AQUI_EL_DATABASE_ID"   # <-- (1) SIN ESTO EL DEPLOY FALLA
 
 [vars]
+# El nombre de la base D1, SOLO para que /estado imprima los comandos ya
+# escritos y se puedan copiar y pegar (reanudar una conversacion pausada,
+# por ejemplo). Sin esto los escribe con "tu-base-d1" y hay que
+# corregirlos a mano. Tiene que ser el mismo database_name de arriba.
+D1_NOMBRE = "bot-telefonos-db"
+
 # El id de tu hoja de Google. Esta en la direccion de la hoja, entre /d/ y /edit:
 #   https://docs.google.com/spreadsheets/d/AQUI_ESTA_EL_ID/edit
 SHEET_ID = "PEGA_AQUI_EL_ID_DE_TU_HOJA"   # <-- (2)
@@ -83,6 +89,26 @@ WHATSAPP = "PON_AQUI_TU_NUMERO"   # <-- (4)
 #   "todo"   atiende todo tipo de mensaje  <- por defecto
 #   "off"    nada; el webhook queda desactivado
 META_MODO = "todo"
+
+# --- LOS COMENTARIOS DE LAS PUBLICACIONES ------------------------------
+#
+# Cuando alguien comenta "precio?" debajo de una foto, el bot le contesta
+# una linea en publico -para que se vea que aqui se atiende- y le abre el
+# privado con el equipo, su foto y su precio.
+#
+#   "todo"     responde en publico Y abre el privado   <- por defecto
+#   "privado"  solo el privado, sin contestar en publico
+#   "publico"  solo la respuesta publica
+#   "off"      no toca los comentarios
+#
+# HACEN FALTA DOS COSAS EN EL PANEL DE META, o esto no recibe nada:
+#
+#   1. En Webhooks, suscribirse al campo "comments" (ademas de "messages"
+#      y "message_echoes", que ya estaban).
+#   2. Que el IG_TOKEN tenga el permiso de gestionar comentarios
+#      (instagram_business_manage_comments). Si falta, el registro lo dice
+#      con esas palabras y el bot sigue atendiendo los mensajes igual.
+COMENTARIOS = "todo"
 
 # El que TU te inventas y escribes IGUAL en el panel de Meta, en la casilla
 # "Identificador de verificacion" al dar de alta el webhook.

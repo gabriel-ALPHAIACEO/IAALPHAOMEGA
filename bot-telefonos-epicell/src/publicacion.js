@@ -254,6 +254,58 @@ async function nuestrasPublicaciones(env) {
   return medios;
 }
 
+// LA PUBLICACIÓN DONDE COMENTARON, POR SU ID.
+//
+// Cuando llega un comentario, Meta manda el id de la publicación. Con él
+// se pide directamente su pie de foto y su imagen: no hace falta buscar
+// nada en el feed ni adivinar de qué equipo habla el cliente — la
+// publicación lo dice.
+export async function publicacionPorId(env, mediaId) {
+  const id = String(mediaId || "").trim();
+  if (!id || !env?.IG_TOKEN) return null;
+
+  let respuesta;
+  try {
+    respuesta = await fetch(
+      `${GRAFO}/${id}?fields=${CAMPOS}&access_token=${env.IG_TOKEN}`,
+      { signal: AbortSignal.timeout(ESPERA_MS) }
+    );
+  } catch (error) {
+    console.error("No pude leer la publicación del comentario:", error?.message || error);
+    return null;
+  }
+
+  if (!respuesta.ok) {
+    console.error(
+      `No pude leer la publicación ${id}: ${respuesta.status}. ` +
+        "El bot contesta igual, guiándose por lo que escribió el cliente."
+    );
+    return null;
+  }
+
+  let datos;
+  try {
+    datos = await respuesta.json();
+  } catch {
+    return null;
+  }
+
+  const esVideo = String(datos.media_type || "").toUpperCase() === "VIDEO";
+  const imagen = primeraHttp(
+    esVideo ? datos.thumbnail_url : datos.media_url,
+    datos.thumbnail_url,
+    datos.media_url
+  );
+
+  const pie = String(datos.caption || "").trim();
+  console.log(
+    `Publicación del comentario: ${imagen ? "con imagen" : "sin imagen"}, ` +
+      `pie: ${JSON.stringify(pie.slice(0, 60))}`
+  );
+
+  return { imagen, titulo: pie, descripcion: "", termino: "", enlace: String(datos.permalink || "") };
+}
+
 // Devuelve lo mismo que leerEnlace, para que quien llama no tenga que
 // distinguir de dónde salió.
 export async function buscarEnNuestroFeed(env, enlace) {

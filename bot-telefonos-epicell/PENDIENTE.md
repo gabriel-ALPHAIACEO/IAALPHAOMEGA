@@ -1,5 +1,50 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: los comentarios se contestan (25-sep-2026)
+
+Hasta hoy se tiraban a la basura: en `instagram.js`, todo lo que llegaba
+como `changes` se descartaba con un "es un comentario, no es asunto
+nuestro". Y sí lo es — es de lo más caliente que hay:
+
+- El que comenta *"precio?"* debajo de una foto **ya vio el equipo**. No
+  hay nada que identificar: la publicación dice cuál es.
+- **Lo ve todo el mundo.** Un "precio?" colgando sin respuesta le dice a
+  cada persona que entra al perfil que aquí no se atiende.
+- **Se puede pasar a privado.** Meta deja abrir UN chat por comentario
+  aunque esa persona nunca haya escrito — la única forma de convertir un
+  comentario en una conversación.
+
+**Cómo queda**, tal como lo pidió el dueño:
+
+1. **En público, una línea:** "¡Respondido al DM! 📩". Sin precio y sin
+   modelo — eso va donde el cliente puede seguir preguntando.
+2. **Por privado, todo el contexto:** el saludo nombrándolo por su usuario,
+   el equipo de esa publicación con su foto y su precio, y la conversación
+   sigue como cualquier otra (el historial queda escrito: "Vino de un
+   comentario en una publicación. Ya busqué: X").
+3. **Y al asesor**, porque es alguien mirando el producto ahora mismo.
+
+Detalles que evitan los tres accidentes típicos:
+
+- **No se responde a sí mismo.** Su propia respuesta pública genera otro
+  webhook; se reconoce por el id de la cuenta y por el usuario (`quienSoy`).
+- **No contesta dos veces.** Meta reintenta los webhooks, así que cada
+  comentario contestado queda anotado en una tabla nueva (`comentarios`),
+  que se crea sola.
+- **Si el cliente tiene cerrados los privados**, no se queda colgado: se le
+  contesta en público que escriba él.
+
+Se apaga o se afina desde `wrangler.toml` con `COMENTARIOS`: `"todo"`
+(por defecto), `"privado"`, `"publico"` u `"off"`.
+
+**HACEN FALTA DOS COSAS EN EL PANEL DE META**, o esto no recibe nada:
+
+1. En **Webhooks**, suscribirse al campo **`comments`** (además de
+   `messages` y `message_echoes`, que ya estaban).
+2. Que el `IG_TOKEN` tenga el permiso de gestionar comentarios
+   (`instagram_business_manage_comments`). Si falta, el registro lo dice
+   con esas palabras y los mensajes directos siguen funcionando igual.
+
 ## Hecho: nunca más "no tengo" de algo que sí está (24-sep-2026)
 
 Del registro del dueño, y es el peor error que puede cometer este bot:

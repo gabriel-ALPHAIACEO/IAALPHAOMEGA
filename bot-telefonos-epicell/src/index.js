@@ -58,7 +58,16 @@ import {
 import { comoDataUri } from "./imagen.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
+  leerComentario,
+  esNuestro,
+  respuestaPublica,
+  respuestaPublicaSinPrivado,
+  saludoPrivado,
+} from "./comentarios.js";
+import {
   buscarEnNuestroFeed,
+  publicacionPorId,
+  terminoDeTitulo,
   enlaceEnTexto,
   esEnlaceDeInstagram,
   leerEnlace,
@@ -75,6 +84,7 @@ import {
   despausar,
   estaPausado,
   esEcoPropio,
+  comentarioNuevo,
   esEcoPorTexto,
   envioReciente,
   VENTANA_ECO_SIN_TEXTO_MS,
@@ -92,6 +102,9 @@ import {
   enviarBotonCatalogo,
   enviarConOpciones,
   hayCatalogo,
+  quienSoy,
+  responderComentario,
+  privadoPorComentario,
   obtenerPerfil,
 } from "./instagram.js";
 
@@ -947,7 +960,33 @@ function queAtender(env, crudo) {
     return null;
   }
 
+  // UN COMENTARIO EN UNA PUBLICACIÓN. Llega por otro camino que los
+  // mensajes ("changes" en vez de "messaging") y se atiende distinto: una
+  // línea en público y la respuesta de verdad por privado.
+  //
+  // Se apaga desde wrangler.toml con COMENTARIOS = "off" sin tocar el
+  // resto: los mensajes directos siguen igual.
+  const comentario = leerComentario(cuerpo);
+  if (comentario) {
+    if (modoComentarios(env) === "off") {
+      console.log("Llegó un comentario pero COMENTARIOS está en off: lo ignoro");
+      return null;
+    }
+    return comentario;
+  }
+
   return leerMensaje(cuerpo);
+}
+
+// Qué se hace con los comentarios. Se cambia en wrangler.toml:
+//
+//   "todo"     responde en público Y abre el privado  <- por defecto
+//   "privado"  solo el privado, sin contestar en público
+//   "publico"  solo la respuesta pública
+//   "off"      no toca los comentarios
+function modoComentarios(env) {
+  const puesto = String(env.COMENTARIOS || "todo").trim().toLowerCase();
+  return ["todo", "privado", "publico", "off"].includes(puesto) ? puesto : "todo";
 }
 
 // EL CLIENTE NUNCA SE QUEDA EN SILENCIO (crítico).
@@ -968,7 +1007,11 @@ async function atenderConRed(env, mensaje) {
   const rastro = { respondio: false };
 
   try {
-    await atenderMeta(env, mensaje, rastro);
+    if (mensaje.tipo === "comentario") {
+      await atenderComentario(env, mensaje, rastro);
+    } else {
+      await atenderMeta(env, mensaje, rastro);
+    }
   } catch (error) {
     const detalle = error?.stack || error?.message || String(error);
     console.error(`ATENDER FALLÓ para ${mensaje.igsid}:`, detalle);
@@ -977,7 +1020,10 @@ async function atenderConRed(env, mensaje) {
     // nada y no está esperando respuesta. Si falla el manejo del eco, lo
     // último que hay que hacer es escribirle "se me trabó el sistema" de la
     // nada, cuando él no ha dicho ni hola.
-    if (!rastro.respondio && mensaje.tipo !== "eco") {
+    // Ni a un eco ni a un comentario se les contesta "se me trabó el
+    // sistema": el eco es un mensaje nuestro que rebota, y un comentario
+    // no tiene chat abierto al que escribirle.
+    if (!rastro.respondio && mensaje.tipo !== "eco" && mensaje.tipo !== "comentario") {
       try {
         await enviarTexto(env, mensaje.igsid, FALLO_TECNICO);
       } catch (otro) {
@@ -1004,6 +1050,143 @@ async function atenderConRed(env, mensaje) {
   }
 }
 
+
+/* ── UN COMENTARIO EN UNA PUBLICACIÓN ──────────────────────────────
+   Dos respuestas, y cada una hace algo distinto:
+
+     · EN PÚBLICO, una línea. Lo ve todo el que entre a la publicación, y
+       un "precio?" sin contestar le dice a cada uno de ellos que aquí no
+       atienden. No lleva precio ni modelo: eso va por privado, que es
+       donde el cliente puede seguir preguntando.
+
+     · POR PRIVADO, la venta. Meta deja abrir UN chat por comentario
+       aunque esa persona nunca haya escrito. Ahí van el equipo, su foto y
+       su precio — y de ahí en adelante la conversación sigue como
+       cualquier otra, con todo lo que el bot ya sabe hacer.
+   ───────────────────────────────────────────────────────────────── */
+async function atenderComentario(env, comentario, rastro = {}) {
+  // Meta reintenta los webhooks: sin esto, el mismo comentario se
+  // contestaría dos y tres veces, en público y delante de todos.
+  await prepararBase(env);
+  if (!(await comentarioNuevo(env.DB, comentario.id))) {
+    console.log(`El comentario ${comentario.id} ya estaba contestado: no repito`);
+    return;
+  }
+
+  // Y sin esto el bot se responde a sí mismo: su respuesta pública genera
+  // otro comentario, que genera otro webhook, que genera otra respuesta.
+  const yo = await quienSoy(env);
+  if (esNuestro(comentario, yo)) {
+    console.log("El comentario es nuestro: no me respondo a mí mismo");
+    return;
+  }
+
+  console.log(
+    `Comentario de @${comentario.usuario || "?"}: ` +
+      `${JSON.stringify(comentario.texto.slice(0, 60))} (publicación ${comentario.media})`
+  );
+
+  const modo = modoComentarios(env);
+
+  // QUÉ EQUIPO ES: lo dice la publicación donde comentó, sin preguntarle
+  // nada. Y si el comentario nombra otro, manda el comentario.
+  const enElCatalogo = await catalogoCompleto(env);
+  const publicacion = comentario.media ? await publicacionPorId(env, comentario.media) : null;
+
+  const delComentario = nombraDelCatalogo(comentario.texto, enElCatalogo);
+  const dePublicacion = publicacion ? nombraDelCatalogo(publicacion.titulo, enElCatalogo) : "";
+  const cual = delComentario || dePublicacion;
+
+  const productos = cual
+    ? (await buscarProductos(env, terminoDeTitulo(cual), 10)).productos
+    : [];
+
+  if (cual) {
+    console.log(
+      `El comentario habla de "${cual}" (${delComentario ? "lo escribió él" : "lo dice la publicación"}): ` +
+        `${productos.length} ficha(s)`
+    );
+  }
+
+  // 1. El privado, que es donde se vende.
+  let igsid = "";
+  if (modo === "todo" || modo === "privado") {
+    const saludo = saludoPrivado(comentario.usuario, productos.length ? cual : "");
+    const abierto = await privadoPorComentario(env, comentario.id, saludo);
+    igsid = abierto.igsid;
+
+    if (igsid) {
+      rastro.respondio = true;
+
+      const contacto = await cargarContacto(env.DB, igsid);
+      let mids = agregarMid(contacto.mids_enviados, abierto.mid);
+      let enviadoEn = Date.now();
+      await marcarEnvio(env.DB, igsid, mids, enviadoEn, [saludo]);
+
+      if (productos.length) {
+        const fichas = productos.map((producto) => ({
+          ...producto,
+          precio: subtituloDeFicha(producto, false, false),
+        }));
+
+        const mid = await enviarFichas(env, igsid, fichas);
+        if (mid) {
+          mids = agregarMid(mids, mid);
+          enviadoEn = Date.now();
+          await marcarEnvio(env.DB, igsid, mids, enviadoEn, [saludo]);
+        }
+
+        await guardarContacto(env.DB, {
+          ...contacto,
+          historial: conNota(
+            contacto.historial,
+            `Ya di la bienvenida. Vino de un comentario en una publicación. Ya busqué: ${cual}.`
+          ),
+          mids_enviados: mids,
+          ultimo_envio: enviadoEn,
+          ultima_respuesta: saludo,
+          ultimos_productos: productos.map((producto) => producto.titulo),
+        });
+      } else {
+        await guardarContacto(env.DB, {
+          ...contacto,
+          historial: conNota(
+            contacto.historial,
+            "Ya di la bienvenida. Vino de un comentario; le pregunté cuál equipo le interesa."
+          ),
+          mids_enviados: mids,
+          ultimo_envio: enviadoEn,
+          ultima_respuesta: saludo,
+        });
+      }
+    }
+  }
+
+  // 2. La línea en público. Si el privado no se pudo abrir —hay quien
+  // tiene cerrados los mensajes de desconocidos— se le dice que escriba
+  // él, que es lo único que queda.
+  if (modo === "todo" || modo === "publico" || (!igsid && modo === "privado")) {
+    const enPublico = igsid || modo === "publico" ? respuestaPublica() : respuestaPublicaSinPrivado();
+    const puesto = await responderComentario(env, comentario.id, enPublico);
+    if (puesto) rastro.respondio = true;
+  }
+
+  // 3. Y al asesor, porque un comentario es alguien mirando el producto
+  // ahora mismo.
+  if (productos.length || igsid) {
+    await avisarAsesor(env, {
+      nombre: comentario.usuario ? `@${comentario.usuario}` : "",
+      igsid,
+      mensaje: `(comentario) ${comentario.texto}`,
+      respuesta: igsid
+        ? `Le abrí el privado${productos.length ? ` con ${productos.length} equipo(s)` : ""}.`
+        : "No pude abrirle el privado: le contesté en público que escriba.",
+      motivo: "COMENTÓ EN UNA PUBLICACIÓN",
+      historial: publicacion?.titulo ? `Publicación: ${publicacion.titulo.slice(0, 120)}` : "",
+      productos,
+    });
+  }
+}
 
 async function atenderMeta(env, mensaje, rastro = {}) {
   // ENVIAR Y ANOTAR TIENEN QUE SER UNA SOLA COSA (crítico).

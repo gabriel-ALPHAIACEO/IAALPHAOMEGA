@@ -14,6 +14,9 @@ Skydolphing cable 4 en 1 S40E,10,,https://x/c2.jpg`;
 
 export function baseFalsa(filaInicial = {}) {
   const filas = new Map();
+  // La tabla de comentarios ya contestados: un id solo entra una vez,
+  // igual que en D1 (PRIMARY KEY).
+  const comentarios = new Set();
   if (filaInicial.id) filas.set(filaInicial.id, { nombre: "", historial: "", pausado_hasta: 0, mids_enviados: "[]", ultimo_envio: 0, mostrados: "[]", ultima_respuesta: "", ultimos_productos: "[]", ultimos_textos: "[]", publicacion: "", ...filaInicial });
 
   const columnas = ["id","nombre","nombre_completo","usuario","historial","pausado_hasta","mids_enviados","ultimo_envio","mostrados","ultima_respuesta","ultimos_productos","ultimos_textos","publicacion"];
@@ -24,6 +27,13 @@ export function baseFalsa(filaInicial = {}) {
       return {
         bind(...args) {
           const correr = async () => {
+            if (/INSERT INTO comentarios/i.test(sql)) {
+              if (comentarios.has(args[0])) {
+                throw new Error("UNIQUE constraint failed: comentarios.id");
+              }
+              comentarios.add(args[0]);
+              return;
+            }
             if (/^SELECT \* FROM contactos/i.test(sql.trim())) return filas.get(args[0]) || null;
             if (/PRAGMA table_info/i.test(sql)) return { results: columnas.map((name) => ({ name })) };
             if (/INSERT INTO contactos/i.test(sql)) {
@@ -47,7 +57,9 @@ export function baseFalsa(filaInicial = {}) {
         },
         async first() { return null; },
         async all() { return { results: columnas.map((name) => ({ name })) }; },
-        async run() {},
+        async run() {
+          return;
+        },
       };
     },
   };

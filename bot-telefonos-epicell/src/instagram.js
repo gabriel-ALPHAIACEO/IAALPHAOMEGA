@@ -207,6 +207,109 @@ export function enviarConOpciones(env, igsid, texto, opciones) {
   });
 }
 
+/* ── Comentarios ─────────────────────────────────────────────────── */
+
+// QUIÉN SOY. El id y el usuario de la propia cuenta, para reconocer los
+// comentarios propios y no responderse a sí mismo en bucle.
+//
+// Se pregunta una vez por arranque: no cambia nunca.
+let yo = null;
+
+export async function quienSoy(env) {
+  if (yo) return yo;
+
+  try {
+    const respuesta = await fetch(`${GRAFO}/me?fields=id,username&access_token=${env.IG_TOKEN}`);
+    if (!respuesta.ok) {
+      console.error("No pude leer quién soy:", respuesta.status, (await respuesta.text()).slice(0, 200));
+      return { id: "", usuario: "" };
+    }
+    const datos = await respuesta.json();
+    yo = { id: String(datos.id || ""), usuario: String(datos.username || "") };
+    console.log(`Soy @${yo.usuario} (${yo.id})`);
+    return yo;
+  } catch (error) {
+    console.error("No pude leer quién soy:", error?.message || error);
+    return { id: "", usuario: "" };
+  }
+}
+
+// La respuesta PÚBLICA, colgada del comentario del cliente.
+export async function responderComentario(env, comentarioId, texto) {
+  try {
+    const respuesta = await fetch(`${GRAFO}/${comentarioId}/replies`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: recortar(texto, 300), access_token: env.IG_TOKEN }),
+    });
+
+    if (!respuesta.ok) {
+      const detalle = (await respuesta.text()).slice(0, 300);
+      console.error(
+        `No pude responder el comentario ${comentarioId}: ${respuesta.status} ${detalle}` +
+          (respuesta.status === 403 || /permission/i.test(detalle)
+            ? " · CAUSA PROBABLE: al IG_TOKEN le falta el permiso de " +
+              "gestionar comentarios (instagram_business_manage_comments)."
+            : "")
+      );
+      return "";
+    }
+
+    const datos = await respuesta.json();
+    return String(datos.id || "");
+  } catch (error) {
+    console.error("No pude responder el comentario:", error?.message || error);
+    return "";
+  }
+}
+
+// EL MENSAJE PRIVADO QUE ABRE LA CONVERSACIÓN.
+//
+// Meta deja mandar UN mensaje directo por comentario, aunque esa persona
+// nunca te haya escrito: se manda al "comment_id" en vez de a un usuario.
+// Es la única forma de pasar de un comentario público a un chat, y a
+// partir de ahí la conversación sigue como cualquier otra.
+//
+// Devuelve el igsid del cliente, que es lo que hace falta para seguir
+// mandándole cosas (las fichas, por ejemplo).
+export async function privadoPorComentario(env, comentarioId, texto) {
+  let respuesta;
+  try {
+    respuesta = await fetch(`${GRAFO}/me/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${env.IG_TOKEN}`,
+      },
+      body: JSON.stringify({
+        recipient: { comment_id: comentarioId },
+        message: { text: recortar(texto, 1000) },
+      }),
+    });
+  } catch (error) {
+    console.error("No pude abrir el privado desde el comentario:", error?.message || error);
+    return { igsid: "", mid: "" };
+  }
+
+  if (!respuesta.ok) {
+    const detalle = (await respuesta.text()).slice(0, 300);
+    console.error(
+      `No pude abrir el privado del comentario ${comentarioId}: ${respuesta.status} ${detalle}` +
+        (/10|permission|not authorized/i.test(detalle)
+          ? " · CAUSA PROBABLE: el cliente no acepta mensajes de quien no " +
+            "sigue, o al IG_TOKEN le falta permiso. Se le contesta en público."
+          : "")
+    );
+    return { igsid: "", mid: "" };
+  }
+
+  const datos = await respuesta.json();
+  return {
+    igsid: String(datos.recipient_id || ""),
+    mid: String(datos.message_id || ""),
+  };
+}
+
 /* ── Perfil ──────────────────────────────────────────────────────── */
 
 // El perfil del cliente: su nombre tal como lo puso en Instagram y su @.
@@ -286,9 +389,10 @@ const ACEPTADOS = new Set(["historia", "imagen", "texto", "eco", "publicacion"])
 export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
   const entrada = cuerpo?.entry?.[0];
 
-  // "changes" son los comentarios y las menciones en publicaciones. No es
-  // un mensaje directo y no es asunto nuestro.
-  if (entrada?.changes) return descartar("un comentario o una mención");
+  // "changes" son los comentarios y las menciones en publicaciones. Los
+  // comentarios SÍ se atienden, pero por otro camino: los lee
+  // comentarios.js y los reparte index.js. Aquí solo se apartan.
+  if (entrada?.changes) return descartar("un evento de publicación (lo mira comentarios.js)");
 
   const evento = entrada?.messaging?.[0];
   if (!evento) return descartar("un evento sin mensaje");

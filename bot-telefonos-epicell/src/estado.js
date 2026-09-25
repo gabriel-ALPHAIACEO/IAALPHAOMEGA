@@ -69,6 +69,60 @@ export async function cargarContacto(db, id) {
   };
 }
 
+/* ── Los comentarios ya contestados ───────────────────────────────── */
+
+// POR QUÉ HACE FALTA. Meta reintenta los webhooks: el mismo comentario
+// puede llegar dos y tres veces. Sin esto, el cliente recibiría la misma
+// respuesta pública repetida debajo de su comentario —que es la peor
+// forma de parecer un robot— y varios privados seguidos.
+//
+// Se guarda solo el id y la fecha. La tabla se crea sola la primera vez,
+// igual que la de contactos.
+const CREAR_COMENTARIOS = `
+  CREATE TABLE IF NOT EXISTS comentarios (
+    id     TEXT PRIMARY KEY,
+    cuando INTEGER NOT NULL DEFAULT 0
+  )
+`;
+
+// Devuelve true si es la PRIMERA vez que vemos este comentario. La
+// escritura y la comprobación van juntas a propósito: dos webhooks en
+// paralelo del mismo comentario no pueden pasar los dos.
+export async function comentarioNuevo(db, id) {
+  if (!db || !id) return false;
+
+  const guardar = () =>
+    db
+      .prepare("INSERT INTO comentarios (id, cuando) VALUES (?, ?)")
+      .bind(id, Date.now())
+      .run();
+
+  try {
+    await guardar();
+    return true;
+  } catch (error) {
+    const mensaje = String(error?.message || "");
+
+    // Ya estaba: es un reintento de Meta.
+    if (/UNIQUE|PRIMARY KEY|constraint/i.test(mensaje)) return false;
+
+    // La tabla todavía no existe: se crea y se reintenta una vez.
+    if (/no such table/i.test(mensaje)) {
+      await db.prepare(CREAR_COMENTARIOS).run();
+      console.log('Tabla "comentarios" creada sola: primer comentario que atiende el bot.');
+      try {
+        await guardar();
+        return true;
+      } catch (otro) {
+        if (/UNIQUE|PRIMARY KEY|constraint/i.test(String(otro?.message || ""))) return false;
+        throw otro;
+      }
+    }
+
+    throw error;
+  }
+}
+
 /* ── La publicación que acaba de compartir ────────────────────────── */
 
 // POR QUÉ ESTO VIVE EN LA BASE Y NO EN UNA VARIABLE.
