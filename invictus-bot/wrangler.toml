@@ -24,6 +24,24 @@ database_name = "invictus-bot-db"
 database_id = "b7cc27df-dbcf-4188-b0f2-c00a1629d1e2"
 
 [vars]
+# --- LA UBICACION DE LA TIENDA ---------------------------------------
+#
+# Con esto, a quien pregunte "donde estan?" le llega la foto del local, la
+# direccion escrita y un boton "Como llegar" que le abre Google Maps.
+#
+# Los tres se pueden dejar vacios: el bot contesta igual, pero sin foto y
+# sin boton. Y nunca manda un boton que no lleve a ninguna parte.
+
+# La direccion tal como quieres que la lea el cliente. Una linea.
+DIRECCION = "PENDIENTE: la direccion completa"
+
+# El enlace de Google Maps: busca tu local en Google Maps -> Compartir ->
+# Copiar vinculo. Vale el corto (maps.app.goo.gl/...).
+MAPS_URL = "PENDIENTE: el enlace de Google Maps"
+
+# Una foto del local, con su direccion http (no vale un archivo del PC).
+FOTO_LOCAL = ""
+
 # Enlace que se le manda al cliente cuando no hay productos que mostrar
 URL_CATALOGO = "https://8vds1e-jw.myshopify.com/"
 

@@ -11,10 +11,24 @@ destino = os.path.join(raiz, "pruebas", ".stub")
 shutil.rmtree(destino, ignore_errors=True)
 shutil.copytree(os.path.join(raiz, "src"), destino)
 
-ia = os.path.join(destino, "ia.js")
-s = open(ia, encoding="utf-8").read()
-s = re.sub(r'import (\w+) from "\./prompts/[^"]+";', r'const \1 = "PROMPT {{CATALOGO}}";', s)
-open(ia, "w", encoding="utf-8").write(s)
+# Los prompts se importan como texto en varios archivos, no solo en ia.js
+# (datos.js lee la lista del catálogo). Se sustituyen en todos.
+for archivo in os.listdir(destino):
+    if not archivo.endswith(".js"):
+        continue
+    ruta = os.path.join(destino, archivo)
+    s = open(ruta, encoding="utf-8").read()
+    if "prompts/" not in s:
+        continue
+    nuevo = re.sub(
+        r'import (\w+) from "\./prompts/([^"]+)";',
+        lambda m: f'const {m.group(1)} = ' + (
+            '"Air Force One blancas\\nAdidas Campus negras\\nNike Air Max 270";'
+            if "catalogo" in m.group(2) else '"PROMPT {{CATALOGO}}";'
+        ),
+        s,
+    )
+    open(ruta, "w", encoding="utf-8").write(nuevo)
 
 ABIERTAS = ["atenderMeta", "PAGOS_CASHEA", "PAGOS_KRECE", "PREGUNTA_POR_PAGOS", "YA_DIJO_SU_NIVEL"]
 indice = os.path.join(destino, "index.js")

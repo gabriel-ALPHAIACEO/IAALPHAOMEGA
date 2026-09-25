@@ -1,4 +1,6 @@
-# Cashea y Krece en Invictus (25-sep-2026)
+# Lo nuevo en Invictus (25-sep-2026)
+
+## 1 · Cashea y Krece
 
 Traído tal cual de EPICELL, donde ya lleva días en producción.
 
@@ -87,3 +89,66 @@ node pruebas/pagos.mjs
 cada nivel vaya en su línea con su emoji, que no se crucen las dos
 plataformas, a quién le sale la tabla y a quién no, y que un "¿puedo pagar
 a cuotas?" acabe en **dos mensajes** y no en el asesor.
+
+
+---
+
+## 2 · Lo que la tienda sabe de sí misma
+
+Siete preguntas que se repiten todos los días y que antes iban al asesor.
+Ahora las contesta el bot, con el texto exacto (`src/datos.js`):
+
+| Preguntan | Responde |
+|---|---|
+| Horarios | lunes a viernes 9am-7pm · domingos 9am-5pm · feriados igual |
+| Ubicación | la dirección + foto del local + botón **Cómo llegar** a Google Maps |
+| Envíos | sí, nacionales, por ZOOM y MRW, a todo el territorio 🇻🇪 |
+| Delivery | toda la isla de Margarita, gratis en algunas zonas, y pregunta la zona |
+| Tasa | a la del BCV |
+| Métodos de pago | los nueve, en bolívares y en divisas |
+| Empleo | personal completo; se publica en las historias |
+
+**Por qué están en el código y no en el prompt:** son datos exactos —nueve
+métodos de pago, dos empresas de envío—. Si los redacta el modelo, tarde o
+temprano se deja uno fuera o añade el que no es, y un método de pago
+inventado es un cliente intentando pagar por donde no puede.
+
+**Solo saltan cuando la pregunta va sola.** Mezclada con un calzado
+—"¿tienen las Air Force y hacen envíos?"— contesta el modelo las dos cosas
+y las fichas salen igual: un dato de la tienda no puede costar una venta.
+El prompt los conoce en corto (sección **DATOS DE LA TIENDA**) justo para
+ese caso.
+
+**Quien pregunta cómo pagar está a un paso de pagar**, así que además sale
+el aviso a Slack con el motivo "PREGUNTÓ CÓMO PAGAR".
+
+### Lo que hay que rellenar
+
+En `wrangler.toml`, dentro de `[vars]`:
+
+```toml
+DIRECCION  = "..."   # la dirección completa, como quieres que la lea el cliente
+MAPS_URL   = "..."   # Google Maps → tu local → Compartir → Copiar vínculo
+FOTO_LOCAL = "..."   # enlace http de una foto del local (opcional)
+```
+
+Mientras no estén, el bot contesta igual pero sin foto y sin botón. Nunca
+manda un botón que no lleve a ninguna parte.
+
+### Dos cosas que cambiaron de lo que había
+
+- **Los horarios.** El prompt decía *lunes a sábado de 9am a 7pm, domingos
+  de 10am a 3pm*. Ahora dice lo nuevo: **lunes a viernes 9am-7pm, domingos
+  9am-5pm, feriados igual**. Del **sábado** no se dijo nada, así que el bot
+  no lo nombra — si abren, hay que añadirlo.
+- **"Envíos" salió de la lista de lo que no puede responder**, porque ahora
+  sí lo sabe. Lo que sigue siendo del asesor: la dirección exacta, las zonas
+  de delivery gratis, los datos de la cuenta y cuánto cuesta un envío.
+
+### Probarlo
+
+```
+python pruebas/preparar.py
+node pruebas/datos.mjs
+node pruebas/pagos.mjs
+```

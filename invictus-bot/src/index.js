@@ -37,6 +37,7 @@ import {
 } from "./ia.js";
 import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
+import { queDatoPide, RESPUESTAS, ubicacionDe, nombraUnProducto } from "./datos.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo } from "./catalogo.js";
 import { alternativasPara } from "./parecidos.js";
@@ -68,6 +69,7 @@ import {
   enviarTexto,
   enviarFichas,
   enviarBotonCatalogo,
+  enviarTarjeta,
   obtenerPerfil,
   fotogramaDeHistoria,
 } from "./instagram.js";
@@ -950,6 +952,62 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const historialPrevio = contacto.historial;
   const textoCliente =
     mensaje.texto || (imagenCruda ? (esHistoria ? "(respondió a una historia)" : "(mandó una foto)") : "");
+
+  // ── LO QUE LA TIENDA SABE DE SÍ MISMA ───────────────────────────
+  //
+  // Horarios, dónde está, envíos, delivery, la tasa, los métodos de pago,
+  // si están contratando. Son las preguntas que más se repiten después del
+  // precio, y hasta hoy iban todas al asesor.
+  //
+  // Solo salta cuando la pregunta VA SOLA. Si viene mezclada con un
+  // calzado —"¿tienen las Air Force y hacen envíos?"— sigue el camino
+  // normal: el modelo conoce estos datos (ver DATOS DE LA TIENDA en
+  // texto.txt) y contesta las dos cosas, con las fichas debajo.
+  const datoQuePide = !imagenCruda ? queDatoPide(mensaje.texto) : "";
+
+  if (datoQuePide && !nombraUnProducto(mensaje.texto)) {
+    const ubicacion = datoQuePide === "ubicacion" ? ubicacionDe(env) : null;
+    const respuesta = ubicacion ? ubicacion.texto : RESPUESTAS[datoQuePide];
+
+    console.log(`Preguntó por ${datoQuePide}: contesto con el dato de la tienda`);
+
+    if (ubicacion) {
+      // La foto del local y el botón de Google Maps, si están puestos en
+      // wrangler.toml. Si no, sale el texto solo.
+      await mandar(() =>
+        enviarTarjeta(env, mensaje.igsid, {
+          titulo: "Invictus Shoes",
+          texto: respuesta,
+          imagen: ubicacion.foto,
+          boton: { url: ubicacion.maps, title: "Cómo llegar" },
+        })
+      );
+    } else {
+      await mandar(() => enviarTexto(env, mensaje.igsid, respuesta));
+    }
+
+    // QUIEN PREGUNTA CÓMO PAGAR ESTÁ A UN PASO DE PAGAR. Ese sí se le pasa
+    // al asesor en el momento, aunque el bot ya le haya contestado.
+    if (datoQuePide === "pagos") {
+      await avisarAsesor(env, {
+        ...paraElAviso(contacto),
+        igsid: mensaje.igsid,
+        mensaje: mensaje.texto,
+        respuesta: "Le mandé los métodos de pago; le toca a alguien pasarle los datos.",
+        motivo: "PREGUNTÓ CÓMO PAGAR",
+        historial: historialPrevio,
+      });
+    }
+
+    await guardarContacto(env.DB, {
+      ...contacto,
+      nombre,
+      historial: conNota(historialPrevio, `Preguntó por ${datoQuePide} y se lo respondí.`),
+      mids_enviados: mids,
+      ultimo_envio: enviadoEn || Date.now(),
+    });
+    return;
+  }
 
   // Quien ya escribió antes y vuelve con un "hola" suelto no necesita al
   // modelo: no hay nada que buscar. La primera vez de cada cliente NO entra
