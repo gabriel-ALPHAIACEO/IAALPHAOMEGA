@@ -120,6 +120,27 @@ PAUSA_HORAS = "4"
 # cueste cuatro horas de silencio con un cliente que esta preguntando.
 PAUSA_VUELVE_MIN = "10"
 
+# --- LA UBICACION DE LA TIENDA ---------------------------------------
+#
+# Con esto, a quien pregunte "donde estan?" le llega la foto del local, la
+# direccion escrita y un boton "Como llegar" que le abre Google Maps.
+#
+# Los tres se pueden dejar vacios: el bot contesta igual, pero sin foto y
+# sin boton. Y nunca manda un boton que no lleve a ninguna parte.
+
+# La direccion tal como quieres que la lea el cliente. Una linea.
+DIRECCION = "PENDIENTE: la direccion completa"
+
+# El enlace de Google Maps. Se saca asi: busca tu local en Google Maps ->
+# Compartir -> Copiar vinculo. Vale tambien el corto (maps.app.goo.gl/...).
+MAPS_URL = "PENDIENTE: el enlace de Google Maps"
+
+# Una foto del local, con su direccion http (no vale un archivo de tu PC).
+# Lo mas facil: subirla a la hoja de Google o a cualquier sitio publico y
+# pegar aqui el enlace directo a la imagen.
+FOTO_LOCAL = ""
+
+
 # La frase con la que el asesor le DEVUELVE la conversacion al bot, desde el
 # mismo chat de Instagram. Basta con que aparezca dentro del mensaje; no
 # importan tildes, mayusculas ni signos. El cliente la lee, asi que tiene

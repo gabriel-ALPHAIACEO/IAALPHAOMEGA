@@ -179,6 +179,52 @@ export function enviarBotonCatalogo(env, igsid, texto) {
   });
 }
 
+// UNA TARJETA SUELTA: foto arriba, texto y un botón que abre un enlace.
+//
+// Es lo que se usa para la ubicación: la foto del local, la dirección
+// escrita, y un botón "Cómo llegar" que abre Google Maps. Instagram no
+// tiene un mensaje de mapa, así que esto es lo más parecido — y es lo
+// mismo que ya se usa para las fichas de producto, con un solo elemento.
+//
+// Si falta la foto, sale el mensaje con su botón igual (plantilla de
+// botón). Si falta el enlace, sale solo el texto. Nunca se manda un botón
+// que no lleve a ninguna parte.
+export function enviarTarjeta(env, igsid, { titulo, texto, imagen, boton }) {
+  const enlace = String(boton?.url || "").trim();
+  const tieneEnlace = /^https?:\/\//i.test(enlace);
+  const tieneImagen = /^https?:\/\//i.test(String(imagen || "").trim());
+
+  if (!tieneEnlace) return enviarTexto(env, igsid, texto);
+
+  const botones = [{ type: "web_url", url: enlace, title: recortar(boton.title || "Abrir", 20) }];
+
+  if (!tieneImagen) {
+    return enviar(env, igsid, {
+      attachment: {
+        type: "template",
+        payload: { template_type: "button", text: recortar(texto, 640), buttons: botones },
+      },
+    });
+  }
+
+  return enviar(env, igsid, {
+    attachment: {
+      type: "template",
+      payload: {
+        template_type: "generic",
+        elements: [
+          {
+            title: recortar(titulo || "", 80),
+            subtitle: recortar(texto, 80),
+            image_url: imagen,
+            buttons: botones,
+          },
+        ],
+      },
+    },
+  });
+}
+
 // UN MENSAJE CON SUS BOTONES DE RESPUESTA (quick replies).
 //
 // Son los botones que Instagram pinta DEBAJO del mensaje y que el cliente

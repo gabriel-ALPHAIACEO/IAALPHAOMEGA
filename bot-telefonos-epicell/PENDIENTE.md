@@ -1,5 +1,43 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: el bot ya sabe de la tienda (25-sep-2026)
+
+Siete preguntas que se repiten todos los días y que hasta hoy iban al
+asesor — o peor. **La de horarios ni siquiera llegaba ahí:** el prompt
+traía un marcador, `{{TUS HORARIOS}}`, que nadie rellenaba nunca, y había
+un ejemplo que se lo mandaba al cliente escrito tal cual.
+
+Ahora las contesta él, con el texto exacto (`src/datos.js`):
+
+| Pregunta | Qué responde |
+|---|---|
+| Horarios | lun-vie 9am-7pm · domingos 9am-5pm · feriados igual |
+| Envíos | sí, nacionales, por ZOOM y MRW, a toda Venezuela |
+| Delivery | sí, toda la isla de Margarita; gratis en algunas zonas |
+| Tasa | a la del BCV |
+| Métodos de pago | los nueve, en bolívares y en divisas |
+| Empleo | personal completo; se publica en las historias |
+| Ubicación | dirección + foto del local + botón a Google Maps |
+
+- **Los textos están en el código, no en el prompt.** Son datos exactos:
+  nueve métodos de pago, dos empresas de envío. Si los redacta el modelo,
+  tarde o temprano se deja uno fuera o añade el que no es — y un método de
+  pago inventado es un cliente intentando pagar por donde no puede.
+- **Solo saltan cuando la pregunta va sola.** Mezclada con un equipo —"¿tienen
+  el A57 y hacen envíos?"— contesta el modelo las dos cosas y salen las
+  fichas: el dato no le quita la venta. El prompt los conoce en corto (ver
+  **DATOS DE LA TIENDA**) justo para eso.
+- **Quien pregunta cómo pagar está a un paso de pagar**, así que además se
+  avisa al asesor por Slack con el motivo "PREGUNTÓ CÓMO PAGAR".
+- **La ubicación necesita tres datos nuevos en `wrangler.toml`**:
+  `DIRECCION`, `MAPS_URL` y `FOTO_LOCAL`. Mientras no estén, el bot
+  contesta igual pero sin foto y sin botón: nunca manda un botón que no
+  lleve a ninguna parte.
+
+**Pendiente de confirmar: los sábados.** Los horarios dicen lunes a
+viernes y domingos; del sábado no se dijo nada, así que el bot no lo
+nombra. Si abren, hay que añadirlo.
+
 ## Hecho: nunca más "no tengo" de algo que sí está (24-sep-2026)
 
 Del registro del dueño, y es el peor error que puede cometer este bot:
