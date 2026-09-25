@@ -152,3 +152,31 @@ python pruebas/preparar.py
 node pruebas/datos.mjs
 node pruebas/pagos.mjs
 ```
+
+
+---
+
+## 3 · El wrangler.toml, revisado contra el código (25-sep-2026)
+
+Se comparó **lo que el código lee** con **lo que el archivo tiene**, una por
+una. El resultado:
+
+- **24 variables leídas por `src/`**: 18 están en `[vars]`, 5 son secretos
+  (`wrangler secret put`) y una es el binding `DB`.
+- **Ninguna de más:** no hay variables en el archivo que el código ignore.
+- **Faltaba una:** `D1_NOMBRE`. La lee `index.js` para que `/estado`
+  imprima los comandos ya escritos —reanudar una conversación pausada, por
+  ejemplo— y sin ella los escribía con `tu-base-d1`, que hay que corregir a
+  mano cada vez. Ya está puesta, con el mismo nombre que el `database_name`
+  de la base.
+
+Dos cosas que se comprobaron y están bien, por si hubiera dudas:
+
+- **`WHATSAPP = "+584262992111"`** — el `+` no molesta: el código deja solo
+  los dígitos antes de armar el enlace (`584262992111`).
+- **`URL_CATALOGO`** apunta a la tienda de verdad, así que el botón "Ver
+  catálogo" sí lleva a algún lado (al revés que en EPICELL, donde hubo que
+  apagarlo).
+
+Lo único que sigue pendiente de rellenar son los tres de la ubicación:
+`DIRECCION`, `MAPS_URL` y `FOTO_LOCAL`.
