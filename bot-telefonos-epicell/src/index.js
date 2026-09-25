@@ -39,7 +39,6 @@ import {
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideVerMas, fraseDeCatalogo } from "./catalogo.js";
-import { queDatoPide, RESPUESTAS, ubicacionDe } from "./datos.js";
 import {
   pideLista,
   marcasDelCatalogo,
@@ -92,7 +91,6 @@ import {
   enviarFichas,
   enviarBotonCatalogo,
   enviarConOpciones,
-  enviarTarjeta,
   hayCatalogo,
   obtenerPerfil,
 } from "./instagram.js";
@@ -1276,75 +1274,6 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       ultima_respuesta: frase,
     });
     return;
-  }
-
-  // ── LO QUE LA TIENDA SABE DE SÍ MISMA ───────────────────────────
-  //
-  // Horarios, dónde está, envíos, delivery, la tasa, los métodos de pago,
-  // si están contratando. Son las preguntas que más se repiten después del
-  // precio y hasta hoy iban todas al asesor — la de horarios ni eso: el
-  // prompt traía un marcador sin rellenar, {{TUS HORARIOS}}, y el cliente
-  // recibía eso mismo escrito.
-  //
-  // Solo salta cuando la pregunta VA SOLA. Si viene mezclada con un equipo
-  // —"¿tienen el A57 y hacen envíos?"— sigue el camino normal: el modelo
-  // conoce estos datos (ver DATOS DE LA TIENDA en texto.txt) y contesta las
-  // dos cosas en el mismo mensaje, con las fichas debajo.
-  const datoQuePide = !imagenCruda && !publicacion ? queDatoPide(mensaje.texto) : "";
-
-  if (datoQuePide) {
-    const enElCatalogo = await catalogoCompleto(env);
-
-    if (nombraDelCatalogo(mensaje.texto, enElCatalogo)) {
-      console.log(
-        `Pregunta de ${datoQuePide} junto con un equipo: lo atiende el modelo, que responde las dos`
-      );
-    } else {
-      const ubicacion = datoQuePide === "ubicacion" ? ubicacionDe(env) : null;
-      const respuesta = ubicacion ? ubicacion.texto : RESPUESTAS[datoQuePide];
-
-      console.log(`Preguntó por ${datoQuePide}: contesto con el dato de la tienda`);
-
-      if (ubicacion) {
-        // La foto del local y el botón de Google Maps, si están puestos en
-        // wrangler.toml. Si no, sale el texto solo.
-        await mandar(
-          () =>
-            enviarTarjeta(env, mensaje.igsid, {
-              titulo: "EPICELL",
-              texto: respuesta,
-              imagen: ubicacion.foto,
-              boton: { url: ubicacion.maps, title: "Cómo llegar" },
-            }),
-          respuesta
-        );
-      } else {
-        await mandar(() => enviarTexto(env, mensaje.igsid, respuesta), respuesta);
-      }
-
-      // QUIEN PREGUNTA CÓMO PAGAR ESTÁ A UN PASO DE PAGAR. Ese sí se le
-      // pasa al asesor en el momento, aunque el bot ya le haya contestado.
-      if (datoQuePide === "pagos") {
-        await avisarAsesor(env, {
-          ...paraElAviso(contacto),
-          igsid: mensaje.igsid,
-          mensaje: mensaje.texto,
-          respuesta: "Le mandé los métodos de pago; le toca a alguien pasarle los datos.",
-          motivo: "PREGUNTÓ CÓMO PAGAR",
-          historial: historialPrevio,
-        });
-      }
-
-      await guardarContacto(env.DB, {
-        ...contacto,
-        nombre,
-        historial: conNota(historialPrevio, `Preguntó por ${datoQuePide} y se lo respondí.`),
-        mids_enviados: mids,
-        ultimo_envio: enviadoEn || Date.now(),
-        ultima_respuesta: respuesta,
-      });
-      return;
-    }
   }
 
   // ── ¿QUIERE LAS IMÁGENES DE LA LISTA QUE ACABA DE RECIBIR? ──────
