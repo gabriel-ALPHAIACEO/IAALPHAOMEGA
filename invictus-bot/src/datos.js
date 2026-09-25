@@ -94,9 +94,64 @@ export const PAGOS =
 // La ubicación se arma con lo que haya en wrangler.toml: la dirección
 // escrita, la foto del local y el enlace de Google Maps. Los tres se
 // pueden dejar vacíos y el mensaje sigue saliendo, más corto.
+// LA FOTO SALE ROTA CUANDO EL ENLACE NO ES LA IMAGEN.
+//
+// Instagram no abre el enlace en un navegador: se descarga el archivo él
+// mismo, desde sus servidores y sin sesión. Así que solo sirve una
+// dirección que devuelva LA IMAGEN, sin pantalla de por medio. Lo que la
+// gente pega casi siempre —y sale roto— es:
+//
+//   · un enlace de "Compartir" de Google Drive (abre un visor, no la foto)
+//   · Google Fotos (photos.app.goo.gl: es una página)
+//   · una publicación de Instagram o Facebook
+//   · algo que pide contraseña o está en "solo yo"
+//
+// Los de Drive se pueden arreglar solos: del enlace se saca el id del
+// archivo y se arma la dirección que sí devuelve la imagen. Los demás no
+// hay forma; se descartan, y entonces el mensaje sale SIN foto —pero con
+// su dirección y su botón— en vez de salir con un cuadro roto.
+const DRIVE = /drive\.google\.com\/(?:file\/d\/([\w-]{20,})|open\?id=([\w-]{20,})|uc\?[^ ]*id=([\w-]{20,}))/i;
+
+const NO_ES_UNA_IMAGEN =
+  /photos\.app\.goo\.gl|photos\.google\.com|instagram\.com|facebook\.com|fb\.watch|dropbox\.com\/scl|\/folders\//i;
+
+export function fotoUtilizable(url) {
+  const enlace = puesto(url);
+  if (!enlace) return { foto: "", motivo: "" };
+
+  const drive = enlace.match(DRIVE);
+  if (drive) {
+    const id = drive[1] || drive[2] || drive[3];
+    return {
+      foto: `https://drive.google.com/uc?export=view&id=${id}`,
+      motivo: "",
+      arreglada: true,
+    };
+  }
+
+  if (NO_ES_UNA_IMAGEN.test(enlace)) {
+    return {
+      foto: "",
+      motivo:
+        "ese enlace abre una página, no la imagen. Instagram descarga el " +
+        "archivo él mismo y no puede entrar a ver nada.",
+    };
+  }
+
+  if (!/^https?:\/\//i.test(enlace)) {
+    return { foto: "", motivo: "no es una direccion http." };
+  }
+
+  return { foto: enlace, motivo: "" };
+}
+
 export function ubicacionDe(env) {
   const direccion = puesto(env.DIRECCION);
-  const foto = puesto(env.FOTO_LOCAL);
+  const { foto, motivo: porQueNoLaFoto } = fotoUtilizable(env.FOTO_LOCAL);
+
+  if (porQueNoLaFoto) {
+    console.error(`FOTO_LOCAL no sirve: ${porQueNoLaFoto} Mando la ubicación sin foto.`);
+  }
 
   // EL BOTÓN NO PUEDE DEPENDER DE QUE ALGUIEN PEGUE UN ENLACE.
   //
@@ -117,7 +172,12 @@ export function ubicacionDe(env) {
     ? `📍 Aquí nos encuentras:\n\n${direccion}\n\n¡Te esperamos! 😊`
     : "📍 Un asesor te pasa la dirección exacta en un momento 😊";
 
-  return { texto, maps, foto, completa: Boolean(direccion) };
+  // CABE TODO EN UN SOLO MENSAJE cuando la dirección entra en el título de
+  // la tarjeta (80 caracteres, que es lo que deja Instagram). Solo cuando
+  // no cabe hacen falta dos: la dirección en texto y la tarjeta detrás.
+  const enUnMensaje = !foto || [...direccion].length <= 80;
+
+  return { texto, maps, foto, direccion, enUnMensaje, completa: Boolean(direccion) };
 }
 
 /* ── Quién pregunta qué ───────────────────────────────────────────

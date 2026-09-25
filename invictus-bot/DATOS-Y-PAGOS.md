@@ -145,13 +145,45 @@ la dirección. Nunca manda un botón que no lleve a ninguna parte.
 
 | Tienes | Le llega al cliente |
 |---|---|
-| Dirección | **un mensaje** con la dirección y el botón **Cómo llegar** |
-| Dirección + foto | **dos**: la dirección en texto, y la foto con el botón |
+| Dirección | **un mensaje**: la dirección y el botón **Cómo llegar** |
+| Dirección + foto | **un mensaje**: la foto, la dirección y el botón, juntos |
+| Dirección muy larga (+80) + foto | dos: la dirección en texto y la foto con el botón |
 | Nada | un texto diciendo que un asesor le pasa la dirección |
 
-Son dos mensajes cuando hay foto porque el subtítulo de una tarjeta con
-imagen se corta a los 80 caracteres y una dirección de verdad no cabe: el
-cliente vería media calle.
+La dirección va en el **título** de la tarjeta, que admite 80 caracteres.
+Solo si no cabe ahí se parte en dos, porque cortarla sería peor: el cliente
+leería media calle.
+
+### Si la foto sale rota
+
+Instagram **no abre el enlace en un navegador**: se descarga el archivo él
+mismo, desde sus servidores y sin sesión. Así que solo sirve una dirección
+que devuelva **la imagen**, sin pantalla de por medio.
+
+Lo que casi siempre se pega y sale roto:
+
+| Enlace | Qué pasa |
+|---|---|
+| Google Drive (Compartir) | **se arregla solo**: el bot lo convierte al que sí devuelve la imagen |
+| Google Fotos (`photos.app.goo.gl`) | es una página; se descarta y el mensaje sale sin foto |
+| Una publicación de Instagram o Facebook | igual: es una página |
+| Algo privado o con contraseña | Instagram no entra |
+
+Cuando el enlace no sirve, **no se manda roto**: el mensaje sale sin foto,
+con su dirección y su botón, y en `wrangler tail` queda la línea diciendo
+por qué.
+
+**Para verlo antes que un cliente**, abre en el navegador:
+
+```
+https://invictus-bot.invictusshoes.workers.dev/probar-ubicacion
+```
+
+Te dice la dirección, el botón, si la foto se descarga de verdad, si hizo
+falta arreglar el enlace, y cómo le va a llegar el mensaje. Lo más fácil
+para tener una foto que funcione: súbela a la hoja de Google o a cualquier
+sitio público, ábrela sola y copia **esa** dirección (la que termina en
+`.jpg` o `.png`).
 
 ### Dos cosas que cambiaron de lo que había
 

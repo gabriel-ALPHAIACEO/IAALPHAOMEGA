@@ -70,6 +70,7 @@ import {
   enviarFichas,
   enviarBotonCatalogo,
   enviarTarjeta,
+  revisarImagen,
   obtenerPerfil,
   fotogramaDeHistoria,
 } from "./instagram.js";
@@ -651,6 +652,46 @@ export default {
       );
     }
 
+    // Como queda la ubicacion ANTES de que la vea un cliente, y por que
+    // sale rota la foto si sale rota.
+    if (url.pathname === "/probar-ubicacion") {
+      const u = ubicacionDe(env);
+      const foto = u.foto ? await revisarImagen(u.foto) : null;
+      const original = String(env.FOTO_LOCAL || "").trim();
+
+      return texto200(
+        [
+          "UBICACION",
+          "",
+          `  Direccion   ${u.direccion || "SIN PONER (el bot dice que la pasa un asesor)"}`,
+          `  Boton       ${u.maps || "NO SALE (hace falta la direccion o MAPS_URL)"}`,
+          `  ${u.maps && !String(env.MAPS_URL || "").startsWith("http") ? "              ^ armado con la direccion, porque MAPS_URL esta sin poner" : ""}`,
+          "",
+          "FOTO",
+          `  En wrangler  ${original || "(vacio)"}`,
+          `  Se usa       ${u.foto || "NINGUNA"}`,
+          u.foto && u.foto !== original ? "               ^ se arreglo sola (enlace de Drive)" : "",
+          `  Se descarga  ${foto ? (foto.ok ? "SI - " + foto.detalle : "NO - " + foto.detalle) : "no hay foto que probar"}`,
+          "",
+          "COMO LE LLEGA AL CLIENTE",
+          u.enUnMensaje
+            ? "  UN mensaje: " + (u.foto ? "foto + direccion + boton" : "direccion + boton")
+            : "  DOS mensajes: la direccion en texto, y la foto con el boton",
+          "",
+          foto && !foto.ok
+            ? "LA FOTO SALE ROTA. Tiene que ser una direccion que devuelva LA\n" +
+              "IMAGEN, no una pagina. Lo mas facil: subirla a la hoja de Google\n" +
+              "(Insertar -> Imagen) o a cualquier sitio publico, abrir la imagen\n" +
+              "sola y copiar ESA direccion (termina en .jpg, .png, ...).\n" +
+              "Mientras tanto, dejala vacia: el mensaje sale igual, con su\n" +
+              "direccion y su boton.\n"
+            : "",
+        ]
+          .filter((linea) => linea !== "  ")
+          .join("\n")
+      );
+    }
+
     if (url.pathname === "/probar-imagen") {
       const imagen = url.searchParams.get("url") || "";
       if (!urlValida(imagen)) {
@@ -964,20 +1005,24 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     console.log(`Preguntó por ${datoQuePide}: contesto con el dato de la tienda`);
 
     if (ubicacion) {
-      // CON FOTO SON DOS MENSAJES, Y ES A PROPÓSITO. El subtítulo de una
-      // tarjeta con imagen se corta en 80 caracteres: la dirección entera
-      // no cabe. Así que va antes, en texto, y la tarjeta queda para la
-      // foto y el botón.
+      // UN SOLO MENSAJE: la foto, la dirección y el botón juntos.
       //
-      // Cada envío se anota por separado (mandar), que es lo que evita que
-      // el eco del segundo parezca el mensaje de un asesor y pause el bot.
-      if (ubicacion.foto) {
+      // Antes eran dos —la dirección por un lado y la tarjeta por otro— y
+      // desde el teléfono no se leen como una sola cosa: el botón parecía
+      // colgado de un mensaje que no venía a cuento.
+      //
+      // La dirección va en el TÍTULO de la tarjeta, que admite 80
+      // caracteres. Solo si no cabe ahí se parte en dos, porque cortarla
+      // sería peor: el cliente leería media calle.
+      if (!ubicacion.enUnMensaje) {
         await mandar(() => enviarTexto(env, mensaje.igsid, respuesta));
       }
 
       await mandar(() =>
         enviarTarjeta(env, mensaje.igsid, {
-          titulo: "Invictus Shoes",
+          titulo: ubicacion.enUnMensaje && ubicacion.direccion
+            ? `📍 ${ubicacion.direccion}`
+            : "Invictus Shoes",
           texto: respuesta,
           resumen: "Toca el botón y te abre el mapa 👇",
           imagen: ubicacion.foto,

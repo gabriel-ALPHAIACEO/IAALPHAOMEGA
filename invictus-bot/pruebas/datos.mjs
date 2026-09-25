@@ -131,16 +131,36 @@ comprobar("con MAPS_URL puesto, manda ese", conEnlace.maps, "https://maps.app.go
 
 comprobar("sin dirección ni enlace, no hay botón", ubi({}).maps, "");
 
-// Con foto: dos mensajes, y la dirección NO se corta
+// Sin foto: un mensaje con la dirección entera y su botón
 let e2 = await turno("donde estan?");
 comprobar("sin foto: un solo mensaje, con su botón", e2.length, 1);
 comprobar("y la dirección va entera", e2[0].attachment.payload.text.includes("Av. 4 de Mayo, local 3"), true);
 
-const antes = globalThis.fetch;
+// Con foto: SIGUE siendo un solo mensaje — foto, dirección y botón juntos
 e2 = await turnoConFoto("donde estan?");
-comprobar("con foto: la dirección va en texto, sin recortar", e2[0].text.includes("Av. 4 de Mayo, local 3"), true);
-comprobar("y la tarjeta trae la foto y el botón", e2[1].attachment.payload.elements[0].buttons[0].title, "Cómo llegar");
-comprobar("con un subtítulo que sí cabe", e2[1].attachment.payload.elements[0].subtitle.length <= 80, true);
+comprobar("con foto: un solo mensaje, no dos", e2.length, 1);
+const tarjeta = e2[0].attachment.payload.elements[0];
+comprobar("la dirección va en el título", tarjeta.title.includes("Av. 4 de Mayo, local 3"), true);
+comprobar("con su foto", tarjeta.image_url, "https://x/local.jpg");
+comprobar("y su botón", tarjeta.buttons[0].title, "Cómo llegar");
+comprobar("el título cabe en los 80", tarjeta.title.length <= 80, true);
+
+// Una dirección larguísima sí se parte en dos, para no cortarla
+const largo = "Avenida Principal de Los Robles, Centro Comercial Parque Costazul, nivel 2, local 214-B, Pampatar, Nueva Esparta";
+env0.DIRECCION = largo;
+e2 = await turnoConFoto("donde estan?");
+comprobar("dirección larga: dos mensajes", e2.length, 2);
+comprobar("y se lee entera en el primero", e2[0].text.includes(largo), true);
+env0.DIRECCION = "Av. 4 de Mayo, local 3";
+
+// Fotos que saldrían rotas
+const { fotoUtilizable } = await import("./.stub/datos.js");
+comprobar("un enlace de Drive se arregla solo", fotoUtilizable("https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz12345/view?usp=sharing").foto, "https://drive.google.com/uc?export=view&id=1AbCdEfGhIjKlMnOpQrStUvWxYz12345");
+comprobar("Google Fotos no sirve y se descarta", fotoUtilizable("https://photos.app.goo.gl/abc123").foto, "");
+comprobar("y dice por qué", /abre una p[aá]gina/.test(fotoUtilizable("https://photos.app.goo.gl/abc").motivo), true);
+comprobar("una publicación de Instagram tampoco", fotoUtilizable("https://www.instagram.com/p/ABC/").foto, "");
+comprobar("una imagen normal pasa tal cual", fotoUtilizable("https://midominio.com/local.jpg").foto, "https://midominio.com/local.jpg");
+comprobar("el marcador PENDIENTE no cuenta como foto", fotoUtilizable("PENDIENTE: la foto").foto, "");
 
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);

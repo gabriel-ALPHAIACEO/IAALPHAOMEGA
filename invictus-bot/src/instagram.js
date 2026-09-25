@@ -164,6 +164,46 @@ export function enviarTarjeta(env, igsid, { titulo, texto, resumen, imagen, boto
   });
 }
 
+// ¿Se puede descargar esa imagen? Lo mismo que va a intentar Instagram.
+//
+// Se usa en /probar-ubicacion, para que el dueño vea ANTES de que lo vea
+// un cliente si la foto que puso sale o sale rota.
+export async function revisarImagen(url) {
+  const enlace = String(url || "").trim();
+  if (!/^https?:\/\//i.test(enlace)) return { ok: false, detalle: "no es una direccion http" };
+
+  let respuesta;
+  try {
+    respuesta = await fetch(enlace, { redirect: "follow" });
+  } catch (error) {
+    return { ok: false, detalle: `no se pudo abrir: ${error?.message || error}` };
+  }
+
+  if (!respuesta.ok) {
+    return {
+      ok: false,
+      detalle:
+        `respondio ${respuesta.status}` +
+        (respuesta.status === 403 || respuesta.status === 401
+          ? " (pide permiso: la foto no es publica)"
+          : respuesta.status === 404
+            ? " (no existe)"
+            : ""),
+    };
+  }
+
+  const tipo = (respuesta.headers.get("content-type") || "").split(";")[0].trim();
+  if (!tipo.startsWith("image/")) {
+    return {
+      ok: false,
+      detalle: `lo que devuelve no es una imagen, es ${tipo || "algo sin tipo"} (suele ser una pagina)`,
+    };
+  }
+
+  const largo = Number(respuesta.headers.get("content-length")) || 0;
+  return { ok: true, detalle: `${tipo}${largo ? `, ${Math.round(largo / 1024)} KB` : ""}` };
+}
+
 export function enviarBotonCatalogo(env, igsid, texto) {
   return enviar(env, igsid, {
     attachment: {
