@@ -125,8 +125,25 @@ MAPS_URL   = "..."   # Google Maps → tu local → Compartir → Copiar víncul
 FOTO_LOCAL = "..."   # enlace http de una foto del local (opcional)
 ```
 
-Mientras no estén, el bot contesta igual pero sin foto y sin botón. Nunca
-manda un botón que no lleve a ninguna parte.
+**Con la dirección basta para que salga el botón.** Si `MAPS_URL` está
+vacío, el enlace se arma solo buscando esa dirección en Google Maps. Poner
+`MAPS_URL` es mejor —lleva a tu ficha exacta— pero ya no es obligatorio
+para que el cliente reciba su botón.
+
+Sin dirección y sin enlace no hay botón: el bot dice que un asesor le pasa
+la dirección. Nunca manda un botón que no lleve a ninguna parte.
+
+### Cómo sale, según lo que tengas puesto
+
+| Tienes | Le llega al cliente |
+|---|---|
+| Dirección | **un mensaje** con la dirección y el botón **Cómo llegar** |
+| Dirección + foto | **dos**: la dirección en texto, y la foto con el botón |
+| Nada | un texto diciendo que un asesor le pasa la dirección |
+
+Son dos mensajes cuando hay foto porque el subtítulo de una tarjeta con
+imagen se corta a los 80 caracteres y una dirección de verdad no cabe: el
+cliente vería media calle.
 
 ### Dos cosas que cambiaron de lo que había
 

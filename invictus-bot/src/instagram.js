@@ -120,7 +120,13 @@ export function enviarFichas(env, igsid, productos) {
 // Si falta la foto, sale el mensaje con su botón igual (plantilla de
 // botón). Si falta el enlace, sale solo el texto. Nunca se manda un botón
 // que no lleve a ninguna parte.
-export function enviarTarjeta(env, igsid, { titulo, texto, imagen, boton }) {
+//
+// OJO CON EL SUBTÍTULO DE LA TARJETA CON FOTO: Instagram lo corta en 80
+// caracteres, y una dirección de verdad se pasa de ahí sin esfuerzo — el
+// cliente vería media calle. Por eso, cuando hay foto, la dirección
+// COMPLETA va en el mensaje de texto que la precede (lo manda index.js) y
+// aquí abajo solo se pone la línea corta que quepa.
+export function enviarTarjeta(env, igsid, { titulo, texto, resumen, imagen, boton }) {
   const enlace = String(boton?.url || "").trim();
   const tieneEnlace = /^https?:\/\//i.test(enlace);
   const tieneImagen = /^https?:\/\//i.test(String(imagen || "").trim());
@@ -129,6 +135,8 @@ export function enviarTarjeta(env, igsid, { titulo, texto, imagen, boton }) {
 
   const botones = [{ type: "web_url", url: enlace, title: recortar(boton.title || "Abrir", 20) }];
 
+  // Sin foto: la plantilla de botón admite 640 caracteres, así que la
+  // dirección entra entera y el botón va debajo. Un solo mensaje.
   if (!tieneImagen) {
     return enviar(env, igsid, {
       attachment: {
@@ -146,7 +154,7 @@ export function enviarTarjeta(env, igsid, { titulo, texto, imagen, boton }) {
         elements: [
           {
             title: recortar(titulo || "", 80),
-            subtitle: recortar(texto, 80),
+            subtitle: recortar(resumen || texto, 80),
             image_url: imagen,
             buttons: botones,
           },

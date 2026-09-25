@@ -964,12 +964,22 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     console.log(`Preguntó por ${datoQuePide}: contesto con el dato de la tienda`);
 
     if (ubicacion) {
-      // La foto del local y el botón de Google Maps, si están puestos en
-      // wrangler.toml. Si no, sale el texto solo.
+      // CON FOTO SON DOS MENSAJES, Y ES A PROPÓSITO. El subtítulo de una
+      // tarjeta con imagen se corta en 80 caracteres: la dirección entera
+      // no cabe. Así que va antes, en texto, y la tarjeta queda para la
+      // foto y el botón.
+      //
+      // Cada envío se anota por separado (mandar), que es lo que evita que
+      // el eco del segundo parezca el mensaje de un asesor y pause el bot.
+      if (ubicacion.foto) {
+        await mandar(() => enviarTexto(env, mensaje.igsid, respuesta));
+      }
+
       await mandar(() =>
         enviarTarjeta(env, mensaje.igsid, {
           titulo: "Invictus Shoes",
           texto: respuesta,
+          resumen: "Toca el botón y te abre el mapa 👇",
           imagen: ubicacion.foto,
           boton: { url: ubicacion.maps, title: "Cómo llegar" },
         })

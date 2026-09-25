@@ -45,6 +45,13 @@ const puesta = ubicacionDe({ DIRECCION: "Av. 4 de Mayo, local 3", MAPS_URL: "htt
 comprobar("con dirección, sale escrita", puesta.texto.includes("Av. 4 de Mayo, local 3"), true);
 
 // ── El turno completo ──────────────────────────────────────────
+const env0 = {
+  SHOPIFY_TIENDA: "x.myshopify.com", SHOPIFY_TOKEN: "t", IG_TOKEN: "t",
+  OPENAI_API_KEY: "k", URL_CATALOGO: "https://invictus.com",
+  DIRECCION: "Av. 4 de Mayo, local 3", MAPS_URL: "https://maps.app.goo.gl/abc",
+  FOTO_LOCAL: "",
+};
+
 async function turno(texto, respuestaDelModelo = {}) {
   const enviados = [];
   globalThis.fetch = async (url, opciones = {}) => {
@@ -86,11 +93,16 @@ async function turno(texto, respuestaDelModelo = {}) {
     },
   };
 
-  await atenderMeta(
-    { DB, SHOPIFY_TIENDA: "x.myshopify.com", SHOPIFY_TOKEN: "t", IG_TOKEN: "t", OPENAI_API_KEY: "k", URL_CATALOGO: "https://invictus.com", DIRECCION: "Av. 4 de Mayo, local 3", MAPS_URL: "https://maps.app.goo.gl/abc" },
-    { tipo: "texto", igsid: "c1", mid: "in1", texto, foto: "", historia: { url: "", id: "" } }
-  );
+  await atenderMeta({ ...env0, DB }, { tipo: "texto", igsid: "c1", mid: "in1", texto, foto: "", historia: { url: "", id: "" } });
   return enviados;
+}
+
+async function turnoConFoto(texto) {
+  const guardado = env0.FOTO_LOCAL;
+  env0.FOTO_LOCAL = "https://x/local.jpg";
+  const salida = await turno(texto);
+  env0.FOTO_LOCAL = guardado;
+  return salida;
 }
 
 let e = await turno("a que hora abren?");
@@ -105,6 +117,29 @@ comprobar("pagos: la lista entera", /Banesco Panamá/.test(e[0].text), true);
 
 e = await turno("tienen las Air Force y hacen envios?", { respuesta: "¡Sí hacemos envíos por ZOOM y MRW! 📦 Mira estas 👇", buscar: "Air Force One" });
 comprobar("mezclada: salen las fichas igual", e.some((m) => m.attachment?.payload?.elements?.length), true);
+
+// ── El botón de la ubicación, en los tres casos ────────────────
+const { ubicacionDe: ubi } = await import("./.stub/datos.js");
+
+const soloDireccion = ubi({ DIRECCION: "Av. 4 de Mayo, CC Jumbo, local 3, Porlamar" });
+comprobar("sin MAPS_URL, se arma el enlace con la dirección", soloDireccion.maps.startsWith("https://www.google.com/maps/search/"), true);
+comprobar("y lleva la dirección dentro", decodeURIComponent(soloDireccion.maps).includes("Av. 4 de Mayo"), true);
+
+const conEnlace = ubi({ DIRECCION: "Av. 4 de Mayo", MAPS_URL: "https://maps.app.goo.gl/abc" });
+comprobar("con MAPS_URL puesto, manda ese", conEnlace.maps, "https://maps.app.goo.gl/abc");
+
+comprobar("sin dirección ni enlace, no hay botón", ubi({}).maps, "");
+
+// Con foto: dos mensajes, y la dirección NO se corta
+let e2 = await turno("donde estan?");
+comprobar("sin foto: un solo mensaje, con su botón", e2.length, 1);
+comprobar("y la dirección va entera", e2[0].attachment.payload.text.includes("Av. 4 de Mayo, local 3"), true);
+
+const antes = globalThis.fetch;
+e2 = await turnoConFoto("donde estan?");
+comprobar("con foto: la dirección va en texto, sin recortar", e2[0].text.includes("Av. 4 de Mayo, local 3"), true);
+comprobar("y la tarjeta trae la foto y el botón", e2[1].attachment.payload.elements[0].buttons[0].title, "Cómo llegar");
+comprobar("con un subtítulo que sí cabe", e2[1].attachment.payload.elements[0].subtitle.length <= 80, true);
 
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);

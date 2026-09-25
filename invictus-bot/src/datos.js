@@ -87,8 +87,22 @@ export const PAGOS =
 // pueden dejar vacíos y el mensaje sigue saliendo, más corto.
 export function ubicacionDe(env) {
   const direccion = puesto(env.DIRECCION);
-  const maps = puesto(env.MAPS_URL);
   const foto = puesto(env.FOTO_LOCAL);
+
+  // EL BOTÓN NO PUEDE DEPENDER DE QUE ALGUIEN PEGUE UN ENLACE.
+  //
+  // Lo suyo es poner MAPS_URL, que apunta al local exacto con su ficha en
+  // Google. Pero si no está —y el dueño tiene una tienda que atender, no
+  // un formulario que rellenar— se arma un enlace de búsqueda con la
+  // dirección escrita. Google abre el mapa igual, buscándola.
+  //
+  // Así el cliente SIEMPRE recibe un botón, que es lo que pidió el dueño:
+  // "que quede como un botón, como estaba con ManyChat".
+  const maps =
+    puesto(env.MAPS_URL) ||
+    (direccion
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(direccion)}`
+      : "");
 
   const texto = direccion
     ? `📍 Aquí nos encuentras:\n\n${direccion}\n\n¡Te esperamos! 😊`
