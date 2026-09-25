@@ -1,14 +1,14 @@
 # Lo nuevo en Invictus (25-sep-2026)
 
-## 1 · Cashea y Krece
+## 1 · Cashea
 
 Traído tal cual de EPICELL, donde ya lleva días en producción.
 
 ## Qué hace
 
-Cuando el cliente pregunta por cuotas —"¿tienen Cashea?", "¿puedo pagar a
-crédito?", "trabajan con crece?"— el bot manda **dos mensajes**, uno por
-plataforma, con sus porcentajes exactos:
+Invictus trabaja **solo con Cashea**. Cuando el cliente pregunta por cuotas
+—"¿tienen Cashea?", "¿puedo pagar a crédito?"— el bot manda la tabla con
+sus porcentajes exactos:
 
 ```
 ¡Sí trabajamos con cuotas! 🙌 Tenemos dos opciones 👇
@@ -25,20 +25,8 @@ Tu inicial según tu nivel:
 🔹 Nivel 6 — 20%
 ```
 
-```
-💰 KRECE
-Aquí la inicial Y las cuotas van por nivel 👇
 
-🔵 Azul — 30% inicial · 6 cuotas
-⚪ Plata — 25% inicial · 8 cuotas
-🟡 Oro — 20% inicial · 8 cuotas
-💎 Platino — 15% inicial · 10 cuotas
-
-¿Con cuál de las dos quieres comprar? 😊
-Dime tu nivel y te digo cuánto te queda de inicial 👌
-```
-
-**Esos diez números no los redacta el modelo**, están escritos en
+**Esos seis números no los redacta el modelo**, están escritos en
 `index.js`. Un porcentaje parafraseado es un cliente que llega a la tienda
 con una cuenta distinta a la que le hicieron.
 
@@ -60,14 +48,19 @@ una sección de cómo se escribe una lista.
 1. **No adivina el nivel.** Es de la cuenta del cliente; se le preguntan.
 2. **No hace la cuenta.** Nada de "el 30% de 40$ son 12$": da el porcentaje
    y el precio, y la multiplicación la hace él o un asesor.
-3. **No cruza las dos.** Cashea va por número (1 al 6), Krece por color. Un
-   "soy nivel 2" a secas se pregunta antes de dar un porcentaje.
+3. **No inventa nada más.** Sabe la inicial por nivel, que son 3 cuotas y
+   que van cada 14 días. Los montos mínimos, cómo se sube de nivel y qué
+   pasa si el cliente se atrasa NO los sabe: eso es del asesor.
 
-## Si Invictus NO trabaja con Krece
+## Y si preguntan por Krece
 
-Borra la constante `PAGOS_KRECE` de `src/index.js` y la línea que la
-devuelve como `segundoMensaje`, y quita del prompt la sección **KRECE**. Lo
-demás sigue funcionando igual, con Cashea sola.
+Con Krece no se trabaja, así que no se calla ni se le da largas: se le dice
+que no y se le ofrece Cashea **en la misma frase**, con su tabla debajo.
+
+> Con Krece no trabajamos por ahora 😊 Pero sí con Cashea 👇
+
+Lo que NUNCA hace es inventarse los porcentajes de Krece. Si algún día se
+trabaja con ella, se añade su tabla igual que la de Cashea.
 
 ## Lo que NO se trajo, y por qué
 
@@ -85,10 +78,10 @@ python pruebas/preparar.py
 node pruebas/pagos.mjs
 ```
 
-22 comprobaciones: que las tablas quepan en un mensaje de Instagram, que
-cada nivel vaya en su línea con su emoji, que no se crucen las dos
-plataformas, a quién le sale la tabla y a quién no, y que un "¿puedo pagar
-a cuotas?" acabe en **dos mensajes** y no en el asesor.
+Comprobaciones: que la tabla quepa en un mensaje de Instagram, que cada
+nivel vaya en su línea con su emoji, a quién le sale y a quién no, que un
+"¿puedo pagar a cuotas?" acabe en la tabla y no en el asesor, y que un
+"¿trabajan con krece?" reciba el no + Cashea sin porcentajes inventados.
 
 
 ---

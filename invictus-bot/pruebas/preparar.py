@@ -30,7 +30,7 @@ for archivo in os.listdir(destino):
     )
     open(ruta, "w", encoding="utf-8").write(nuevo)
 
-ABIERTAS = ["atenderMeta", "PAGOS_CASHEA", "PAGOS_KRECE", "PREGUNTA_POR_PAGOS", "YA_DIJO_SU_NIVEL"]
+ABIERTAS = ["atenderMeta", "PAGOS_CASHEA", "SIN_KRECE", "PREGUNTA_POR_PAGOS", "YA_DIJO_SU_NIVEL"]
 indice = os.path.join(destino, "index.js")
 s = open(indice, encoding="utf-8").read()
 hay = [n for n in ABIERTAS if re.search(rf"\b(function|const|let)\s+{n}\b", s)]

@@ -1,6 +1,6 @@
 // Cashea y Krece en Invictus: que salgan enteros, ordenados y en dos
 // mensajes, y que una pregunta de cuotas NO acabe en el asesor.
-import { atenderMeta, PAGOS_CASHEA, PAGOS_KRECE, PREGUNTA_POR_PAGOS, YA_DIJO_SU_NIVEL } from "./.stub/index.js";
+import { atenderMeta, PAGOS_CASHEA, SIN_KRECE, PREGUNTA_POR_PAGOS, YA_DIJO_SU_NIVEL } from "./.stub/index.js";
 
 let fallos = 0;
 const comprobar = (n, real, esperado) => {
@@ -10,7 +10,7 @@ const comprobar = (n, real, esperado) => {
 };
 
 // ── Las dos tablas ─────────────────────────────────────────────
-for (const [nombre, texto] of [["Cashea", PAGOS_CASHEA], ["Krece", PAGOS_KRECE]]) {
+for (const [nombre, texto] of [["Cashea", PAGOS_CASHEA]]) {
   comprobar(`${nombre}: cabe en un mensaje de Instagram`, [...texto].length <= 1000, true);
   comprobar(`${nombre}: separa los bloques con una línea en blanco`, texto.includes("\n\n"), true);
   comprobar(`${nombre}: una línea por nivel`, texto.split("\n").filter((l) => /—/.test(l)).length >= 4, true);
@@ -18,8 +18,10 @@ for (const [nombre, texto] of [["Cashea", PAGOS_CASHEA], ["Krece", PAGOS_KRECE]]
 }
 comprobar("Cashea: los 6 niveles", PAGOS_CASHEA.match(/Nivel \d/g)?.length, 6);
 comprobar("Cashea: 3 cuotas cada 14 días", /3 cuotas/.test(PAGOS_CASHEA) && /14 días/.test(PAGOS_CASHEA), true);
-comprobar("Krece: los 4 colores", ["Azul", "Plata", "Oro", "Platino"].every((n) => PAGOS_KRECE.includes(n)), true);
-comprobar("no se cruzan las dos", !PAGOS_CASHEA.includes("Krece") && !PAGOS_KRECE.includes("Nivel 1"), true);
+comprobar("la tabla NO menciona Krece", /krece/i.test(PAGOS_CASHEA), false);
+comprobar("y cierra preguntando el nivel", /¿Qué nivel tienes/.test(PAGOS_CASHEA), true);
+comprobar("si preguntan por Krece, se dice que no", /no trabajamos/i.test(SIN_KRECE), true);
+comprobar("y se ofrece Cashea en la misma frase", /Cashea/.test(SIN_KRECE), true);
 
 // ── A quién le sale ────────────────────────────────────────────
 comprobar("«tienen cashea?»", PREGUNTA_POR_PAGOS.test("tienen cashea?"), true);
@@ -27,7 +29,7 @@ comprobar("«puedo pagar a cuotas?»", PREGUNTA_POR_PAGOS.test("puedo pagar a cu
 comprobar("«trabajan con crece?» (así lo escriben)", PREGUNTA_POR_PAGOS.test("trabajan con crece?"), true);
 comprobar("«tienen el air force?» no", PREGUNTA_POR_PAGOS.test("tienen el air force?"), false);
 comprobar("quien ya dijo su nivel no recibe la tabla", YA_DIJO_SU_NIVEL.test("soy nivel 4, cuanto pago"), true);
-comprobar("«soy oro» también", YA_DIJO_SU_NIVEL.test("soy oro cuanto seria"), true);
+comprobar("«soy nivel 2» también", YA_DIJO_SU_NIVEL.test("soy nivel 2 cuanto seria"), true);
 
 // ── El turno completo ──────────────────────────────────────────
 const enviados = [];
@@ -75,10 +77,22 @@ await atenderMeta(
 );
 
 const textos = enviados.filter((m) => m.text).map((m) => m.text);
-comprobar("salen DOS mensajes", textos.length, 2);
-comprobar("primero Cashea", textos[0].includes("💳 CASHEA"), true);
-comprobar("después Krece", textos[1].includes("💰 KRECE"), true);
+comprobar("sale UN solo mensaje", textos.length, 1);
+comprobar("con la tabla de Cashea", textos[0].includes("💳 CASHEA"), true);
+comprobar("sin nombrar Krece", /krece/i.test(textos[0]), false);
 comprobar("y no acaba en el asesor", textos.some((t) => /asesor/i.test(t)), false);
+
+// Preguntan por Krece, que no se maneja
+enviados.length = 0;
+await atenderMeta(
+  { DB, SHOPIFY_TIENDA: "x.myshopify.com", SHOPIFY_TOKEN: "t", IG_TOKEN: "t", OPENAI_API_KEY: "k", URL_CATALOGO: "https://invictus.com" },
+  { tipo: "texto", igsid: "c1", mid: "in2", texto: "trabajan con krece?", foto: "", historia: { url: "", id: "" } }
+);
+const conKrece = enviados.filter((m) => m.text).map((m) => m.text);
+comprobar("Krece: un solo mensaje", conKrece.length, 1);
+comprobar("dice que no la manejan", /Con Krece no trabajamos/.test(conKrece[0]), true);
+comprobar("y le pasa Cashea igual", conKrece[0].includes("💳 CASHEA"), true);
+comprobar("sin inventarse porcentajes de Krece", /Azul|Plata|Platino/.test(conKrece[0]), false);
 
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);

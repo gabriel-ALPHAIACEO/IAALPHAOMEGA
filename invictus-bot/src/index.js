@@ -90,23 +90,17 @@ const SIN_RESULTADOS =
 // La talla la confirma una persona: el catálogo no guarda qué tallas quedan.
 const SOLO_TALLA = "Eso te lo confirma un asesor en un momento 😊";
 
-/* ── LAS FORMAS DE PAGO, PALABRA POR PALABRA ──────────────────────
-   Traído de EPICELL (25-sep-2026), donde ya está en producción.
+/* ── LAS CUOTAS, PALABRA POR PALABRA ──────────────────────────────
+   Invictus trabaja SOLO CON CASHEA (25-sep-2026, dicho por el dueño). De
+   Krece no se habla: si alguien la nombra, se le dice que no y se le
+   ofrece Cashea, que es lo que sí hay.
 
-   ESTO NO LO REDACTA EL MODELO, y es a propósito: son diez números que
-   tienen que salir exactos. Un porcentaje parafraseado es un cliente que
-   llega a la tienda con una cuenta distinta a la que le hicieron.
-
-   Y VA EN DOS MENSAJES, uno por plataforma. En uno solo son diez líneas
-   de porcentajes seguidas y el cliente tiene que leerlo entero para
-   encontrar su nivel. Dos mensajes, no tres: cada uno es una notificación
-   en su teléfono.
-
-   SI INVICTUS NO TRABAJA CON KRECE: borra PAGOS_KRECE y, más abajo, la
-   línea que lo devuelve como "segundoMensaje". Lo demás sigue igual.
+   ESTOS SEIS NÚMEROS NO LOS REDACTA EL MODELO, y es a propósito: tienen
+   que salir exactos. Un porcentaje parafraseado es un cliente que llega a
+   la tienda con una cuenta distinta a la que le hicieron.
    ───────────────────────────────────────────────────────────────── */
 const PAGOS_CASHEA =
-  "¡Sí trabajamos con cuotas! 🙌 Tenemos dos opciones 👇\n" +
+  "¡Sí trabajamos con cuotas! 🙌\n" +
   "\n" +
   "💳 CASHEA\n" +
   "3 cuotas sin intereses, una cada 14 días 🗓️\n" +
@@ -117,32 +111,30 @@ const PAGOS_CASHEA =
   "🔹 Nivel 3 — 30%\n" +
   "🔹 Nivel 4 — 25%\n" +
   "🔹 Nivel 5 — 20%\n" +
-  "🔹 Nivel 6 — 20%";
+  "🔹 Nivel 6 — 20%\n" +
+  "\n" +
+  "¿Qué nivel tienes? Así te digo cuánto te queda de inicial 👌";
 
-const PAGOS_KRECE =
-  "💰 KRECE\n" +
-  "Aquí la inicial Y las cuotas van por nivel 👇\n" +
-  "\n" +
-  "🔵 Azul — 30% inicial · 6 cuotas\n" +
-  "⚪ Plata — 25% inicial · 8 cuotas\n" +
-  "🟡 Oro — 20% inicial · 8 cuotas\n" +
-  "💎 Platino — 15% inicial · 10 cuotas\n" +
-  "\n" +
-  "¿Con cuál de las dos quieres comprar? 😊\n" +
-  "Dime tu nivel y te digo cuánto te queda de inicial 👌";
+// PREGUNTARON POR KRECE, QUE NO SE MANEJA.
+//
+// No se calla ni se le da largas: se le dice que no, y en la misma
+// respiración se le ofrece Cashea. Esta línea va PEGADA delante de la
+// tabla, no en un mensaje aparte.
+const SIN_KRECE = "Con Krece no trabajamos por ahora 😊 Pero sí con Cashea 👇\n\n";
+
+const NOMBRA_KRECE = /\b(krece|crece|kreze|krese|kresce)\b/i;
 
 // CUÁNDO SALE ESA TABLA: cuando preguntan por las formas de pago EN
 // GENERAL. Las faltas van ESCRITAS UNA A UNA, no con un patrón que las
 // abarque: con nombres de marca no hay atajo. "crece" es la forma más
-// común de escribir Krece, y aunque es una palabra normal en español,
-// en un chat de venta nadie la escribe hablando de otra cosa.
+// común de escribir Krece, y aunque es una palabra normal en español, en
+// un chat de venta nadie la escribe hablando de otra cosa.
 const PREGUNTA_POR_PAGOS =
   /\b(cashea|casea|cashe|cachea|kashea|krece|crece|kreze|krese|cuotas?|financiamiento|financiado|cr[ée]dito|abonos?|a plazos?|por partes)\b/i;
 
-// Si ya dijo su nivel —"soy oro, cuánto pago"— la tabla entera sobra: a
-// ese hay que contestarle, y eso lo hace el modelo, que lee la frase.
-const YA_DIJO_SU_NIVEL =
-  /\b(nivel\s*[1-6]|soy\s+(nivel\s*)?[1-6]|azul|plata|oro|platino)\b/i;
+// Si ya dijo su nivel —"soy nivel 4, cuánto pago"— la tabla entera sobra:
+// a ese hay que contestarle, y eso lo hace el modelo, que lee la frase.
+const YA_DIJO_SU_NIVEL = /\b(nivel\s*[1-6]|soy\s+(nivel\s*)?[1-6])\b/i;
 
 // Cuando el cotejo visual encontró en el catálogo el zapato de la foto.
 //
@@ -1169,7 +1161,6 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const {
     productos,
     respuestaCliente,
-    segundoMensaje,
     termino,
     preguntoTalla,
     buscoSinExito,
@@ -1220,12 +1211,6 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   } else {
     // Conversación: preguntas, dudas, cortesías. Texto limpio, sin botón.
     await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
-  }
-
-  // El segundo mensaje de la tabla de pagos (Krece). Sale detrás del
-  // primero y nunca solo.
-  if (segundoMensaje) {
-    await mandar(() => enviarTexto(env, mensaje.igsid, segundoMensaje));
   }
 
   const escalada = hayEscalada({
@@ -1694,9 +1679,9 @@ async function decidir({
   // persona, así que no se le da largas ni se le muestra el catálogo entero.
   const soloTalla = preguntoTalla && !termino;
 
-  // PREGUNTÓ POR LAS FORMAS DE PAGO, en general. Sale la tabla entera de
-  // Cashea y Krece, escrita en el código, para que los diez porcentajes
-  // salgan exactos y no parafraseados.
+  // PREGUNTÓ POR LAS CUOTAS, en general. Sale la tabla de Cashea escrita
+  // en el código, para que los seis porcentajes salgan exactos y no
+  // parafraseados.
   //
   // No sale si ya dijo su nivel —"soy oro, cuánto pago"—: a ese no hay que
   // darle la tabla, hay que contestarle. Tampoco si le estamos mostrando
@@ -1705,7 +1690,11 @@ async function decidir({
     PREGUNTA_POR_PAGOS.test(texto) && !YA_DIJO_SU_NIVEL.test(texto) && !productos.length;
 
   if (preguntoPorPagos) {
-    console.log("Preguntó por las formas de pago: mando Cashea y Krece tal cual");
+    console.log(
+      NOMBRA_KRECE.test(texto)
+        ? "Preguntó por Krece: le digo que no la manejamos y le paso Cashea"
+        : "Preguntó por las cuotas: mando la tabla de Cashea tal cual"
+    );
   }
 
   // Si ya se conocen, se le quita la bienvenida aunque el modelo la haya
@@ -1719,7 +1708,7 @@ async function decidir({
   // la búsqueda — no sabe que se repitió ni que no había nada.
   let respuestaCliente = respuestaFinal;
   if (preguntoPorPagos) {
-    respuestaCliente = PAGOS_CASHEA;
+    respuestaCliente = NOMBRA_KRECE.test(texto) ? SIN_KRECE + PAGOS_CASHEA : PAGOS_CASHEA;
   } else if (soloTalla) {
     respuestaCliente = SOLO_TALLA;
   } else if (hayMasDelCatalogo) {
@@ -1735,9 +1724,6 @@ async function decidir({
   return {
     preguntoTalla,
     termino,
-    // La tabla de pagos va en DOS mensajes, uno por plataforma. Este es el
-    // segundo; va vacío en cualquier otro caso.
-    segundoMensaje: preguntoPorPagos ? PAGOS_KRECE : "",
     aBuscar,
     colores,
     productos,
