@@ -177,7 +177,7 @@ export async function guardarIndexados(db, filas) {
         )
         .bind(
           fila.imagen || "",
-          fila.titulo,
+          fila.titulo || "",
           fila.precio || "",
           fila.url || "",
           String(fila.visto || "").slice(0, 300),
@@ -275,9 +275,12 @@ export function mejoresPorRasgos(indice, rasgos, cuantos = 10, color = "", visto
   const utiles = indice.filter((producto) => producto.imagen && producto.rasgos);
 
   // Las palabras de la foto del cliente, y lo que vale cada una según lo
-  // rara que sea en este catálogo.
+  // rara que sea en este catálogo. Sin descripción de la foto no hay nada
+  // que pesar: recorrer las 581 descripciones para un resultado que
+  // puntosDeDescripcion() va a descartar en la primera línea es gasto puro,
+  // y esto corre una vez por ronda.
   const delaFoto = palabrasDe(visto);
-  const peso = pesoDeLasPalabras(utiles);
+  const peso = delaFoto.size ? pesoDeLasPalabras(utiles) : new Map();
 
   const conPuntos = utiles.map((producto) => ({
     producto,
@@ -568,15 +571,27 @@ async function contarFilas(db) {
 // baratas, pero mandar 581 en una sola tanda es pedir un fallo.
 const REFRESCO_POR_TANDA = 50;
 
-// Copia el precio y el enlace de Shopify a las filas ya indexadas cuando
-// cambiaron. No toca los rasgos ni la foto: eso es lo que costó mirar.
+// Copia el precio, el enlace y el título de Shopify a las filas ya
+// indexadas cuando cambiaron. No toca los rasgos ni la foto: eso es lo
+// que costó mirar.
+//
+// EL TÍTULO CUENTA COMO CAMBIO, aunque la UPDATE de abajo ya lo escribía:
+// si solo se miraban precio y enlace, renombrar un producto en Shopify no
+// entraba nunca en "cambiados" y la fila se quedaba con el nombre viejo
+// para siempre — y ese nombre es el que ve el cliente cuando la ficha sale
+// del índice (cotejo y parecidos), y con el que resultado() empareja los
+// hermanos del mismo modelo.
 async function refrescarPrecios(db, indice, productos) {
   const deShopify = new Map(productos.map((p) => [p.imagen, p]));
 
   const cambiados = indice.filter((fila) => {
     const hoy = deShopify.get(fila.imagen);
-    return hoy && (String(hoy.precio || "") !== String(fila.precio || "") ||
-                   String(hoy.url || "") !== String(fila.url || ""));
+    return (
+      hoy &&
+      (String(hoy.precio || "") !== String(fila.precio || "") ||
+        String(hoy.url || "") !== String(fila.url || "") ||
+        String(hoy.titulo || "") !== String(fila.titulo || ""))
+    );
   });
 
   if (!cambiados.length) return 0;
@@ -587,11 +602,13 @@ async function refrescarPrecios(db, indice, productos) {
         const hoy = deShopify.get(fila.imagen);
         return db
           .prepare("UPDATE catalogo SET precio = ?, url = ?, titulo = ? WHERE imagen = ?")
-          .bind(hoy.precio || "", hoy.url || "", hoy.titulo, fila.imagen);
+          .bind(hoy.precio || "", hoy.url || "", hoy.titulo || "", fila.imagen);
       })
     );
   }
 
-  console.log(`Índice: actualicé precio o enlace de ${cambiados.length} producto(s), sin mirar ninguna foto`);
+  console.log(
+    `Índice: actualicé precio, enlace o título de ${cambiados.length} producto(s), sin mirar ninguna foto`
+  );
   return cambiados.length;
 }

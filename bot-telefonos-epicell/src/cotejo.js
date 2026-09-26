@@ -19,7 +19,7 @@
 // hoja no responde, se devuelve null y el bot sigue exactamente como
 // seguiría sin este archivo.
 
-import { buscarProductos } from "./sheets.js";
+import { buscarProductos, catalogoCompleto } from "./sheets.js";
 import { cotejarConCatalogo, estaLimitado, modeloDeVision } from "./ia.js";
 import { leerIndice, mejoresPorDescripcion, palabrasDe, pesoDeLasPalabras, puntosDeDescripcion } from "./indice.js";
 
@@ -62,9 +62,22 @@ export async function cotejoPorImagen({
 
   const indice = await leerIndiceSeguro(env);
 
+  // Todo lo que ya se le puso delante al modelo. Lo llena cotejar(), que es
+  // el único que sabe qué mandó de verdad: filtra los que no tienen foto y
+  // corta en MAXIMO_CANDIDATOS.
+  const yaMirados = new Set();
+
   // ¿Llegó el cotejo a MIRAR los que encontró la búsqueda por nombre? Si
   // los miró y dijo que ninguno era, eso es una opinión sobre el NOMBRE, y
   // hay que hacerle caso.
+  //
+  // OJO: NO BASTA CON QUE cotejar() DEVUELVA null. Devuelve null también
+  // cuando ni siquiera llamó al modelo —de los que llegaron ninguno tenía
+  // foto y no se alcanzó el mínimo— y solo le enseña los primeros
+  // MAXIMO_CANDIDATOS. Darlos por rechazados en esos casos apaga el guard
+  // de "nombreFiable" y deja que el índice le cambie al cliente el modelo
+  // que la búsqueda SÍ había acertado. Por eso se pregunta por lo que
+  // cotejar() apuntó en "yaMirados", que es lo que se mandó de verdad.
   let losDelNombreFueronRechazados = false;
 
   // PRIMERO, LO QUE YA ENCONTRÓ LA BÚSQUEDA, ORDENADO.
@@ -74,10 +87,11 @@ export async function cotejoPorImagen({
       foto,
       ordenar(productos, { visto, indice }),
       textoCliente,
-      2
+      2,
+      yaMirados
     );
-    if (elegido) return resultado(elegido, productos, indice);
-    losDelNombreFueronRechazados = true;
+    if (elegido) return resultado(env, elegido, productos, indice);
+    losDelNombreFueronRechazados = productos.some((p) => yaMirados.has(clave(p)));
   }
 
   // EL ÍNDICE NO SUSTITUYE UN NOMBRE QUE YA ACERTÓ (crítico).
@@ -113,10 +127,6 @@ export async function cotejoPorImagen({
   }
 
   // LA MARCA, cuando la búsqueda por nombre no dejó nada.
-  const yaMirados = new Set(
-    productos.length >= 2 ? ordenar(productos, { visto, indice }).slice(0, MAXIMO_CANDIDATOS).map(clave) : []
-  );
-
   if (!productos.length) {
     const marca = primeraPalabra(termino);
     if (marca && marca.toLowerCase() !== String(termino).trim().toLowerCase()) {
@@ -124,7 +134,7 @@ export async function cotejoPorImagen({
       const { productos: deLaMarca } = await buscarProductos(env, marca, MAXIMO_CANDIDATOS * 3);
       const candidatos = ordenar(deLaMarca, { visto, indice }).filter((p) => !yaMirados.has(clave(p)));
       const elegido = await cotejar(env, foto, candidatos, textoCliente, 2, yaMirados);
-      if (elegido) return resultado(elegido, productos, indice);
+      if (elegido) return resultado(env, elegido, productos, indice);
     }
   }
 
@@ -148,7 +158,7 @@ export async function cotejoPorImagen({
     );
 
     const elegido = await cotejar(env, foto, candidatos, textoCliente, 1, yaMirados, DESDE_EL_INDICE);
-    if (elegido) return resultado(elegido, productos, indice);
+    if (elegido) return resultado(env, elegido, productos, indice);
 
     // Si OpenAI se quedó sin cupo, las rondas siguientes fallarían igual
     // y el cliente está esperando.
@@ -182,7 +192,7 @@ export async function parecidosDeLaFoto(env, visto, cuantos = 6) {
     );
   }
 
-  return mejores;
+  return hidratar(env, mejores);
 }
 
 // ORDENA LO QUE SE LE VA A ENSEÑAR AL CLIENTE.
@@ -255,7 +265,7 @@ async function cotejar(env, foto, productos, textoCliente, minimo = 2, yaMirados
 }
 
 // Qué se le devuelve a quien llamó, según de dónde salió el elegido.
-function resultado(elegido, productos, indice = []) {
+async function resultado(env, elegido, productos, indice = []) {
   const estaba = productos.some((p) => p.titulo === elegido.titulo);
 
   // Salió de la búsqueda original: el cliente pidió ESE modelo y los
@@ -296,8 +306,42 @@ function resultado(elegido, productos, indice = []) {
 
   return {
     elegido,
-    productos: [elegido, ...hermanos.slice(0, MAXIMO_HERMANOS), ...delNombre].slice(0, 10),
+    productos: await hidratar(
+      env,
+      [elegido, ...hermanos.slice(0, MAXIMO_HERMANOS), ...delNombre].slice(0, 10)
+    ),
   };
+}
+
+// LO QUE SALE DEL ÍNDICE NO ES UNA FICHA COMPLETA.
+//
+// La tabla del índice guarda cuatro columnas —imagen, título, precio y
+// enlace— porque es todo lo que hace falta para cotejar. Pero la ficha que
+// ve el cliente enseña por defecto el PRECIO DE CASHEA y la capacidad, y
+// eso vive en la hoja, no en el índice: sin esto, los equipos reconocidos
+// por la foto salían con el precio en divisas y sin los gigas, mezclados
+// en el mismo carrusel con otros que sí los llevaban. Dos precios
+// distintos para el mismo producto es exactamente lo que no puede pasar.
+//
+// La hoja viene cacheada (ver leerHoja), así que esto no dispara una
+// descarga nueva. Y si algo falla, se devuelve lo que había: una ficha con
+// el precio en divisas es peor que una completa, pero mucho mejor que
+// ninguna.
+async function hidratar(env, productos) {
+  const incompletos = productos.filter((p) => p && p.precioCashea === undefined);
+  if (!incompletos.length) return productos;
+
+  let deLaHoja;
+  try {
+    deLaHoja = new Map((await catalogoCompleto(env)).map((p) => [p.imagen, p]));
+  } catch (error) {
+    console.error("No pude releer la hoja para completar las fichas:", error?.message || error);
+    return productos;
+  }
+
+  return productos.map((p) =>
+    p && p.precioCashea === undefined ? deLaHoja.get(p.imagen) || p : p
+  );
 }
 
 function clave(producto) {

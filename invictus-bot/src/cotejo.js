@@ -219,12 +219,24 @@ export async function cotejoPorImagen({
   // ¿Llegó el cotejo a MIRAR los que encontró la búsqueda por nombre? Si
   // los miró y dijo que ninguno era, eso es una opinión sobre el NOMBRE, y
   // hay que hacerle caso.
+  //
+  // OJO: NO BASTA CON QUE cotejar() DEVUELVA null. Devuelve null también
+  // cuando ni siquiera llamó al modelo —porque de los que llegaron ninguno
+  // tenía foto y no se alcanzó el mínimo— y, sobre todo, solo le enseña al
+  // modelo los 8 primeros de la pila: los del nombre pueden haber quedado
+  // fuera detrás de los que trajeron los rasgos. Darlos por rechazados en
+  // esos casos apaga el guard de "nombreFiable" y devuelve justo el fallo
+  // que ese guard existe para evitar: cambiarle al cliente los 5 Jordan 40
+  // buenos por un Jordan Lukka del índice.
+  //
+  // cotejar() apunta en "yaMirados" EXACTAMENTE lo que le puso delante al
+  // modelo, así que esa es la pregunta que hay que hacer.
   let losDelNombreFueronRechazados = false;
 
   if (pila.length >= minimo) {
     const elegido = await cotejar(env, foto, pila, textoCliente, minimo, yaMirados);
     if (elegido) return resultado(elegido, productos, indice);
-    losDelNombreFueronRechazados = productos.length > 0;
+    losDelNombreFueronRechazados = productos.some((p) => yaMirados.has(clave(p)));
   }
 
   // Ni los rasgos ni la búsqueda dieron con él. Queda la marca, que es lo
@@ -554,7 +566,11 @@ const MAXIMO_HERMANOS = 9;
 // del índice. El que no esté indexado puntúa solo por color, y queda
 // detrás de los que sí: es lo correcto, de ese no sabemos nada.
 function ordenar(productos, { color, rasgos, indice, visto = "" }) {
-  if (!color && !rasgos) return productos;
+  // "visto" cuenta igual que el color y los rasgos: en los zapatos lisos
+  // —sin logo, sin cámara de aire, sin franjas— es lo ÚNICO que distingue
+  // uno de otro, y dejarlo fuera del guard devolvía la lista sin ordenar
+  // justo en el caso que la descripción vino a resolver.
+  if (!color && !rasgos && !visto) return productos;
 
   const porFoto = new Map((indice || []).map((p) => [p.imagen, p]));
 
@@ -696,7 +712,7 @@ export async function parecidosDeLaFoto(env, rasgos, cuantos = 6, color = "", vi
 // trajo producto — que es el caso más frecuente de todos.
 export async function ordenarPorLaFoto(env, productos, { color, rasgos, visto } = {}) {
   if (productos.length < 2) return productos;
-  if (!color && !rasgos) return productos;
+  if (!color && !rasgos && !visto) return productos;
 
   const indice = await leerIndiceSeguro(env);
   const ordenados = ordenar(productos, { color, rasgos, indice, visto });

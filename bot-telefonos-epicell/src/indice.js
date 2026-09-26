@@ -111,7 +111,7 @@ export async function guardarIndexados(db, filas) {
           )
           .bind(
             fila.imagen,
-            fila.titulo,
+            fila.titulo || "",
             fila.precio || "",
             fila.url || "",
             String(fila.visto || "").slice(0, 300),
@@ -378,7 +378,7 @@ async function refrescarDatos(db, indice, productos) {
         const hoy = deLaHoja.get(fila.imagen);
         return db
           .prepare("UPDATE catalogo SET precio = ?, url = ?, titulo = ? WHERE imagen = ?")
-          .bind(hoy.precio || "", hoy.url || "", hoy.titulo, fila.imagen);
+          .bind(hoy.precio || "", hoy.url || "", hoy.titulo || "", fila.imagen);
       })
     );
   }

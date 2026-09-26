@@ -80,7 +80,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-26 (13) · no existe el 0%: red de seguridad para Cashea y Krece";
+const VERSION = "2026-09-26 (14) · las fichas de la foto llevan su precio Cashea, y un solo aviso";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -1262,12 +1262,19 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // no puede depender de que se acuerde. Ver cuotas.js.
   const revision = revisarCuotas(respuestaCliente);
   if (revision.corregido) {
+    // AL ASESOR SE LE MANDA LO QUE EL BOT IBA A DECIR, no lo que se mandó
+    // en su lugar. El aviso existe para que una persona vea el invento y
+    // le dé al cliente el número bueno; mandándole la frase ya corregida
+    // —"deja que te lo confirme un asesor"— se queda sin saber qué se
+    // inventó ni sobre qué tiene que contestar.
+    const loQueIbaADecir = respuestaCliente;
     respuestaCliente = revision.respuesta;
+
     await avisarAsesor(env, {
       ...paraElAviso(contacto),
       igsid: mensaje.igsid,
       mensaje: mensaje.texto,
-      respuesta: respuestaCliente,
+      respuesta: loQueIbaADecir,
       motivo: `SE INVENTÓ UN PORCENTAJE DE CUOTAS (${revision.inventados.join(", ")})`,
       historia: esHistoria ? "respuesta a una historia" : "",
     });
@@ -1297,12 +1304,19 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
   }
 
-  const escalada = hayEscalada({
-    respuesta: respuestaCliente,
-    productos,
-    esConsultaDeAsesor,
-    buscoSinExito,
-  });
+  // UN SOLO AVISO POR MENSAJE. La frase de respaldo de cuotas.js lleva "en
+  // un momento" —como todas las de cierre—, así que hayEscalada() la lee
+  // como "quiere cerrar la compra" y el asesor recibía DOS avisos del
+  // mismo mensaje: el bueno y otro con un motivo que no es. Si ya se avisó
+  // por el porcentaje inventado, ese aviso es el que vale.
+  const escalada =
+    !revision.corregido &&
+    hayEscalada({
+      respuesta: respuestaCliente,
+      productos,
+      esConsultaDeAsesor,
+      buscoSinExito,
+    });
 
   if (escalada) {
     await avisarAsesor(env, {

@@ -70,7 +70,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-26 (21) · una foto de la tienda entera va al catálogo, no se adivina";
+const VERSION = "2026-09-26 (22) · el rechazo del cotejo se mide de verdad, y el título se refresca";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -315,9 +315,20 @@ const PALABRAS_SIN_PRODUCTO = new Set([
   "valen", "info", "informacion", "disponible", "disponibles", "hay",
   "tienen", "tiene", "tienes", "queda", "quedan", "eso", "esos", "esas",
   "esa", "este", "esta", "estos", "estas", "ese", "me", "interesa",
-  "quiero", "gusta", "gustaron", "por", "favor", "gracias", "si", "no",
-  "y", "el", "la", "los", "las", "un", "una", "de", "del", "que", "a",
+  "quiero", "quisiera", "gusta", "gustan", "gustaron", "gustó", "gusto",
+  "encanta", "encantan", "busco", "buscando", "necesito", "ando",
+  "muestra", "muestrame", "muéstrame", "mostrar", "ensename", "enseñame",
+  "manda", "mandame", "pasa", "pasame", "dame",
+  "por", "favor", "porfa", "gracias", "si", "no",
+  "y", "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del",
+  "que", "a", "al", "con", "para", "mi", "tu", "su",
   "ver", "verlo", "verlos", "mas", "todo", "todos", "ok", "dale",
+  // Genéricas de calzado. "¿Cuánto cuestan esos zapatos?" sobre una foto
+  // del estante NO es nombrar un modelo: es justo el mensaje que llega con
+  // una vitrina. Si cuentan como "pidió algo concreto", el bot vuelve a
+  // adivinar un par entre veinte, que es lo que esto vino a evitar.
+  "zapato", "zapatos", "calzado", "calzados", "tenis", "zapatilla",
+  "zapatillas", "par", "pares", "modelo", "modelos", "botas", "bota",
 ]);
 
 function textoPideAlgo(texto) {
@@ -602,7 +613,7 @@ export default {
               "en `wrangler tail`. Si son 429, es cupo: espera un minuto.\n"
             : "") +
           (r.refrescados
-            ? `Precio o enlace actualizados: ${r.refrescados} (sin mirar ninguna foto)\n`
+            ? `Precio, enlace o título actualizados: ${r.refrescados} (sin mirar ninguna foto)\n`
             : "") +
           (r.quitados ? `Quitados del índice (ya no están en Shopify): ${r.quitados}\n` : "") +
           "\n" +

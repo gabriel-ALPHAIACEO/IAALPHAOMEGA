@@ -78,13 +78,9 @@ export async function comoDataUri(env, url, { silencioso = false } = {}) {
   }
 
   // Las del catálogo se bajan de diez en diez y llenarían el registro sin
-
   // decir nada: la que importa es la del cliente.
-
   if (!silencioso) {
-
     console.log(`Imagen descargada: ${tipo}, ${Math.round(datos.byteLength / 1024)} KB`);
-
   }
   return { uri: `data:${tipo};base64,${aBase64(datos)}`, motivo: "" };
 }
