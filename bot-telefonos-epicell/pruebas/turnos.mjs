@@ -105,5 +105,23 @@ r = await turno({
 comprobar("lo que NO existe se sigue diciendo", /no lo manejo/i.test(textos(r.enviados)[0]), true);
 comprobar("y aun así le enseña alternativas", fichas(r.enviados).length > 0, true);
 
+// LA MARCA QUE EL CLIENTE DICE NO ES LA QUE DICE LA HOJA.
+// "Xiaomi" no aparece en ningún título: están como Redmi y Poco.
+const XIAOMI = `Nombre,Precio Divisas ($),Precio Cashea,Foto
+Redmi Note 17 256GB,240,75,https://x/n17.jpg
+Redmi Note 14 128GB,190,60,https://x/n14.jpg
+Poco X8 pro 5G,210,70,https://x/px8.jpg
+Samsung Galaxy A57 128GB,310,95,https://x/a57.jpg`;
+
+r = await turno({
+  texto: "tienen xiaomi note?",
+  hoja: XIAOMI,
+  respuestaDelModelo: { respuesta: "Xiaomi no manejo 😊", buscar: "Xiaomi Note" },
+  fila: { historial: "Ya di la bienvenida." },
+});
+comprobar("«xiaomi note» encuentra los Redmi Note", fichas(r.enviados).filter((f) => /Redmi Note/.test(f.title)).length, 2);
+comprobar("y no se cuela el Samsung", fichas(r.enviados).some((f) => /Samsung/.test(f.title)), false);
+comprobar("y NO le dice que no maneja Xiaomi", /no manejo/i.test(textos(r.enviados)[0]), false);
+
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);

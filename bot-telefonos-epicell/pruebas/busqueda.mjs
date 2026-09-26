@@ -45,5 +45,45 @@ comprobar("«cables dophin» junto: ya encuentra", (await titulos("cables dophin
 comprobar("hay frases para «no ese, pero mira»", NO_ESE_PERO_MIRA.length >= 3, true);
 comprobar("ninguna promete lo que no hay", NO_ESE_PERO_MIRA.every((f) => !/no tengo ningun|no hay nada/i.test(f)), true);
 
+/* ── LAS MARCAS Y LAS FAMILIAS ─────────────────────────────────────
+   En la hoja los Xiaomi están como "Redmi" y "Poco": la palabra "Xiaomi"
+   no aparece en ningún título. El cliente pregunta por la marca con la
+   que le vendieron el teléfono y recibía "no tengo ninguno".
+   ───────────────────────────────────────────────────────────────── */
+const XIAOMI = `Nombre,Precio Divisas ($),Foto
+Redmi Note 17 256GB,240,https://x/a.jpg
+Redmi Note 17 Pro 512GB,300,https://x/b.jpg
+Redmi Note 14 128GB,190,https://x/c.jpg
+Redmi A5 64GB,90,https://x/d.jpg
+Poco X8 pro 5G,210,https://x/e.jpg
+Samsung Galaxy A57 128GB,310,https://x/f.jpg
+Infinix Note 40,150,https://x/g.jpg
+Forro Redmi Note 17,8,https://x/h.jpg`;
+
+globalThis.fetch = async () => ({ ok: true, text: async () => XIAOMI, status: 200 });
+// Cada búsqueda con su propio id: la hoja se cachea por SHEET_ID.
+let cuantas = 0;
+const enXiaomi = async (t) =>
+  (await buscarProductos({ SHEET_ID: `xiaomi${++cuantas}`, SHEET_NOMBRE: "Hoja 1" }, t)).productos.map(
+    (p) => p.titulo
+  );
+
+const xiaomi = await enXiaomi("xiaomi");
+comprobar("«xiaomi» encuentra los Redmi y los Poco", xiaomi.length > 0, true);
+comprobar("y NO se cuela un Samsung", xiaomi.some((t) => /Samsung/.test(t)), false);
+
+const xiaomiNote = await enXiaomi("xiaomi note");
+comprobar("«xiaomi note» trae la familia Note entera", xiaomiNote.filter((t) => /Redmi Note/.test(t)).length, 4);
+comprobar("y NO el Note de otra marca", xiaomiNote.some((t) => /Infinix/.test(t)), false);
+
+comprobar("«celulares note» también encuentra", (await enXiaomi("celulares note")).length > 0, true);
+comprobar("«telefonos xiaomi» también", (await enXiaomi("telefonos xiaomi")).length > 0, true);
+
+// Un número que no existe TIENE que dar vacío: si no, el bot enseñaría
+// los Note que sí hay como si fueran el que pidió.
+comprobar("«note 20» no existe: vacío", await enXiaomi("note 20"), []);
+comprobar("«redmi note 17» trae su familia y su accesorio", (await enXiaomi("redmi note 17")).length, 3);
+comprobar("«galaxy a57» encuentra el Samsung", await enXiaomi("galaxy a57"), ["Samsung Galaxy A57 128GB"]);
+
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);

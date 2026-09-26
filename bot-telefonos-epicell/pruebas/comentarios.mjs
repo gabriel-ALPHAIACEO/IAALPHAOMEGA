@@ -252,6 +252,34 @@ await atenderComentario({ ...env, DB: m.DB }, { ...c, id: "ventana-abierta", tex
 comprobar("con la ventana abierta sí van las fotos", m.privados.some((p) => p.attachment), true);
 comprobar("y el texto sigue trayendo el precio", /Samsung A57/.test(m.privados[0].text), true);
 
+/* ── LA FAMILIA COMPLETA DEL MODELO, CON SUS ACCESORIOS ────────────
+   Pedido del dueño: si el comentario es sobre un modelo que tiene
+   familia —varias versiones y accesorios—, en ese único mensaje va todo.
+   ───────────────────────────────────────────────────────────────── */
+const HOJA_NOTE = `Nombre,Precio Divisas ($),Precio Cashea,Foto
+Redmi Note 17 256GB,240,75,https://x/n17.jpg
+Redmi Note 17 Pro 512GB,300,95,https://x/n17p.jpg
+Redmi Note 17 8/128,210,68,https://x/n17b.jpg
+Redmi Note 14 128GB,190,60,https://x/n14.jpg
+Forro Redmi Note 17,8,,https://x/f17.jpg
+Vidrio Redmi Note 17,5,,https://x/v17.jpg`;
+
+m = montar({
+  hoja: HOJA_NOTE,
+  pie: "🔥 ¡Batería colosal de 8,340 mAh! El Redmi Note 17 ya está aquí",
+  ventanaCerrada: true,
+});
+await atenderComentario({ ...env, SHEET_ID: "note17", DB: m.DB }, { ...c, id: "familia", texto: "Precio" });
+const dicho = m.privados[0].text;
+
+comprobar("van las TRES versiones del Note 17", ["256GB", "Pro 512GB", "8/128"].every((v) => dicho.includes(v)), true);
+comprobar("cada una con su precio", (dicho.match(/\$\d+/g) || []).length >= 3, true);
+comprobar("los accesorios del modelo también", /Forro Redmi Note 17/.test(dicho) && /Vidrio Redmi Note 17/.test(dicho), true);
+comprobar("pero en su propio bloque, no mezclados", /ACCESORIOS/.test(dicho), true);
+comprobar("y NO se cuela el Note 14, que es otro modelo", /Note 14/.test(dicho), false);
+comprobar("cabe en un mensaje de Instagram", dicho.length <= 1000, true);
+comprobar("el saludo nombra el modelo, sin los gigas", /publicación del Redmi Note 17,/.test(dicho), true);
+
 // Los modos
 comprobar("por defecto, todo", modoComentarios({}), "todo");
 comprobar("se puede apagar", modoComentarios({ COMENTARIOS: "off" }), "off");

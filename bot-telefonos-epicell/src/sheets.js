@@ -63,16 +63,23 @@ const SINONIMOS = {
 // el cliente tiene que saber que en el catálogo están los otros 4 (ver
 // index.js). Sin esto, "¿solo tienes esos?" no tiene respuesta honesta.
 export async function buscarProductos(env, termino, cuantos = 10) {
-  const palabras = palabrasDeBusqueda(termino).slice(0, 5);
-  if (!palabras.length) return { productos: [], hayMas: false };
+  const pedidas = palabrasDeBusqueda(termino).slice(0, 5);
+  if (!pedidas.length) return { productos: [], hayMas: false };
 
   const { productos } = await leerHoja(env);
   if (!productos.length) return { productos: [], hayMas: false };
 
+  // Cada palabra, con las otras formas de decirla ("xiaomi" vale por
+  // "redmi" y por "poco"), y sin las que la hoja no conoce.
+  const grupos = comoLasDiceLaHoja(pedidas, productos);
+  const palabras = grupos.map((grupo) => grupo[0]);
+
+  if (!grupos.length) return { productos: [], hayMas: false };
+
   // TODAS las palabras del término tienen que estar en el título. Es más
   // estricto, pero evita que pedir un modelo concreto devuelva media tienda.
   let encontrados = productos.filter((p) =>
-    palabras.every((palabra) => coincide(palabra, p.busqueda))
+    grupos.every((grupo) => grupo.some((palabra) => coincide(palabra, p.busqueda)))
   );
 
   // RESCATE 1 — LAS PALABRAS PEGADAS O PARTIDAS.
@@ -136,7 +143,9 @@ export async function buscarProductos(env, termino, cuantos = 10) {
   // al cliente es peor que no encontrarlo.
   if (!encontrados.length) {
     encontrados = productos.filter((p) =>
-      palabras.every((palabra) => coincide(palabra, p.busqueda) || casiCoincide(palabra, p.busqueda))
+      grupos.every((grupo) =>
+        grupo.some((palabra) => coincide(palabra, p.busqueda) || casiCoincide(palabra, p.busqueda))
+      )
     );
     if (encontrados.length) {
       console.log(`Sin resultados exactos con "${palabras.join(" ")}": lo tomo como errata`);
@@ -147,6 +156,74 @@ export async function buscarProductos(env, termino, cuantos = 10) {
     productos: encontrados.slice(0, cuantos).map(({ busqueda, ...producto }) => producto),
     hayMas: encontrados.length > cuantos,
   };
+}
+
+/* ── LA MARCA QUE DICE EL CLIENTE NO ES LA QUE DICE LA HOJA ────────
+
+   EL FALLO QUE ESTO ARREGLA (26-sep-2026). En la hoja los teléfonos de
+   Xiaomi están como "Redmi Note 17" y "Poco X8 pro": la palabra "Xiaomi"
+   no aparece en NINGÚN título. Así que:
+
+     "xiaomi"        → NADA
+     "xiaomi note"   → NADA
+
+   El cliente pregunta por la marca con la que le vendieron el teléfono y
+   el bot le dice que no tiene ninguno, con la tienda llena de Xiaomi.
+
+   Son submarcas de la misma casa, y el cliente no tiene por qué saberlo.
+   Aquí se dice una vez y vale para el chat, para los comentarios y para
+   las listas.
+   ───────────────────────────────────────────────────────────────── */
+const OTRAS_FORMAS = new Map([
+  ["xiaomi", ["xiaomi", "redmi", "poco"]],
+  ["redmi", ["redmi", "xiaomi"]],
+  ["poco", ["poco", "xiaomi"]],
+  ["apple", ["apple", "iphone"]],
+  ["iphone", ["iphone", "apple"]],
+  ["samsung", ["samsung", "galaxy"]],
+  ["galaxy", ["galaxy", "samsung"]],
+]);
+
+// Palabras que el cliente usa para decir "teléfono" y que no nombran
+// ningún producto de la hoja. No se buscan, pero tampoco tumban la
+// búsqueda: "celulares note" tiene que encontrar los Note igual.
+function comoLasDiceLaHoja(pedidas, productos) {
+  const grupos = [];
+
+  for (const palabra of pedidas) {
+    const formas = OTRAS_FORMAS.get(palabra) || [palabra];
+
+    // "La hoja la conoce" incluye las erratas y las palabras metidas
+    // dentro de otra ("dophin" dentro de "Skydolphing"): si no, una
+    // palabra bien escrita de otra manera se daría por desconocida y se
+    // tiraría, que es justo lo contrario de lo que hace falta.
+    const sirve = formas.filter((forma) =>
+      productos.some((p) => coincide(forma, p.busqueda) || casiCoincide(forma, p.busqueda))
+    );
+
+    if (sirve.length) {
+      grupos.push(sirve);
+      continue;
+    }
+
+    // NINGUNA FORMA DE ESA PALABRA ESTÁ EN LA HOJA.
+    //
+    // Si lleva números, se respeta y la búsqueda vuelve vacía: pedir un
+    // "Note 20" que no existe TIENE que dar vacío, para que el bot diga
+    // que ese no lo tiene en vez de enseñar los Note que sí hay como si
+    // fueran el que pidió. Un número equivocado es el equipo equivocado.
+    if (/\d/.test(palabra)) {
+      grupos.push([palabra]);
+      continue;
+    }
+
+    // Sin números es una palabra de relleno —"celulares", "telefonos",
+    // "equipos", "marca"— o algo que esta tienda no maneja. Exigirla
+    // dejaba la búsqueda en cero y al cliente sin respuesta.
+    console.log(`"${palabra}" no está en ningún título de la hoja: no la exijo`);
+  }
+
+  return grupos;
 }
 
 // CÓMO SE COMPARA UNA PALABRA CON UN TÍTULO (crítico en teléfonos).

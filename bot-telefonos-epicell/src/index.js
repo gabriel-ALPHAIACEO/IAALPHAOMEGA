@@ -1132,9 +1132,39 @@ async function atenderConRed(env, mensaje) {
 // que aquí va el equipo, su precio, y una invitación a contestar —que es
 // lo que abre la ventana para poder mandarle las fotos después.
 //
-// Seis como mucho: el límite de Instagram son 1000 caracteres, y una
-// pantalla de teléfono llena de líneas no se lee.
-const EQUIPOS_EN_EL_PRIVADO = 6;
+// Y VA LA FAMILIA ENTERA, NO UNA VERSIÓN SUELTA (26-sep-2026, el dueño).
+// Quien comenta "precio" debajo de un Redmi Note 17 está preguntando por
+// ESE modelo, y ese modelo son varias cosas: el de 256, el Pro de 512, y
+// el forro que le sirve. Mandarle una sola línea le obliga a preguntar
+// otra vez —y con la ventana cerrada, esa segunda pregunta puede no
+// llegar nunca. Mejor que lo vea todo de una: es la información completa
+// del modelo, que es lo que pidió.
+//
+// Los accesorios van APARTE y con su título, porque un forro de 8 dólares
+// metido entre teléfonos de 240 se lee como si fuera un teléfono de 8.
+const LINEAS_EN_EL_PRIVADO = 8;
+const ACCESORIOS_EN_EL_PRIVADO = 3;
+
+// Qué es un accesorio y qué es un equipo. Se mira el título, que es lo
+// único que la hoja garantiza; una palabra de estas dentro y ya no es un
+// teléfono.
+const PALABRAS_DE_ACCESORIO = new Set([
+  "forro", "forros", "funda", "fundas", "case", "cover", "estuche",
+  "vidrio", "vidrios", "mica", "micas", "lamina", "glass", "protector",
+  "cable", "cables", "cargador", "cargadores", "adaptador", "taco",
+  "audifono", "audifonos", "auricular", "auriculares", "cascos",
+  "corneta", "cornetas", "bocina", "parlante", "powerbank", "pila",
+  "bateria", "reloj", "smartwatch", "banda", "memoria", "pendrive",
+  "soporte", "tripode", "microfono", "aro", "teclado", "mouse",
+  "combo", "silicona", "popsocket", "cargadorinalambrico",
+]);
+
+function esAccesorio(titulo) {
+  return despejar(titulo)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .some((palabra) => PALABRAS_DE_ACCESORIO.has(palabra));
+}
 
 // En la ficha, el precio va debajo de la foto y se entiende solo. En una
 // línea de texto, un "95" pelado no dice nada: si la hoja trae el número
@@ -1146,18 +1176,49 @@ function conMoneda(precio) {
   return /^[\d.,]+$/.test(limpio) ? `$${limpio}` : limpio;
 }
 
+function unaLinea(producto) {
+  const precio = conMoneda(precioParaMostrar(producto, false, false));
+  const capacidad = capacidadDe(producto);
+
+  // Si el título ya dice los gigas, repetirlos al lado sobra.
+  const yaEnElTitulo = capacidad && despejar(producto.titulo).includes(despejar(capacidad));
+  const detalle = [yaEnElTitulo ? "" : capacidad, precio].filter(Boolean).join(" · ");
+
+  return `• ${producto.titulo}${detalle ? ` — ${detalle}` : ""}`;
+}
+
 function conLosPrecios(saludo, productos) {
-  const lineas = productos
-    .slice(0, EQUIPOS_EN_EL_PRIVADO)
-    .map((producto) => {
-      const precio = conMoneda(subtituloDeFicha(producto, false, false));
-      return `📱 ${producto.titulo}${precio ? ` — ${precio}` : ""}`;
-    });
+  const accesorios = productos.filter((p) => esAccesorio(p.titulo));
+  const equipos = productos.filter((p) => !esAccesorio(p.titulo));
 
-  const faltan = productos.length - lineas.length;
-  if (faltan > 0) lineas.push(`…y ${faltan} más`);
+  // El sitio es para los equipos; los accesorios entran con lo que sobre.
+  const cuantosAccesorios = Math.min(
+    accesorios.length,
+    ACCESORIOS_EN_EL_PRIVADO,
+    Math.max(0, LINEAS_EN_EL_PRIVADO - Math.min(equipos.length, LINEAS_EN_EL_PRIVADO - 1))
+  );
+  const cuantosEquipos = Math.min(equipos.length, LINEAS_EN_EL_PRIVADO - cuantosAccesorios);
 
-  return `${saludo}\n\n${lineas.join("\n")}\n\n¿Quieres ver las fotos? Escríbeme por aquí 😊`;
+  const bloques = [];
+
+  if (equipos.length) {
+    const puestos = equipos.slice(0, cuantosEquipos).map(unaLinea);
+    const faltan = equipos.length - puestos.length;
+    if (faltan > 0) puestos.push(`…y ${faltan} más de este modelo`);
+    // El título solo hace falta cuando hay dos bloques que separar.
+    bloques.push((accesorios.length ? "📱 EQUIPOS\n" : "") + puestos.join("\n"));
+  }
+
+  if (cuantosAccesorios) {
+    const puestos = accesorios.slice(0, cuantosAccesorios).map(unaLinea);
+    const faltan = accesorios.length - puestos.length;
+    if (faltan > 0) puestos.push(`…y ${faltan} más`);
+    bloques.push(
+      (equipos.length ? "🎧 ACCESORIOS PARA ESE MODELO\n" : "") + puestos.join("\n")
+    );
+  }
+
+  return `${saludo}\n\n${bloques.join("\n\n")}\n\n¿Quieres ver las fotos? Escríbeme por aquí 😊`;
 }
 
 /* ── UN COMENTARIO EN UNA PUBLICACIÓN ──────────────────────────────
@@ -1283,9 +1344,19 @@ async function atenderComentario(env, comentario, rastro = {}) {
     }
   }
 
-  const productos = cual
-    ? (await buscarProductos(env, terminoDeTitulo(cual), 10)).productos
-    : [];
+  // LA FAMILIA DEL MODELO, NO UNA VERSIÓN SUELTA (26-sep-2026, el dueño).
+  //
+  // El pie dice "Redmi Note 17" y en la hoja eso son varias filas: el de
+  // 256, el Pro de 512, el de 8/128, y los accesorios de ese modelo. Si se
+  // busca con la capacidad pegada ("Redmi Note 17 256GB") vuelve UNA, y el
+  // cliente que comentó "precio" se queda sin saber que hay otras —con la
+  // ventana cerrada, puede que no pueda preguntarlo.
+  //
+  // Se le quita la capacidad al término y se busca el modelo: eso trae la
+  // familia completa, que es la información que pidió.
+  const familia = cual ? separarCapacidad(terminoDeTitulo(cual)).termino || terminoDeTitulo(cual) : "";
+
+  const productos = familia ? (await buscarProductos(env, familia, 10)).productos : [];
 
   console.log(
     cual
@@ -1327,7 +1398,7 @@ async function atenderComentario(env, comentario, rastro = {}) {
   let igsid = "";
   let fotosEnviadas = false;
   if (!yaAtendido && (modo === "todo" || modo === "privado")) {
-    const saludo = saludoPrivado(comentario.usuario, productos.length ? cual : "");
+    const saludo = saludoPrivado(comentario.usuario, productos.length ? familia : "");
 
     // INSTAGRAM DEJA MANDAR UN SOLO MENSAJE, ASÍ QUE EL PRECIO VA EN ÉL.
     //
@@ -3159,7 +3230,31 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   // la marca— la frase del modelo se respeta: ahí decir "ese no lo tengo"
   // es la verdad, y es lo que toca.
   const loQuePidio = productos.length ? nombraDelCatalogo(texto, productos) : "";
-  const leMuestroLoQuePidio = Boolean(loQuePidio);
+
+  // Y TAMBIÉN CUANDO ÉL LO DICE DE OTRA FORMA QUE LA HOJA.
+  //
+  // "¿Tienen Xiaomi Note?" y en la hoja están como "Redmi Note 17". El
+  // carrusel trae justo lo que pidió, pero su mensaje no contiene ningún
+  // título del catálogo, así que la comprobación de arriba decía que no, y
+  // un "no manejo Xiaomi" del modelo se quedaba tal cual encima de seis
+  // Xiaomi.
+  //
+  // La pregunta no es qué buscó el modelo —puede haber buscado de menos:
+  // con "¿tienes el Poco Z99 ultra?" buscó "Poco" y encontró tres, y ese
+  // Z99 no existe— sino si LO QUE ESCRIBIÓ EL CLIENTE encuentra estos
+  // mismos productos. Eso se responde buscando su propio texto: la
+  // búsqueda ya sabe de submarcas ("xiaomi" vale por "redmi"), ya perdona
+  // erratas y ya ignora el relleno, pero NO perdona un número que no
+  // existe. Si su texto los encuentra, el carrusel es lo que pidió.
+  let acertoLaBusqueda = false;
+
+  if (productos.length && !porCategoria) {
+    const { productos: porSuTexto } = await buscarProductos(env, texto, 20);
+    const encontrados = new Set(porSuTexto.map((p) => despejar(p.titulo)));
+    acertoLaBusqueda = productos.some((p) => encontrados.has(despejar(p.titulo)));
+  }
+
+  const leMuestroLoQuePidio = Boolean(loQuePidio) || acertoLaBusqueda;
 
   if (leMuestroLoQuePidio && AFIRMA_QUE_NO_HAY.test(salida.respuesta)) {
     console.log(
