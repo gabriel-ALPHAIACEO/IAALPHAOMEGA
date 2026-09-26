@@ -70,12 +70,12 @@ comprobar("y nombra la publicación y el equipo", /publicaci[oó]n del Samsung A
 comprobar("si no se sabe el equipo, pregunta por los de ESA publicación", /que salen ah[ií]/i.test(saludoPrivado("", "")), true);
 
 // ── El turno completo ──────────────────────────────────────────
-function montar({ privadoFalla = false, publicoFalla = false, sinPie = false, visionDice = "", hoja = HOJA, pie = "" } = {}) {
+function montar({ privadoFalla = false, publicoFalla = false, ventanaCerrada = false, sinPie = false, visionDice = "", hoja = HOJA, pie = "" } = {}) {
   const publicos = [];
   const privados = [];
   const DB = baseFalsa({ id: "cliente-del-comentario" });
 
-  const control = { privadoFalla, publicoFalla };
+  const control = { privadoFalla, publicoFalla, ventanaCerrada };
 
   globalThis.fetch = async (url, opciones = {}) => {
     const donde = String(url);
@@ -96,6 +96,15 @@ function montar({ privadoFalla = false, publicoFalla = false, sinPie = false, vi
         if (control.privadoFalla) return { ok: false, status: 400, text: async () => "no autorizado" };
         privados.push(cuerpo.message);
         return { ok: true, status: 200, json: async () => ({ recipient_id: "cliente-del-comentario", message_id: "m1" }) };
+      }
+      // El segundo mensaje a quien solo comentó: Instagram lo rechaza.
+      if (control.ventanaCerrada) {
+        return {
+          ok: false,
+          status: 403,
+          text: async () =>
+            '{"error":{"message":"This message is sent outside of allowed window.","type":"IGApiException","code":10,"error_subcode":2534022}}',
+        };
       }
       privados.push(cuerpo.message);
       return { ok: true, status: 200, json: async () => ({ message_id: "m2" }) };
@@ -220,6 +229,28 @@ comprobar("el saludo nombra ese equipo", /Galaxy S25 FE/.test(m.privados[0].text
 m = montar({ hoja: HOJA_S25, pie: "🔥 Promoción de fin de semana, aprovecha 🔥" });
 await atenderComentario({ ...env, SHEET_ID: "s25b", DB: m.DB }, { ...c, id: "pie-vacio", texto: "Precio por favor" });
 comprobar("un pie sin nombre no le inventa un equipo", m.privados.some((p) => p.attachment), false);
+
+/* ── INSTAGRAM SOLO DEJA MANDAR UN MENSAJE ─────────────────────────
+   Del registro de produccion (26-sep): el saludo salio y el carrusel lo
+   rechazo Meta con 403 "outside of allowed window". El cliente recibio
+   "te paso la info 👇" y debajo, nada. El precio tiene que ir DENTRO de
+   ese unico mensaje.
+   ───────────────────────────────────────────────────────────────── */
+m = montar({ ventanaCerrada: true });
+await atenderComentario({ ...env, DB: m.DB }, { ...c, id: "ventana-cerrada", texto: "Precio" });
+comprobar("con la ventana cerrada, igual le llega un mensaje", m.privados.length, 1);
+comprobar("y trae el equipo", /Samsung A57/.test(m.privados[0].text), true);
+comprobar("con su precio", /\$/.test(m.privados[0].text), true);
+comprobar("y lo invita a contestar, que es lo que abre la ventana", /escr[ií]beme por aqu[ií]/i.test(m.privados[0].text), true);
+comprobar("no se queda ninguna ficha a medias", m.privados.some((p) => p.attachment), false);
+comprobar("en público se contesta igual", m.publicos.length, 1);
+
+// Y si la ventana SÍ está abierta (esa persona ya venía escribiendo),
+// las fotos salen además del texto.
+m = montar();
+await atenderComentario({ ...env, DB: m.DB }, { ...c, id: "ventana-abierta", texto: "Precio" });
+comprobar("con la ventana abierta sí van las fotos", m.privados.some((p) => p.attachment), true);
+comprobar("y el texto sigue trayendo el precio", /Samsung A57/.test(m.privados[0].text), true);
 
 // Los modos
 comprobar("por defecto, todo", modoComentarios({}), "todo");

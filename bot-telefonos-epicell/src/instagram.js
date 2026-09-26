@@ -66,7 +66,30 @@ async function enviar(env, igsid, mensaje) {
   }
 
   if (!respuesta.ok) {
-    console.error("Instagram rechazó el envío:", respuesta.status, await respuesta.text());
+    const detalle = await respuesta.text();
+
+    // LA VENTANA CERRADA NO ES UNA AVERÍA (26-sep-2026).
+    //
+    //   403 "This message is sent outside of allowed window."
+    //   (IGApiException, code 10, error_subcode 2534022)
+    //
+    // Es la regla de Instagram: a quien no te ha escrito en las últimas 24
+    // horas no se le puede mandar un mensaje suelto. Pasa siempre con quien
+    // solo comentó en una publicación, y hasta ahora salía en el registro
+    // como un error rojo entre otros errores de verdad, que es lo que hace
+    // perder una tarde buscando una avería que no existe.
+    //
+    // Se explica en una línea y se sigue. Quien llama decide qué hacer: en
+    // los comentarios, el precio ya va dentro del único mensaje permitido.
+    if (/outside of allowed window|2534022/i.test(detalle)) {
+      console.log(
+        "Instagram no acepta este mensaje: la ventana de 24 h está cerrada " +
+          "(esa persona no nos ha escrito). No es un fallo del bot ni del token."
+      );
+      return "";
+    }
+
+    console.error("Instagram rechazó el envío:", respuesta.status, detalle);
     return "";
   }
 

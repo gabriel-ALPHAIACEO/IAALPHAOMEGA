@@ -1126,6 +1126,40 @@ async function atenderConRed(env, mensaje) {
 }
 
 
+// EL ÚNICO MENSAJE QUE INSTAGRAM DEJA MANDAR, CON TODO DENTRO.
+//
+// Un saludo que promete información y no la trae vale menos que nada. Así
+// que aquí va el equipo, su precio, y una invitación a contestar —que es
+// lo que abre la ventana para poder mandarle las fotos después.
+//
+// Seis como mucho: el límite de Instagram son 1000 caracteres, y una
+// pantalla de teléfono llena de líneas no se lee.
+const EQUIPOS_EN_EL_PRIVADO = 6;
+
+// En la ficha, el precio va debajo de la foto y se entiende solo. En una
+// línea de texto, un "95" pelado no dice nada: si la hoja trae el número
+// sin símbolo, se le pone aquí. (Solo aquí: las fichas siguen mostrando
+// exactamente lo que dice la hoja.)
+function conMoneda(precio) {
+  const limpio = String(precio || "").trim();
+  if (!limpio) return "";
+  return /^[\d.,]+$/.test(limpio) ? `$${limpio}` : limpio;
+}
+
+function conLosPrecios(saludo, productos) {
+  const lineas = productos
+    .slice(0, EQUIPOS_EN_EL_PRIVADO)
+    .map((producto) => {
+      const precio = conMoneda(subtituloDeFicha(producto, false, false));
+      return `📱 ${producto.titulo}${precio ? ` — ${precio}` : ""}`;
+    });
+
+  const faltan = productos.length - lineas.length;
+  if (faltan > 0) lineas.push(`…y ${faltan} más`);
+
+  return `${saludo}\n\n${lineas.join("\n")}\n\n¿Quieres ver las fotos? Escríbeme por aquí 😊`;
+}
+
 /* ── UN COMENTARIO EN UNA PUBLICACIÓN ──────────────────────────────
    Dos respuestas, y cada una hace algo distinto:
 
@@ -1291,9 +1325,32 @@ async function atenderComentario(env, comentario, rastro = {}) {
 
   // 1. El privado, que es donde se vende.
   let igsid = "";
+  let fotosEnviadas = false;
   if (!yaAtendido && (modo === "todo" || modo === "privado")) {
     const saludo = saludoPrivado(comentario.usuario, productos.length ? cual : "");
-    const abierto = await privadoPorComentario(env, comentario.id, saludo);
+
+    // INSTAGRAM DEJA MANDAR UN SOLO MENSAJE, ASÍ QUE EL PRECIO VA EN ÉL.
+    //
+    // EL FALLO QUE ESTO ARREGLA (26-sep-2026, visto en producción). El bot
+    // abría el privado con el saludo y mandaba las fichas en un SEGUNDO
+    // mensaje. Ese segundo mensaje lo rechazaba Meta:
+    //
+    //   403 "This message is sent outside of allowed window."
+    //   (IGApiException, code 10, error_subcode 2534022)
+    //
+    // No es un fallo del token ni del código: es la regla de Instagram. A
+    // quien solo comentó se le puede escribir UNA vez —la respuesta
+    // privada al comentario— y nada más hasta que esa persona conteste. El
+    // cliente recibía "te paso la info 👇" y debajo, nada. Lo peor posible:
+    // la promesa sin la información.
+    //
+    // Así que el equipo y su precio van DENTRO de ese único mensaje, en
+    // texto. Las fotos se intentan igual —si esa persona ya venía
+    // escribiendo, la ventana está abierta y llegan— pero ya no son lo que
+    // sostiene la respuesta.
+    const mensajePrivado = productos.length ? conLosPrecios(saludo, productos) : saludo;
+
+    const abierto = await privadoPorComentario(env, comentario.id, mensajePrivado);
     igsid = abierto.igsid;
 
     if (igsid) {
@@ -1302,7 +1359,7 @@ async function atenderComentario(env, comentario, rastro = {}) {
       const contacto = await cargarContacto(env.DB, igsid);
       let mids = agregarMid(contacto.mids_enviados, abierto.mid);
       let enviadoEn = Date.now();
-      await marcarEnvio(env.DB, igsid, mids, enviadoEn, [saludo]);
+      await marcarEnvio(env.DB, igsid, mids, enviadoEn, [mensajePrivado]);
 
       if (productos.length) {
         const fichas = productos.map((producto) => ({
@@ -1312,20 +1369,33 @@ async function atenderComentario(env, comentario, rastro = {}) {
 
         const mid = await enviarFichas(env, igsid, fichas);
         if (mid) {
+          fotosEnviadas = true;
           mids = agregarMid(mids, mid);
           enviadoEn = Date.now();
-          await marcarEnvio(env.DB, igsid, mids, enviadoEn, [saludo]);
+          await marcarEnvio(env.DB, igsid, mids, enviadoEn, [mensajePrivado]);
+        } else {
+          // Lo esperable: la ventana está cerrada porque esta persona solo
+          // comentó. No es un error que haya que arreglar, y el cliente ya
+          // tiene su precio en el mensaje de arriba.
+          console.log(
+            "Instagram no dejó mandar las fotos (solo se permite un mensaje " +
+              "por comentario): el precio ya va escrito en el privado. Las " +
+              "fichas salen en cuanto el cliente conteste."
+          );
         }
 
         await guardarContacto(env.DB, {
           ...contacto,
           historial: conNota(
             contacto.historial,
-            `Ya di la bienvenida. Vino de un comentario en una publicación. Ya busqué: ${cual}.`
+            `Ya di la bienvenida. Vino de un comentario en una publicación. Ya busqué: ${cual}. ` +
+              (fotosEnviadas
+                ? "Le mandé las fichas."
+                : "Le pasé los precios por escrito; si pide fotos, mándaselas.")
           ),
           mids_enviados: mids,
           ultimo_envio: enviadoEn,
-          ultima_respuesta: saludo,
+          ultima_respuesta: mensajePrivado,
           ultimos_productos: productos.map((producto) => producto.titulo),
         });
       } else {
@@ -1337,7 +1407,7 @@ async function atenderComentario(env, comentario, rastro = {}) {
           ),
           mids_enviados: mids,
           ultimo_envio: enviadoEn,
-          ultima_respuesta: saludo,
+          ultima_respuesta: mensajePrivado,
         });
       }
     }
@@ -1383,7 +1453,10 @@ async function atenderComentario(env, comentario, rastro = {}) {
       respuesta: yaAtendido
         ? "Comentó en una publicación mientras un asesor lo atiende por privado: NO le escribí nada."
         : igsid
-          ? `Le abrí el privado${productos.length ? ` con ${productos.length} equipo(s)` : ""}.`
+          ? `Le abrí el privado${productos.length ? ` con ${productos.length} equipo(s)` : ""}.` +
+            (productos.length && !fotosEnviadas
+              ? " Las fotos no salieron: Instagram solo permite un mensaje hasta que él conteste."
+              : "")
           : "No pude abrirle el privado: le contesté en público que escriba.",
       motivo: "COMENTÓ EN UNA PUBLICACIÓN",
       historial: publicacion?.titulo ? `Publicación: ${publicacion.titulo.slice(0, 120)}` : "",
