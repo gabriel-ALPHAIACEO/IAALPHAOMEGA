@@ -732,3 +732,37 @@ async function fotoDelCatalogo(env, url) {
 
   return uri;
 }
+
+// LA FAMILIA A LA QUE PERTENECE UN TÍTULO.
+//
+// "Air Force One marrón blanco Caballero"  ->  "Air Force One"
+// "Nike Metcon 7 negro dama"               ->  "Nike Metcon 7"
+// "Skechers caballero"                     ->  "Skechers"
+//
+// Se usa para enseñar, detrás del zapato que se reconoció en la foto, los
+// demás del MISMO modelo. En este catálogo cada color es un producto con
+// su propio título, así que "los del mismo título" son casi siempre uno
+// solo: la familia es lo que de verdad agrupa lo que el cliente quiere
+// ver después del suyo.
+//
+// La lista de familias es prompts/modelos.txt, la misma que ve la IA de
+// visión, y se eligió la MÁS LARGA que encaje: así "Nike Metcon 7" gana a
+// "Nike", y el cliente ve los Metcon 7 y no cualquier Nike.
+let familiasOrdenadas = null;
+
+export function familiaDelTitulo(titulo) {
+  const texto = String(titulo || "").toLowerCase();
+  if (!texto) return "";
+
+  if (!familiasOrdenadas) {
+    familiasOrdenadas = listaModelos
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#"))
+      // De la más larga a la más corta: la primera que encaje es la más
+      // específica que existe.
+      .sort((a, b) => b.length - a.length);
+  }
+
+  return familiasOrdenadas.find((f) => texto.includes(f.toLowerCase())) || "";
+}

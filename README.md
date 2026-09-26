@@ -33,6 +33,30 @@ Tres capas, y cada una arregla el fallo de la anterior:
    - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
    - **Indexar el catálogo una sola vez** ← **esto es lo que se hizo.** Ver abajo.
 
+### Fuera la plantilla que siempre mandaba lo mismo (26-sep-2026)
+
+Reportado por el dueño: *"siempre manda, cuando no sabe qué es, manda Nike Trail y otros ahí"*. Tres cambios, todos sobre lo mismo.
+
+#### 1. Sin reconocer la foto → el catálogo completo, y aviso al asesor
+
+Lo que había: cuando el cotejo se abstenía, se le enseñaban los **6 del índice que más se parecían**, con un *"¿es alguno de estos?"*. La idea —no pedirle el nombre a quien no lo sabe— sigue siendo buena, pero en producción falló: **cuando la descripción de la foto es pobre el parecido por palabras da casi empate entre cientos, y desempata siempre igual.** Al cliente le llegaban los mismos seis zapatos una y otra vez, ninguno el suyo. Seis fichas equivocadas no son mejores que una pregunta: son peores, porque **parecen** una respuesta.
+
+Ahora va el **catálogo completo** — lo honesto y lo más útil a la vez — y además **se avisa al asesor**. Quien manda una foto ya vio el zapato y lo quiere: es de los mensajes que más cerca están de una venta, y si la máquina no lo reconoció, una persona sí va a poder. El cliente no espera: recibe el catálogo mientras tanto.
+
+`parecidosDeLaFoto()` se eliminó; no queda código muerto.
+
+#### 2. Reconocido → solo su familia, nunca la marca
+
+Cuando la visión se queda en la marca (`"Nike"`), la búsqueda trae diez Nike cualesquiera. `resultado()` los ponía **detrás del zapato reconocido**, así que al cliente le llegaba su zapato y, pegados, un `Nike Trail` y compañía que no tenían nada que ver.
+
+Eso se añadió para el caso de los Jordan 40, donde los de la búsqueda **sí** eran del modelo correcto. La diferencia estaba disponible todo el tiempo: `nombreFiable` es true cuando la visión nombró un MODELO y false cuando se quedó en la marca. Ahora la cola solo se añade en el primer caso.
+
+#### 3. La familia, no el título exacto
+
+`hermanos` buscaba los del **mismo título**. Eso cubría los 17 `New Balance 9060 Dama`, pero en este catálogo cada color suele tener su propio nombre (`Air Force One marrón blanco Caballero`, `Air Force One Negro dama`), así que lo normal era mandar **una ficha suelta**.
+
+`familiaDelTitulo()` (en `ia.js`) usa `prompts/modelos.txt` —los 163 modelos reales— y elige **la más específica que encaje**: un `Nike Metcon 7` trae Metcon 7, no cualquier Nike. El de la foto va **primero** y detrás su familia.
+
 ### EPICELL: el bot prometió "0% con Cashea", que no existe (26-sep-2026)
 
 La inicial más baja de Cashea es **20%** (niveles 5 y 6) y la de Krece **15%** (Platino). El cliente lee "0%", entiende que no paga nada el primer día, viene a la tienda con las manos vacías, y la venta se cae en el mostrador.

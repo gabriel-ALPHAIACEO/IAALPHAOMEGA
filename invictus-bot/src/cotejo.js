@@ -34,7 +34,7 @@
 // seguiría sin este archivo.
 
 import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
-import { cotejarConCatalogo, estaLimitado, modeloDeVision } from "./ia.js";
+import { cotejarConCatalogo, estaLimitado, modeloDeVision, familiaDelTitulo } from "./ia.js";
 import { terminosCompatibles } from "./identificar.js";
 import {
   leerIndice,
@@ -235,7 +235,7 @@ export async function cotejoPorImagen({
 
   if (pila.length >= minimo) {
     const elegido = await cotejar(env, foto, pila, textoCliente, minimo, yaMirados);
-    if (elegido) return resultado(elegido, productos, indice);
+    if (elegido) return resultado(elegido, productos, indice, { nombreFiable, termino });
     losDelNombreFueronRechazados = productos.some((p) => yaMirados.has(clave(p)));
   }
 
@@ -260,7 +260,7 @@ export async function cotejoPorImagen({
         minimo,
         yaMirados
       );
-      if (elegido) return resultado(elegido, productos, indice);
+      if (elegido) return resultado(elegido, productos, indice, { nombreFiable, termino });
     }
   }
 
@@ -334,7 +334,7 @@ export async function cotejoPorImagen({
       );
 
       const elegido = await cotejar(env, foto, candidatos, textoCliente, 1, yaMirados, DESDE_EL_INDICE);
-      if (elegido) return resultado(elegido, productos, indice);
+      if (elegido) return resultado(elegido, productos, indice, { nombreFiable, termino });
 
       // Si OpenAI se quedó sin cupo, las rondas siguientes fallarían
       // igual y el cliente está esperando.
@@ -381,7 +381,7 @@ export async function cotejoPorImagen({
   const elegido = await barrerCatalogo(env, foto, textoCliente, { termino, yaMirados });
   if (!elegido) return null;
 
-  return resultado(elegido, productos, indice);
+  return resultado(elegido, productos, indice, { nombreFiable, termino });
 }
 
 // El índice entero, una sola vez. Sin él el bot sigue funcionando: solo
@@ -494,7 +494,7 @@ function clave(producto) {
 }
 
 // Qué se le devuelve a decidir() según de dónde salió el par elegido.
-function resultado(elegido, productos, indice = []) {
+function resultado(elegido, productos, indice = [], { nombreFiable = false, termino = '' } = {}) {
   const estaba = productos.some((p) => p.titulo === elegido.titulo);
 
   // Salió de la búsqueda original: el cliente pidió ESE modelo y los
@@ -509,37 +509,67 @@ function resultado(elegido, productos, indice = []) {
 
   // SALIÓ DEL ÍNDICE O DE LA MARCA: SE LE ENSEÑA CON SUS HERMANOS.
   //
-  // En este catálogo el mismo título se repite una vez por color —hay 17
-  // "New Balance 9060 Dama"—, así que los que comparten título son EL
-  // MISMO ZAPATO en otros colores. Eso no es ruido: es lo que el cliente
-  // quiere ver después del suyo. El de la foto va PRIMERO.
-  const hermanos = indice.filter(
-    (p) => p.titulo === elegido.titulo && p.imagen !== elegido.imagen && p.imagen
-  );
+  // DETRÁS VA SU FAMILIA, NO SOLO SU TÍTULO EXACTO (26-sep-2026).
+  //
+  // Antes se buscaban los del MISMO TÍTULO. Eso cubría el caso de los 17
+  // "New Balance 9060 Dama", pero en este catálogo cada color suele ser un
+  // producto con su propio nombre —"Air Force One marrón blanco
+  // Caballero", "Air Force One Negro dama"—, así que el mismo título era
+  // casi siempre uno solo y el cliente recibía una ficha suelta.
+  //
+  // Pedido del dueño: "que mande la familia completa y que el que está en
+  // la historia salga de primero". La familia sale de prompts/modelos.txt
+  // (ver familiaDelTitulo en ia.js), que es la lista de los 163 modelos
+  // reales; se elige la más específica que encaje, así que un Metcon 7
+  // trae Metcon 7 y no cualquier Nike.
+  const familia = familiaDelTitulo(elegido.titulo);
+
+  const hermanos = familia
+    ? indice.filter(
+        (p) =>
+          p.imagen &&
+          p.imagen !== elegido.imagen &&
+          p.titulo !== elegido.titulo &&
+          familiaDelTitulo(p.titulo) === familia
+      )
+    : indice.filter(
+        (p) => p.titulo === elegido.titulo && p.imagen !== elegido.imagen && p.imagen
+      );
 
   if (hermanos.length) {
-    console.log(`Del mismo modelo hay ${hermanos.length} más: van detrás del de la foto`);
+    console.log(
+      `De la familia "${familia || elegido.titulo}" hay ${hermanos.length} más: ` +
+        "van detrás del de la foto"
+    );
   }
 
-  // Y DETRÁS, LO QUE ENCONTRÓ LA BÚSQUEDA POR NOMBRE (24-sep-2026).
+  // Y DETRÁS, LO QUE ENCONTRÓ LA BÚSQUEDA — SOLO SI ERA DEL MISMO MODELO.
   //
-  // Antes esto se tiraba: si el par salía del índice, el cliente recibía
-  // solo ese. Los dos fallos reportados salen de ahí, y son el mismo por
-  // los dos lados:
+  // Guardarlos detrás resolvió el caso de los Jordan 40: el índice eligió
+  // un "Jordan Lukka" y, sin esto, los 5 Jordan 40 que la búsqueda SÍ
+  // había encontrado se perdían.
   //
-  //   · Historia con unos Jordan 40. El índice eligió un "Jordan Lukka" y
-  //     los 5 Jordan 40 que la búsqueda SÍ había encontrado se perdieron.
-  //   · Foto de un New Balance 2000. La visión se inventó "9060", y para
-  //     no repetir lo anterior se le enseñaban los 9060 aunque el cotejo
-  //     acabara de decir que ninguno era.
+  // PERO SOLO VALE SI LA BÚSQUEDA ERA DEL MODELO (26-sep-2026). Cuando la
+  // visión se queda en la marca —"Nike"— lo que trae la búsqueda son diez
+  // Nike cualesquiera, y detrás del zapato reconocido le llegaban al
+  // cliente un Nike Trail y compañía que no tienen nada que ver con su
+  // foto. Reportado tal cual: "cuando reconoce 1 calzado que mande solo el
+  // calzado que reconoció, no la plantilla de Nike Trail".
   //
-  // Guardarlos detrás quita la elección imposible: si el índice acierta,
-  // el bueno va primero; si se equivoca, el cliente todavía ve lo que la
-  // búsqueda encontró, en la misma ficha. Ninguno de los dos casos acaba
-  // peor que antes.
-  const delNombre = productos.filter(
-    (p) => p.titulo !== elegido.titulo && !hermanos.some((h) => h.titulo === p.titulo)
-  );
+  // "nombreFiable" es justo esa diferencia: true cuando la visión nombró
+  // un MODELO, false cuando se quedó en la marca.
+  const delNombre = nombreFiable
+    ? productos.filter(
+        (p) => p.titulo !== elegido.titulo && !hermanos.some((h) => h.titulo === p.titulo)
+      )
+    : [];
+
+  if (!nombreFiable && productos.length) {
+    console.log(
+      `Los ${productos.length} de "${termino}" eran de la marca, no del modelo: ` +
+        "no los mando detrás del que reconocí"
+    );
+  }
 
   if (delNombre.length) {
     console.log(
@@ -658,43 +688,6 @@ async function cotejar(
 
 function primeraPalabra(termino) {
   return String(termino || "").trim().split(/\s+/)[0] || "";
-}
-
-
-// LOS DEL CATÁLOGO QUE MÁS SE PARECEN A LA FOTO, SIN GASTAR UN TOKEN.
-//
-// Esto NO es el cotejo: no le pregunta nada al modelo y no afirma que
-// ninguno sea el de la foto. Compara los 15 rasgos contra los del índice
-// —aritmética, milisegundos, cero llamadas— y devuelve los que más
-// puntúan.
-//
-// Para qué. Cuando el cotejo se abstiene y la búsqueda por nombre no dejó
-// nada, el bot se quedaba preguntando "¿sabes cómo se llama?". Teniendo
-// el catálogo entero indexado eso es absurdo: sabe qué hay y sabe a qué
-// se parece la foto. Enseñarle cinco y preguntarle cuál es vende; pedirle
-// el nombre de un zapato que no sabe nombrar, no.
-export async function parecidosDeLaFoto(env, rasgos, cuantos = 6, color = "", visto = "") {
-  if (!env.DB || !rasgos) return [];
-
-  let indice = [];
-  try {
-    indice = await leerIndice(env.DB);
-  } catch (error) {
-    console.error("No pude leer el índice para buscar parecidos:", error?.message || error);
-    return [];
-  }
-
-  if (!indice.length) return [];
-
-  const mejores = mejoresPorRasgos(indice, rasgos, cuantos, color, visto).filter((p) => p.titulo && p.imagen);
-
-  if (mejores.length) {
-    console.log(
-      `Parecidos del índice (sin gastar modelo): ${mejores.map((p) => p.titulo).join(" · ")}`
-    );
-  }
-
-  return mejores;
 }
 
 

@@ -37,7 +37,7 @@ import { alternativasPara } from "./parecidos.js";
 import { separarColor, filtrarPorColor, terminoDeColor, nombreDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
-import { cotejoPorImagen, parecidosDeLaFoto, ordenarPorLaFoto } from "./cotejo.js";
+import { cotejoPorImagen, ordenarPorLaFoto } from "./cotejo.js";
 import { leerIndice, indexarTanda } from "./indice.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
@@ -70,7 +70,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-26 (22) · el rechazo del cotejo se mide de verdad, y el título se refresca";
+const VERSION = "2026-09-26 (23) · sin reconocer va el catálogo y avisa al asesor; reconocido, su familia";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -99,24 +99,19 @@ const ENCONTRE_EL_DE_LA_FOTO = [
   "¡Ese mismo lo manejamos! 👟 Mira 👇",
 ];
 
-// NO SE PUDO AFIRMAR CUÁL ES, PERO EL CATÁLOGO INDEXADO SÍ TIENE
-// CANDIDATOS QUE SE LE PARECEN.
+// NO SE RECONOCIÓ EL CALZADO DE LA FOTO.
 //
-// Ninguna de estas frases afirma nada: enseñan y preguntan cuál, que es
-// lo que hace una vendedora con el zapato delante. Lo que NO se hace más
-// es pedirle el nombre de un modelo que el cliente no sabe nombrar —
-// para eso está la foto, y para eso se indexó el catálogo entero.
-const ES_ALGUNO_DE_ESTOS = [
-  "Mira, ¿es alguno de estos? 👇",
-  "Tengo estos que se parecen mucho 👟 ¿Es alguno?",
-  "A ver si es uno de estos 👇 Dime cuál y te paso el precio 😊",
-  "Creo que puede ser alguno de estos 👟 Échales un ojo 👇",
-  "Estos son los que más se le parecen 👇 ¿Alguno es el que viste?",
+// Ninguna dice "no sé" ni le pide el nombre: le abren el catálogo, que es
+// lo que puede mirar él mismo. Antes aquí se le enseñaban los seis del
+// índice que más se parecían, y acababan siendo siempre los mismos seis
+// —ninguno el suyo—. Seis fichas equivocadas parecen una respuesta, y por
+// eso son peores que mandarlo a mirar.
+const NO_SE_CUAL_ES = [
+  "Ese no lo tengo a mano ahora mismo 😅 Pero mira el catálogo completo 👇 y dime cuál es",
+  "Échale un ojo al catálogo completo 👇 Cuando lo veas, dime cuál y te paso el precio 😊",
+  "Aquí tienes todo lo que manejamos 👇 Búscalo con calma y me dices cuál es 👟",
+  "Mira el catálogo entero 👇 Dime cuál de esos es y te lo muestro con su precio",
 ];
-
-// Cuántos se le enseñan. Suficientes para que esté el suyo, pocos para
-// que pueda mirarlos: veinte fichas no se revisan, se ignoran.
-const PARECIDOS_DEL_INDICE = 6;
 
 // LA FOTO ERA LA TIENDA ENTERA, NO UN ZAPATO.
 //
@@ -1206,6 +1201,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     buscoSinExito,
     seAcabaron,
     hayMasDelCatalogo,
+    noReconociLaFoto,
     alternativa,
   } = await decidir({
     env,
@@ -1262,6 +1258,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     productos,
     preguntoTalla,
     buscoSinExito,
+    noReconociLaFoto,
   });
 
   if (escalada) {
@@ -1270,7 +1267,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       igsid: mensaje.igsid,
       mensaje: textoCliente,
       respuesta: respuestaCliente,
-      motivo: motivo({ preguntoTalla }),
+      motivo: motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto }),
       historial: salida.historial,
       busco: termino,
       productos,
@@ -1739,43 +1736,48 @@ async function decidir({
     });
   }
 
-  // TENIENDO EL CATÁLOGO INDEXADO, NO SE LE PREGUNTA EL NOMBRE.
+  // NO SE RECONOCIÓ LA FOTO: EL CATÁLOGO COMPLETO (26-sep-2026).
   //
-  // Hasta aquí, si el cotejo se abstuvo y la búsqueda por nombre no dejó
-  // nada, el bot contestaba "no logro identificar ese modelo, ¿sabes cómo
-  // se llama?". Con los 581 productos indexados eso es absurdo por dos
-  // razones: el bot SÍ sabe qué hay, y el cliente que manda una foto casi
-  // nunca sabe el nombre — si lo supiera, lo habría escrito.
+  // LO QUE HABÍA AQUÍ Y POR QUÉ SE QUITÓ. Cuando el cotejo se abstenía, se
+  // le enseñaban los 6 del índice que más se parecían a la foto, con un
+  // "¿es alguno de estos?". La idea era no preguntarle el nombre a quien
+  // no lo sabe, y eso sigue siendo cierto — pero en producción salió mal:
   //
-  // Así que en vez de preguntar, se le ENSEÑA: los rasgos de su foto se
-  // comparan contra los del índice —en código, sin gastar un token ni
-  // tocar el cupo de OpenAI— y salen los que más se le parecen.
+  //   "siempre manda cuando no sabe qué es, manda Nike Trail y otros ahí"
   //
-  // NO SE AFIRMA QUE SEA NINGUNO. La frase que acompaña pregunta cuál es,
-  // no dice "es este". Esa es la diferencia con el cotejo, que sí afirma
-  // y por eso exige confianza alta.
-  if (foto && !productos.length && rasgos) {
-    const parecidos = await parecidosDeLaFoto(env, rasgos, PARECIDOS_DEL_INDICE, colorFoto, vistoFoto);
+  // Y tenía razón. Cuando la descripción de la foto es pobre —un zapato
+  // liso, mala luz, lejos— el parecido por palabras da CASI EMPATE entre
+  // cientos, y desempata siempre igual. Al cliente le llegaban los mismos
+  // seis zapatos una y otra vez, ninguno el suyo. Seis fichas equivocadas
+  // no son mejores que una pregunta: son peores, porque parecen una
+  // respuesta.
+  //
+  // Cuando de verdad no se sabe, la respuesta honesta y la más útil es la
+  // misma: el catálogo entero, que es lo que el cliente puede mirar él.
+  if (foto && !productos.length) {
+    salida.respuesta = alAzar(NO_SE_CUAL_ES);
+    salida.historial = conNota(
+      salida.historial,
+      "No se reconoció el calzado de la foto; le pasé el catálogo completo."
+    );
+    console.log("No reconocí la foto: aviso al asesor y le mando el catálogo completo");
 
-    if (parecidos.length) {
-      productos = parecidos;
-      habiaDelModelo = parecidos.length;
-
-      // No es que haya más escondidos: son los más parecidos de TODO el
-      // catálogo. Mandarlo al enlace ahora sería alejarlo de su zapato.
-      hayMasEnCatalogo = false;
-
-      salida.respuesta = alAzar(ES_ALGUNO_DE_ESTOS);
-      salida.historial = conNota(
-        salida.historial,
-        `No se pudo afirmar el modelo de la foto; le enseñé ${parecidos.length} parecidos del catálogo.`
-      );
-
-      console.log(
-        `Sin nada que mostrar: enseño ${parecidos.length} parecidos del índice ` +
-          "en vez de preguntarle el nombre"
-      );
-    }
+    return {
+      preguntoTalla,
+      termino: "",
+      aBuscar,
+      colores,
+      productos: [],
+      buscoSinExito: false,
+      seAcabaron: false,
+      hayMasDelCatalogo: true,
+      // El asesor tiene que enterarse: hay un cliente con una foto en la
+      // mano que el bot no supo leer, y ese es de los que más cerca están
+      // de comprar. Ver hayEscalada().
+      noReconociLaFoto: true,
+      alternativa: "",
+      respuestaCliente: salida.respuesta,
+    };
   }
 
   // NO LE MANDES DOS VECES EL MISMO CARRUSEL (crítico).
@@ -1885,6 +1887,7 @@ async function decidir({
     buscoSinExito,
     seAcabaron,
     hayMasDelCatalogo,
+    noReconociLaFoto: false,
     alternativa,
     respuestaCliente,
   };
@@ -1900,17 +1903,30 @@ async function decidir({
 //     frases de cierre del prompt llevan "en un momento", y la oferta "¿Te
 //     paso con un asesor?" no, porque el cliente aún no ha dicho que sí.
 //
+//   · Mandó una FOTO y el bot no supo qué calzado era. Este se añadió el
+//     26-sep-2026, a pedido del dueño. Quien manda una foto ya vio el
+//     zapato y lo quiere: es de los mensajes que más cerca están de una
+//     venta, y si la máquina no lo reconoció, una persona sí va a poder.
+//     Al cliente se le manda el catálogo completo mientras tanto, así que
+//     no se queda esperando.
+//
 // No se avisa mientras el bot esté mostrando calzados: la venta sigue viva.
-// Tampoco cuando una búsqueda no da resultados — eso queda en los registros,
-// no es trabajo para el asesor.
-function hayEscalada({ respuesta, productos, preguntoTalla, buscoSinExito }) {
+// Tampoco cuando una búsqueda por texto no da resultados — eso queda en los
+// registros, no es trabajo para el asesor. La foto sin reconocer sí lo es:
+// ahí hay una imagen concreta que alguien puede mirar.
+function hayEscalada({ respuesta, productos, preguntoTalla, buscoSinExito, noReconociLaFoto }) {
   if (preguntoTalla) return true;
+  if (noReconociLaFoto) return true;
   if (buscoSinExito || productos.length) return false;
   return respuesta.toLowerCase().includes("en un momento");
 }
 
-// Primera línea de la notificación: le dice al asesor qué tiene que contestar
-// antes de abrir la conversación.
-function motivo({ preguntoTalla }) {
-  return preguntoTalla ? "PREGUNTO POR TALLAS" : "QUIERE CERRAR LA COMPRA";
+// Primera línea de la notificación: le dice al asesor qué tiene que
+// contestar antes de abrir la conversación.
+function motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto }) {
+  if (preguntoTalla) return "PREGUNTO POR TALLAS";
+  if (noReconociLaFoto) return "MANDO UNA FOTO Y NO SUPE QUE CALZADO ES";
+  return "QUIERE CERRAR LA COMPRA";
 }
+
+
