@@ -1,7 +1,7 @@
 // Los comentarios de las publicaciones: que se lean, que no se conteste
 // dos veces, que el bot no se responda a sí mismo, y que el cliente
 // termine con su equipo y su precio en el privado.
-import { leerComentario, esNuestro, respuestaPublica, saludoPrivado } from "./.stub/comentarios.js";
+import { leerComentario, leerComentarios, esNuestro, respuestaPublica, saludoPrivado } from "./.stub/comentarios.js";
 import { atenderComentario, modoComentarios } from "./.stub/index.js";
 import { HOJA, baseFalsa } from "./banco.mjs";
 
@@ -33,11 +33,34 @@ comprobar("los de un vivo también", leerComentario(webhook({ id: "1", text: "ho
 comprobar("un comentario borrado no se contesta", leerComentario(webhook({ id: "1", text: "x", verb: "remove", from: { id: "2" } })), null);
 comprobar("un mensaje directo no es un comentario", leerComentario({ entry: [{ messaging: [{ message: { text: "hola" } }] }] }), null);
 
+// META LOS MANDA EN LOTES. Antes se leía solo el primero y los demás se
+// tiraban: gente preguntando debajo de la publicación y nadie contestando.
+const dosJuntos = {
+  entry: [
+    {
+      id: "17841400000000000",
+      changes: [
+        { field: "comments", value: { id: "c1", text: "precio?", from: { id: "u1", username: "ana" }, media: { id: "p1" } } },
+        { field: "comments", value: { id: "c2", text: "y el poco?", from: { id: "u2", username: "luis" }, media: { id: "p1" } } },
+      ],
+    },
+  ],
+};
+comprobar("dos comentarios en un aviso: se leen los dos", leerComentarios(dosJuntos).map((x) => x.id), ["c1", "c2"]);
+comprobar("y en dos entry distintos también", leerComentarios({ entry: [dosJuntos.entry[0], { id: "1", changes: [{ field: "comments", value: { id: "c3", text: "hola", from: { id: "u3" } } }] }] }).length, 3);
+comprobar("sin comentarios, lista vacía", leerComentarios({ entry: [{ messaging: [{}] }] }), []);
+
 // ── No responderse a sí mismo ──────────────────────────────────
 const yo = { id: "17841400000000000", usuario: "epiccell.vzla" };
 comprobar("el comentario del cliente NO es nuestro", esNuestro(c, yo), false);
 comprobar("el nuestro por id de cuenta sí", esNuestro({ de: "17841400000000000", cuenta: "17841400000000000" }, yo), true);
 comprobar("el nuestro por usuario también", esNuestro({ de: "999", usuario: "EPICCELL.VZLA", cuenta: "1" }, yo), true);
+// LA RED QUE NO DEPENDE DE NADA: si quienSoy falla (un permiso que falta),
+// el bot se contestaba a sí mismo en bucle, en público. Sus propias frases
+// se reconocen sin preguntarle nada a Meta.
+comprobar("reconoce su propia frase sin quienSoy", esNuestro({ de: "999", cuenta: "1", texto: "¡Respondido al DM! 📩" }, null), true);
+comprobar("y la de «escríbenos por privado»", esNuestro({ de: "999", cuenta: "1", texto: "¡Hola! 😊 Escríbenos por privado y te pasamos toda la info 📩" }, null), true);
+comprobar("un «precio?» del cliente no", esNuestro({ de: "999", cuenta: "1", texto: "precio?" }, null), false);
 
 // ── Lo que se dice en cada lado ────────────────────────────────
 comprobar("en público no va el precio", /\d+\s*\$|\$\s*\d+/.test(respuestaPublica()), false);
@@ -47,10 +70,12 @@ comprobar("y nombra la publicación y el equipo", /publicaci[oó]n del Samsung A
 comprobar("si no se sabe el equipo, pregunta por los de ESA publicación", /que salen ah[ií]/i.test(saludoPrivado("", "")), true);
 
 // ── El turno completo ──────────────────────────────────────────
-function montar({ privadoFalla = false, sinPie = false, visionDice = "" } = {}) {
+function montar({ privadoFalla = false, publicoFalla = false, sinPie = false, visionDice = "" } = {}) {
   const publicos = [];
   const privados = [];
   const DB = baseFalsa({ id: "cliente-del-comentario" });
+
+  const control = { privadoFalla, publicoFalla };
 
   globalThis.fetch = async (url, opciones = {}) => {
     const donde = String(url);
@@ -58,6 +83,9 @@ function montar({ privadoFalla = false, sinPie = false, visionDice = "" } = {}) 
     if (donde.includes("docs.google.com")) return { ok: true, status: 200, text: async () => HOJA };
 
     if (donde.includes("/replies")) {
+      // Se mira el control y no el parámetro, para poder apagar el fallo a
+      // mitad de la prueba (el reintento de Meta).
+      if (control.publicoFalla) return { ok: false, status: 500, text: async () => "meta caido" };
       publicos.push(JSON.parse(opciones.body).message);
       return { ok: true, status: 200, json: async () => ({ id: "resp1" }) };
     }
@@ -65,7 +93,7 @@ function montar({ privadoFalla = false, sinPie = false, visionDice = "" } = {}) 
     if (donde.includes("/me/messages")) {
       const cuerpo = JSON.parse(opciones.body);
       if (cuerpo.recipient?.comment_id) {
-        if (privadoFalla) return { ok: false, status: 400, text: async () => "no autorizado" };
+        if (control.privadoFalla) return { ok: false, status: 400, text: async () => "no autorizado" };
         privados.push(cuerpo.message);
         return { ok: true, status: 200, json: async () => ({ recipient_id: "cliente-del-comentario", message_id: "m1" }) };
       }
@@ -100,7 +128,7 @@ function montar({ privadoFalla = false, sinPie = false, visionDice = "" } = {}) 
     return { ok: true, status: 200, json: async () => ({}) , text: async () => "" };
   };
 
-  return { publicos, privados, DB };
+  return { publicos, privados, DB, control };
 }
 
 const env = { SHEET_ID: "abc", SHEET_NOMBRE: "Hoja 1", IG_TOKEN: "t", OPENAI_API_KEY: "k", COMENTARIOS: "todo" };
@@ -172,6 +200,43 @@ m = montar();
 await atenderComentario({ ...env, COMENTARIOS: "privado", DB: m.DB }, { ...c, id: "solo-privado" });
 comprobar("en modo privado no comenta en público", m.publicos.length, 0);
 comprobar("pero sí abre el chat", m.privados.length >= 1, true);
+
+m = montar();
+await atenderComentario({ ...env, COMENTARIOS: "publico", DB: m.DB }, { ...c, id: "solo-publico" });
+comprobar("en modo público no abre el privado", m.privados.length, 0);
+comprobar("y NO le promete un DM que no mandó", /respondido al dm|te respondimos/i.test(m.publicos[0]), false);
+comprobar("le pide que escriba él", /escr[ií]benos por privado/i.test(m.publicos[0]), true);
+
+// ── SI UN ASESOR YA LO ATIENDE, EL BOT NO SE METE ──────────────
+//
+// El cliente escribió por privado, un asesor le contestó a mano (el bot en
+// pausa), y el mismo cliente comenta en una publicación. Sin esto, el bot
+// le soltaba su saludo automático encima de la conversación del asesor.
+m = montar();
+m.DB.filas.set("178000000000001", {
+  id: "178000000000001",
+  nombre: "", historial: "", pausado_hasta: Date.now() + 60 * 60 * 1000,
+  mids_enviados: "[]", ultimo_envio: 0, mostrados: "[]", ultima_respuesta: "",
+  ultimos_productos: "[]", ultimos_textos: "[]", publicacion: "",
+});
+await atenderComentario({ ...env, DB: m.DB }, { ...c, id: "en-pausa" });
+comprobar("no le escribe por privado por encima del asesor", m.privados.length, 0);
+comprobar("pero no lo deja colgado en público", m.publicos.length, 1);
+comprobar("y le dice la verdad: ya lo atienden", /ya te estamos atendiendo/i.test(m.publicos[0]), true);
+
+// ── SI NO SE PUDO CONTESTAR, EL COMENTARIO SE SUELTA ───────────
+//
+// La marca de "ya contestado" se pone antes de contestar, para que dos
+// webhooks del mismo comentario no contesten los dos. Si después falla
+// todo, hay que soltarla: el reintento de Meta es la única segunda
+// oportunidad que hay.
+m = montar({ privadoFalla: true, publicoFalla: true });
+await atenderComentario({ ...env, DB: m.DB }, { ...c, id: "todo-falla" });
+comprobar("no le llegó nada", m.publicos.length + m.privados.length, 0);
+m.control.publicoFalla = false;
+m.control.privadoFalla = false;
+await atenderComentario({ ...env, DB: m.DB }, { ...c, id: "todo-falla" });
+comprobar("y el reintento de Meta SÍ le contesta", m.publicos.length, 1);
 
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);

@@ -66,14 +66,37 @@ const ADJUNTOS_COMPARTIDOS = new Set([
   "fallback",
   "link",
   "template",
-  "video",
-  "file",
 ]);
+
+// LOS DOS NOMBRES QUE SIRVEN PARA LAS DOS COSAS (25-sep-2026).
+//
+// Meta llama "video" y "file" tanto a una publicación compartida como al
+// archivo que sube el cliente desde su teléfono. Tratarlos siempre como
+// publicación hacía que a quien mandaba el vídeo de su pantalla rota se le
+// contestara "¿cuál de los equipos de esa publicación te interesa?" — una
+// pregunta sobre una publicación que no existe.
+//
+// Así que de estos dos se pide una prueba de que son una publicación: el
+// pie de foto (que Meta manda como "title" solo cuando comparten algo) o
+// una dirección de instagram.com. Sin ninguna de las dos, sigue siendo un
+// archivo del cliente: el bot dice que no lo pudo ver y le pregunta el
+// modelo, que es la verdad y sirve para los dos casos.
+const PUEDEN_SER_DEL_CLIENTE = new Set(["video", "file"]);
 
 // Estos NO entran en el cajón de sastre: una nota de voz no es una
 // publicación, y tratarla como tal haría que el bot hable de "la
 // publicación que mandaste" cuando el cliente mandó un audio.
-const NO_SON_PUBLICACION = new Set(["audio", "voice", "image", "story_mention"]);
+const NO_SON_PUBLICACION = new Set([
+  "audio",
+  "voice",
+  "image",
+  "story_mention",
+  // Estos dos ya tienen su propia comprobación, más arriba: si no la
+  // pasaron, el cajón de sastre no los puede recoger por la puerta de
+  // atrás.
+  "video",
+  "file",
+]);
 
 // Los dominios donde Meta guarda el archivo de una publicación. Sirve para
 // distinguir "esto es una imagen que puedo mirar" de "esto es un enlace a
@@ -94,6 +117,14 @@ export function leerAdjuntoCompartido(adjuntos) {
 
   const compartido =
     lista.find((a) => ADJUNTOS_COMPARTIDOS.has(String(a?.type || "").toLowerCase())) ||
+    // Un vídeo o un archivo, pero con la prueba de que es una publicación.
+    lista.find(
+      (a) =>
+        PUEDEN_SER_DEL_CLIENTE.has(String(a?.type || "").toLowerCase()) &&
+        (String(a?.payload?.title || "").trim() ||
+          esEnlaceDeInstagram(desenvolver(a?.payload?.url)) ||
+          esEnlaceDeInstagram(desenvolver(a?.payload?.permalink_url || a?.payload?.link || "")))
+    ) ||
     // El cajón de sastre: un adjunto que no conocemos pero que trae una
     // dirección. Meta cambia estos nombres entre versiones y no los
     // documenta; esto hace que un nombre nuevo no vuelva a costar un
@@ -104,7 +135,12 @@ export function leerAdjuntoCompartido(adjuntos) {
         /^https?:\/\//i.test(String(a?.payload?.url || ""))
     );
 
-  if (!compartido) return vacio;
+  if (!compartido) {
+    const suyo = lista.find((a) => PUEDEN_SER_DEL_CLIENTE.has(String(a?.type || "").toLowerCase()));
+    // "propio" no es una publicación: es un archivo que mandó él y que no
+    // se puede mirar. Lo lee index.js para elegir qué contestarle.
+    return suyo ? { ...vacio, propio: true } : vacio;
+  }
 
   const carga = compartido.payload || {};
   const url = desenvolver(carga.url);

@@ -12,6 +12,11 @@ Poco C81 pro,120,40,https://x/pococ81.jpg
 Samsung Cable Tipo C 1Metro,8,,https://x/c1.jpg
 Skydolphing cable 4 en 1 S40E,10,,https://x/c2.jpg`;
 
+// La hoja se cachea diez minutos por SHEET_ID (sheets.js), así que dos
+// turnos seguidos con hojas distintas se pisarían: el segundo leería la del
+// primero. Cada hoja que no sea la de siempre se lee con su propio id.
+let hojasAparte = 0;
+
 export function baseFalsa(filaInicial = {}) {
   const filas = new Map();
   // La tabla de comentarios ya contestados: un id solo entra una vez,
@@ -27,6 +32,12 @@ export function baseFalsa(filaInicial = {}) {
       return {
         bind(...args) {
           const correr = async () => {
+            // Soltar un comentario que no se pudo contestar, para que el
+            // reintento de Meta valga (ver olvidarComentario).
+            if (/DELETE FROM comentarios/i.test(sql)) {
+              comentarios.delete(args[0]);
+              return;
+            }
             if (/INSERT INTO comentarios/i.test(sql)) {
               if (comentarios.has(args[0])) {
                 throw new Error("UNIQUE constraint failed: comentarios.id");
@@ -66,14 +77,14 @@ export function baseFalsa(filaInicial = {}) {
 }
 
 // Devuelve todo lo que el bot mandó a Instagram en este turno.
-export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelModelo = {}, mensaje = {} } = {}) {
+export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelModelo = {}, mensaje = {}, hoja = HOJA } = {}) {
   const enviados = [];
   const DB = baseFalsa({ id: "cliente1", ...fila });
 
   globalThis.fetch = async (url, opciones = {}) => {
     const donde = String(url);
 
-    if (donde.includes("docs.google.com")) return { ok: true, status: 200, text: async () => HOJA };
+    if (donde.includes("docs.google.com")) return { ok: true, status: 200, text: async () => hoja };
 
     if (donde.includes("api.openai.com")) {
       const cuerpo = JSON.stringify({
@@ -97,7 +108,7 @@ export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelMo
   };
 
   const env = {
-    DB, SHEET_ID: "abc", SHEET_NOMBRE: "Hoja 1", IG_TOKEN: "t",
+    DB, SHEET_ID: hoja === HOJA ? "abc" : `hoja${++hojasAparte}`, SHEET_NOMBRE: "Hoja 1", IG_TOKEN: "t",
     OPENAI_API_KEY: "k", URL_CATALOGO: "https://CAMBIA-ESTO.com", WHATSAPP: "584121234567",
   };
 

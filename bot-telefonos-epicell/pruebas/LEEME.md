@@ -40,11 +40,14 @@ for %f in (pruebas\*.mjs) do node pruebas\%f
 | `pausas.mjs` | Que el bot reconozca su propio eco y no se pause solo |
 | `adjuntos.mjs` | Los tipos de adjunto con los que Meta manda un post compartido |
 | `feed.mjs` | Leer una publicación nuestra por la API de Instagram |
+| `comentarios.mjs` | Los comentarios: leerlos en lote, no responderse solo, y contestar con el equipo de ESA publicación |
+| `rescates.mjs` | Cuando la búsqueda exacta falla: la capacidad, la categoría y el precio en divisas |
 
 ## Antes de desplegar
 
 ```
 python comprobar-imports.py   <- que no falte ningún archivo
+python comprobar-config.py    <- que el wrangler.toml no tenga repetidos
 python pruebas/preparar.py
 node pruebas/turnos.mjs        <- que el bot siga contestando lo que debe
 npx.cmd wrangler deploy

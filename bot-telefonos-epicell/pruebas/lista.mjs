@@ -17,6 +17,20 @@ comprobar("una búsqueda normal NO es una lista", pideLista("tienes el iphone 15
 comprobar("«precio del samsung a57» tampoco", pideLista("precio del samsung a57"), false);
 comprobar("vacío tampoco", pideLista(""), false);
 
+// "LISTA" DE ADJETIVO: PREGUNTA POR SU PEDIDO, NO POR EL CATÁLOGO.
+// Esto le contestaba con los botones de las marcas.
+comprobar("«cuando esté lista mi compra?»", pideLista("cuando este lista mi compra me avisas?"), false);
+comprobar("«ya está lista?»", pideLista("ya esta lista?"), false);
+comprobar("«mi compra ya está lista»", pideLista("mi compra ya esta lista"), false);
+comprobar("«está lista para retirar»", pideLista("esta lista para retirar"), false);
+comprobar("«cuándo estará lista la reparación»", pideLista("cuando estara lista la reparacion"), false);
+// Y las que sí piden lista siguen entrando.
+comprobar("«pásame lista»", pideLista("pasame lista"), true);
+comprobar("«quiero ver la lista»", pideLista("quiero ver la lista"), true);
+comprobar("«mándame esa lista»", pideLista("mandame esa lista"), true);
+comprobar("«lista completa»", pideLista("lista completa"), true);
+comprobar("«hay lista de precios?»", pideLista("hay lista de precios?"), true);
+
 // ── Las marcas salen de la hoja ────────────────────────────────
 const catalogo = [
   { titulo: "Samsung A57", capacidad: "12GB/512GB", precio: "$310", precioCashea: "$95" },

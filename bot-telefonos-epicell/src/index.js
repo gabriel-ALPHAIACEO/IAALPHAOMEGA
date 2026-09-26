@@ -58,10 +58,11 @@ import {
 import { comoDataUri } from "./imagen.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
-  leerComentario,
+  leerComentarios,
   esNuestro,
   respuestaPublica,
   respuestaPublicaSinPrivado,
+  respuestaPublicaYaAtendido,
   saludoPrivado,
 } from "./comentarios.js";
 import {
@@ -85,6 +86,7 @@ import {
   estaPausado,
   esEcoPropio,
   comentarioNuevo,
+  olvidarComentario,
   esEcoPorTexto,
   envioReciente,
   VENTANA_ECO_SIN_TEXTO_MS,
@@ -472,6 +474,72 @@ const PREGUNTA_CASHEA = /\bcashea\b/i;
 // palabras; por defecto la ficha muestra el precio Cashea.
 const PREGUNTA_DIVISAS = /\b(divisas?|d[oó]lares?|usd)\b/i;
 
+// ¿PIDIÓ EL PRECIO EN DIVISAS DE LO MISMO, O DE OTRA COSA?
+//
+// EL FALLO QUE ESTO ARREGLA (25-sep-2026). El atajo de divisas vuelve a
+// mandar los equipos del último carrusel, y para saber si el cliente
+// hablaba de OTRO producto solo miraba si nombraba un título completo del
+// catálogo. Así que "¿y los cables en divisas?", justo después de ver dos
+// Samsung A57, le devolvía los dos Samsung otra vez con el precio en
+// divisas. Es el mismo error de fondo que el del enlace del Poco: darle un
+// precio correcto del producto equivocado.
+//
+// La pregunta no se le hace a una lista de palabras, se le hace a la hoja:
+// si alguna palabra del mensaje aparece en los títulos del catálogo, está
+// nombrando algo que vendemos, y eso hay que buscarlo. Si no —"¿y en
+// divisas?", "¿cuánto en dólares, amigo?"— habla de lo que acaba de ver.
+//
+// Se piden 4 letras y se descartan las de relleno porque "de", "con",
+// "pro" o "plus" están en medio catálogo y no nombran nada.
+const DEMASIADO_GENERICAS = new Set([
+  "para",
+  "plus",
+  "mini",
+  "dual",
+  "nuevo",
+  "nueva",
+  "nuevos",
+  "original",
+  "originales",
+  "sellado",
+  "sellada",
+  "sellados",
+  "precio",
+  "precios",
+]);
+
+function palabrasDeProducto(texto) {
+  return despejar(texto)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((palabra) => palabra.length >= 4 && !DEMASIADO_GENERICAS.has(palabra));
+}
+
+// EL CLIENTE ESCRIBE EN PLURAL LO QUE LA HOJA TIENE EN SINGULAR.
+//
+// Pide "cables" y el título dice "Cable Tipo C"; pide "cargadores" y dice
+// "Cargador". Comparar las palabras enteras falla en los dos casos, y
+// recortar la S tampoco cuadra ("cables" da "cabl", "cargadores" da
+// "cargadore"). Así que basta con que una empiece por la otra, con cuatro
+// letras de por medio: "cable" está dentro de "cables", y "cargador"
+// dentro de "cargadores", sin inventar reglas de gramática.
+function mismaPalabra(una, otra) {
+  return una === otra || una.startsWith(otra) || otra.startsWith(una);
+}
+
+function nombraAlgoDeLaHoja(texto, catalogo) {
+  const enLaHoja = new Set();
+
+  for (const producto of catalogo) {
+    for (const palabra of palabrasDeProducto(producto.titulo)) enLaHoja.add(palabra);
+  }
+
+  const deLaHoja = [...enLaHoja];
+  return palabrasDeProducto(texto).some((palabra) =>
+    deLaHoja.some((suya) => mismaPalabra(palabra, suya))
+  );
+}
+
 // LOS COLORES SON DEL ASESOR (22-sep-2026, decisión del dueño).
 //
 // El catálogo dice qué MODELOS hay, no qué colores quedan en la tienda
@@ -716,12 +784,13 @@ export default {
       // El descarte va AQUÍ, antes de nada. Meta manda cientos de avisos al
       // día que no necesitan respuesta, y esto hace que cada uno cueste
       // exactamente cero: ni OpenAI, ni Google Sheets, ni un envío.
-      const mensaje = queAtender(env, crudo);
+      // Una lista, porque Meta junta varios comentarios en un solo aviso.
+      const porAtender = queAtender(env, crudo);
 
       // A Meta se le responde 200 siempre y rápido. Si tarda o falla, lo
       // reintenta y el cliente acaba recibiendo la misma respuesta varias
       // veces; y si falla mucho, Meta desactiva el webhook.
-      if (mensaje) ctx.waitUntil(atenderConRed(env, mensaje));
+      for (const uno of porAtender) ctx.waitUntil(atenderConRed(env, uno));
       return new Response("ok", { status: 200 });
     }
 
@@ -948,16 +1017,18 @@ export default {
   },
 };
 
+// Devuelve LO QUE HAY QUE ATENDER, siempre como lista: un mensaje suelto,
+// varios comentarios que llegaron juntos, o nada.
 function queAtender(env, crudo) {
   const modo = (env.META_MODO || "todo").toLowerCase();
-  if (modo === "off") return null;
+  if (modo === "off") return [];
 
   let cuerpo;
   try {
     cuerpo = JSON.parse(crudo);
   } catch {
     console.error("Meta mandó algo que no es JSON");
-    return null;
+    return [];
   }
 
   // UN COMENTARIO EN UNA PUBLICACIÓN. Llega por otro camino que los
@@ -966,16 +1037,20 @@ function queAtender(env, crudo) {
   //
   // Se apaga desde wrangler.toml con COMENTARIOS = "off" sin tocar el
   // resto: los mensajes directos siguen igual.
-  const comentario = leerComentario(cuerpo);
-  if (comentario) {
+  const comentarios = leerComentarios(cuerpo);
+  if (comentarios.length) {
     if (modoComentarios(env) === "off") {
       console.log("Llegó un comentario pero COMENTARIOS está en off: lo ignoro");
-      return null;
+      return [];
     }
-    return comentario;
+    if (comentarios.length > 1) {
+      console.log(`Meta mandó ${comentarios.length} comentarios juntos: atiendo todos`);
+    }
+    return comentarios;
   }
 
-  return leerMensaje(cuerpo);
+  const mensaje = leerMensaje(cuerpo);
+  return mensaje ? [mensaje] : [];
 }
 
 // Qué se hace con los comentarios. Se cambia en wrangler.toml:
@@ -1068,6 +1143,20 @@ async function atenderComentario(env, comentario, rastro = {}) {
   // Meta reintenta los webhooks: sin esto, el mismo comentario se
   // contestaría dos y tres veces, en público y delante de todos.
   await prepararBase(env);
+
+  // Sin base no hay forma de saber qué comentarios ya se contestaron, y
+  // Meta reintenta cada webhook: contestar aquí sería soltarle al cliente
+  // la misma respuesta pública tres o cuatro veces, debajo de la
+  // publicación y a la vista de todos. Se dice en el registro por qué no se
+  // contestó, que es lo que hacía falta para poder arreglarlo.
+  if (!env.DB) {
+    console.error(
+      "COMENTARIO SIN ATENDER: no hay base D1 (revisa database_id en wrangler.toml). " +
+        "Sin ella no puedo llevar la cuenta de lo ya contestado y Meta reintenta."
+    );
+    return;
+  }
+
   if (!(await comentarioNuevo(env.DB, comentario.id))) {
     console.log(`El comentario ${comentario.id} ya estaba contestado: no repito`);
     return;
@@ -1154,9 +1243,31 @@ async function atenderComentario(env, comentario, rastro = {}) {
     cual = "";
   }
 
+  // ¿YA LO ESTÁ ATENDIENDO UN ASESOR? ENTONCES NO SE LE ESCRIBE (crítico).
+  //
+  // EL FALLO QUE ESTO EVITA. Un cliente escribe por privado, un asesor le
+  // contesta a mano (y el bot se calla, es la pausa de siempre), y el mismo
+  // cliente comenta "precio?" debajo de una publicación. Sin esto, el bot
+  // le abre el privado y le suelta su saludo automático y un carrusel
+  // ENCIMA de la conversación que el asesor está teniendo con él. Es
+  // exactamente lo que la pausa existe para evitar, entrando por la otra
+  // puerta.
+  //
+  // El id del que comenta es el mismo con el que se le escribe por privado,
+  // así que basta con mirar su ficha: si no hay ficha, es alguien nuevo y
+  // no hay ninguna pausa que respetar.
+  const yaAtendido = comentario.de ? estaPausado(await cargarContacto(env.DB, comentario.de)) : false;
+
+  if (yaAtendido) {
+    console.log(
+      `A @${comentario.usuario || comentario.de} lo está atendiendo un asesor por privado: ` +
+        "no le escribo por encima, solo le contesto en público"
+    );
+  }
+
   // 1. El privado, que es donde se vende.
   let igsid = "";
-  if (modo === "todo" || modo === "privado") {
+  if (!yaAtendido && (modo === "todo" || modo === "privado")) {
     const saludo = saludoPrivado(comentario.usuario, productos.length ? cual : "");
     const abierto = await privadoPorComentario(env, comentario.id, saludo);
     igsid = abierto.igsid;
@@ -1211,10 +1322,31 @@ async function atenderComentario(env, comentario, rastro = {}) {
   // 2. La línea en público. Si el privado no se pudo abrir —hay quien
   // tiene cerrados los mensajes de desconocidos— se le dice que escriba
   // él, que es lo único que queda.
+  let enPublicoPuesto = false;
   if (modo === "todo" || modo === "publico" || (!igsid && modo === "privado")) {
-    const enPublico = igsid || modo === "publico" ? respuestaPublica() : respuestaPublicaSinPrivado();
+    // LO QUE SE LE DICE EN PÚBLICO TIENE QUE SER VERDAD (25-sep-2026).
+    //
+    // Antes salía "¡Respondido al DM!" también con COMENTARIOS = "publico",
+    // donde el privado no se manda nunca: el cliente iba a su bandeja, no
+    // encontraba nada y se quedaba peor que antes de preguntar. Ahora esa
+    // frase sale solo si el privado salió de verdad; si no, se le pide que
+    // escriba él, y si ya lo atiende un asesor, se le dice eso.
+    const enPublico = yaAtendido
+      ? respuestaPublicaYaAtendido()
+      : igsid
+        ? respuestaPublica()
+        : respuestaPublicaSinPrivado();
     const puesto = await responderComentario(env, comentario.id, enPublico);
-    if (puesto) rastro.respondio = true;
+    if (puesto) {
+      rastro.respondio = true;
+      enPublicoPuesto = true;
+    }
+  }
+
+  // NO SE LE PUDO DECIR NADA, NI EN PÚBLICO NI EN PRIVADO. Se suelta la
+  // marca de "ya contestado" para que el reintento de Meta valga.
+  if (!igsid && !enPublicoPuesto) {
+    await olvidarComentario(env.DB, comentario.id);
   }
 
   // 3. Y al asesor, porque un comentario es alguien mirando el producto
@@ -1224,9 +1356,11 @@ async function atenderComentario(env, comentario, rastro = {}) {
       nombre: comentario.usuario ? `@${comentario.usuario}` : "",
       igsid,
       mensaje: `(comentario) ${comentario.texto}`,
-      respuesta: igsid
-        ? `Le abrí el privado${productos.length ? ` con ${productos.length} equipo(s)` : ""}.`
-        : "No pude abrirle el privado: le contesté en público que escriba.",
+      respuesta: yaAtendido
+        ? "Comentó en una publicación mientras un asesor lo atiende por privado: NO le escribí nada."
+        : igsid
+          ? `Le abrí el privado${productos.length ? ` con ${productos.length} equipo(s)` : ""}.`
+          : "No pude abrirle el privado: le contesté en público que escriba.",
       motivo: "COMENTÓ EN UNA PUBLICACIÓN",
       historial: publicacion?.titulo ? `Publicación: ${publicacion.titulo.slice(0, 120)}` : "",
       productos,
@@ -1790,7 +1924,16 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     // Si nombra un equipo —"¿cuánto es el iPhone 15 en divisas?"— no está
     // hablando de los de antes: que siga el camino normal y se busque lo
     // que pidió. La ficha saldrá en divisas igual.
-    if (!nombraDelCatalogo(mensaje.texto, enElCatalogo)) {
+    const nombraProducto = nombraAlgoDeLaHoja(mensaje.texto, enElCatalogo);
+
+    if (nombraProducto) {
+      console.log(
+        "Pidió divisas pero nombró algo de la hoja que no es lo que acaba " +
+          "de ver: lo busco en vez de repetirle el último carrusel"
+      );
+    }
+
+    if (!nombraProducto && !nombraDelCatalogo(mensaje.texto, enElCatalogo)) {
       // DE DÓNDE SALE "LO QUE ACABA DE VER". Dos caminos, y hacen falta
       // los dos:
       //
@@ -2649,6 +2792,47 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     }
   }
 
+  // PIDIÓ UNA CAPACIDAD QUE NO HAY (crítico para no perder la venta).
+  //
+  // "¿Tienen el 15 de 256?" terminaba mal cuando no había ese exacto: cero
+  // resultados, "déjame confirmarte con un asesor", y el cliente se iba —
+  // con el mismo modelo ahí, en 128 y en 512.
+  //
+  // Así que si la búsqueda traía una capacidad y no dio nada, se vuelve a
+  // buscar el modelo SIN ella. Si aparece, no es que no lo tengamos: es que
+  // no lo tenemos en esos gigas, y eso se puede decir con el dato delante.
+  const { termino: sinCapacidad, capacidades: pedidas } = separarCapacidad(termino);
+  let otrasCapacidades = [];
+
+  if (termino && !productos.length && pedidas.length && sinCapacidad) {
+    console.log(
+      `Sin "${comoSeDicen(pedidas)}": busco "${sinCapacidad}" a ver en qué capacidades está`
+    );
+    const reintento = await buscarProductos(env, sinCapacidad);
+
+    if (reintento.productos.length) {
+      productos = reintento.productos;
+      hayMas = reintento.hayMas;
+      otrasCapacidades = capacidadesDe(productos);
+      console.log(
+        `El modelo SÍ está, en ${comoSeDicen(otrasCapacidades) || "capacidades que el título no dice"}`
+      );
+    }
+  }
+
+  // EL ORDEN IMPORTA, Y ESTE ES EL QUE VALE (25-sep-2026).
+  //
+  // La capacidad va ANTES que la categoría, y no al revés. Con el orden
+  // anterior, "¿tienen el iPhone 15 de 256?" —sin 256 en la hoja— caía
+  // primero en la categoría: partía el término, encontraba "iphone" y se
+  // iba con un "de ese no me queda" y una fila de iPhones cualesquiera.
+  // El rescate de la capacidad, que es el que sabe decir lo único que
+  // cierra esa venta ("en 256 no, pero lo tengo en 128 y en 512"), ya no
+  // se ejecutaba nunca: exige que no haya productos, y la categoría
+  // acababa de llenarlos.
+  //
+  // De lo más preciso a lo más vago, siempre: el modelo exacto, la
+  // descripción, la capacidad, y de última la categoría.
   // RESCATE 3 — LA CATEGORÍA.
   //
   // "cables dophin", "cargador anker", "forro de iphone 20": el cliente
@@ -2675,34 +2859,6 @@ async function decidir({ env, salida, texto, historialPrevio }) {
         );
         break;
       }
-    }
-  }
-
-  // PIDIÓ UNA CAPACIDAD QUE NO HAY (crítico para no perder la venta).
-  //
-  // "¿Tienen el 15 de 256?" terminaba mal cuando no había ese exacto: cero
-  // resultados, "déjame confirmarte con un asesor", y el cliente se iba —
-  // con el mismo modelo ahí, en 128 y en 512.
-  //
-  // Así que si la búsqueda traía una capacidad y no dio nada, se vuelve a
-  // buscar el modelo SIN ella. Si aparece, no es que no lo tengamos: es que
-  // no lo tenemos en esos gigas, y eso se puede decir con el dato delante.
-  const { termino: sinCapacidad, capacidades: pedidas } = separarCapacidad(termino);
-  let otrasCapacidades = [];
-
-  if (termino && !productos.length && pedidas.length && sinCapacidad) {
-    console.log(
-      `Sin "${comoSeDicen(pedidas)}": busco "${sinCapacidad}" a ver en qué capacidades está`
-    );
-    const reintento = await buscarProductos(env, sinCapacidad);
-
-    if (reintento.productos.length) {
-      productos = reintento.productos;
-      hayMas = reintento.hayMas;
-      otrasCapacidades = capacidadesDe(productos);
-      console.log(
-        `El modelo SÍ está, en ${comoSeDicen(otrasCapacidades) || "capacidades que el título no dice"}`
-      );
     }
   }
 
@@ -2803,8 +2959,16 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     // Los equipos se le muestran igual: lo único que no sabemos es la
     // capacidad, no el producto.
     respuestaCliente = alAzar(SIN_DATO_DE_CAPACIDAD);
-  } else if (leMuestroLoQuePidio && AFIRMA_QUE_NO_HAY.test(respuestaFinal)) {
-    // Dijo que no hay algo que sí está en el carrusel que va debajo.
+  } else if (leMuestroLoQuePidio && (AFIRMA_QUE_NO_HAY.test(respuestaFinal) || porCategoria)) {
+    // DIJO QUE NO HAY ALGO QUE SÍ ESTÁ EN EL CARRUSEL QUE VA DEBAJO.
+    //
+    // Y el rescate por categoría cuenta como lo mismo (25-sep-2026): que
+    // la búsqueda exacta fallara no significa que no lo tengamos.
+    // "¿Tienes el Samsung A57 sellado?" no encuentra nada —"sellado" no
+    // está en ningún título—, lo rescata la palabra "samsung", y el A57
+    // sale como primera ficha. Contestar ahí "justo ese no lo manejo" es
+    // decirle que no a un cliente que lo está viendo en la pantalla: es
+    // el fallo que ya costó una venta en producción.
     respuestaCliente = alAzar(SI_LO_TENGO);
   } else if (porCategoria) {
     // Lo que escribió el modelo no vale aquí: él creía que no había nada

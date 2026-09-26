@@ -123,6 +123,29 @@ export async function comentarioNuevo(db, id) {
   }
 }
 
+// Y SI AL FINAL NO SE LE PUDO CONTESTAR, SE SUELTA (25-sep-2026).
+//
+// La marca se pone ANTES de contestar, que es lo correcto: entre los dos
+// webhooks del mismo comentario no puede colarse una respuesta doble. Pero
+// si después falla TODO —el token vencido, Meta devolviendo 500, la red— el
+// comentario se quedaba marcado como contestado sin que el cliente hubiera
+// recibido nada, y el reintento de Meta (que es la segunda oportunidad, y
+// la única) se descartaba por duplicado. La pregunta quedaba colgando
+// debajo de la publicación para siempre.
+//
+// Soltarlo devuelve esa oportunidad. Si falla otra vez, se vuelve a soltar:
+// lo que no se puede es perderla en silencio.
+export async function olvidarComentario(db, id) {
+  if (!db || !id) return;
+
+  try {
+    await db.prepare("DELETE FROM comentarios WHERE id = ?").bind(id).run();
+    console.log(`No se le pudo contestar al comentario ${id}: lo suelto para que Meta reintente`);
+  } catch (error) {
+    console.error("No pude soltar el comentario:", error?.message || error);
+  }
+}
+
 /* ── La publicación que acaba de compartir ────────────────────────── */
 
 // POR QUÉ ESTO VIVE EN LA BASE Y NO EN UNA VARIABLE.

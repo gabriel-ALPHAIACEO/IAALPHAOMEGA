@@ -22,11 +22,35 @@
 // transmisión en vivo: mismo formato, misma respuesta.
 const CAMPOS = new Set(["comments", "live_comments"]);
 
+// META LOS MANDA EN LOTES, Y ANTES SOLO SE LEÍA EL PRIMERO.
+//
+// El webhook trae "entry" como lista y, dentro de cada uno, "changes"
+// también. Cuando la cuenta recibe varios comentarios en el mismo segundo
+// —lo normal al publicar algo que gusta— Meta los junta en un solo aviso.
+// Leyendo entry[0].changes[0] se contestaba a uno y los demás se tiraban
+// a la basura, sin que nada quedara registrado: clientes preguntando
+// debajo de la publicación y nadie contestándoles.
+export function leerComentarios(cuerpo) {
+  const todos = [];
+
+  for (const entrada of cuerpo?.entry || []) {
+    for (const cambio of entrada?.changes || []) {
+      const uno = deUnCambio(entrada, cambio);
+      if (uno) todos.push(uno);
+    }
+  }
+
+  return todos;
+}
+
+// El primero, para quien solo espera uno.
+export function leerComentario(cuerpo) {
+  return leerComentarios(cuerpo)[0] || null;
+}
+
 // De lo que manda Meta a lo que nos hace falta. Devuelve null para todo lo
 // que no sea un comentario de una persona.
-export function leerComentario(cuerpo) {
-  const entrada = cuerpo?.entry?.[0];
-  const cambio = entrada?.changes?.[0];
+function deUnCambio(entrada, cambio) {
   if (!cambio || !CAMPOS.has(String(cambio.field || "").toLowerCase())) return null;
 
   const valor = cambio.value || {};
@@ -61,12 +85,46 @@ export function leerComentario(cuerpo) {
 // contra el id de la cuenta que viene en el evento. Cualquiera de los tres
 // que coincida, es nuestro.
 export function esNuestro(comentario, yo) {
-  if (!comentario?.de) return false;
+  if (!comentario) return false;
+
+  // LA RED QUE NO DEPENDE DE NADA (25-sep-2026).
+  //
+  // Las tres comprobaciones de abajo necesitan un id: el de la cuenta que
+  // manda Meta, o el que devuelve quienSoy. Si el token no tiene permiso
+  // para preguntar quiénes somos —pasa cuando falta un permiso— y el id
+  // del evento no cuadra con el del autor, no queda ninguna, y entonces el
+  // bot contesta a su propia respuesta pública: eso genera otro webhook,
+  // que genera otra respuesta, y así hasta que alguien lo ve. Un bucle
+  // así, en público y debajo de una publicación, se cobra la cuenta.
+  //
+  // Nuestras respuestas públicas son cuatro frases fijas, escritas por
+  // nosotros. Reconocerlas no cuesta una llamada ni depende de un permiso.
+  if (esFraseNuestra(comentario.texto)) return true;
+
+  if (!comentario.de) return false;
   if (comentario.de === comentario.cuenta) return true;
   if (yo?.id && comentario.de === yo.id) return true;
   if (yo?.usuario && comentario.usuario && comentario.usuario.toLowerCase() === yo.usuario.toLowerCase())
     return true;
   return false;
+}
+
+// Sin tildes, sin signos y sin emojis, que es como se compara una frase
+// escrita por nosotros con la que vuelve en el webhook.
+function pelada(texto) {
+  return String(texto || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function esFraseNuestra(texto) {
+  const dicho = pelada(texto);
+  if (!dicho) return false;
+  return NUESTRAS.some((frase) => frase && frase === dicho);
 }
 
 /* ── Qué se contesta en público ───────────────────────────────────
@@ -92,6 +150,19 @@ export function respuestaPublica() {
 export function respuestaPublicaSinPrivado() {
   return "¡Hola! 😊 Escríbenos por privado y te pasamos toda la info 📩";
 }
+
+// Y si un asesor ya está hablando con esa persona por privado, no se le
+// dice "te respondimos al DM" —no le llegó nada nuevo— ni se le pide que
+// escriba, porque ya escribió. Se le dice lo que es verdad.
+export function respuestaPublicaYaAtendido() {
+  return "¡Ya te estamos atendiendo por privado! 📩";
+}
+
+// Todas las frases que salen de aquí, para reconocerlas si vuelven como
+// comentario (ver esNuestro).
+const NUESTRAS = [...EN_PUBLICO, respuestaPublicaSinPrivado(), respuestaPublicaYaAtendido()].map(
+  (frase) => pelada(frase)
+);
 
 /* ── Qué se contesta por privado ──────────────────────────────────── */
 

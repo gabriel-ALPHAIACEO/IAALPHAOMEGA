@@ -22,6 +22,35 @@ comprobar("una nota de voz no es publicación", leerMensaje(webhook({ attachment
 comprobar("una foto sigue siendo foto", leerMensaje(webhook({ attachments: [{ type: "image", payload: { url: "https://cdn/x.jpg" } }] })).tipo, "imagen");
 comprobar("un adjunto sin URL no inventa nada", leerAdjuntoCompartido([{ type: "raro", payload: {} }]), { url: "", titulo: "", enlace: "" });
 
+// EL VÍDEO DEL CLIENTE NO ES UNA PUBLICACIÓN.
+// Meta usa el mismo nombre para las dos cosas, así que del vídeo se pide
+// una prueba: el pie de foto, o una dirección de instagram.com.
+comprobar(
+  "un vídeo suyo del CDN no es publicación",
+  leerMensaje(webhook({ attachments: [{ type: "video", payload: { url: "https://lookaside.fbsbx.com/v/t42/mio.mp4" } }] })).tipo,
+  "texto"
+);
+comprobar(
+  "y queda marcado como archivo suyo",
+  leerAdjuntoCompartido([{ type: "video", payload: { url: "https://lookaside.fbsbx.com/v/t42/mio.mp4" } }]).propio,
+  true
+);
+comprobar(
+  "un reel compartido que llega como «video» SÍ lo es",
+  leerMensaje(webhook({ attachments: [{ type: "video", payload: { url: "https://www.instagram.com/reel/XYZ/" } }] })).tipo,
+  "publicacion"
+);
+comprobar(
+  "y si trae el pie de foto, también",
+  leerMensaje(webhook({ attachments: [{ type: "video", payload: { url: "https://cdninstagram.com/v/reel.mp4", title: "POCO X8 PRO 5G" } }] })).tipo,
+  "publicacion"
+);
+comprobar(
+  "un archivo suyo tampoco",
+  leerMensaje(webhook({ attachments: [{ type: "file", payload: { url: "https://lookaside.fbsbx.com/x.pdf" } }] })).tipo,
+  "texto"
+);
+
 // El redirector de Meta
 comprobar("l.instagram.com se desenvuelve", desenvolver("https://l.instagram.com/?u=https%3A%2F%2Fwww.instagram.com%2Fp%2FABC%2F&e=xyz"), "https://www.instagram.com/p/ABC/");
 comprobar("l.facebook.com también", desenvolver("https://l.facebook.com/l.php?u=https%3A%2F%2Fepiccell.com%2Fx"), "https://epiccell.com/x");

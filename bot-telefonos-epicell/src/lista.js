@@ -17,8 +17,36 @@
 // qué hay, y adivinar el término de búsqueda dos veces seguidas es
 // justamente donde el modelo falla (ver recomendados.js).
 
-// Con que aparezca una de estas, es un pedido de lista.
-const PIDE_LISTA = /\b(listas?|listados?)\b/i;
+// "LISTA" TAMBIÉN ES UN ADJETIVO, Y AHÍ NO PIDE NADA (25-sep-2026).
+//
+// EL FALLO QUE ESTO ARREGLA. Bastaba la palabra "lista" en cualquier
+// sitio, así que "¿cuando esté lista mi compra me avisas?" —o "ya está
+// lista?"— le contestaba con los botones de las marcas, como si hubiera
+// pedido el catálogo. Una pregunta sobre SU pedido contestada con un menú
+// es de las cosas que más cantan a robot.
+//
+// Así que se piden las formas en que se pide una lista de verdad:
+//
+//   · con artículo:  "mándame LA lista", "tienes UNA lista?"
+//   · con la marca:  "lista DE samsung", "listado DE precios"
+//   · con el verbo:  "manda lista", "pasame lista", "hay lista?"
+//   · o "listado", que solo es sustantivo.
+//
+// "esté lista", "está lista", "cuando esté lista" no entran por ninguna,
+// que es todo lo que hacía falta.
+const PIDE_LISTA = new RegExp(
+  [
+    "\\blistados?\\b",
+    // "esa lista" vale; "esta lista" NO, porque el cliente escribe "esta
+    // lista" queriendo decir "está lista" (sin la tilde), y eso es una
+    // pregunta por su pedido, no por el catálogo.
+    "\\b(el|la|una|unas|los|las|mi|tu|su|esa)\\s+listas?\\b",
+    "\\blistas?\\s+(de|del|completa|completas)\\b",
+    "\\b(manda|mandame|mandas|envia|enviame|env[ií]as|pasa|pasame|pasas|muestra|muestrame|" +
+      "quiero|dame|tienes|tienen|tenes|hay|ver)\\b[^.?!¿¡]{0,20}\\blistas?\\b",
+  ].join("|"),
+  "i"
+);
 
 // "todos los modelos", "todas las marcas que tienen", "todos los equipos".
 const TODOS_LOS_MODELOS =
