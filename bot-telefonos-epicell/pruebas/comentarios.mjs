@@ -70,7 +70,7 @@ comprobar("y nombra la publicación y el equipo", /publicaci[oó]n del Samsung A
 comprobar("si no se sabe el equipo, pregunta por los de ESA publicación", /que salen ah[ií]/i.test(saludoPrivado("", "")), true);
 
 // ── El turno completo ──────────────────────────────────────────
-function montar({ privadoFalla = false, publicoFalla = false, sinPie = false, visionDice = "" } = {}) {
+function montar({ privadoFalla = false, publicoFalla = false, sinPie = false, visionDice = "", hoja = HOJA, pie = "" } = {}) {
   const publicos = [];
   const privados = [];
   const DB = baseFalsa({ id: "cliente-del-comentario" });
@@ -80,7 +80,7 @@ function montar({ privadoFalla = false, publicoFalla = false, sinPie = false, vi
   globalThis.fetch = async (url, opciones = {}) => {
     const donde = String(url);
 
-    if (donde.includes("docs.google.com")) return { ok: true, status: 200, text: async () => HOJA };
+    if (donde.includes("docs.google.com")) return { ok: true, status: 200, text: async () => hoja };
 
     if (donde.includes("/replies")) {
       // Se mira el control y no el parámetro, para poder apagar el fallo a
@@ -118,7 +118,7 @@ function montar({ privadoFalla = false, publicoFalla = false, sinPie = false, vi
     if (donde.includes("18000000000000001")) {
       return { ok: true, status: 200, json: async () => ({
         id: "18000000000000001",
-        caption: sinPie ? "🔥 Disponible ya 🔥 #epiccell" : "🔥 SAMSUNG A57 5G 12GB/512GB disponible",
+        caption: pie || (sinPie ? "🔥 Disponible ya 🔥 #epiccell" : "🔥 SAMSUNG A57 5G 12GB/512GB disponible"),
         media_type: "IMAGE",
         media_url: "https://x/a57.jpg",
         permalink: "https://www.instagram.com/p/ABC/",
@@ -190,6 +190,36 @@ comprobar("lo lee en la imagen de la publicación", fichas[0]?.title, "Poco X8 p
 m = montar({ sinPie: true, visionDice: "Nokia 3310" });
 await atenderComentario({ ...env, DB: m.DB }, { ...c, id: "coherente-5", texto: "precio?" });
 comprobar("si no lo tenemos, no manda otra cosa", m.privados.some((p) => p.attachment), false);
+
+/* ── EL CASO REAL DEL 26-sep-2026 ──────────────────────────────────
+   Del registro de producción:
+
+     Comentario de @yosoyelilavenezolana: "Precio por favor"
+     Publicación del comentario: con imagen, pie: "🔥 ¿Buscas alta gama
+       sin pagar una fortuna? El Galaxy S25 FE"
+     No pude saber de qué equipo habla la publicación
+
+   El equipo estaba en la hoja. No se reconoció porque el emparejador
+   miraba el título de la hoja desde el principio ("samsung galaxy"), y
+   ningún pie de Instagram empieza nombrando la marca.
+   ───────────────────────────────────────────────────────────────── */
+const HOJA_S25 = `Nombre,Precio Divisas ($),Precio Cashea,Foto
+Samsung Galaxy S25 FE 256GB,540,170,https://x/s25fe.jpg
+Samsung Galaxy S25 Ultra 512GB,980,300,https://x/s25u.jpg
+Samsung Galaxy A57 128GB,310,95,https://x/a57.jpg
+Poco M8 pro 5G,185,62,https://x/poco.jpg`;
+
+m = montar({ hoja: HOJA_S25, pie: "🔥 ¿Buscas alta gama sin pagar una fortuna? El Galaxy S25 FE" });
+await atenderComentario({ ...env, SHEET_ID: "s25", DB: m.DB }, { ...c, id: "s25-fe", texto: "Precio por favor" });
+fichas = m.privados.find((p) => p.attachment)?.attachment.payload.elements || [];
+comprobar("«Precio por favor» en el post del S25 FE: le manda el S25 FE", fichas[0]?.title, "Samsung Galaxy S25 FE 256GB");
+comprobar("y NO el S25 Ultra ni otro Samsung", fichas.every((f) => /S25 FE/.test(f.title)), true);
+comprobar("el saludo nombra ese equipo", /Galaxy S25 FE/.test(m.privados[0].text), true);
+
+// Y el pie que no nombra nada sigue sin inventar
+m = montar({ hoja: HOJA_S25, pie: "🔥 Promoción de fin de semana, aprovecha 🔥" });
+await atenderComentario({ ...env, SHEET_ID: "s25b", DB: m.DB }, { ...c, id: "pie-vacio", texto: "Precio por favor" });
+comprobar("un pie sin nombre no le inventa un equipo", m.privados.some((p) => p.attachment), false);
 
 // Los modos
 comprobar("por defecto, todo", modoComentarios({}), "todo");

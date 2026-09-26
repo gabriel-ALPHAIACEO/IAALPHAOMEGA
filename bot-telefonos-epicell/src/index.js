@@ -1202,8 +1202,8 @@ async function atenderComentario(env, comentario, rastro = {}) {
   const enElCatalogo = await catalogoCompleto(env);
   const publicacion = comentario.media ? await publicacionPorId(env, comentario.media) : null;
 
-  const delComentario = nombraDelCatalogo(comentario.texto, enElCatalogo);
-  const dePublicacion = publicacion ? nombraDelCatalogo(publicacion.titulo, enElCatalogo) : "";
+  const delComentario = equipoQueNombra(comentario.texto, enElCatalogo);
+  const dePublicacion = publicacion ? equipoQueNombra(publicacion.titulo, enElCatalogo) : "";
 
   let cual = delComentario || dePublicacion;
   let deDonde = delComentario ? "lo escribió él" : dePublicacion ? "lo dice el pie de la publicación" : "";
@@ -1211,17 +1211,41 @@ async function atenderComentario(env, comentario, rastro = {}) {
   if (!cual && publicacion?.imagen) {
     const { uri: foto } = await comoDataUri(env, publicacion.imagen);
 
+    if (!foto) {
+      console.log(`No pude descargar la imagen de la publicación: ${publicacion.imagen}`);
+    }
+
     if (foto) {
       const catalogo = await listaDeTitulos(env);
       const identificacion = await identificarEnImagen(env, foto, catalogo, {
         esPublicacion: true,
       });
 
-      const visto = String(identificacion?.buscar || "").trim();
-      if (visto && visto.toUpperCase() !== "NADA") {
-        cual = visto;
-        deDonde = "lo leyó en la imagen de la publicación";
-      }
+      const visto = String(identificacion?.visto || "").trim();
+      const buscar = String(identificacion?.buscar || "").trim();
+
+      // Queda en el registro SIEMPRE, acierte o no: es lo único que dice
+      // por qué el bot preguntó en vez de enseñar, y sin esto hay que
+      // adivinarlo desde fuera.
+      console.log(
+        identificacion
+          ? `La IA de visión vio: "${visto}" → busca: "${buscar}"`
+          : "La IA de visión no respondió a la imagen de la publicación"
+      );
+
+      const leido = buscar && buscar.toUpperCase() !== "NADA" ? buscar : "";
+
+      // LO QUE LEE EN EL ARTE NO ESTÁ ESCRITO COMO LA HOJA.
+      //
+      // Lee "GALAXY S25 FE" de la imagen y en la hoja está "Samsung Galaxy
+      // S25 FE 256GB". Antes eso se buscaba tal cual y, si la búsqueda no
+      // acertaba, se descartaba. Ahora lo que leyó se ancla primero al
+      // catálogo, que es lo que convierte una lectura en un producto con
+      // su foto y su precio.
+      const delCatalogo = equipoQueNombra(`${leido} ${visto}`, enElCatalogo);
+
+      cual = delCatalogo || leido;
+      if (cual) deDonde = "lo leyó en la imagen de la publicación";
     }
   }
 
@@ -2048,6 +2072,27 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     }
   }
 
+  // EL PIE DE LA PUBLICACIÓN, CUANDO LA IMAGEN NO BASTA.
+  //
+  // Es el mismo arreglo que el de los comentarios (ver mejorDelCatalogo):
+  // el pie casi siempre nombra el equipo, pero escrito como se escribe en
+  // Instagram ("El Galaxy S25 FE"), no como está en la hoja ("Samsung
+  // Galaxy S25 FE 256GB"). Contando palabras sí se reconoce, y entonces el
+  // modelo recibe el nombre exacto de la hoja en vez de tener que
+  // adivinarlo del texto de venta.
+  if (publicacion && !equipoDeLaPublicacion) {
+    const delPie = equipoQueNombra(
+      `${publicacion.titulo || ""} ${publicacion.descripcion || ""}`,
+      await catalogoCompleto(env)
+    );
+
+    if (delPie) {
+      equipoDeLaPublicacion = delPie;
+      marcaFoto = marcarIdentificacion(delPie, false, esHistoria, true);
+      console.log(`El pie de la publicación nombra "${delPie}": eso es lo que busco`);
+    }
+  }
+
   // Si no se puede mirar, NO es el final del camino. La mayoría de las
   // historias son vídeo, y el cliente que responde a una historia es el que
   // más cerca está de comprar: se le atiende por lo que escribió.
@@ -2145,7 +2190,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     !publicacion.soloContexto &&
     !equipoDeLaPublicacion &&
     !publicacion.termino &&
-    !nombraDelCatalogo(
+    !equipoQueNombra(
       `${publicacion.titulo || ""} ${publicacion.descripcion || ""} ${mensaje.texto}`,
       await catalogoCompleto(env)
     );
@@ -2662,6 +2707,125 @@ function nombraDelCatalogo(texto, productos) {
   }
 
   return "";
+}
+
+/* ── EL PIE DE LA PUBLICACIÓN NO ESTÁ ESCRITO COMO LA HOJA ─────────
+
+   EL FALLO QUE ESTO ARREGLA (26-sep-2026, visto en producción). Alguien
+   comentó "Precio por favor" debajo de una publicación cuyo pie decía:
+
+     "🔥 ¿Buscas alta gama sin pagar una fortuna? El Galaxy S25 FE"
+
+   y el bot contestó que no sabía de qué equipo hablaba. El equipo estaba
+   en la hoja, con su foto y su precio, entre los 93 productos.
+
+   ¿Por qué falló? Porque nombraDelCatalogo mira el título de la hoja
+   DESDE EL PRINCIPIO: si ahí está como "Samsung Galaxy S25 FE", busca
+   "samsung galaxy" dentro del pie. Y ningún pie de Instagram empieza
+   nombrando la marca: empieza vendiendo. "El Galaxy S25 FE" no contiene
+   "samsung galaxy", así que no hubo coincidencia.
+
+   Esto lo resuelve al revés: en vez de exigir que el texto contenga el
+   principio del título, mira CUÁNTAS palabras del título aparecen en el
+   texto, estén donde estén, y se queda con el que más acierte.
+
+   La trampa de contar palabras es "samsung": está en medio catálogo y no
+   distingue nada. Así que se cuenta en cuántos títulos aparece cada
+   palabra, y solo valen los aciertos que incluyan al menos una palabra
+   POCO común ("s25", "a57", "skydolphing"). Sin eso, un pie que dijera
+   "los mejores Samsung" pescaría cualquier Samsung.
+   ───────────────────────────────────────────────────────────────── */
+
+// Palabras que aparecen en cualquier frase y no nombran ningún equipo.
+const NO_NOMBRAN_NADA = new Set([
+  "de", "del", "la", "el", "los", "las", "un", "una", "unos", "unas",
+  "con", "sin", "por", "para", "en", "al", "y", "o", "su", "tu", "mi",
+  "new", "nuevo", "nueva", "nuevos", "nuevas", "original", "sellado",
+  "sellada", "disponible", "disponibles", "oferta", "ofertas", "precio",
+  "precios", "tienda", "envio", "envios",
+  // Estas van en medio catálogo y no señalan a ningún equipo: sirven de
+  // adorno en el título, no de nombre.
+  "5g", "4g", "lte", "gb", "tb", "ram", "dual", "sim",
+]);
+
+// "128gb", "256", "1tb": dicen el tamaño, no el modelo. Valen para
+// acompañar, nunca para identificar un equipo ellas solas.
+const ES_CAPACIDAD = /^\d+(gb|tb|mb)?$/;
+
+// "a57", "m8", "s25", "s40e": una letra y un número pegados. Son cortos
+// pero son EL nombre del equipo, así que valen aunque vengan solos.
+function pareceCodigoDeModelo(palabra) {
+  return /[a-z]/.test(palabra) && /\d/.test(palabra) && !ES_CAPACIDAD.test(palabra);
+}
+
+function palabrasDeTitulo(texto) {
+  return despejar(texto)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((palabra) => palabra.length >= 2 && !NO_NOMBRAN_NADA.has(palabra));
+}
+
+function mejorDelCatalogo(texto, productos) {
+  const enElTexto = new Set(palabrasDeTitulo(texto));
+  if (!enElTexto.size || !productos?.length) return "";
+
+  // En cuántos títulos aparece cada palabra. Lo que está en muchos no
+  // distingue nada; lo que está en pocos lo dice todo.
+  const cuantosLaUsan = new Map();
+  for (const producto of productos) {
+    for (const palabra of new Set(palabrasDeTitulo(producto.titulo))) {
+      cuantosLaUsan.set(palabra, (cuantosLaUsan.get(palabra) || 0) + 1);
+    }
+  }
+
+  // "Poco común" es estar en un cuarto del catálogo o menos. El mínimo de
+  // 3 es para catálogos pequeños, donde un cuarto puede ser menos de uno.
+  const comun = Math.max(3, Math.round(productos.length * 0.25));
+
+  let mejor = null;
+
+  for (const producto of productos) {
+    const suyas = [...new Set(palabrasDeTitulo(producto.titulo))];
+    if (!suyas.length) continue;
+
+    const acertadas = suyas.filter((palabra) => enElTexto.has(palabra));
+    if (!acertadas.length) continue;
+
+    const propias = acertadas.filter((palabra) => (cuantosLaUsan.get(palabra) || 0) <= comun);
+
+    // Con dos palabras basta, si alguna es de las que distinguen. Con una
+    // sola se pide que sea poco común y que NOMBRE algo: una palabra con
+    // cuerpo ("skydolphing") o un código de modelo ("a57"). Nunca una
+    // capacidad suelta: "¿cuánto el de 128gb?" no dice qué equipo es.
+    const sola = acertadas[0];
+    const suficiente =
+      acertadas.length >= 2
+        ? propias.length >= 1
+        : propias.length === 1 &&
+          !ES_CAPACIDAD.test(sola) &&
+          (sola.length >= 4 || pareceCodigoDeModelo(sola));
+
+    if (!suficiente) continue;
+
+    // Gana el que más palabras acierte; a igualdad, el que las tenga más
+    // repartidas por su título (un título de tres palabras acertado entero
+    // vale más que dos palabras de uno de seis).
+    const punto = acertadas.length + propias.length + acertadas.length / suyas.length;
+    if (!mejor || punto > mejor.punto) mejor = { punto, producto, acertadas };
+  }
+
+  if (!mejor) return "";
+
+  console.log(
+    `El texto nombra "${mejor.producto.titulo}" por ${mejor.acertadas.join(", ")}`
+  );
+  return mejor.producto.titulo;
+}
+
+// El estricto primero (el título tal cual, o su principio) y el de contar
+// palabras después: así una coincidencia exacta nunca la pisa una parecida.
+function equipoQueNombra(texto, productos) {
+  return nombraDelCatalogo(texto, productos) || mejorDelCatalogo(texto, productos);
 }
 
 function despejar(texto) {

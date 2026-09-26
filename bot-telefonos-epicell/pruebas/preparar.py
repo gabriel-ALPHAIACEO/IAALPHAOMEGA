@@ -35,7 +35,7 @@ ABIERTAS = [
     "precioParaMostrar", "subtituloDeFicha", "minutosParaVolver", "hayQueDecirQueHayMas",
     "fraseSinResultados", "marcarIdentificacion", "marcarPublicacionSinVer",
     "PAGOS_CASHEA", "PAGOS_KRECE", "NO_PUDE_ABRIRLO", "NO_ESE_PERO_MIRA",
-    "atenderComentario", "modoComentarios",
+    "atenderComentario", "modoComentarios", "equipoQueNombra",
 ]
 
 indice = os.path.join(destino, "index.js")
