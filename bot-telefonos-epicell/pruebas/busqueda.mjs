@@ -73,8 +73,10 @@ comprobar("«xiaomi» encuentra los Redmi y los Poco", xiaomi.length > 0, true);
 comprobar("y NO se cuela un Samsung", xiaomi.some((t) => /Samsung/.test(t)), false);
 
 const xiaomiNote = await enXiaomi("xiaomi note");
-comprobar("«xiaomi note» trae la familia Note entera", xiaomiNote.filter((t) => /Redmi Note/.test(t)).length, 4);
+comprobar("«xiaomi note» trae la familia Note entera", xiaomiNote.filter((t) => /Redmi Note/.test(t)).length, 3);
 comprobar("y NO el Note de otra marca", xiaomiNote.some((t) => /Infinix/.test(t)), false);
+// Preguntó por teléfonos, no por forros: el accesorio se aparta.
+comprobar("ni el forro, que no es lo que preguntó", xiaomiNote.some((t) => /Forro/.test(t)), false);
 
 comprobar("«celulares note» también encuentra", (await enXiaomi("celulares note")).length > 0, true);
 comprobar("«telefonos xiaomi» también", (await enXiaomi("telefonos xiaomi")).length > 0, true);
@@ -82,7 +84,8 @@ comprobar("«telefonos xiaomi» también", (await enXiaomi("telefonos xiaomi")).
 // Un número que no existe TIENE que dar vacío: si no, el bot enseñaría
 // los Note que sí hay como si fueran el que pidió.
 comprobar("«note 20» no existe: vacío", await enXiaomi("note 20"), []);
-comprobar("«redmi note 17» trae su familia y su accesorio", (await enXiaomi("redmi note 17")).length, 3);
+comprobar("«redmi note 17» trae sus dos versiones, sin el forro", await enXiaomi("redmi note 17"), ["Redmi Note 17 256GB", "Redmi Note 17 Pro 512GB"]);
+comprobar("y «forro note 17» trae el forro, no el teléfono", await enXiaomi("forro note 17"), ["Forro Redmi Note 17"]);
 comprobar("«galaxy a57» encuentra el Samsung", await enXiaomi("galaxy a57"), ["Samsung Galaxy A57 128GB"]);
 
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");

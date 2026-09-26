@@ -280,6 +280,19 @@ comprobar("y NO se cuela el Note 14, que es otro modelo", /Note 14/.test(dicho),
 comprobar("cabe en un mensaje de Instagram", dicho.length <= 1000, true);
 comprobar("el saludo nombra el modelo, sin los gigas", /publicación del Redmi Note 17,/.test(dicho), true);
 
+// Si el COMENTARIO dice qué quiere, eso es lo que va.
+m = montar({ hoja: HOJA_NOTE, pie: "El Redmi Note 17 ya está aquí", ventanaCerrada: true });
+await atenderComentario({ ...env, SHEET_ID: "note17b", DB: m.DB }, { ...c, id: "pide-forro", texto: "precio del forro?" });
+const paraElForro = m.privados[0].text;
+comprobar("pide el forro: le manda el forro", /Forro Redmi Note 17/.test(paraElForro), true);
+comprobar("y no le mete los teléfonos", /Redmi Note 17 256GB/.test(paraElForro), false);
+
+// Y un pie que solo habla de fichas técnicas no identifica nada: mejor
+// preguntar que mandarle un cargador porque coincidió el "25w".
+m = montar({ hoja: HOJA_NOTE, pie: "⚡ Carga rápida de 25w, batería para todo el día" });
+await atenderComentario({ ...env, SHEET_ID: "solofichas", DB: m.DB }, { ...c, id: "solo-fichas", texto: "Precio" });
+comprobar("un pie de pura ficha técnica: pregunta, no inventa", m.privados.some((p) => p.attachment), false);
+
 // Los modos
 comprobar("por defecto, todo", modoComentarios({}), "todo");
 comprobar("se puede apagar", modoComentarios({ COMENTARIOS: "off" }), "off");

@@ -30,6 +30,9 @@
 
 import { responderTexto, identificarEnImagen } from "./ia.js";
 import { referenciaEnTexto } from "./referencias.js";
+// "comoSeLlama" ya existe aquí para el nombre del CLIENTE (estado.js), así
+// que el de los tipos entra con su propio nombre.
+import { tipoQuePide, tipoDelProducto, comoSeLlama as nombreDelTipo } from "./tipos.js";
 import {
   buscarProductos,
   catalogoCompleto,
@@ -297,7 +300,22 @@ const HAY_MAS_EN_CATALOGO =
 const SIN_RESULTADOS_SIN_CATALOGO =
   "Déjame confirmarte ese modelo con un asesor y te escribo en un momento 😊";
 
-function fraseSinResultados(env) {
+// Y CUANDO LO QUE NO HAY ES UN TIPO ENTERO, SE DICE ASÍ.
+//
+// "Forros no manejo ahora mismo" es una respuesta; "déjame confirmarte ese
+// modelo con un asesor" no lo es, porque no se trataba de ningún modelo.
+// Al cliente que pide un accesorio que esta tienda no vende hay que
+// decírselo claro, y seguir vendiendo.
+const NO_HAY_DE_ESE_TIPO = [
+  "{tipo} no manejo ahora mismo 😊 ¿Te ayudo con algún equipo?",
+  "De {tipo} no tengo por ahora 😅 ¿Buscas algún teléfono?",
+  "Ahorita no tengo {tipo} 😊 Dime qué equipo te interesa y te ayudo",
+];
+
+function fraseSinResultados(env, tipo = "") {
+  if (tipo && tipo !== "telefono") {
+    return alAzar(NO_HAY_DE_ESE_TIPO).replace("{tipo}", nombreDelTipo(tipo));
+  }
   return hayCatalogo(env) ? SIN_RESULTADOS : SIN_RESULTADOS_SIN_CATALOGO;
 }
 
@@ -1356,7 +1374,37 @@ async function atenderComentario(env, comentario, rastro = {}) {
   // familia completa, que es la información que pidió.
   const familia = cual ? separarCapacidad(terminoDeTitulo(cual)).termino || terminoDeTitulo(cual) : "";
 
-  const productos = familia ? (await buscarProductos(env, familia, 10)).productos : [];
+  // Y SI ÉL DICE QUÉ QUIERE, ESO ES LO QUE VA.
+  //
+  // "¿Tienen forro de este?" debajo de la publicación de un teléfono: el
+  // modelo lo dice la publicación, pero lo que pide lo dice él. Si de ese
+  // modelo hay forros, van los forros y nada más.
+  const tipoEnElComentario = tipoQuePide(comentario.texto);
+
+  // conAccesorios: sin tipo pedido van juntos a propósito. Es el único
+  // mensaje que Instagram permite, así que el cliente tiene que ver el
+  // modelo entero de una vez —sus versiones y lo que le sirve— porque
+  // igual no puede volver a preguntar.
+  let productos = familia
+    ? (await buscarProductos(env, familia, 10, { conAccesorios: true })).productos
+    : [];
+
+  if (tipoEnElComentario && productos.length) {
+    const suyos = productos.filter(
+      (producto) => tipoDelProducto(producto.titulo) === tipoEnElComentario
+    );
+
+    if (suyos.length) {
+      console.log(`Pidió ${tipoEnElComentario} de ese modelo: le mando solo eso`);
+      productos = suyos;
+    } else {
+      // De ese modelo no hay lo que pidió. Se le manda el modelo, que es
+      // por donde entró, en vez de dejarlo sin nada.
+      console.log(
+        `Pidió ${tipoEnElComentario} y de "${familia}" no hay: le mando el modelo`
+      );
+    }
+  }
 
   console.log(
     cual
@@ -1924,7 +1972,11 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
     // 60 es de sobra para la marca más grande de la hoja, y lo que no
     // quepa en los dos mensajes se dice con su número.
-    const { productos: deLaMarca } = await buscarProductos(env, marca, 60);
+    // Una lista de marca se pide para VER QUÉ HAY: ahí entran los
+    // accesorios de la marca igual que los equipos.
+    const { productos: deLaMarca } = await buscarProductos(env, marca, 60, {
+      conAccesorios: true,
+    });
 
     if (deLaMarca.length) {
       const conCasheaAhora = PREGUNTA_CASHEA.test(mensaje.texto);
@@ -2892,14 +2944,32 @@ const NO_NOMBRAN_NADA = new Set([
   "5g", "4g", "lte", "gb", "tb", "ram", "dual", "sim",
 ]);
 
-// "128gb", "256", "1tb": dicen el tamaño, no el modelo. Valen para
-// acompañar, nunca para identificar un equipo ellas solas.
-const ES_CAPACIDAD = /^\d+(gb|tb|mb)?$/;
+// UNA FICHA TÉCNICA NO ES UN NOMBRE (26-sep-2026).
+//
+// "128gb", "256", "25w", "8340mah", "200mp": son lo que el equipo TIENE,
+// no cómo se llama. Y los pies de Instagram están llenos de ellas, porque
+// es con lo que se vende: "Carga rápida de 25w", "Batería de 8,340 mAh".
+//
+// EL FALLO QUE ESTO ARREGLA. Ese pie —de una publicación de un TELÉFONO—
+// hacía que el bot contestara con el "Cargador Samsung 25w" del catálogo:
+// coincidía el 25w y nada más. El cliente comentaba en un teléfono y
+// recibía un cargador.
+const ES_ESPECIFICACION = /^\d+([.,]\d+)?(gb|tb|mb|w|kw|mah|mp|hz|mm|cm|ml|v|k|x|pulgadas)?$/;
+
+// Y TAMPOCO IDENTIFICA UNA PALABRA QUE SOLO DICE LA CLASE DE PRODUCTO.
+//
+// "batería", "cámara", "carga", "memoria" son las palabras con las que se
+// anuncia un teléfono, y a la vez son el título de un accesorio ("Batería
+// externa Powerbank"). Una sola de esas no puede decidir: hace falta que
+// coincida algo más —la marca, el modelo, la capacidad—, y entonces sí.
+function soloDiceLaClase(palabra) {
+  return Boolean(tipoQuePide(palabra));
+}
 
 // "a57", "m8", "s25", "s40e": una letra y un número pegados. Son cortos
 // pero son EL nombre del equipo, así que valen aunque vengan solos.
 function pareceCodigoDeModelo(palabra) {
-  return /[a-z]/.test(palabra) && /\d/.test(palabra) && !ES_CAPACIDAD.test(palabra);
+  return /[a-z]/.test(palabra) && /\d/.test(palabra) && !ES_ESPECIFICACION.test(palabra);
 }
 
 function palabrasDeTitulo(texto) {
@@ -2946,7 +3016,8 @@ function mejorDelCatalogo(texto, productos) {
       acertadas.length >= 2
         ? propias.length >= 1
         : propias.length === 1 &&
-          !ES_CAPACIDAD.test(sola) &&
+          !ES_ESPECIFICACION.test(sola) &&
+          !soloDiceLaClase(sola) &&
           (sola.length >= 4 || pareceCodigoDeModelo(sola));
 
     if (!suficiente) continue;
@@ -3087,6 +3158,8 @@ async function decidir({ env, salida, texto, historialPrevio }) {
 
     if (referencia && referencia.toLowerCase() !== termino.toLowerCase()) {
       const porReferencia = await buscarProductos(env, referencia);
+      // La tabla de referencias traduce a un tipo ("cascos" → "Audifonos"),
+      // así que lo que devuelve YA es del tipo que pidió.
 
       if (porReferencia.productos.length) {
         console.log(
@@ -3153,10 +3226,18 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   // las palabras del término por separado y, con la primera que devuelva
   // algo, se le enseña eso — con sus fotos y sus precios, que es lo que
   // hace que el cliente elija uno.
+  //
+  // Y RESPETA EL TIPO. "Forro para el Samsung A57" sin forros en la
+  // tienda: partir el término y quedarse con "samsung" devolvía
+  // teléfonos, que es exactamente lo que el cliente NO pidió. Si nombró un
+  // tipo, el rescate solo puede traer cosas de ese tipo; si de ese tipo no
+  // hay nada, no hay rescate que valga y se le dice que no hay.
+  const tipoPedido = tipoQuePide(`${texto} ${termino}`);
+
   let porCategoria = "";
   if (!productos.length && /\s/.test(termino)) {
     for (const palabra of termino.split(/\s+/).filter((p) => p.length >= 3)) {
-      const intento = await buscarProductos(env, palabra);
+      const intento = await buscarProductos(env, palabra, 10, { tipo: tipoPedido });
       if (intento.productos.length) {
         productos = intento.productos;
         hayMas = intento.hayMas;
@@ -3307,7 +3388,7 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     // que enseñar, o peor, iba a recitar la lista. Hay fotos que mandar.
     respuestaCliente = alAzar(NO_ESE_PERO_MIRA);
   } else if (buscoSinExito) {
-    respuestaCliente = fraseSinResultados(env);
+    respuestaCliente = fraseSinResultados(env, tipoPedido);
   }
 
   return {

@@ -58,11 +58,13 @@ const SINONIMOS = {
   stock: ["stock", "cantidad", "existencia", "existencias", "unidades", "inventario"],
 };
 
+import { tipoQuePide, tipoDelProducto } from "./tipos.js";
+
 // Devuelve { productos, hayMas }. "hayMas" dice si había MÁS de los que se
 // devuelven: un carrusel de Instagram admite 10, y si de ese modelo hay 14,
 // el cliente tiene que saber que en el catálogo están los otros 4 (ver
 // index.js). Sin esto, "¿solo tienes esos?" no tiene respuesta honesta.
-export async function buscarProductos(env, termino, cuantos = 10) {
+export async function buscarProductos(env, termino, cuantos = 10, opciones = {}) {
   const pedidas = palabrasDeBusqueda(termino).slice(0, 5);
   if (!pedidas.length) return { productos: [], hayMas: false };
 
@@ -152,10 +154,67 @@ export async function buscarProductos(env, termino, cuantos = 10) {
     }
   }
 
+  encontrados = soloLoQuePidio(encontrados, termino, opciones);
+
   return {
     productos: encontrados.slice(0, cuantos).map(({ busqueda, ...producto }) => producto),
     hayMas: encontrados.length > cuantos,
   };
+}
+
+/* ── SOLO LO QUE PIDIÓ, NI UNA COSA MÁS ────────────────────────────
+
+   Dicho por el dueño (26-sep-2026): "que mande lo que el cliente
+   pregunta, no de todo, solo lo que está pidiendo el cliente".
+
+   Dos formas de mandar lo que no pidió, y las dos pasaban:
+
+   1. PIDE UN TIPO QUE NO HAY. "Forro para el Samsung A57" en una tienda
+      sin forros: como "forro" no está en ningún título se ignoraba, y lo
+      que quedaba —"samsung a57"— es el TELÉFONO. El cliente pedía un
+      forro de ocho dólares y recibía un equipo de trescientos. Ahora, si
+      nombró un tipo, solo salen cosas de ese tipo; y si no hay ninguna,
+      sale vacío y el bot le dice que no hay.
+
+   2. PIDE UN MODELO Y SALE MEZCLADO. "Redmi Note 17" trae el teléfono y
+      también su forro y su vidrio. Quien pregunta por un modelo pregunta
+      por el equipo: los accesorios son otra conversación.
+
+   La excepción es el comentario en una publicación, que sí los quiere
+   juntos (es el único mensaje que Instagram deja mandar, así que ahí va
+   la información completa del modelo). Eso se pide con conAccesorios.
+   ───────────────────────────────────────────────────────────────── */
+function soloLoQuePidio(encontrados, termino, { tipo, conAccesorios } = {}) {
+  if (!encontrados.length) return encontrados;
+
+  const pedido = tipo !== undefined ? tipo : tipoQuePide(termino);
+
+  if (pedido) {
+    const suyos = encontrados.filter((p) => tipoDelProducto(p.titulo) === pedido);
+
+    if (suyos.length !== encontrados.length) {
+      console.log(
+        `Pidió ${pedido}: dejo ${suyos.length} de ${encontrados.length} ` +
+          "(lo de otro tipo no es lo que pidió)"
+      );
+    }
+    return suyos;
+  }
+
+  if (conAccesorios) return encontrados;
+
+  // No nombró ningún tipo: pidió un modelo. Si salen equipos y accesorios
+  // mezclados, el equipo es la respuesta.
+  const equipos = encontrados.filter((p) => tipoDelProducto(p.titulo) === "telefono");
+  if (equipos.length && equipos.length !== encontrados.length) {
+    console.log(
+      `Preguntó por un modelo: dejo los ${equipos.length} equipo(s) y aparto ` +
+        `${encontrados.length - equipos.length} accesorio(s)`
+    );
+    return equipos;
+  }
+
+  return encontrados;
 }
 
 /* ── LA MARCA QUE DICE EL CLIENTE NO ES LA QUE DICE LA HOJA ────────

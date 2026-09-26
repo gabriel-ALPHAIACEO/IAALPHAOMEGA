@@ -123,5 +123,38 @@ comprobar("«xiaomi note» encuentra los Redmi Note", fichas(r.enviados).filter(
 comprobar("y no se cuela el Samsung", fichas(r.enviados).some((f) => /Samsung/.test(f.title)), false);
 comprobar("y NO le dice que no maneja Xiaomi", /no manejo/i.test(textos(r.enviados)[0]), false);
 
+// SOLO LO QUE PIDE EL CLIENTE, NI UNA COSA MÁS.
+// "Forro para el A57" en una tienda sin forros devolvía el TELÉFONO A57:
+// un equipo de $310 a quien quería un forro de ocho.
+const CON_ACCESORIOS = `Nombre,Precio Divisas ($),Precio Cashea,Foto
+Samsung A57,310,95,https://x/a57.jpg
+Cable Tipo C Samsung 1Metro,8,,https://x/c1.jpg
+Audifonos Redmi Buds 6,22,,https://x/au.jpg`;
+
+r = await turno({
+  texto: "tienen forro para el a57?",
+  hoja: CON_ACCESORIOS,
+  respuestaDelModelo: { buscar: "Forro Samsung A57" },
+  fila: { historial: "Ya di la bienvenida." },
+});
+comprobar("pide un forro que no hay: NO le manda el teléfono", fichas(r.enviados).length, 0);
+comprobar("y se lo dice nombrando lo que pidió", /forros/i.test(textos(r.enviados)[0]), true);
+
+r = await turno({
+  texto: "precio del cable tipo c",
+  hoja: CON_ACCESORIOS,
+  respuestaDelModelo: { buscar: "Cable Tipo C" },
+  fila: { historial: "Ya di la bienvenida." },
+});
+comprobar("pide un cable: le manda el cable", fichas(r.enviados).map((f) => f.title), ["Cable Tipo C Samsung 1Metro"]);
+
+r = await turno({
+  texto: "precio del samsung a57",
+  hoja: CON_ACCESORIOS,
+  respuestaDelModelo: { buscar: "Samsung A57" },
+  fila: { historial: "Ya di la bienvenida." },
+});
+comprobar("pide el equipo: va el equipo, sin accesorios colados", fichas(r.enviados).map((f) => f.title), ["Samsung A57"]);
+
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);
