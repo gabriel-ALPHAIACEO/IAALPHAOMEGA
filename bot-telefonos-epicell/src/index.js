@@ -31,6 +31,7 @@
 import { responderTexto, identificarEnImagen } from "./ia.js";
 import { cotejoPorImagen, parecidosDeLaFoto, ordenarPorLaFoto } from "./cotejo.js";
 import { indexarTanda, revisarIndice } from "./indice.js";
+import { revisarCuotas } from "./cuotas.js";
 import { referenciaEnTexto } from "./referencias.js";
 import {
   buscarProductos,
@@ -79,7 +80,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-24 (12) · las fotos las baja el Worker, no OpenAI";
+const VERSION = "2026-09-26 (13) · no existe el 0%: red de seguridad para Cashea y Krece";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -1236,7 +1237,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     return;
   }
 
-  const { productos, respuestaCliente, termino, esConsultaDeAsesor, buscoSinExito, hayMas } =
+  // "respuestaCliente" no es const porque la red de cuotas puede
+  // sustituirla justo aquí abajo (ver cuotas.js).
+  let { productos, respuestaCliente, termino, esConsultaDeAsesor, buscoSinExito, hayMas } =
     await decidir({
       env,
       salida,
@@ -1251,6 +1254,25 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // (Cashea, divisas, o el de por defecto). Se resuelve ACÁ y las fichas
   // salen con el precio ya escrito: así instagram.js no necesita saber
   // nada de Cashea y sigue sirviendo igual para cualquier tienda.
+  // ANTES DE MANDAR NADA: que no salga un porcentaje que no existe.
+  //
+  // El modelo llegó a prometer "0% con Cashea", que no es un dato
+  // aproximado sino uno falso: la inicial más baja es 20%. El prompt ya
+  // se lo prohíbe, pero esto es dinero y el cliente se lo cree, así que
+  // no puede depender de que se acuerde. Ver cuotas.js.
+  const revision = revisarCuotas(respuestaCliente);
+  if (revision.corregido) {
+    respuestaCliente = revision.respuesta;
+    await avisarAsesor(env, {
+      ...paraElAviso(contacto),
+      igsid: mensaje.igsid,
+      mensaje: mensaje.texto,
+      respuesta: respuestaCliente,
+      motivo: `SE INVENTÓ UN PORCENTAJE DE CUOTAS (${revision.inventados.join(", ")})`,
+      historia: esHistoria ? "respuesta a una historia" : "",
+    });
+  }
+
   const conCashea = PREGUNTA_CASHEA.test(mensaje.texto);
   const conDivisas = PREGUNTA_DIVISAS.test(mensaje.texto);
   const fichas = productos.map((p) => ({

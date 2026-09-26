@@ -33,6 +33,31 @@ Tres capas, y cada una arregla el fallo de la anterior:
    - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
    - **Indexar el catálogo una sola vez** ← **esto es lo que se hizo.** Ver abajo.
 
+### EPICELL: el bot prometió "0% con Cashea", que no existe (26-sep-2026)
+
+La inicial más baja de Cashea es **20%** (niveles 5 y 6) y la de Krece **15%** (Platino). El cliente lee "0%", entiende que no paga nada el primer día, viene a la tienda con las manos vacías, y la venta se cae en el mostrador.
+
+**De dónde sale.** El prompt dice **SIN INTERESES**, que es cierto, y el modelo lo convierte en "0%". Son dos cosas distintas: los intereses son lo que se paga de más por financiar (ahí sí es cero); la inicial es lo que se paga el primer día (nunca es cero).
+
+**Dos capas, porque esto es dinero:**
+
+1. **`prompts/texto.txt`** lo prohíbe con todas las letras: no existe el 0%, no se escribe "0%" ni "cero por ciento" en ningún mensaje, "sin intereses" se dice con esas palabras. Y no hay más niveles que los de la tabla — ni un 7, ni un 0, ni uno "especial".
+2. **`src/cuotas.js`** (nuevo) revisa lo que el modelo quiere mandar **antes de enviarlo**. Si el mensaje habla de financiamiento y trae un porcentaje que no está en `{60, 50, 30, 25, 20, 15}`, la respuesta se sustituye por pasar a un asesor y se manda el aviso. Es la misma idea que `identificar.js` en el bot de calzado: código puro revisando a la IA, porque un número inventado no puede depender de que el modelo se acuerde.
+
+Lo que **no** hace: no comprueba el nivel que dice tener el cliente, no hace cuentas y no valida el texto que acompaña. Solo lo que cuesta dinero. Y solo mira mensajes que hablan de cuotas, así que un "10% de descuento" no lo toca.
+
+### Una historia de la tienda entera ya no se adivina (26-sep-2026)
+
+El dueño publicó un vídeo recorriendo el local, con estantes llenos. Un cliente respondió a esa historia y el bot le mandó calzados que no tenían nada que ver.
+
+**La causa estaba escrita en el prompt:** *"Si no dice nada, elige el que sale más grande o más centrado"*. En una vitrina no hay ninguno principal — están todos parejos — así que elegir es adivinar.
+
+- **`variosProductos`**, campo nuevo y obligatorio del JSON de visión: true cuando la imagen es el local, un estante o una mesa con veinte pares. El prompt explica cómo distinguirlo de "varios zapatos pero uno destacado" (ese sí se identifica), y **ante la duda es vitrina**: mandar el catálogo nunca está mal, mandar el zapato equivocado sí.
+- **Si el cliente escribió algo concreto, eso manda** aunque la foto sea un estante lleno. Lo decide `textoPideAlgo()`, que ignora saludos y preguntas genéricas ("precio", "cuánto", "me interesa") y solo cuenta palabras que nombran producto.
+- **Y entonces ni se busca:** `decidir()` corta antes, así no se gastan llamadas para acabar adivinando. Sale el catálogo completo, que es justo lo que pedía quien estaba mirando la tienda entera.
+
+Es un caso nuevo para la regla 6 de `CLAUDE.md` (el catálogo no es la respuesta por defecto): se suma a los cuatro de siempre.
+
 ### Las fotos del catálogo las baja el Worker, no OpenAI (24-sep-2026)
 
 El `invalid_image_url` seguía saliendo aunque las fotos ya se pedían a 512px, y cada mensaje con foto se comía el cupo entero del minuto:

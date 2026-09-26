@@ -70,7 +70,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-24 (20) · las fotos las baja el Worker, y el color filtra sobre todo el modelo";
+const VERSION = "2026-09-26 (21) · una foto de la tienda entera va al catálogo, no se adivina";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -117,6 +117,22 @@ const ES_ALGUNO_DE_ESTOS = [
 // Cuántos se le enseñan. Suficientes para que esté el suyo, pocos para
 // que pueda mirarlos: veinte fichas no se revisan, se ignoran.
 const PARECIDOS_DEL_INDICE = 6;
+
+// LA FOTO ERA LA TIENDA ENTERA, NO UN ZAPATO.
+//
+// El dueño publica historias enseñando el local: estantes llenos, mesas
+// con veinte pares, vídeos recorriendo la tienda. El bot elegía uno "el
+// que sale más grande" y le mandaba al cliente calzados que no tenían
+// nada que ver con lo que estaba mirando.
+//
+// Aquí el catálogo completo SÍ es la respuesta correcta, y es de los
+// pocos sitios donde lo es: el cliente está pidiendo ver lo que hay.
+const ERA_LA_VITRINA = [
+  "¡Tenemos todo eso y más! 😍 Mira el catálogo completo 👇 y dime cuál te gustó",
+  "Ahí sale buena parte de la tienda 🙌 Aquí lo tienes todo 👇 Dime cuál te llamó la atención",
+  "¡Esa es la tienda! 😊 Échale un ojo al catálogo completo 👇 y me dices cuál quieres ver de cerca",
+  "Mira todo lo que tenemos aquí 👇 Cuando veas uno que te guste, dime cuál y te lo muestro 👟",
+];
 
 // Lo que cabe en un carrusel de Instagram.
 const MAXIMO_EN_CARRUSEL = 10;
@@ -283,6 +299,38 @@ const PREGUNTA_TALLA =
 // devuelve cero productos. Solo se quita el número cuando va detrás de
 // "talla" o "size": si no, nos cargaríamos nombres como "Jordan 40".
 const TALLA_EN_BUSQUEDA = /\b(tallas?|sizes?|n[uú]mero)\s*:?\s*\d{1,2}(\.\d)?\b|\b(tallas?|sizes?)\b/gi;
+
+// ¿El cliente NOMBRÓ algo concreto, o solo mandó la foto con un "precio"?
+//
+// Decide si una vitrina se trata como vitrina. Si escribió "las Nike
+// blancas", eso manda aunque la foto sea un estante lleno; si escribió
+// "cuánto?" o nada, no hay nada que buscar y toca el catálogo.
+//
+// ANTE LA DUDA, NO PIDIÓ NADA. Mandar el catálogo cuando el cliente sí
+// había nombrado algo es un fallo menor —lo ve todo igual—; adivinar un
+// zapato cuando no nombró nada es el fallo que hay que evitar.
+const PALABRAS_SIN_PRODUCTO = new Set([
+  "hola", "buenas", "buenos", "dias", "tardes", "noches", "saludos",
+  "precio", "precios", "cuanto", "cuanta", "cuesta", "cuestan", "vale",
+  "valen", "info", "informacion", "disponible", "disponibles", "hay",
+  "tienen", "tiene", "tienes", "queda", "quedan", "eso", "esos", "esas",
+  "esa", "este", "esta", "estos", "estas", "ese", "me", "interesa",
+  "quiero", "gusta", "gustaron", "por", "favor", "gracias", "si", "no",
+  "y", "el", "la", "los", "las", "un", "una", "de", "del", "que", "a",
+  "ver", "verlo", "verlos", "mas", "todo", "todos", "ok", "dale",
+]);
+
+function textoPideAlgo(texto) {
+  const palabras = String(texto || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return palabras.some((p) => p.length > 1 && !PALABRAS_SIN_PRODUCTO.has(p));
+}
 
 function sinTalla(termino) {
   return String(termino || "")
@@ -1043,6 +1091,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   let vistoFoto = "";
   // La visión llegó al MODELO, no se quedó en la marca.
   let modeloNombrado = false;
+  // La foto era una vitrina: la tienda entera, un estante, muchos pares.
+  let eraLaVitrina = false;
   // El modelo se nombró pero el detalle que lo confirmaría no se ve en la
   // foto (ver identificar.js). Se busca igual, y el cotejo visual lo
   // verifica contra la foto real del catálogo — incluso si hay un solo
@@ -1071,6 +1121,19 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       colorFoto = nombreDeColor(identificacion.color);
       vistoFoto = identificacion.visto || "";
       modeloNombrado = !pedirNombreExacto && String(buscar).toUpperCase() !== "NADA";
+
+      // UNA VITRINA NO SE ADIVINA. Solo cuenta si el cliente no nombró
+      // nada: si escribió "las Nike blancas", eso manda aunque la foto
+      // sea un estante lleno.
+      eraLaVitrina =
+        Boolean(identificacion.variosProductos) && !textoPideAlgo(mensaje.texto);
+
+      if (eraLaVitrina) {
+        console.log(
+          "La foto es la tienda entera, no un zapato: le mando el catálogo " +
+            "completo en vez de adivinar cuál miraba"
+        );
+      }
       porConfirmar = Boolean(confirmar);
     } else {
       console.error(
@@ -1147,6 +1210,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     colorFoto,
     vistoFoto,
     modeloNombrado,
+    eraLaVitrina,
     porConfirmar,
   });
 
@@ -1487,11 +1551,41 @@ async function decidir({
   // La visión nombró un MODELO concreto, no solo la marca. Si además la
   // búsqueda encontró producto, el índice no debe cambiarlo por otro.
   modeloNombrado = false,
+  // La foto era la tienda entera. No hay nada que buscar: toca el catálogo.
+  eraLaVitrina = false,
   // El modelo se identificó pero sin confirmar del todo: el cotejo pasa a
   // verificar, no solo a desempatar.
   porConfirmar = false,
 }) {
   const preguntoTalla = PREGUNTA_TALLA.test(texto);
+
+  // LA FOTO ERA LA VITRINA: NI SE BUSCA.
+  //
+  // No hay un zapato que encontrar, así que buscar es gastar llamadas
+  // para acabar adivinando. Se le manda el catálogo completo, que es
+  // exactamente lo que estaba pidiendo al mirar la tienda entera.
+  if (eraLaVitrina) {
+    salida.respuesta = alAzar(ERA_LA_VITRINA);
+    salida.historial = conNota(
+      salida.historial,
+      "Mandó una foto de la tienda entera; le pasé el catálogo completo."
+    );
+    // hayMasDelCatalogo es lo que hace salir el botón del catálogo (ver
+    // dónde se decide el envío). Los demás campos van en su forma normal
+    // para que quien llama no tenga que saber de este caso.
+    return {
+      preguntoTalla,
+      termino: "",
+      aBuscar: "",
+      colores: [],
+      productos: [],
+      buscoSinExito: false,
+      seAcabaron: false,
+      hayMasDelCatalogo: true,
+      alternativa: "",
+      respuestaCliente: salida.respuesta,
+    };
+  }
 
   // El modelo cuela la talla en el término cuando el cliente la nombra, y eso
   // devuelve cero productos siempre. Se le quita antes de buscar.

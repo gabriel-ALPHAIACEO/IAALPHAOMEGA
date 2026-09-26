@@ -236,12 +236,23 @@ const ESQUEMA_IDENTIFICACION = {
       // Es lo que evita el fallo que más duele: la historia enseña el
       // negro y el bot manda el blanco.
       color: { type: "string" },
+      // LA FOTO ES UNA VITRINA, NO UN PRODUCTO.
+      //
+      // El dueño publica historias enseñando la tienda entera: estantes
+      // llenos, mesas con veinte pares, vídeos recorriendo el local. Ahí
+      // no hay un zapato que identificar, y elegir "el que sale más
+      // grande" es adivinar — le llegaron al cliente calzados que no
+      // tenían nada que ver con lo que él miraba.
+      //
+      // Con esto el bot deja de adivinar y le manda el catálogo completo,
+      // que es lo que de verdad responde a "quiero ver lo que tienen".
+      variosProductos: { type: "boolean" },
       // true = solo se reconoce la marca o familia, no el modelo exacto.
       // Con esto la IA de texto sabe si, además de mostrar la marca, tiene
       // que pedirle al cliente el nombre exacto en el mismo mensaje.
       pedirNombreExacto: { type: "boolean" },
     },
-    required: ["visto", "rasgos", "buscar", "color", "pedirNombreExacto"],
+    required: ["visto", "rasgos", "buscar", "color", "variosProductos", "pedirNombreExacto"],
     additionalProperties: false,
   },
 };
@@ -384,7 +395,7 @@ export async function responderTexto(env, entrada) {
 }
 
 // SOLO identifica: no redacta nada para el cliente. Devuelve
-// { visto, rasgos, buscar, color, pedirNombreExacto } o null si algo falló.
+// { visto, rasgos, buscar, color, variosProductos, pedirNombreExacto } o null.
 export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) {
   const salida = await llamar(
     env,
@@ -430,6 +441,7 @@ export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) 
     visto: String(datos.visto || "").trim(),
     buscar: String(datos.buscar || "NADA").trim(),
     color: String(datos.color || "").trim().toLowerCase(),
+    variosProductos: Boolean(datos.variosProductos),
     rasgos: datos.rasgos && typeof datos.rasgos === "object" ? datos.rasgos : null,
     pedirNombreExacto: Boolean(datos.pedirNombreExacto),
   };
