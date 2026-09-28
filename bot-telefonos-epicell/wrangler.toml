@@ -85,7 +85,7 @@ SHEET_NOMBRE = "INVENTARIO AL 050926"
 # asesor. Antes de esto el prompt llevaba escrito "{{TUS HORARIOS}}" sin
 # rellenar, y el modelo contestaba con esas llaves o con una hora inventada
 # — que es un cliente en la puerta de un local cerrado.
-HORARIOS = ""
+HORARIOS = "Estamos abiertos de 9am a 7pm 🕘 Domingos y feriados, de 10am a 5pm"
 
 # --- LA TIENDA ---------------------------------------------------------
 # Enlace del catalogo online. EPICELL no tiene tienda web, asi que va
