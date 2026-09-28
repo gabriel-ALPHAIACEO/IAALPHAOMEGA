@@ -297,26 +297,44 @@ const HAY_MAS_EN_CATALOGO =
 
 // Lo que sí se queda, porque no habla de ninguna tienda: cuando no se
 // encuentra el modelo, la respuesta sigue siendo el asesor.
-const SIN_RESULTADOS_SIN_CATALOGO =
-  "Déjame confirmarte ese modelo con un asesor y te escribo en un momento 😊";
+// Lo que se dice en su lugar cuando NO hay nada que enseñarle.
+const HOY_NO_DISPONIBLE = [
+  "Ahora mismo no lo tengo disponible 😊 Un asesor te confirma si podemos conseguírtelo. ¿Te muestro lo que tengo mientras?",
+  "Justo ese no lo tengo disponible hoy 😅 Déjame confirmarte con un asesor si se puede conseguir. ¿Te enseño otras opciones?",
+  "Por ahora no me queda disponible 😊 Un asesor te dice si entra pronto. ¿Quieres ver lo que tengo?",
+];
+
+// SE BUSCÓ Y NO HAY. Es el momento más delicado de la conversación: el
+// cliente preguntó por algo concreto y no está.
+//
+// Lo que NO se dice: que no lo vendemos. Eso es cerrar la puerta con un
+// dato que el bot no tiene (ver sinCerrarLaPuerta). Lo que sí: que hoy no
+// está disponible, que un asesor confirma si se consigue, y una pregunta
+// para que la conversación siga.
+const SIN_RESULTADOS_SIN_CATALOGO = HOY_NO_DISPONIBLE;
 
 // Y CUANDO LO QUE NO HAY ES UN TIPO ENTERO, SE DICE ASÍ.
 //
-// "Forros no manejo ahora mismo" es una respuesta; "déjame confirmarte ese
+// "Forros ahora mismo no tengo" es una respuesta; "déjame confirmarte ese
 // modelo con un asesor" no lo es, porque no se trataba de ningún modelo.
-// Al cliente que pide un accesorio que esta tienda no vende hay que
-// decírselo claro, y seguir vendiendo.
+//
+// SE HABLA DE DISPONIBILIDAD, NUNCA DE LO QUE LA TIENDA VENDE (28-sep-2026,
+// el dueño). EPICELL es una tienda de tecnología: lo que hoy no está puede
+// conseguirse, entrar la semana que viene o estar en el otro local. Un "no
+// manejamos eso" le cierra la puerta al cliente con un dato que el bot no
+// tiene, y encima suele ser mentira. "Hoy no lo tengo disponible" es la
+// verdad, y deja la venta viva.
 const NO_HAY_DE_ESE_TIPO = [
-  "{tipo} no manejo ahora mismo 😊 ¿Te ayudo con algún equipo?",
-  "De {tipo} no tengo por ahora 😅 ¿Buscas algún teléfono?",
-  "Ahorita no tengo {tipo} 😊 Dime qué equipo te interesa y te ayudo",
+  "De {tipo} ahora mismo no tengo disponibles 😊 Un asesor te confirma si podemos conseguirlo. ¿Te ayudo con algo más?",
+  "{tipo} no tengo disponibles por ahora 😅 Si quieres, un asesor te confirma si entra pronto",
+  "Ahorita no me quedan {tipo} 😊 Un asesor te dice si podemos conseguírtelo. ¿Buscas algo más?",
 ];
 
 function fraseSinResultados(env, tipo = "") {
   if (tipo && tipo !== "telefono") {
     return alAzar(NO_HAY_DE_ESE_TIPO).replace("{tipo}", nombreDelTipo(tipo));
   }
-  return hayCatalogo(env) ? SIN_RESULTADOS : SIN_RESULTADOS_SIN_CATALOGO;
+  return hayCatalogo(env) ? SIN_RESULTADOS : alAzar(SIN_RESULTADOS_SIN_CATALOGO);
 }
 
 // ¿Se le dice que hay más de ese modelo? Solo si hay una tienda a la que
@@ -441,24 +459,25 @@ const SI_LO_TENGO = [
 // uno. La lista escrita no vende nada.
 // PIDE UN TELÉFONO DE UNA MARCA DE LA QUE SOLO HAY ACCESORIOS.
 //
-// EL CASO REAL (28-sep-2026, al revisar el inventario). EPICELL vende
-// nueve productos Apple —cargadores certificados, cables y AirPods— pero
-// NI UN iPhone. Como esos títulos llevan la palabra "iphone" dentro
-// ("Apple cargador iphone 20w"), a quien preguntara "¿tienen iPhone?" la
-// búsqueda le devolvía tres cargadores, y el bot se los enseñaba como si
-// fueran el teléfono.
+// EL CASO REAL (28-sep-2026, al revisar el inventario). En la hoja hay
+// nueve productos Apple —cargadores certificados, cables y AirPods— y
+// ningún teléfono DISPONIBLE HOY. Como esos títulos llevan la palabra
+// "iphone" dentro ("Apple cargador iphone 20w"), a quien preguntara
+// "¿tienen iPhone?" la búsqueda le devolvía tres cargadores, y el bot se
+// los enseñaba como si fueran el teléfono.
 //
-// Decir la verdad vende más: de esa marca hay accesorios, teléfonos no.
+// Se habla de lo que hay HOY, nunca de lo que la tienda vende: es una
+// tienda de tecnología y consigue lo que le pidan (ver NO_HAY_DE_ESE_TIPO).
 const SOLO_ACCESORIOS_DE_ESO = [
-  "Eso lo tengo en accesorios 😊 Teléfonos de esa marca no manejo, pero mira 👇",
-  "De esa marca tengo accesorios, teléfonos no 😊 Esto es lo que hay 👇",
-  "Teléfonos de esa marca no manejo 😅 Accesorios sí, míralos 👇",
+  "De esa marca ahora tengo accesorios 😊 Teléfonos no me quedan disponibles, pero mira esto 👇",
+  "Ahorita de esa marca tengo estos accesorios 😊 Teléfonos no tengo disponibles por ahora 👇",
+  "De teléfonos de esa marca no me queda disponible ahora 😅 Accesorios sí, míralos 👇",
 ];
 
 const NO_ESE_PERO_MIRA = [
   "Ese exacto no lo tengo ahora 😊 Pero mira estos, que te pueden servir 👇",
   "De ese no me queda 😅 Te muestro los que sí tengo 👇",
-  "Justo ese no lo manejo 😊 Pero estos van por la misma línea, míralos 👇",
+  "Justo ese no lo tengo disponible 😊 Pero estos van por la misma línea, míralos 👇",
 ];
 
 // Lo que se le dice cuando vuelve a pedir lo mismo en divisas. No hace
@@ -2969,6 +2988,37 @@ function sinPreciosInventados(texto, productos) {
   return productos.length ? alAzar(EL_PRECIO_EN_LAS_FICHAS) : EL_PRECIO_LO_CONFIRMA_UN_ASESOR;
 }
 
+/* ── EL BOT NO LE CIERRA LA PUERTA A NADIE ─────────────────────────
+
+   Dicho por el dueño (28-sep-2026): "no limites nada con que no vendemos
+   iPhone, sí vendemos, es una tienda de tecnología, solo que no lo
+   tenemos disponible".
+
+   Tiene razón, y la diferencia no es de tono: es de negocio. El catálogo
+   que ve el bot es lo que hay HOY en la hoja, no lo que la tienda vende
+   ni lo que puede conseguir. Cuando el modelo escribe "no vendemos eso"
+   está afirmando algo que no sabe —y que casi siempre es falso— y con
+   eso cierra una conversación que podía terminar en venta.
+
+   El prompt ya se lo dice. Esto es la red: si aun así lo escribe, se le
+   cambia por la verdad, que es que hoy no lo tiene disponible y que un
+   asesor puede confirmar si se consigue.
+   ───────────────────────────────────────────────────────────────── */
+const CIERRA_LA_PUERTA =
+  /\bno\s+(?:se\s+)?(?:los?\s+|las?\s+|lo\s+|le\s+)?(?:vendemos|vendo|manejamos|manejo|trabajamos|trabajo|distribuimos|comercializamos)\b/i;
+
+function sinCerrarLaPuerta(texto, productos) {
+  if (!CIERRA_LA_PUERTA.test(String(texto || ""))) return texto;
+
+  console.error(
+    `CERRABA LA PUERTA: el modelo escribió ${JSON.stringify(String(texto).slice(0, 80))}. ` +
+      "La tienda vende tecnología: no se dice qué NO se vende, se dice qué no hay HOY."
+  );
+
+  // Con fichas debajo, la frase de "ese no, pero mira estos" encaja sola.
+  return productos.length ? alAzar(NO_ESE_PERO_MIRA) : alAzar(HOY_NO_DISPONIBLE);
+}
+
 // Y EN EL HISTORIAL TAMPOCO.
 //
 // El historial lo escribe el modelo y se le devuelve en el mensaje
@@ -3477,7 +3527,10 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   // LAS CIFRAS QUE EL MODELO NO PUEDE CONOCER SE VAN AQUÍ, antes que nada
   // más: lo que se mira debajo (que no diga "no hay", la bienvenida
   // repetida) tiene que mirar el texto que de verdad va a salir.
-  const sinInventos = sinPreciosInventados(salida.respuesta, productos);
+  const sinInventos = sinCerrarLaPuerta(
+    sinPreciosInventados(salida.respuesta, productos),
+    productos
+  );
 
   // Si ya se conocen, se le quita la bienvenida aunque el modelo la haya
   // escrito. Es el fallo que más se nota: saludar dos veces.

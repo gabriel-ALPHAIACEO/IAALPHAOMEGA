@@ -102,7 +102,11 @@ r = await turno({
   },
   fila: { historial: "Ya di la bienvenida." },
 });
-comprobar("lo que NO existe se sigue diciendo", /no lo manejo/i.test(textos(r.enviados)[0]), true);
+// Sigue diciendo que ESE no está —no se le promete lo que no hay— pero
+// hablando de disponibilidad, no de lo que la tienda vende: EPICELL es una
+// tienda de tecnología y consigue lo que le pidan.
+comprobar("lo que NO existe se sigue diciendo", /no lo tengo|no me queda|no est[aá] disponible/i.test(textos(r.enviados)[0]), true);
+comprobar("pero sin cerrarle la puerta", /no (?:lo |los |las )?(?:vendemos|manejamos|trabajamos)/i.test(textos(r.enviados)[0]), false);
 comprobar("y aun así le enseña alternativas", fichas(r.enviados).length > 0, true);
 
 // LA MARCA QUE EL CLIENTE DICE NO ES LA QUE DICE LA HOJA.

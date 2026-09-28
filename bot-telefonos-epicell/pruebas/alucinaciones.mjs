@@ -123,5 +123,34 @@ r = await turno({
 comprobar("el cargador de iPhone se busca normal", fichas(r.enviados), ["Apple cargador iphone 20w certificado taco y cable"]);
 comprobar("y sin el aviso de la marca", /teléfonos de esa marca/i.test(textos(r.enviados)), false);
 
+// ── NUNCA SE LE CIERRA LA PUERTA A UN CLIENTE ─────────────────
+//
+// EPICELL es una tienda de tecnología: lo que hoy no está puede
+// conseguirse. "No vendemos eso" es una afirmación que el bot no puede
+// hacer —no conoce lo que la tienda consigue— y encima cierra la venta.
+for (const dicho of [
+  "Lo siento, no vendemos iPhone 😊",
+  "Esa marca no la manejamos",
+  "No trabajamos con Motorola",
+  "De eso no manejo, disculpa",
+]) {
+  r = await turno({
+    texto: "tienen iphone 15?",
+    respuestaDelModelo: { respuesta: dicho, buscar: "iPhone 15" },
+    fila: yaSeConocen,
+  });
+  const dice = textos(r.enviados);
+  comprobar(`«${dicho}» no sale tal cual`, /no (?:lo |los |las |la )?(?:vendemos|manejamos|trabajamos|manejo)/i.test(dice), false);
+  comprobar("   y le dice que hoy no está disponible", /disponible|no me queda|asesor/i.test(dice), true);
+}
+
+// Lo que sí puede decir: que ESE no lo tiene, mostrando alternativas.
+r = await turno({
+  texto: "tienen el poco z99?",
+  respuestaDelModelo: { respuesta: "Ese no lo tengo disponible, pero mira estos 👇", buscar: "Poco" },
+  fila: yaSeConocen,
+});
+comprobar("«no lo tengo disponible» se respeta", /no lo tengo disponible/i.test(textos(r.enviados)), true);
+
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);

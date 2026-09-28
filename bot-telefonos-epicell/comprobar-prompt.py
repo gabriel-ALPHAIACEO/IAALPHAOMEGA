@@ -28,8 +28,13 @@ CATALOGO = os.path.join(AQUI, "src", "prompts", "catalogo.txt")
 # {{...}} es un hueco de la plantilla que el modelo lee como si fuera texto.
 MARCADORES_QUE_SE_RELLENAN = {"{{CATALOGO}}", "{{TUS HORARIOS}}"}
 
-# Marcas de teléfono conocidas. Si el prompt nombra una que no está en
-# catalogo.txt, es de la plantilla: la tienda no la vende.
+# Marcas que la plantilla traía de otra tienda. Si el prompt las nombra
+# FUERA del bloque que explica qué hacer cuando algo no está disponible, es
+# que quedó un ejemplo de la plantilla — y el modelo imita los ejemplos.
+#
+# OJO: que una marca esté acá NO significa que la tienda no la venda.
+# EPICELL es una tienda de tecnología y consigue lo que le pidan; esto solo
+# vigila que los EJEMPLOS del prompt usen productos que existen en la hoja.
 MARCAS = [
     "iphone", "ipad", "airpods", "macbook", "apple", "motorola", "moto g",
     "pixel", "huawei", "oppo", "vivo", "realme", "oneplus", "nokia", "lg",
@@ -39,7 +44,7 @@ MARCAS = [
 
 # Dentro de este bloque SÍ se pueden nombrar: es donde se le dice al
 # modelo qué vende la tienda y qué no, y para lo segundo hay que nombrarlo.
-BLOQUE_PERMITIDO = "QUÉ VENDE ESTA TIENDA, Y QUÉ NO"
+BLOQUE_PERMITIDO = "SI PIDEN ALGO QUE HOY NO ESTÁ"
 
 
 def leer(ruta):
