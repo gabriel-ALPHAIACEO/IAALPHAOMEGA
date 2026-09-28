@@ -30,6 +30,7 @@
 
 import { responderTexto, identificarEnImagen } from "./ia.js";
 import { revisarPagos, metodosDePago, tasaDePago } from "./pagos.js";
+import { gastoDelMes } from "./gasto.js";
 import { buscarProductos } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
@@ -71,7 +72,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-28 (24) · métodos de pago y tasa BCV se contestan; los datos y la cifra, nunca";
+const VERSION = "2026-09-28 (25) · se mide el gasto real de OpenAI, llamada por llamada";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -487,6 +488,8 @@ export default {
         indexados = -1;
       }
 
+      const gasto = await gastoDelMes(env);
+
       return texto200(
         [
           `CÓDIGO DESPLEGADO   ${VERSION}`,
@@ -512,6 +515,27 @@ export default {
           `  OPENAI_MODELO       ${env.OPENAI_MODELO || "gpt-4o-mini (por defecto)"}   (el que redacta las respuestas)`,
           `  OPENAI_MODELO_VISION ${env.OPENAI_MODELO_VISION || "gpt-4o (por defecto)"}   (el que identifica las fotos)`,
           `  COTEJO_BARRIDO      ${env.COTEJO_BARRIDO === "no" ? "no (apagado)" : "si"}   (mirar el catálogo cuando el nombre no acierta)`,
+          "",
+          "GASTO DE OPENAI ESTE MES — medido, no estimado",
+          ...(gasto
+            ? [
+                ...gasto.filas.map(
+                  (f) =>
+                    `  ${String(f.modelo).padEnd(20)} $${(f.dolares || 0).toFixed(2)}   ` +
+                    `${(f.llamadas || 0).toLocaleString()} llamadas, ` +
+                    `${(f.entrada || 0).toLocaleString()} tok de entrada` +
+                    (f.cacheadas
+                      ? ` (${Math.round(((f.cacheadas || 0) / (f.entrada || 1)) * 100)}% con descuento de caché)`
+                      : "")
+                ),
+                gasto.filas.length
+                  ? `  ${"TOTAL".padEnd(20)} $${gasto.total.toFixed(2)} en ${gasto.dias} día(s) → ` +
+                    `el mes va a salir en unos $${gasto.proyectado.toFixed(2)}`
+                  : "  Todavía no hay ninguna llamada medida este mes.",
+                "  Una foto cuesta como 16 mensajes de texto: casi todo el gasto",
+                "  son fotos. Si el proyectado se pasa, eso es lo que hay que bajar.",
+              ]
+            : ["  (no pude leer la tabla de gasto)"]),
           "",
           "CÓMO SE PAGA (src/prompts/pagos.txt)",
           metodosDePago().length

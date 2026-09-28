@@ -26,6 +26,7 @@ import { RASGOS_CLAVE } from "./identificar.js";
 import { urlPequena } from "./shopify.js";
 import { comoDataUri } from "./imagen.js";
 import { metodosDePago, tasaDePago } from "./pagos.js";
+import { anotarGasto } from "./gasto.js";
 
 // EL CATÁLOGO SE PEGA AL PROMPT AL ARRANCAR, NO EN CADA MENSAJE.
 //
@@ -225,6 +226,7 @@ export function modeloDeVision(env) {
 export function modeloDeIndice(env) {
   return env.OPENAI_MODELO_INDICE || MODELO_INDICE_POR_DEFECTO;
 }
+
 
 // Del mensaje de OpenAI ("Please try again in 22.538s") sale cuánto
 // esperar. Si no se puede leer, 30 segundos, que es la ventana del
@@ -426,6 +428,21 @@ async function llamar(
   }
 
   const datos = await respuesta.json();
+
+  // LO QUE COSTÓ, ANOTADO. OpenAI devuelve el gasto real de cada llamada y
+  // hasta ahora se tiraba. Sin esto no hay forma de saber qué parte del
+  // presupuesto se come una foto y qué parte un mensaje de texto — y con un
+  // presupuesto de 10 a 20 dólares al mes, eso es lo primero que hay que
+  // saber. Ver gasto.js.
+  if (datos.usage) {
+    await anotarGasto(env, {
+      modelo: cuerpo.model,
+      entrada: datos.usage.prompt_tokens || 0,
+      cacheadas: datos.usage.prompt_tokens_details?.cached_tokens || 0,
+      salida: datos.usage.completion_tokens || 0,
+    });
+  }
+
   return datos.choices?.[0]?.message?.content || null;
 }
 
