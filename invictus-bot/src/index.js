@@ -29,7 +29,7 @@
 // versión y NO van con este código — mezclarlos rompe el arranque.
 
 import { responderTexto, identificarEnImagen } from "./ia.js";
-import { revisarPagos, metodosDePago, tasaDePago } from "./pagos.js";
+import { revisarPagos, metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
 import { gastoDelMes } from "./gasto.js";
 import { buscarProductos } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
@@ -72,7 +72,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-28 (25) · se mide el gasto real de OpenAI, llamada por llamada";
+const VERSION = "2026-09-28 (26) · los 9 metodos de pago cargados, en sus dos grupos";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -539,7 +539,11 @@ export default {
           "",
           "CÓMO SE PAGA (src/prompts/pagos.txt)",
           metodosDePago().length
-            ? `  Métodos             ${metodosDePago().join(", ")}`
+            ? `  Métodos             ${metodosDePago().length} cargados:\n` +
+              bloqueDeMetodos()
+                .split("\n")
+                .map((l) => `                      ${l}`)
+                .join("\n")
             : "  Métodos             NINGUNO CARGADO. Esa pregunta sigue yendo\n" +
               "                      al asesor. Se llenan en la sección [METODOS]\n" +
               "                      de src/prompts/pagos.txt, uno por línea.",

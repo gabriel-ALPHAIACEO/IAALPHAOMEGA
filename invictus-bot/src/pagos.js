@@ -36,10 +36,17 @@ let leido = null;
 // prompts/pagos.txt son dos secciones marcadas con [CORCHETES]. Lo de antes
 // del primer corchete, y las líneas con #, son notas para quien mantiene el
 // archivo: no se leen.
+//
+// LOS MÉTODOS VAN EN GRUPOS porque esta tienda cobra de dos formas muy
+// distintas —en bolívares y en divisas— y al cliente le importa la
+// diferencia: no es lo mismo un punto de venta que un Zelle. Una línea que
+// TERMINA EN DOS PUNTOS abre un grupo; lo que venga debajo cae dentro. Sin
+// ninguna línea así, la lista sale suelta y todo sigue funcionando.
 function leer() {
   if (!leido) {
-    leido = { metodos: [], tasa: "" };
+    leido = { metodos: [], grupos: [], tasa: "" };
     let seccion = "";
+    let grupo = null;
 
     for (const cruda of String(listaPagos || "").split("\n")) {
       const linea = cruda.trim();
@@ -48,10 +55,27 @@ function leer() {
       const marca = linea.match(/^\[(\w+)\]$/);
       if (marca) {
         seccion = marca[1].toUpperCase();
+        grupo = null;
         continue;
       }
 
-      if (seccion === "METODOS") leido.metodos.push(linea);
+      if (seccion === "METODOS") {
+        if (linea.endsWith(":")) {
+          grupo = { titulo: linea, metodos: [] };
+          leido.grupos.push(grupo);
+          continue;
+        }
+
+        // Un método escrito antes de cualquier título va en un grupo sin
+        // nombre, para que una lista suelta siga saliendo igual.
+        if (!grupo) {
+          grupo = { titulo: "", metodos: [] };
+          leido.grupos.push(grupo);
+        }
+
+        grupo.metodos.push(linea);
+        leido.metodos.push(linea);
+      }
       // La tasa es UNA línea. Si hay varias se queda con la primera, que es
       // más seguro que pegarlas y decirle al cliente dos tasas distintas.
       else if (seccion === "TASA" && !leido.tasa) leido.tasa = linea;
@@ -61,8 +85,21 @@ function leer() {
   return leido;
 }
 
+// Los métodos en plano, sin los títulos de los grupos. Es lo que sirve para
+// contarlos y para saber si hay algo cargado.
 export function metodosDePago() {
   return leer().metodos;
+}
+
+// Y los métodos con sus grupos, ya escritos para leerse. Va igual al prompt
+// y a la respuesta del cliente, para que no puedan decir cosas distintas.
+export function bloqueDeMetodos() {
+  const { grupos } = leer();
+  if (!grupos.length) return "";
+
+  return grupos
+    .map((g) => (g.titulo ? `${g.titulo}\n` : "") + g.metodos.map((m) => `• ${m}`).join("\n"))
+    .join("\n\n");
 }
 
 export function hayMetodosDePago() {
@@ -83,14 +120,14 @@ export function hayTasa() {
 // florituras. No se añade "escríbeme para los datos" ni nada parecido —
 // eso es justo lo que se pidió quitar.
 export function listaDeMetodos() {
-  const { metodos } = leer();
-  if (!metodos.length) return "";
+  const bloque = bloqueDeMetodos();
+  if (!bloque) return "";
 
-  return (
-    "Puedes pagar con:\n" +
-    metodos.map((m) => `• ${m}`).join("\n") +
-    "\n\n¿Cuál te sirve mejor? 😊"
-  );
+  // Termina preguntando cuál le sirve, NO ofreciendo mandarle los datos.
+  // La plantilla que usaba la tienda cerraba con "escríbeme para enviarte
+  // los datos" y eso es justo lo que se pidió quitar: los datos los da un
+  // asesor, así que prometerlos acá deja al cliente esperando.
+  return `💳 Estos son los métodos de pago:\n\n${bloque}\n\n¿Cuál te sirve mejor? 😊`;
 }
 
 // Y cómo se contesta la tasa: cuál se usa, que eso sí se sabe, y que el

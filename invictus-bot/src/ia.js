@@ -25,7 +25,7 @@ import promptIndexar from "./prompts/indexar.txt";
 import { RASGOS_CLAVE } from "./identificar.js";
 import { urlPequena } from "./shopify.js";
 import { comoDataUri } from "./imagen.js";
-import { metodosDePago, tasaDePago } from "./pagos.js";
+import { metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
 import { anotarGasto } from "./gasto.js";
 
 // EL CATÁLOGO SE PEGA AL PROMPT AL ARRANCAR, NO EN CADA MENSAJE.
@@ -102,10 +102,7 @@ function textoConCatalogo() {
       promptTextoArmado = promptTextoArmado.replaceAll("{{PAGOS}}", SIN_PAGOS);
       console.log("Sin métodos de pago cargados: esa pregunta seguirá yendo al asesor");
     } else {
-      promptTextoArmado = promptTextoArmado.replaceAll(
-        "{{PAGOS}}",
-        metodos.map((m) => `• ${m}`).join("\n")
-      );
+      promptTextoArmado = promptTextoArmado.replaceAll("{{PAGOS}}", bloqueDeMetodos());
       console.log(`Métodos de pago pegados al prompt: ${metodos.length}`);
     }
 

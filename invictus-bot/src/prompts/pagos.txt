@@ -16,16 +16,24 @@
 # datos bancarios.
 
 [METODOS]
-# Un método por línea, escrito tal como quieras que lo lea el cliente.
-# Ejemplo de cómo se vería lleno:
+# Un método por línea. Una línea que TERMINA EN DOS PUNTOS es el título de
+# un grupo, y los métodos que vengan debajo van dentro de ese grupo. Si no
+# quieres grupos, escribe los métodos sueltos y ya.
 #
-#     Pago móvil
-#     Transferencia bancaria
-#     Efectivo
-#     Zelle
-#
-# MIENTRAS ESTA SECCIÓN ESTÉ VACÍA el bot hace lo de siempre: pasa la
-# pregunta a un asesor. No se inventa métodos y no se rompe nada.
+# Se le enseñan al cliente tal como están escritos acá, emojis incluidos.
+
+🇻🇪 En bolívares:
+Pago Móvil
+Transferencia bancaria
+Punto de venta
+
+🌎 Internacional:
+Zelle
+PayPal
+Zinli
+Binance (USDT)
+Mercantil Panamá
+Banesco Panamá
 
 
 [TASA]
