@@ -74,6 +74,19 @@ SHEET_ID = "1DP1SZkbHMjBMWALGzlM1C1q9nPalN4bt"
 # que no tiene nada. Se ve al instante en /estado.
 SHEET_NOMBRE = "INVENTARIO AL 050926"
 
+# --- EL HORARIO DE LA TIENDA -------------------------------------------
+#
+# Lo que el bot le contesta a quien pregunta "¿a qué hora abren?". Se
+# escribe tal como quieres que lo lea el cliente, en una linea.
+#
+#   HORARIOS = "Abrimos de lunes a sabado de 9am a 6pm 🕘"
+#
+# SI SE DEJA VACIO, el bot NO se inventa un horario: manda esa pregunta al
+# asesor. Antes de esto el prompt llevaba escrito "{{TUS HORARIOS}}" sin
+# rellenar, y el modelo contestaba con esas llaves o con una hora inventada
+# — que es un cliente en la puerta de un local cerrado.
+HORARIOS = ""
+
 # --- LA TIENDA ---------------------------------------------------------
 # Enlace del catalogo online. EPICELL no tiene tienda web, asi que va
 # vacio A PROPOSITO: con esto el bot no manda el boton "Ver catalogo" ni

@@ -2461,15 +2461,19 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     // Si no supimos qué equipo era el de la publicación, el historial NO
     // puede quedarse con lo que el modelo había escrito —hablaba del
     // equipo anterior— o el próximo mensaje volvería al mismo error.
-    historial: recortarHistorial(
-      sinSaberQueEs
-        ? conNota(historialPrevio, "Compartió una publicación que no pude identificar: le pregunté cuál es.")
-        : porCategoria
-          ? conNota(
-              salida.historial || historialPrevio,
-              `No había "${termino}": le mostré los de "${porCategoria}". Ya busqué: ${porCategoria}.`
-            )
-          : salida.historial || historialPrevio
+    // historialSinPrecios: lo que el modelo anota vuelve en el mensaje
+    // siguiente, así que una cifra inventada ahí no se queda quieta.
+    historial: historialSinPrecios(
+      recortarHistorial(
+        sinSaberQueEs
+          ? conNota(historialPrevio, "Compartió una publicación que no pude identificar: le pregunté cuál es.")
+          : porCategoria
+            ? conNota(
+                salida.historial || historialPrevio,
+                `No había "${termino}": le mostré los de "${porCategoria}". Ya busqué: ${porCategoria}.`
+              )
+            : salida.historial || historialPrevio
+      )
     ),
     pausado_hasta: contacto.pausado_hasta,
     mids_enviados: mids,
@@ -2858,6 +2862,113 @@ function sinListaPegada(texto) {
   // Si al quitar la lista no queda nada que decir, es que el mensaje ERA
   // la lista: se sustituye por la frase que presenta el carrusel.
   return limpio || "¡Aquí los tienes! 👇";
+}
+
+/* ── NINGÚN PRECIO INVENTADO LLEGA AL CLIENTE ──────────────────────
+
+   EL MODELO NO CONOCE NI UN SOLO PRECIO. No es una opinión: los precios
+   viven en la hoja y NUNCA se le mandan (ver listaDeTitulos en sheets.js,
+   que le pasa el título y la capacidad, y nada más). Así que cualquier
+   cifra de dinero que escriba está inventada por definición.
+
+   El prompt se lo prohíbe desde el primer día —"Nunca escribas una cifra.
+   Tú no conoces los precios"— pero una prohibición en el prompt es una
+   petición, no una garantía: cuando el modelo se la salta, no había nada
+   detrás. Y un precio inventado es de los errores más caros que existen:
+   el cliente llega a la tienda con una cifra que nadie le va a cobrar.
+
+   Esto es la garantía. Se miran las cifras de dinero del texto y se
+   comparan con los precios REALES de lo que se le está mandando:
+
+     · Si coinciden, se quedan (el bot puede repetir un precio correcto).
+     · Si no, la frase del modelo se cambia entera por una segura. Las
+       fichas van debajo con el precio de verdad, así que el cliente no
+       se queda sin la información: se queda sin la mentira.
+
+   Se reconocen "$310", "310$", "310 dólares", "310 usd", "310 bs". Los
+   porcentajes NO son precios: la tabla de Cashea habla de porcentajes y
+   esa sí la escribe el código.
+   ───────────────────────────────────────────────────────────────── */
+const CIFRA_DE_DINERO =
+  /(?:\$|bs\.?|usd)\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?|\d+)|(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?|\d+)\s*(?:\$|d[oó]lares?|dolares|usd|bs\b)/gi;
+
+// Lo que se le dice cuando se le quitó una cifra inventada y hay fichas
+// debajo: el precio de verdad va en ellas.
+const EL_PRECIO_EN_LAS_FICHAS = [
+  "¡Claro! Aquí tienes los precios 👇",
+  "¡Con gusto! Mira los precios 👇",
+  "¡Listo! Te muestro los precios 👇",
+];
+
+// Y cuando NO hay fichas que mandar, no se le puede dar ningún precio.
+const EL_PRECIO_LO_CONFIRMA_UN_ASESOR =
+  "Déjame confirmarte ese precio con un asesor y te escribo en un momento 😊";
+
+function comoNumero(cifra) {
+  // "1.250,50" y "1,250.50" son lo mismo: se quita el separador de miles
+  // y se deja el decimal en punto.
+  const limpio = String(cifra).replace(/[.,](?=\d{3}\b)/g, "").replace(",", ".");
+  return Number(limpio);
+}
+
+function cifrasDeDinero(texto) {
+  const halladas = [];
+  for (const trozo of String(texto || "").matchAll(CIFRA_DE_DINERO)) {
+    const cifra = trozo[1] ?? trozo[2];
+    if (cifra !== undefined) halladas.push(comoNumero(cifra));
+  }
+  return halladas.filter((n) => Number.isFinite(n));
+}
+
+// Todos los precios verdaderos de lo que se le va a mandar. Se admiten los
+// dos —el de divisas y el de Cashea— porque los dos son ciertos.
+function preciosDeVerdad(productos) {
+  const buenos = new Set();
+
+  for (const producto of productos) {
+    for (const precio of [producto.precio, producto.precioCashea]) {
+      for (const numero of cifrasDeDinero(precio)) buenos.add(numero);
+      // El precio puede venir sin símbolo en la hoja ("310"), y entonces
+      // no lo reconoce el patrón de dinero: se toma el número tal cual.
+      const pelado = Number(String(precio || "").replace(/[^\d.,]/g, "").replace(/[.,](?=\d{3}\b)/g, "").replace(",", "."));
+      if (Number.isFinite(pelado) && pelado > 0) buenos.add(pelado);
+    }
+  }
+
+  return buenos;
+}
+
+function sinPreciosInventados(texto, productos) {
+  const dichas = cifrasDeDinero(texto);
+  if (!dichas.length) return texto;
+
+  const verdaderos = preciosDeVerdad(productos);
+  const inventadas = dichas.filter((cifra) => !verdaderos.has(cifra));
+
+  if (!inventadas.length) return texto;
+
+  console.error(
+    `PRECIO INVENTADO: el modelo escribió ${inventadas.join(", ")} y no es ` +
+      `ninguno de los precios reales (${[...verdaderos].join(", ") || "no hay fichas"}). ` +
+      "Le cambio la respuesta."
+  );
+
+  return productos.length ? alAzar(EL_PRECIO_EN_LAS_FICHAS) : EL_PRECIO_LO_CONFIRMA_UN_ASESOR;
+}
+
+// Y EN EL HISTORIAL TAMPOCO.
+//
+// El historial lo escribe el modelo y se le devuelve en el mensaje
+// siguiente, así que una cifra inventada ahí no se queda quieta: vuelve
+// una y otra vez, y el modelo la lee como algo que ya dijo la tienda. El
+// prompt también lo prohíbe ("Nunca guardes precios"); esto lo garantiza.
+function historialSinPrecios(historial) {
+  const limpio = String(historial || "").replace(CIFRA_DE_DINERO, "(el precio va en las fichas)");
+
+  if (limpio !== String(historial || "")) {
+    console.log("Le quité un precio al historial: ahí no se guardan cifras");
+  }
+  return limpio;
 }
 
 // ¿ESTE TEXTO NOMBRA ALGÚN EQUIPO DEL CATÁLOGO?
@@ -3343,9 +3454,14 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     );
   }
 
+  // LAS CIFRAS QUE EL MODELO NO PUEDE CONOCER SE VAN AQUÍ, antes que nada
+  // más: lo que se mira debajo (que no diga "no hay", la bienvenida
+  // repetida) tiene que mirar el texto que de verdad va a salir.
+  const sinInventos = sinPreciosInventados(salida.respuesta, productos);
+
   // Si ya se conocen, se le quita la bienvenida aunque el modelo la haya
   // escrito. Es el fallo que más se nota: saludar dos veces.
-  const respuestaFinal = historialPrevio ? sinBienvenida(salida.respuesta) : salida.respuesta;
+  const respuestaFinal = historialPrevio ? sinBienvenida(sinInventos) : sinInventos;
 
   // El orden va de lo más concreto a lo más general. La respuesta que
   // escribió el modelo queda última porque él no vio el resultado de la

@@ -32,8 +32,34 @@ const SIN_CATALOGO = `(Todavía no está cargada la lista de nombres de la
 tienda. Busca con lo que diga el cliente, tal cual: la hoja es la que
 manda y la búsqueda funciona igual sin esta lista.)`;
 
-function textoConCatalogo() {
-  if (promptTextoArmado) return promptTextoArmado;
+// LOS HORARIOS: UN DATO QUE EL MODELO NO PUEDE SABER (26-sep-2026).
+//
+// EL FALLO QUE ESTO ARREGLA. En el prompt había escrito, tal cual:
+//
+//   Horarios: {{TUS HORARIOS}}
+//
+// Un marcador de la plantilla que nadie rellenó. El modelo lo leía como si
+// fuera el horario de la tienda, y a quien preguntaba "¿a qué hora abren?"
+// le contestaba con esas llaves — o, peor, se inventaba un horario, que es
+// lo que hace un modelo cuando le falta un dato y nadie le dijo qué hacer.
+// Un horario inventado es un cliente en la puerta de un local cerrado.
+//
+// Ahora el horario se pone en wrangler.toml (HORARIOS) y entra aquí. Y si
+// está vacío, no queda ningún hueco: entra una frase que manda la pregunta
+// al asesor, que es la verdad mientras no haya horario cargado.
+const SIN_HORARIOS =
+  "NO SABES el horario de la tienda (no está cargado). Si lo preguntan, " +
+  "dile que se lo confirma un asesor en un momento. NUNCA te inventes una " +
+  "hora ni un día";
+
+// El prompt armado y el horario con el que se armó: si cambia el horario
+// (un despliegue nuevo), hay que volver a armarlo.
+let horariosArmados = null;
+
+function textoConCatalogo(env) {
+  const horarios = String(env?.HORARIOS || "").trim();
+
+  if (promptTextoArmado && horariosArmados === horarios) return promptTextoArmado;
 
   // Fuera los comentarios del archivo: son para quien lo mantiene, no
   // para el modelo, y ocupan tokens en cada mensaje.
@@ -43,7 +69,19 @@ function textoConCatalogo() {
     .join("\n")
     .trim();
 
-  promptTextoArmado = promptTexto.replace("{{CATALOGO}}", lista || SIN_CATALOGO);
+  promptTextoArmado = promptTexto
+    .replace("{{CATALOGO}}", lista || SIN_CATALOGO)
+    .replaceAll("{{TUS HORARIOS}}", horarios || SIN_HORARIOS);
+
+  horariosArmados = horarios;
+
+  if (!horarios) {
+    console.log(
+      "HORARIOS sin poner en wrangler.toml: el bot manda esa pregunta al " +
+        "asesor en vez de inventarse una hora."
+    );
+  }
+
   return promptTextoArmado;
 }
 
@@ -154,7 +192,7 @@ async function llamar(
 }
 
 export async function responderTexto(env, entrada) {
-  const salida = await llamar(env, textoConCatalogo(), [{ type: "text", text: entrada }]);
+  const salida = await llamar(env, textoConCatalogo(env), [{ type: "text", text: entrada }]);
   return normalizar(salida);
 }
 
