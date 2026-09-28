@@ -46,7 +46,14 @@ const resumen = [];
 for (const [archivo, queCubre] of SUITES) {
   console.log(`\n=== ${archivo} — ${queCubre} ===`);
 
-  const r = spawnSync(process.execPath, [path.join(AQUI, archivo)], { encoding: "utf8" });
+  // --disable-warning esconde SOLO el aviso de que node:sqlite es
+  // experimental. Sale en cada suite que usa la base y no significa nada,
+  // pero asusta y tapa los resultados. Los demás avisos siguen saliendo.
+  const r = spawnSync(
+    process.execPath,
+    ["--disable-warning=ExperimentalWarning", path.join(AQUI, archivo)],
+    { encoding: "utf8" }
+  );
   const salida = (r.stdout || "") + (r.stderr || "");
 
   // Las líneas de registro del propio bot (GASTO, PAGOS, avisos) se

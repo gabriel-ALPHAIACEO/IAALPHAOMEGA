@@ -19,6 +19,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
 const AQUI = import.meta.dirname;
@@ -85,10 +86,17 @@ export async function prepararSrc({ txt = {} } = {}) {
   }
 
   return {
-    // Importa un módulo de esa copia. Se le cuelga la ruta para que dos
-    // preparaciones distintas no compartan el caché de módulos de Node.
+    // Importa un módulo de esa copia. Cada preparación tiene su propia
+    // carpeta, así que dos escenarios distintos no comparten el caché de
+    // módulos de Node.
+    //
+    // pathToFileURL NO es un adorno: en Windows, import() de una ruta
+    // absoluta ("C:\\...") falla con ERR_UNSUPPORTED_ESM_URL_SCHEME. Hay
+    // que pasarle una URL file://. En Linux y Mac funciona de las dos
+    // formas, y por eso es el típico fallo que solo aparece en la máquina
+    // del que despliega.
     async cargar(archivo) {
-      return import(path.join(destino, archivo));
+      return import(pathToFileURL(path.join(destino, archivo)).href);
     },
     ruta: destino,
     limpiar() {
