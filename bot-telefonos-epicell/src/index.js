@@ -439,6 +439,22 @@ const SI_LO_TENGO = [
 // Eso es un inventario, no una venta. El cliente pidió cables: hay que
 // enseñarle cables, con su foto y su precio, que es lo que hace que elija
 // uno. La lista escrita no vende nada.
+// PIDE UN TELÉFONO DE UNA MARCA DE LA QUE SOLO HAY ACCESORIOS.
+//
+// EL CASO REAL (28-sep-2026, al revisar el inventario). EPICELL vende
+// nueve productos Apple —cargadores certificados, cables y AirPods— pero
+// NI UN iPhone. Como esos títulos llevan la palabra "iphone" dentro
+// ("Apple cargador iphone 20w"), a quien preguntara "¿tienen iPhone?" la
+// búsqueda le devolvía tres cargadores, y el bot se los enseñaba como si
+// fueran el teléfono.
+//
+// Decir la verdad vende más: de esa marca hay accesorios, teléfonos no.
+const SOLO_ACCESORIOS_DE_ESO = [
+  "Eso lo tengo en accesorios 😊 Teléfonos de esa marca no manejo, pero mira 👇",
+  "De esa marca tengo accesorios, teléfonos no 😊 Esto es lo que hay 👇",
+  "Teléfonos de esa marca no manejo 😅 Accesorios sí, míralos 👇",
+];
+
 const NO_ESE_PERO_MIRA = [
   "Ese exacto no lo tengo ahora 😊 Pero mira estos, que te pueden servir 👇",
   "De ese no me queda 😅 Te muestro los que sí tengo 👇",
@@ -1184,10 +1200,7 @@ function esAccesorio(titulo) {
     .some((palabra) => PALABRAS_DE_ACCESORIO.has(palabra));
 }
 
-// En la ficha, el precio va debajo de la foto y se entiende solo. En una
-// línea de texto, un "95" pelado no dice nada: si la hoja trae el número
-// sin símbolo, se le pone aquí. (Solo aquí: las fichas siguen mostrando
-// exactamente lo que dice la hoja.)
+// El número pelado de la hoja, con su símbolo. Ver precioParaMostrar.
 function conMoneda(precio) {
   const limpio = String(precio || "").trim();
   if (!limpio) return "";
@@ -3393,6 +3406,13 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   // modelo: no afirmamos que el producto no existe.
   const buscoSinExito = Boolean(termino) && !productos.length;
 
+  // No pidió ningún accesorio y todo lo que salió son accesorios: pidió un
+  // teléfono de una marca de la que solo tenemos cosas para el teléfono.
+  const soloAccesorios =
+    !tipoPedido &&
+    productos.length > 0 &&
+    productos.every((producto) => tipoDelProducto(producto.titulo) !== "telefono");
+
   // Preguntó algo de asesor y no quedó nada que mostrarle.
   const soloAsesor = esConsultaDeAsesor && !termino;
 
@@ -3499,6 +3519,8 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     // decirle que no a un cliente que lo está viendo en la pantalla: es
     // el fallo que ya costó una venta en producción.
     respuestaCliente = alAzar(SI_LO_TENGO);
+  } else if (soloAccesorios) {
+    respuestaCliente = alAzar(SOLO_ACCESORIOS_DE_ESO);
   } else if (porCategoria) {
     // Lo que escribió el modelo no vale aquí: él creía que no había nada
     // que enseñar, o peor, iba a recitar la lista. Hay fotos que mandar.
@@ -3538,23 +3560,36 @@ async function decidir({ env, salida, texto, historialPrevio }) {
 const ETIQUETA_DIVISA = "Precio DIVISA";
 
 function precioParaMostrar(producto, conCashea, conDivisas) {
+  // EL SÍMBOLO LO PONE EL BOT, NO LA HOJA (28-sep-2026).
+  //
+  // En el inventario real los precios son números pelados: la columna se
+  // llama "Precio Divisas ($)" y dentro dice 170. Debajo de una foto, un
+  // "170" a secas no dice si son dólares, bolívares o cuotas. Se le pone
+  // aquí, en el único sitio por donde pasan todos los precios que ve un
+  // cliente: las fichas, las listas y el privado de los comentarios.
+  //
+  // Si algún día la hoja trae el símbolo puesto ("$170" o "170 Bs"), se
+  // respeta tal cual y no se toca nada.
+  const enDivisas = conMoneda(producto.precio);
+  const enCashea = conMoneda(producto.precioCashea);
+
   if (conDivisas) {
-    return producto.precio ? `${producto.precio} · ${ETIQUETA_DIVISA}` : "Precio: consúltalo";
+    return enDivisas ? `${enDivisas} · ${ETIQUETA_DIVISA}` : "Precio: consúltalo";
   }
 
   // Los DOS precios juntos: aquí sí van con su nombre. Sin etiqueta
   // serían dos cifras seguidas y el cliente no sabría cuál es cuál —
   // justo cuando preguntó para comparar.
   if (conCashea && producto.precioCashea) {
-    return `${producto.precio || "Precio: consúltalo"} en divisas · ${producto.precioCashea} con Cashea`;
+    return `${enDivisas || "Precio: consúltalo"} en divisas · ${enCashea} con Cashea`;
   }
 
   // El precio de siempre, solo. Sin el "Con Cashea:" delante: es el que
   // se muestra por defecto, así que decirlo en cada ficha no aporta y le
   // roba espacio al título, que es lo que el cliente está leyendo.
-  if (producto.precioCashea) return producto.precioCashea;
+  if (enCashea) return enCashea;
 
-  return producto.precio || "";
+  return enDivisas || "";
 }
 
 // El texto que va bajo el título de la ficha: la capacidad delante del

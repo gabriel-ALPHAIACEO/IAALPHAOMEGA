@@ -38,8 +38,8 @@ MARCAS = [
 ]
 
 # Dentro de este bloque SÍ se pueden nombrar: es donde se le dice al
-# modelo qué NO vendemos, y para eso hay que nombrarlo.
-BLOQUE_PERMITIDO = "LO QUE ESTA TIENDA NO VENDE"
+# modelo qué vende la tienda y qué no, y para lo segundo hay que nombrarlo.
+BLOQUE_PERMITIDO = "QUÉ VENDE ESTA TIENDA, Y QUÉ NO"
 
 
 def leer(ruta):

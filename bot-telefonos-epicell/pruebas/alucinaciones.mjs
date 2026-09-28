@@ -91,5 +91,37 @@ r = await turno({
 });
 comprobar("el historial no se queda con la cifra", /180/.test(r.fila.historial || ""), false);
 
+// ── APPLE: ACCESORIOS SÍ, TELÉFONOS NO ────────────────────────
+//
+// El inventario real tiene nueve productos Apple (cargadores, cables,
+// AirPods) y ni un iPhone. Como esos títulos llevan "iphone" dentro,
+// preguntar "¿tienen iPhone?" devolvía cargadores — y el bot se los
+// enseñaba como si fueran el teléfono.
+const APPLE = `Nombre,Precio Divisas ($),Precio Cashea,Foto
+Apple cargador iphone 20w certificado taco y cable,15,17,https://x/c20.jpg
+Apple cable usb C a lightning certificado (1 metro),7,7,https://x/cl.jpg
+Apple Airpods 4,20,25,https://x/ap.jpg
+Redmi Note 17,250,313,https://x/n17.jpg`;
+
+r = await turno({
+  texto: "tienen iphone?",
+  hoja: APPLE,
+  respuestaDelModelo: { respuesta: "¡Sí! Te muestro los iPhone que tengo 📱", buscar: "iphone" },
+  fila: yaSeConocen,
+});
+comprobar("no le promete iPhone", /te muestro los iphone/i.test(textos(r.enviados)), false);
+comprobar("le dice que de esa marca hay accesorios", /accesorios/i.test(textos(r.enviados)), true);
+comprobar("y le enseña lo que sí hay", fichas(r.enviados).length > 0, true);
+
+// Pero pedir el accesorio funciona normal, sin sermón.
+r = await turno({
+  texto: "tienen cargador de iphone?",
+  hoja: APPLE,
+  respuestaDelModelo: { respuesta: "¡Claro! Te muestro 👇", buscar: "Apple cargador iphone" },
+  fila: yaSeConocen,
+});
+comprobar("el cargador de iPhone se busca normal", fichas(r.enviados), ["Apple cargador iphone 20w certificado taco y cable"]);
+comprobar("y sin el aviso de la marca", /teléfonos de esa marca/i.test(textos(r.enviados)), false);
+
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);
