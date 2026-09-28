@@ -25,6 +25,7 @@ import promptIndexar from "./prompts/indexar.txt";
 import { RASGOS_CLAVE } from "./identificar.js";
 import { urlPequena } from "./shopify.js";
 import { comoDataUri } from "./imagen.js";
+import { metodosDePago, tasaDePago } from "./pagos.js";
 
 // EL CATÁLOGO SE PEGA AL PROMPT AL ARRANCAR, NO EN CADA MENSAJE.
 //
@@ -45,6 +46,26 @@ Eso significa que NO SABES qué modelos existen aquí. No supongas que hay
 algo por ser una marca conocida, y no nombres modelos concretos que no te
 haya dicho el cliente: usa sus palabras exactas y deja que el catálogo
 responda. Si existe, aparece.)`;
+
+// Lo que se le dice al modelo cuando prompts/pagos.txt está vacío: lo mismo
+// que hacía antes de que existiera este bloque, pasar la pregunta a un
+// asesor. Una tienda que todavía no cargó sus métodos NO empieza a
+// inventárselos.
+const SIN_PAGOS = `(Todavía no están cargados los métodos de pago de esta tienda.
+
+Así que NO SABES con qué se puede pagar acá. Si preguntan por métodos o
+formas de pago, responde "Eso te lo confirma un asesor en un momento 😊" y
+"buscar" es "NADA". No nombres ni un solo método: ni pago móvil, ni
+transferencia, ni efectivo, ni Zelle. Ninguno.)`;
+
+// Y lo mismo con la tasa: sin dato cargado, la pregunta sigue yendo al
+// asesor como hasta ahora. Este texto entra DENTRO de una frase del prompt
+// ("ESTA TIENDA RECIBE A ..."), así que está escrito para leerse ahí y para
+// anular lo que sigue en ese bloque.
+const SIN_TASA = `UNA TASA QUE TODAVÍA NO ESTÁ CARGADA, así que NO la sabes y
+TODO LO QUE SIGUE EN ESTE BLOQUE NO APLICA: si preguntan por la tasa, el
+cambio o los bolívares, responde "Eso te lo confirma un asesor en un momento
+😊", "buscar" es "NADA", y no nombres ninguna tasa —ni la del BCV ni otra`;
 
 const SIN_MODELOS = `(Todavía no está cargada la lista de modelos de esta tienda.
 Identifica por lo que VES y quédate en la marca si no estás seguro.)`;
@@ -70,6 +91,30 @@ function textoConCatalogo() {
       console.log(
         `Catálogo pegado al prompt: ${lista.split("\n").filter(Boolean).length} títulos`
       );
+    }
+
+    // LOS MÉTODOS DE PAGO VAN POR EL MISMO CAMINO QUE EL CATÁLOGO: una sola
+    // lista (prompts/pagos.txt), leída una vez y pegada acá. Así el prompt y
+    // la red de seguridad de pagos.js no pueden decir cosas distintas.
+    const metodos = metodosDePago();
+    if (!metodos.length) {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{PAGOS}}", SIN_PAGOS);
+      console.log("Sin métodos de pago cargados: esa pregunta seguirá yendo al asesor");
+    } else {
+      promptTextoArmado = promptTextoArmado.replaceAll(
+        "{{PAGOS}}",
+        metodos.map((m) => `• ${m}`).join("\n")
+      );
+      console.log(`Métodos de pago pegados al prompt: ${metodos.length}`);
+    }
+
+    const tasa = tasaDePago();
+    if (!tasa) {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{TASA}}", SIN_TASA);
+      console.log("Sin tasa cargada: esa pregunta seguirá yendo al asesor");
+    } else {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{TASA}}", tasa);
+      console.log(`Tasa pegada al prompt: ${tasa}`);
     }
   }
 

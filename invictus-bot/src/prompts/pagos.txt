@@ -1,0 +1,35 @@
+# CÓMO SE PAGA EN ESTA TIENDA: los métodos y la tasa.
+#
+# Este archivo es la ÚNICA fuente. De acá sale lo que el bot le contesta al
+# cliente cuando pregunta "¿qué métodos de pago tienen?" o "¿a qué tasa
+# reciben?", y también con lo que se le corrige al modelo si intenta
+# inventar otra cosa (ver pagos.js).
+#
+# Hay dos secciones, marcadas con [CORCHETES]. Las líneas que empiezan con #
+# son notas para ti y no se le mandan a nadie.
+#
+# LO QUE NO VA ACÁ (importante): números de cuenta, cédulas, RIF, correos de
+# Zelle, teléfonos de pago móvil, ni el valor de la tasa del día. Esto es
+# CÓMO se paga, no los datos con los que se paga ni cuánto sale hoy — eso lo
+# da un asesor al cerrar, y el bot tiene prohibido mandarlo o pedirlo.
+# Además este archivo va dentro del código del Worker: no es sitio para
+# datos bancarios.
+
+[METODOS]
+# Un método por línea, escrito tal como quieras que lo lea el cliente.
+# Ejemplo de cómo se vería lleno:
+#
+#     Pago móvil
+#     Transferencia bancaria
+#     Efectivo
+#     Zelle
+#
+# MIENTRAS ESTA SECCIÓN ESTÉ VACÍA el bot hace lo de siempre: pasa la
+# pregunta a un asesor. No se inventa métodos y no se rompe nada.
+
+
+[TASA]
+# A qué tasa se reciben los pagos. UNA línea, sin números: la tasa del día
+# cambia todos los días y el bot no la sabe, así que dice cuál se usa y el
+# asesor confirma cuánto sale hoy.
+la tasa del BCV (Banco Central de Venezuela)

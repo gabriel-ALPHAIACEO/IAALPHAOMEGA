@@ -29,6 +29,7 @@
 // versión y NO van con este código — mezclarlos rompe el arranque.
 
 import { responderTexto, identificarEnImagen } from "./ia.js";
+import { revisarPagos, metodosDePago, tasaDePago } from "./pagos.js";
 import { buscarProductos } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
@@ -70,7 +71,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-26 (23) · sin reconocer va el catálogo y avisa al asesor; reconocido, su familia";
+const VERSION = "2026-09-28 (24) · métodos de pago y tasa BCV se contestan; los datos y la cifra, nunca";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -512,6 +513,18 @@ export default {
           `  OPENAI_MODELO_VISION ${env.OPENAI_MODELO_VISION || "gpt-4o (por defecto)"}   (el que identifica las fotos)`,
           `  COTEJO_BARRIDO      ${env.COTEJO_BARRIDO === "no" ? "no (apagado)" : "si"}   (mirar el catálogo cuando el nombre no acierta)`,
           "",
+          "CÓMO SE PAGA (src/prompts/pagos.txt)",
+          metodosDePago().length
+            ? `  Métodos             ${metodosDePago().join(", ")}`
+            : "  Métodos             NINGUNO CARGADO. Esa pregunta sigue yendo\n" +
+              "                      al asesor. Se llenan en la sección [METODOS]\n" +
+              "                      de src/prompts/pagos.txt, uno por línea.",
+          tasaDePago()
+            ? `  Tasa                ${tasaDePago()}`
+            : "  Tasa                SIN CARGAR. Esa pregunta sigue yendo al asesor.",
+          "  El bot dice CON QUÉ se paga y CUÁL es la tasa. Los datos de la",
+          "  cuenta y la cifra del día no: eso es del asesor, siempre.",
+          "",
           "ÍNDICE DEL CATÁLOGO — lo que hace que el cotejo mire TODO",
           indexados > 0
             ? `  ${indexados} productos indexados.`
@@ -687,7 +700,7 @@ export default {
         `La IA de visión vio: ${identificacion.buscar}` +
           (corregido ? ` (corregido a "${buscar}" porque sus rasgos lo contradecían)` : "") +
           (confirmar ? " (sin confirmar: falta ver un detalle, lo verifica el cotejo)" : "") +
-          `\nLe diría al cliente: ${respuestaCliente}\n` +
+          `\nLe diría al cliente: ${revisarPagos(respuestaCliente).respuesta}\n` +
           `Buscó: ${termino || "(nada)"}\n` +
           `Encontró: ${productos.length}\n` +
           productos.map((p) => `   ${p.titulo}  —  ${p.precio}`).join("\n") +
@@ -1193,7 +1206,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     return;
   }
 
-  const {
+  let {
     productos,
     respuestaCliente,
     termino,
@@ -1220,6 +1233,37 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     eraLaVitrina,
     porConfirmar,
   });
+
+  // LOS DATOS PARA PAGAR NO SALEN DE ACÁ (crítico).
+  //
+  // El bot enumera los métodos de pago —eso lo sabe, está en
+  // prompts/pagos.txt— pero no tiene ni un número de cuenta, y prometer que
+  // los manda deja al cliente esperando un mensaje que no llega. Peor:
+  // escribir una cuenta inventada es mandar a alguien a transferirle dinero
+  // a nadie. El prompt ya lo prohíbe con todas las letras; esto es la red
+  // debajo, por lo mismo que cuotas.js en el bot de teléfonos. Ver pagos.js.
+  const revisionDePagos = revisarPagos(respuestaCliente);
+  let avisePorLosPagos = false;
+  if (revisionDePagos.corregido) {
+    // AL ASESOR SE LE MANDA LO QUE EL BOT IBA A DECIR, no lo corregido: el
+    // aviso existe para que una persona vea el invento y le dé al cliente
+    // el dato bueno.
+    const loQueIbaADecir = respuestaCliente;
+    respuestaCliente = revisionDePagos.respuesta;
+    avisePorLosPagos = true;
+
+    await avisarAsesor(env, {
+      ...paraElAviso(contacto),
+      igsid: mensaje.igsid,
+      mensaje: textoCliente,
+      respuesta: loQueIbaADecir,
+      motivo: `IBA A DAR DATOS DE PAGO — ${revisionDePagos.motivos.join("; ")}`,
+      historial: salida.historial,
+      busco: termino,
+      productos,
+      historia: esHistoria ? "respuesta a una historia" : "",
+    });
+  }
 
   // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO (crítico).
   //
@@ -1261,7 +1305,10 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     noReconociLaFoto,
   });
 
-  if (escalada) {
+  // Si ya se avisó por los datos de pago, no se avisa otra vez: la frase
+  // con la que se corrigió lleva "en un momento" y hayEscalada la leería
+  // como una escalada nueva.
+  if (escalada && !avisePorLosPagos) {
     await avisarAsesor(env, {
       ...paraElAviso(contacto),
       igsid: mensaje.igsid,
