@@ -35,7 +35,8 @@ Si algún día se integra el multi-tienda, se porta `tienda.js` + `tiendas/` + l
 4. **A Meta siempre se le responde 200 y rápido**; el trabajo va en `ctx.waitUntil`. Si no, Meta reintenta (mensajes duplicados) o desactiva el webhook.
 5. **Español neutro** con el cliente: "¿Qué estás buscando?", nunca "¿Qué andas buscando?".
 6. **El catálogo NO es la respuesta por defecto.** Un vendedor enseña zapatos, no manda un link. El botón del catálogo sale solo cuando: el cliente lo pide por su nombre, se buscó y no hubo nada, se acabaron los de ese modelo, o hay más de 10 (no caben en el carrusel).
-7. Antes de entregar: `node --check` en cada `.js` y pruebas con `fetch` simulado. Para D1 sirve `node:sqlite` (Node 22+) como base real en memoria.
+7. Antes de entregar: **`node pruebas/correr.mjs`** desde `invictus-bot/`. Hace el `node --check` de cada `.js` y corre las suites; devuelve 1 si algo falla. Ver `invictus-bot/pruebas/LEEME.md`. Esa carpeta NO se despliega. Para D1 usa `node:sqlite` (Node 22+) como base real en memoria.
+8. **Una red de seguridad nueva sobre la IA se añade a `GUARDIANES` en `pruebas/corpus.mjs`.** El riesgo de esas capas no es que se les escape algo malo: es que atrapen algo bueno, y eso no da error en ninguna parte.
 
 ## Sobre el proyecto
 
