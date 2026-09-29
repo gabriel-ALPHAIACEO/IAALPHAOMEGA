@@ -72,7 +72,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-28 (26) · los 9 metodos de pago cargados, en sus dos grupos";
+const VERSION = "2026-09-29 (27) · se puede mandar las fotos a Gemini (apagado por defecto)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -514,6 +514,15 @@ export default {
           `  FRASE_DESPAUSAR     "${fraseDespausar(env)}"   (el asesor la manda en el chat y el bot vuelve)`,
           `  OPENAI_MODELO       ${env.OPENAI_MODELO || "gpt-4o-mini (por defecto)"}   (el que redacta las respuestas)`,
           `  OPENAI_MODELO_VISION ${env.OPENAI_MODELO_VISION || "gpt-4o (por defecto)"}   (el que identifica las fotos)`,
+          `  PROVEEDOR_VISION    ${env.PROVEEDOR_VISION === "gemini" ? "gemini  ← las fotos van a Gemini" : "openai (por defecto)"}`,
+          ...(env.PROVEEDOR_VISION === "gemini"
+            ? [
+                `  GEMINI_MODELO       ${env.GEMINI_MODELO || "gemini-3.1-flash-lite (por defecto)"}`,
+                `  GEMINI_API_KEY      ${secreto("GEMINI_API_KEY")}`,
+                "    El texto se queda en OpenAI a propósito: redactar es más barato",
+                "    en gpt-4o-mini. Lo caro son las fotos, y esas son las que se mueven.",
+              ]
+            : []),
           `  COTEJO_BARRIDO      ${env.COTEJO_BARRIDO === "no" ? "no (apagado)" : "si"}   (mirar el catálogo cuando el nombre no acierta)`,
           "",
           "GASTO DE OPENAI ESTE MES — medido, no estimado",
