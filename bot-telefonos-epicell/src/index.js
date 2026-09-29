@@ -31,6 +31,7 @@
 import { responderTexto, identificarEnImagen } from "./ia.js";
 import { referenciaEnTexto } from "./referencias.js";
 import { detallesDelAnuncio } from "./anuncio.js";
+import { queDatoPide, respuestaDeDato } from "./datos.js";
 import {
   parentesco,
   partesDelTitulo,
@@ -2252,6 +2253,58 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   // ── "MÁNDAME LA LISTA DE X" ─────────────────────────────────────
   //
+  // LOS DATOS DE LA TIENDA LOS CONTESTA EL CÓDIGO (29-sep-2026).
+  //
+  // Horario, dirección, envíos, delivery, formas de pago, tasa, empleo: el
+  // modelo no los sabe, y un modelo sin un dato lo rellena. En la revisión
+  // salió "abrimos de 8 a 5" (son 9 a 7) y "sí, enviamos a todo el país"
+  // (nadie lo dijo). Aquí se contestan con lo que está en wrangler.toml, o
+  // con que un asesor lo confirma — nunca con una suposición.
+  //
+  // Solo cuando el mensaje es SOBRE ESO. Si además nombra un equipo —"¿tienen
+  // el A57 y hacen envíos?"— sigue el camino normal: ahí hay producto que
+  // enseñar, y el prompt ya manda los envíos al asesor.
+  const datoQuePide = !imagenCruda && !publicacion ? queDatoPide(mensaje.texto) : "";
+  const nombraEquipo = datoQuePide
+    ? Boolean(equipoQueNombra(mensaje.texto, await catalogoCompleto(env)))
+    : false;
+
+  if (datoQuePide && !nombraEquipo) {
+    const { texto: frase, alAsesor } = respuestaDeDato(datoQuePide, env);
+
+    if (frase) {
+      console.log(
+        `Preguntó por ${datoQuePide}: ` +
+          (alAsesor ? "ese dato no está cargado, se lo confirma un asesor" : "contesto con el dato de la tienda")
+      );
+
+      await mandar(() => enviarTexto(env, mensaje.igsid, frase), frase);
+
+      await guardarContacto(env.DB, {
+        ...contacto,
+        nombre,
+        historial: conNota(historialPrevio, `Preguntó por ${datoQuePide}.`),
+        mids_enviados: mids,
+        ultimo_envio: enviadoEn || Date.now(),
+        ultima_respuesta: frase,
+        conversacion,
+      });
+
+      // Se le prometió que alguien se lo confirma: alguien tiene que
+      // enterarse, o la promesa queda en el aire.
+      if (alAsesor) {
+        await avisarAsesor(env, {
+          ...paraElAviso(contacto),
+          igsid: mensaje.igsid,
+          mensaje: mensaje.texto,
+          respuesta: frase,
+          motivo: `PREGUNTA POR ${datoQuePide.toUpperCase()}`,
+        });
+      }
+      return;
+    }
+  }
+
   // Va antes del modelo por lo mismo que "muéstrame esos": no hay nada que
   // redactar. La hoja dice qué hay, y el modelo, con veinte equipos
   // delante, acaba eligiendo diez y quedándose corto.

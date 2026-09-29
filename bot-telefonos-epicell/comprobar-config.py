@@ -92,6 +92,10 @@ for archivo in os.listdir("src"):
     if archivo.endswith(".js"):
         texto = open(os.path.join("src", archivo), encoding="utf-8").read()
         leidos |= set(re.findall(r"env[?]?\.([A-Z][A-Z0-9_]+)", texto))
+        # datos.js las lee por nombre (env[variable]), de una tabla
+        # { horarios: "HORARIOS", ... }: también cuentan.
+        if archivo == "datos.js":
+            leidos |= set(re.findall(r':\s*"([A-Z][A-Z0-9_]+)"', texto))
 
 faltan = sorted(leidos - set(variables) - bindings - SECRETOS)
 sobran = sorted(set(variables) - leidos)

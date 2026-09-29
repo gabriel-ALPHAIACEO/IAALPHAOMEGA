@@ -87,6 +87,39 @@ SHEET_NOMBRE = "INVENTARIO AL 050926"
 # — que es un cliente en la puerta de un local cerrado.
 HORARIOS = "Estamos abiertos de 9am a 7pm 🕘 Domingos y feriados, de 10am a 5pm"
 
+# --- LAS FORMAS DE PAGO ------------------------------------------------
+#
+# Lo que el bot contesta, TAL CUAL, a quien pregunta "¿qué métodos de pago
+# aceptan?", "¿aceptan Zelle?", "¿cómo puedo pagar?". Lo contesta el código
+# (src/datos.js), no el modelo: así no se inventa ninguna. El modelo
+# también la lee, para cuando preguntan junto con un equipo.
+#
+# Cada \n es un salto de línea. Cashea y Krece NO van aquí: tienen su
+# propia respuesta, con los niveles (PAGOS_CASHEA en src/index.js).
+#
+# Si se deja vacío, esa pregunta la confirma un asesor.
+METODOS_PAGO = "Aceptamos los siguientes métodos de pago:\n• Pago Móvil\n• Transferencia bancaria\n\n🌎 Internacional:\n• Zelle\n• PayPal\n• Binance (USDT)"
+
+# --- LOS DEMÁS DATOS DE LA TIENDA -------------------------------------
+#
+# Igual que el horario y las formas de pago: el bot contesta con lo que
+# esté escrito aquí, tal cual. VACÍO = el bot NO se lo inventa: dice que un
+# asesor lo confirma y le avisa al asesor. Se rellenan cuando quieras, sin
+# tocar código (solo volver a desplegar).
+#
+#   DIRECCION = "Av. Tal, C.C. Tal, local 12, Caracas"
+#   MAPS_URL  = "https://maps.app.goo.gl/..."
+#   ENVIOS    = "Sí, enviamos a todo el país por MRW y Zoom 📦"
+#   DELIVERY  = "Tenemos delivery en la ciudad 🛵"
+#   TASA      = "Trabajamos a tasa BCV del día"
+#   TRABAJO   = "Deja tu CV en la tienda y te contactamos 😊"
+DIRECCION = ""
+MAPS_URL = ""
+ENVIOS = ""
+DELIVERY = ""
+TASA = ""
+TRABAJO = ""
+
 # --- LA TIENDA ---------------------------------------------------------
 # Enlace del catalogo online. EPICELL no tiene tienda web, asi que va
 # vacio A PROPOSITO: con esto el bot no manda el boton "Ver catalogo" ni
@@ -169,6 +202,13 @@ OPENAI_MODELO = "gpt-4o-mini"
 # que sea el completo: identifica mejor que el "mini", y el costo extra es
 # acotado porque el "mini" sigue atendiendo todo el texto.
 OPENAI_MODELO_VISION = "gpt-4o"
+
+# Que tan "creativo" es el modelo al escribir. De 0 a 2.
+#   0.3  se cine a lo que tiene delante, sonando natural   <- recomendado
+#   1.0  lo que usaba antes sin saberlo (no se mandaba): improvisa mas,
+#        y de ahi salen las respuestas que no vienen de ningun sitio.
+# Solo lo usan los modelos gpt-4 y gpt-3; los de razonamiento lo ignoran.
+OPENAI_TEMPERATURA = "0.3"
 
 # --- LA PAUSA CUANDO CONTESTA UN ASESOR --------------------------------
 # Cuantas horas se calla el bot despues de que un asesor le escribe a un

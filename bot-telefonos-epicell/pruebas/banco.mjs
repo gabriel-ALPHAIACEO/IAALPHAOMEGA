@@ -156,8 +156,10 @@ export function baseFalsa(filaInicial = {}) {
 }
 
 // Devuelve todo lo que el bot mandó a Instagram en este turno.
-export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelModelo = {}, mensaje = {}, hoja = HOJA } = {}) {
+export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelModelo = {}, mensaje = {}, hoja = HOJA, env: envExtra = {} } = {}) {
   const enviados = [];
+  // Lo que se le mandó a OpenAI, para mirar qué sabía el modelo.
+  const alModelo = [];
   const DB = baseFalsa({ id: "cliente1", ...fila });
 
   globalThis.fetch = async (url, opciones = {}) => {
@@ -166,6 +168,7 @@ export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelMo
     if (donde.includes("docs.google.com")) return { ok: true, status: 200, text: async () => hoja };
 
     if (donde.includes("api.openai.com")) {
+      alModelo.push(JSON.parse(opciones.body || "{}"));
       const cuerpo = JSON.stringify({
         respuesta: "Aquí lo tienes 👇",
         buscar: "NADA",
@@ -189,6 +192,7 @@ export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelMo
   const env = {
     DB, SHEET_ID: hoja === HOJA ? "abc" : `hoja${++hojasAparte}`, SHEET_NOMBRE: "Hoja 1", IG_TOKEN: "t",
     OPENAI_API_KEY: "k", URL_CATALOGO: "https://CAMBIA-ESTO.com", WHATSAPP: "584121234567",
+    ...envExtra,
   };
 
   await atenderMeta(env, {
@@ -197,5 +201,5 @@ export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelMo
     ...mensaje,
   });
 
-  return { enviados, fila: DB.filas.get("cliente1") };
+  return { enviados, fila: DB.filas.get("cliente1"), alModelo };
 }

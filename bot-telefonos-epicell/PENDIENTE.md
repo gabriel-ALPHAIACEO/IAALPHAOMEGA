@@ -566,13 +566,25 @@ correo.** Con el @ sí se les puede escribir.
    evitar.
 5. Los marcadores de `wrangler.toml`: `SHEET_ID`, `URL_CATALOGO`, `WHATSAPP`.
 
-## Falta: datos para los prompts
+## Hecho: los datos de la tienda los contesta el código (29-sep-2026)
 
-- `texto.txt` — `{{TUS HORARIOS}}` (aparece dos veces) y
-  `{{ADAPTA ESTE BLOQUE A LO QUE VENDES Y BORRA LO QUE NO}}` (el bloque de
-  nuevo / usado / reacondicionado: hay que decir cuál de los tres vende
-  EPICELL).
-- `vision.txt` — `{{COPIA AQUÍ LA MISMA TABLA DE TÉRMINOS DEL PROMPT DE TEXTO}}`.
+Horario, formas de pago, dirección, envíos, delivery, tasa y empleo se
+contestan con lo que está escrito en `wrangler.toml`, tal cual, sin pasar
+por OpenAI (`src/datos.js`). Así no se inventan, y no gastan tokens.
+
+- `HORARIOS` y `METODOS_PAGO` ya están puestos.
+- **Falta rellenar** (mientras estén vacíos, el bot dice que lo confirma un
+  asesor y le avisa): `DIRECCION`, `MAPS_URL`, `ENVIOS`, `DELIVERY`,
+  `TASA`, `TRABAJO`.
+
+## Hecho: el prompt, de ~14.100 a ~4.100 tokens (29-sep-2026)
+
+Mismas reglas, sin las contradicciones que confundían a gpt-4o-mini
+("nunca digas que no tienes algo" en una sección y "di que hoy no está
+disponible" en otra), sin la plantilla que quedaba (nuevo/usado, "Xiaomi
+14", catálogo online que no existe) y sin repetir lo que ya hace el
+código (las tablas de Cashea/Krece, los datos de la tienda). El prompt
+va primero y no cambia entre mensajes, así que OpenAI lo cachea.
 
 ## Cómo comprobar que quedó bien
 

@@ -32,6 +32,12 @@ const SIN_CATALOGO = `(Todavía no está cargada la lista de nombres de la
 tienda. Busca con lo que diga el cliente, tal cual: la hoja es la que
 manda y la búsqueda funciona igual sin esta lista.)`;
 
+// Lo que va donde antes iba la lista fija.
+const LA_LISTA_ES_LA_DEL_MENSAJE = `(La lista de lo que hay HOY te llega
+en cada mensaje, en el bloque "CATÁLOGO ACTUAL DE LA TIENDA". Esa es la
+única que vale: lo que no esté ahí no está disponible ahora, aunque lo
+hayas visto en otro mensaje.)`;
+
 // LOS HORARIOS: UN DATO QUE EL MODELO NO PUEDE SABER (26-sep-2026).
 //
 // EL FALLO QUE ESTO ARREGLA. En el prompt había escrito, tal cual:
@@ -52,14 +58,26 @@ const SIN_HORARIOS =
   "dile que se lo confirma un asesor en un momento. NUNCA te inventes una " +
   "hora ni un día";
 
-// El prompt armado y el horario con el que se armó: si cambia el horario
-// (un despliegue nuevo), hay que volver a armarlo.
+// LAS FORMAS DE PAGO, IGUAL QUE EL HORARIO (29-sep-2026).
+//
+// Si preguntan SOLO eso, contesta el código con METODOS_PAGO tal cual (ver
+// datos.js). Pero "¿el A57 lo puedo pagar con Zelle?" nombra un equipo y
+// va por el modelo: ahí el modelo tiene que saber cuáles son, o se los
+// inventa. Entra la misma lista, y si no está cargada, que no la sabe.
+const SIN_METODOS_PAGO =
+  "NO SABES las formas de pago (no están cargadas). Si las preguntan, " +
+  "dile que se las confirma un asesor. NUNCA digas que aceptas una";
+
+// El prompt armado y los datos con los que se armó: si cambian (un
+// despliegue nuevo), hay que volver a armarlo.
 let horariosArmados = null;
 
 function textoConCatalogo(env) {
   const horarios = String(env?.HORARIOS || "").trim();
+  const metodosPago = String(env?.METODOS_PAGO || "").replace(/\\n/g, "\n").trim();
+  const llave = `${horarios}\u0000${metodosPago}`;
 
-  if (promptTextoArmado && horariosArmados === horarios) return promptTextoArmado;
+  if (promptTextoArmado && horariosArmados === llave) return promptTextoArmado;
 
   // Fuera los comentarios del archivo: son para quien lo mantiene, no
   // para el modelo, y ocupan tokens en cada mensaje.
@@ -69,11 +87,27 @@ function textoConCatalogo(env) {
     .join("\n")
     .trim();
 
+  // EL CATÁLOGO FIJO YA NO ENTRA EN EL PROMPT (29-sep-2026).
+  //
+  // Aquí se pegaba catalogo.txt: una lista escrita a mano con TODOS los
+  // nombres, agotados incluidos. Y en cada mensaje llega además la lista
+  // EN VIVO de la hoja (ver listaDeTitulos), sin los que tienen Cantidad
+  // 0. El modelo veía las dos: el Redmi 17 en una y no en la otra. Con
+  // eso delante, un modelo pequeño ofrece lo que se agotó — que es justo
+  // lo que pasó en producción.
+  //
+  // La lista en vivo es la única que dice la verdad, y ya va en cada
+  // mensaje. La fija sobraba: eran mil tokens de datos que podían estar
+  // viejos. catalogo.txt se queda en el proyecto porque comprobar-prompt.py
+  // la usa para vigilar que los ejemplos del prompt hablen de productos
+  // reales.
+  void lista;
   promptTextoArmado = promptTexto
-    .replace("{{CATALOGO}}", lista || SIN_CATALOGO)
-    .replaceAll("{{TUS HORARIOS}}", horarios || SIN_HORARIOS);
+    .replace("{{CATALOGO}}", LA_LISTA_ES_LA_DEL_MENSAJE)
+    .replaceAll("{{TUS HORARIOS}}", horarios || SIN_HORARIOS)
+    .replaceAll("{{METODOS DE PAGO}}", metodosPago || SIN_METODOS_PAGO);
 
-  horariosArmados = horarios;
+  horariosArmados = llave;
 
   if (!horarios) {
     console.log(
@@ -86,6 +120,9 @@ function textoConCatalogo(env) {
 }
 
 const API = "https://api.openai.com/v1/chat/completions";
+
+// Ver llamar(): baja = se ciñe a lo que tiene delante.
+const TEMPERATURA_POR_DEFECTO = 0.3;
 
 // Se puede cambiar desde wrangler.toml sin tocar el código.
 const MODELO_POR_DEFECTO = "gpt-4o-mini";
@@ -124,14 +161,36 @@ async function llamar(
   contenido,
   { maxTokens = 1024, json = true, schema = null, modelo = "" } = {}
 ) {
+  const elModelo = modelo || env.OPENAI_MODELO || MODELO_POR_DEFECTO;
+
   const cuerpo = {
-    model: modelo || env.OPENAI_MODELO || MODELO_POR_DEFECTO,
+    model: elModelo,
     max_completion_tokens: maxTokens,
     messages: [
       { role: "system", content: sistema },
       { role: "user", content: contenido },
     ],
   };
+
+  // LA TEMPERATURA (29-sep-2026).
+  //
+  // No se mandaba, y entonces OpenAI usa 1.0: el modo más "creativo" que
+  // tiene. Para escribir un cuento está bien; para un vendedor que tiene
+  // que decir lo que hay y nada más, es invitarlo a improvisar. De ahí
+  // salen las respuestas raras que no vienen de ningún sitio —"no tengo
+  // langostas"—: el modelo rellenando con lo primero que se le ocurre.
+  //
+  // Con 0.3 sigue sonando natural y variado, pero se ciñe a lo que tiene
+  // delante. Se puede cambiar en wrangler.toml (OPENAI_TEMPERATURA).
+  //
+  // Solo a los modelos gpt-4 y gpt-3: los de razonamiento (o1, o3, gpt-5)
+  // rechazan el parámetro, y mandárselo tumbaría la llamada.
+  if (/^gpt-(4|3)/i.test(elModelo)) {
+    const pedida = Number(env.OPENAI_TEMPERATURA);
+    cuerpo.temperature = Number.isFinite(pedida) && env.OPENAI_TEMPERATURA !== undefined && env.OPENAI_TEMPERATURA !== ""
+      ? pedida
+      : TEMPERATURA_POR_DEFECTO;
+  }
 
   // "schema" (json_schema + strict) manda sobre "json" (json_object) — es
   // la versión que además obliga la FORMA exacta, no solo que sea JSON

@@ -46,6 +46,7 @@ for %f in (pruebas\*.mjs) do node pruebas\%f
 | `anuncios.mjs` | Que a quien llega desde una publicidad se le conteste, con el equipo del anuncio (y leerlo en la API con ADS_TOKEN) |
 | `memoria.mjs` | Que el bot guarde la conversación entera y se la dé al modelo |
 | `modelos.mjs` | Mismo modelo, pariente o solo la marca: "Redmi 17" agotado no es "¡Claro!, los Note 17" |
+| `datos.mjs` | Horario, formas de pago y demás datos de la tienda: salen tal cual de wrangler.toml, y si falta uno lo confirma un asesor (nunca se inventa) |
 
 ## Antes de desplegar
 
