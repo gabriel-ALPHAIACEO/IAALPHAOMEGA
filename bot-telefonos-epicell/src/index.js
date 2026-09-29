@@ -92,6 +92,7 @@ import {
   olvidarComentario,
   esEcoPorTexto,
   envioReciente,
+  conLoDicho,
   VENTANA_ECO_SIN_TEXTO_MS,
   asegurarColumnas,
   guardarPerfil,
@@ -1616,7 +1617,18 @@ async function atenderComentario(env, comentario, rastro = {}) {
       const contacto = await cargarContacto(env.DB, igsid);
       let mids = agregarMid(contacto.mids_enviados, abierto.mid);
       let enviadoEn = Date.now();
-      await marcarEnvio(env.DB, igsid, mids, enviadoEn, [mensajePrivado]);
+
+      // El comentario y lo que se le contestó son el PRINCIPIO de esta
+      // conversación: si no se anotan, el bot llega al segundo mensaje sin
+      // saber por qué está hablando con esta persona.
+      let conversacion = conLoDicho(
+        contacto.conversacion,
+        "cliente",
+        `(comentó en una publicación) ${comentario.texto}`
+      );
+      conversacion = conLoDicho(conversacion, "bot", mensajePrivado);
+
+      await marcarEnvio(env.DB, igsid, mids, enviadoEn, [mensajePrivado], conversacion);
 
       if (productos.length) {
         const fichas = productos.map((producto) => ({
@@ -1629,7 +1641,7 @@ async function atenderComentario(env, comentario, rastro = {}) {
           fotosEnviadas = true;
           mids = agregarMid(mids, mid);
           enviadoEn = Date.now();
-          await marcarEnvio(env.DB, igsid, mids, enviadoEn, [mensajePrivado]);
+          await marcarEnvio(env.DB, igsid, mids, enviadoEn, [mensajePrivado], conversacion);
         } else {
           // Lo esperable: la ventana está cerrada porque esta persona solo
           // comentó. No es un error que haya que arreglar, y el cliente ya
@@ -1654,6 +1666,7 @@ async function atenderComentario(env, comentario, rastro = {}) {
           ultimo_envio: enviadoEn,
           ultima_respuesta: mensajePrivado,
           ultimos_productos: productos.map((producto) => producto.titulo),
+          conversacion,
         });
       } else {
         await guardarContacto(env.DB, {
@@ -1665,6 +1678,7 @@ async function atenderComentario(env, comentario, rastro = {}) {
           mids_enviados: mids,
           ultimo_envio: enviadoEn,
           ultima_respuesta: mensajePrivado,
+          conversacion,
         });
       }
     }
@@ -1749,16 +1763,26 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // Y los textos que salieron, que es la otra forma de reconocer el eco
   // propio: el mid falla a veces, el texto no (ver esEcoPorTexto).
   let textos = [];
+  // Lo que se dijeron, en orden. Se rellena con lo que ya había en cuanto
+  // se carga el contacto, más abajo.
+  let conversacion = [];
 
+  // TODO LO QUE SALE PASA POR AQUÍ, así que este es el sitio donde anotar
+  // lo que el bot dice: da igual por qué camino se haya respondido —la
+  // lista de una marca, el precio en divisas, un comentario— queda escrito
+  // igual. Lo mismo que se hace con los mids y con los textos.
   const mandar = async (hacer, texto = "") => {
     const mid = await hacer();
     if (!mid) return "";
 
     rastro.respondio = true;
     mids = agregarMid(mids, mid);
-    if (texto) textos = [...textos, texto];
+    if (texto) {
+      textos = [...textos, texto];
+      conversacion = conLoDicho(conversacion, "bot", texto);
+    }
     enviadoEn = Date.now();
-    await marcarEnvio(env.DB, mensaje.igsid, mids, enviadoEn, textos);
+    await marcarEnvio(env.DB, mensaje.igsid, mids, enviadoEn, textos, conversacion);
     return mid;
   };
   // El eco de un mensaje que salió de la cuenta: el nuestro (el bot
@@ -1897,6 +1921,23 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // "TE ESTÁN ESPERANDO" también salga con nombre.
   const contacto = await asegurarPerfil(env, await cargarContacto(env.DB, mensaje.igsid));
   mids = contacto.mids_enviados;
+
+  // LA LÍNEA DEL CLIENTE SE ANOTA ANTES DE CONTESTAR, no después: así, si
+  // el turno se cae a mitad, lo que él dijo no se pierde.
+  conversacion = conLoDicho(
+    contacto.conversacion,
+    "cliente",
+    mensaje.texto ||
+      (mensaje.tipo === "imagen"
+        ? "(mandó una foto)"
+        : mensaje.tipo === "publicacion"
+          ? "(compartió una publicación)"
+          : mensaje.tipo === "historia"
+            ? "(respondió a una historia)"
+            : mensaje.anuncio
+              ? "(llegó desde un anuncio)"
+              : "")
+  );
 
   textos = contacto.ultimos_textos;
 
@@ -2473,7 +2514,10 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     esHistoria,
     minutosCallado,
     catalogo,
-    Boolean(publicacion)
+    Boolean(publicacion),
+    // La conversación SIN la línea que él acaba de escribir: esa va abajo,
+    // en "lo que pide ahora", y repetirla dos veces confunde al modelo.
+    conversacion.slice(0, -1)
   );
 
   const salida = await responderTexto(env, entrada);
@@ -2988,7 +3032,8 @@ function contexto(
   esHistoriaNueva = false,
   minutos = 0,
   catalogo = "",
-  esPublicacionNueva = false
+  esPublicacionNueva = false,
+  conversacion = []
 ) {
   return contextoParaElModelo({
     nombre: primerNombre(nombre),
@@ -2999,6 +3044,7 @@ function contexto(
     esPublicacionNueva,
     minutosDesdeElUltimo: minutos,
     catalogo,
+    conversacion,
   });
 }
 

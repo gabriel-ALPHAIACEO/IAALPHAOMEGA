@@ -89,10 +89,44 @@ export function baseFalsa(filaInicial = {}) {
                 return;
               }
 
-              for (const trozo of conflicto.split(",")) {
-                const [campo, valor] = trozo.split("=").map((t) => t.trim());
-                if (!campo || !valor) continue;
-                const col = campo.replace(/[`"]/g, "");
+              // El SET se parte por comas, pero NO por las que van dentro de
+              // un paréntesis: "COALESCE(NULLIF(x, ''), y)" es un valor
+              // solo. Sin esto, el fake troceaba mal y guardaba basura en
+              // las columnas que usan COALESCE — justo las que no se
+              // quieren pisar cuando quien llama no las trae.
+              const trozos = [];
+              let nivel = 0;
+              let actual = "";
+              for (const letra of conflicto) {
+                if (letra === "(") nivel++;
+                if (letra === ")") nivel--;
+                if (letra === "," && nivel === 0) {
+                  trozos.push(actual);
+                  actual = "";
+                  continue;
+                }
+                actual += letra;
+              }
+              if (actual.trim()) trozos.push(actual);
+
+              for (const trozo of trozos) {
+                const corte = trozo.indexOf("=");
+                if (corte === -1) continue;
+                const col = trozo.slice(0, corte).trim().replace(/[`"]/g, "");
+                const valor = trozo.slice(corte + 1).trim();
+                if (!col || !valor) continue;
+
+                // "COALESCE(NULLIF(excluded.X, ''), contactos.X)": si lo
+                // que llega está vacío, se queda lo que ya había.
+                const cuidado = valor.match(
+                  /^COALESCE\s*\(\s*NULLIF\s*\(\s*excluded\.(\w+)\s*,\s*''\s*\)\s*,\s*contactos\.(\w+)\s*\)$/i
+                );
+                if (cuidado) {
+                  const llega = valorDe[cuidado[1]];
+                  nueva[col] = llega === "" || llega === undefined ? previa[cuidado[2]] : llega;
+                  continue;
+                }
+
                 nueva[col] = /^excluded\./i.test(valor)
                   ? valorDe[valor.split(".")[1].trim()]
                   : String(valor).replace(/^'|'$/g, "");

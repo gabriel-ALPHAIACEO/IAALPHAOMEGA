@@ -66,7 +66,51 @@ export async function cargarContacto(db, id) {
     // lo que une los DOS webhooks de "compartir + preguntar" en una sola
     // respuesta (ver publicacion.js).
     publicacion: leerPublicacion(fila.publicacion),
+    // Lo que se dijeron, en orden. Ver COLUMNAS_SOLAS.
+    conversacion: leerConversacion(fila.conversacion),
   };
+}
+
+/* ── La conversación ──────────────────────────────────────────────
+
+   CUÁNTO SE GUARDA, Y POR QUÉ ESE TAMAÑO.
+
+   Todo lo que se guarda aquí viaja al modelo en CADA mensaje, así que es
+   dinero por turno. Doce intervenciones cubren de sobra una conversación
+   de venta —"hola", el equipo, la capacidad, el precio, Cashea, el
+   cierre— y 400 caracteres por línea dejan pasar entera cualquier
+   pregunta de un cliente. Lo que se salga de ahí lo sigue cubriendo el
+   resumen del modelo, que es corto pero no se borra nunca.
+   ───────────────────────────────────────────────────────────────── */
+const TURNOS_GUARDADOS = 12;
+const LARGO_DE_UNA_LINEA = 400;
+
+function leerConversacion(crudo) {
+  const lista = leerLista(crudo);
+
+  return lista
+    .map((turno) => ({
+      de: turno?.de === "bot" ? "bot" : "cliente",
+      texto: String(turno?.texto || "").slice(0, LARGO_DE_UNA_LINEA),
+    }))
+    .filter((turno) => turno.texto);
+}
+
+// Añade lo dicho y devuelve la conversación ya recortada. No toca la base:
+// quien llama la guarda junto con lo demás del turno (ver marcarEnvio).
+export function conLoDicho(conversacion, de, texto) {
+  const limpio = String(texto || "").trim();
+  if (!limpio) return conversacion || [];
+
+  const linea = { de: de === "bot" ? "bot" : "cliente", texto: limpio.slice(0, LARGO_DE_UNA_LINEA) };
+  const previa = conversacion || [];
+
+  // El mismo mensaje dos veces seguidas es un reintento de Meta o un eco:
+  // no se anota dos veces.
+  const ultima = previa[previa.length - 1];
+  if (ultima && ultima.de === linea.de && ultima.texto === linea.texto) return previa;
+
+  return [...previa, linea].slice(-TURNOS_GUARDADOS);
 }
 
 /* ── Los comentarios ya contestados ───────────────────────────────── */
@@ -256,22 +300,35 @@ function normalizar(titulo) {
 // humano y se pausa a sí mismo. Pasó en producción: cinco de siete
 // conversaciones quedaron mudas. Por eso el mid se guarda inmediatamente
 // después de enviar, antes de Slack y antes de cualquier otra cosa lenta.
-export async function marcarEnvio(db, id, mids, cuando = Date.now(), textos = []) {
+export async function marcarEnvio(
+  db,
+  id,
+  mids,
+  cuando = Date.now(),
+  textos = [],
+  conversacion = null
+) {
   const guardar = () =>
     db
       .prepare(
-        `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, ultimo_envio, ultimos_textos)
-         VALUES (?, '', '', 0, ?, ?, ?)
+        `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, ultimo_envio, ultimos_textos, conversacion)
+         VALUES (?, '', '', 0, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            mids_enviados = excluded.mids_enviados,
            ultimo_envio = excluded.ultimo_envio,
-           ultimos_textos = excluded.ultimos_textos`
+           ultimos_textos = excluded.ultimos_textos,
+           conversacion = excluded.conversacion`
       )
       .bind(
         id,
         JSON.stringify(mids.slice(-MAX_MIDS)),
         cuando,
-        JSON.stringify(textos.slice(-MAX_TEXTOS).map(huella))
+        JSON.stringify(textos.slice(-MAX_TEXTOS).map(huella)),
+        // Siempre se escribe entera: quien llama la trae del contacto y le
+        // añade lo de este turno, así que lo que llega aquí ya es la
+        // versión buena. Nada de condiciones dentro del SQL — la base es
+        // el sitio donde menos se quiere pensar.
+        JSON.stringify((conversacion || []).slice(-TURNOS_GUARDADOS))
       )
       .run();
 
@@ -366,6 +423,10 @@ export async function guardarContacto(db, contacto) {
     // guardarse conversaciones enteras en cada fila.
     String(contacto.ultima_respuesta || "").slice(0, MAX_ULTIMA_RESPUESTA),
     JSON.stringify((contacto.ultimos_productos || []).slice(0, 10)),
+    // La conversación entera. Quien llama la trae ya con lo de este turno
+    // añadido (ver conLoDicho); si no la trae, se respeta la que hay en la
+    // base — igual que con los campos del perfil.
+    contacto.conversacion ? JSON.stringify(contacto.conversacion.slice(-TURNOS_GUARDADOS)) : "",
   ];
 
   // Los tres campos del perfil NUNCA se borran desde aquí: si el que llama
@@ -375,8 +436,8 @@ export async function guardarContacto(db, contacto) {
   const guardar = () =>
     db
       .prepare(
-        `INSERT INTO contactos (id, nombre, nombre_completo, usuario, historial, pausado_hasta, mids_enviados, ultimo_envio, mostrados, ultima_respuesta, ultimos_productos)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO contactos (id, nombre, nombre_completo, usuario, historial, pausado_hasta, mids_enviados, ultimo_envio, mostrados, ultima_respuesta, ultimos_productos, conversacion)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            nombre = COALESCE(NULLIF(excluded.nombre, ''), contactos.nombre),
            nombre_completo = COALESCE(NULLIF(excluded.nombre_completo, ''), contactos.nombre_completo),
@@ -387,7 +448,8 @@ export async function guardarContacto(db, contacto) {
            ultimo_envio = excluded.ultimo_envio,
            mostrados = excluded.mostrados,
            ultima_respuesta = excluded.ultima_respuesta,
-           ultimos_productos = excluded.ultimos_productos`
+           ultimos_productos = excluded.ultimos_productos,
+           conversacion = COALESCE(NULLIF(excluded.conversacion, ''), contactos.conversacion)`
       )
       .bind(...datos)
       .run();
@@ -448,6 +510,18 @@ const MAX_ULTIMA_RESPUESTA = 1000;
 
 const COLUMNAS_SOLAS = [
   ["mostrados", "TEXT NOT NULL DEFAULT '[]'"],
+  // LA CONVERSACIÓN DE VERDAD, TURNO POR TURNO.
+  //
+  // Hasta hoy la memoria del bot era el "historial": un RESUMEN de 200
+  // caracteres que escribía el propio modelo ("Pidió un Samsung. Ya
+  // busqué: Samsung."). Con eso se pierde casi todo — el tono, lo que ya
+  // le dijiste, lo que descartó, el nombre que dio, para quién es el
+  // equipo, cuánto quería gastar— y el bot repite preguntas que ya hizo.
+  //
+  // Aquí se guarda lo que de verdad se dijeron, en orden: cada línea del
+  // cliente y cada respuesta del bot. Es lo que le permite leer el chat
+  // entero, de arriba abajo, en vez de un apunte.
+  ["conversacion", "TEXT NOT NULL DEFAULT '[]'"],
   ["nombre_completo", "TEXT NOT NULL DEFAULT ''"],
   ["usuario", "TEXT NOT NULL DEFAULT ''"],
   // LO ÚLTIMO QUE EL BOT LE DIJO A ESTE CLIENTE, palabra por palabra.

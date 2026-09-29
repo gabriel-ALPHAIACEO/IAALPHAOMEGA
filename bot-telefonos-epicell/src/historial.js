@@ -88,15 +88,47 @@ export function contextoParaElModelo({
   // en sheets.js, si tu tienda lo usa). Si tu catálogo no lo genera, se deja
   // vacío y este bloque simplemente no aparece.
   catalogo = "",
+  // Lo que se dijeron, turno por turno (ver estado.js). Es lo que hace que
+  // el modelo pueda LEER el chat en vez de recordarlo.
+  conversacion = [],
 }) {
   const previo = recortarHistorial(historial);
   const partes = [];
 
   if (nombre) partes.push(`Nombre del cliente: ${nombre}`);
 
+  // LA CONVERSACIÓN ENTERA, ANTES QUE NADA MÁS.
+  //
+  // Pedido del dueño (29-sep-2026): "que entienda el contexto de los
+  // chats, que pueda leer los chats completos, de arriba abajo, principio
+  // y fin".
+  //
+  // Hasta ahora lo único que viajaba era el resumen de abajo: 200
+  // caracteres que escribe el propio modelo. Con eso se pierde el tono, lo
+  // que el cliente ya descartó, para quién es el equipo, cuánto quiere
+  // gastar — y el bot vuelve a preguntar lo que ya le respondieron, que es
+  // lo que más cansa a quien está comprando.
+  //
+  // Aquí va lo que de verdad se dijeron, en orden, con sus palabras.
+  if (conversacion.length) {
+    partes.push(
+      "───────── LA CONVERSACIÓN, TAL COMO PASÓ ─────────",
+      "Léela entera antes de contestar, de arriba abajo. Es lo que YA se",
+      "dijeron: no vuelvas a preguntar algo que él ya respondió, no repitas",
+      "lo que ya le dijiste, y usa lo que contó (para quién es, qué",
+      "descartó, cuánto quiere gastar) para que tu respuesta encaje.",
+      ...conversacion.map(
+        (turno) => `${turno.de === "bot" ? "Tú" : "Cliente"}: ${turno.texto}`
+      ),
+      "─────────────────────────────────────────────────"
+    );
+  }
+
   if (previo) {
     partes.push(
-      "───────── DE QUÉ HABLARON ANTES ─────────",
+      conversacion.length
+        ? "───────── TUS APUNTES DE ANTES (lo que ya no cabe arriba) ─────────"
+        : "───────── DE QUÉ HABLARON ANTES ─────────",
       "Esto ya pasó. Sirve para entender referencias como \"y el otro?\" o",
       "\"dame ese\". NO es lo que el cliente pide ahora, y NO hay que volver a",
       "buscar lo que diga \"Ya busqué\" salvo que el mensaje de ahora lo pida.",
