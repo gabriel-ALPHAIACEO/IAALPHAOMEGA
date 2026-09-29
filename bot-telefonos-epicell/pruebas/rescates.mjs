@@ -132,7 +132,9 @@ r = await turno({
 });
 dicho = textos(r.enviados).join(" ");
 comprobar("una nevera no se manda al asesor", /asesor/i.test(dicho), false);
-comprobar("se le dice que esto es una tienda de tecnología", /tecnolog[ií]a|tel[eé]fonos y accesorios/i.test(dicho), true);
+// Las tres frases dicen a qué se dedica la tienda; cualquiera vale.
+comprobar("se le dice a qué se dedica la tienda", /tecnolog[ií]a|tel[eé]fonos/i.test(dicho), true);
+comprobar("y no le promete conseguirla", /conseguir/i.test(dicho), false);
 comprobar("y no le enseña teléfonos porque sí", fichas(r.enviados).length, 0);
 
 // 4. PERO UN TELEVISOR SÍ ES TECNOLOGÍA: eso se consigue.

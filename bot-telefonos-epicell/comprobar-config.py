@@ -17,9 +17,14 @@
 import os, re, sys
 
 ARCHIVO = "wrangler.toml"
+# Los que NO van en wrangler.toml: se cargan con "wrangler secret put".
+# Si el codigo lee uno de estos, no se avisa de que "falta en el archivo".
 SECRETOS = {
     "OPENAI_API_KEY", "SHOPIFY_TOKEN", "SLACK_WEBHOOK",
     "META_APP_SECRET_IG", "META_APP_SECRET", "IG_TOKEN",
+    # Para leer los anuncios por la API de Meta (ver anuncio.js). Es
+    # opcional: sin el, el bot atiende igual a quien viene de un anuncio.
+    "ADS_TOKEN",
 }
 
 if not os.path.exists(ARCHIVO):

@@ -59,5 +59,52 @@ r = await turno({
 comprobar("sin datos del anuncio, lo saluda y le pregunta", /qu[eé] (equipo|est[aá]s)/i.test(textos(r.enviados)), true);
 comprobar("y no le dice que no pudo abrir nada", /no pude abrir|no me lleg[oó]/i.test(textos(r.enviados)), false);
 
+// ── EL AVISO QUE LLEGA PELADO ─────────────────────────────────
+//
+// Meta no siempre manda el titulo y la foto del anuncio: hay avisos con el
+// id y nada mas. Con ADS_TOKEN el bot va a buscar el anuncio a la API.
+const { detallesDelAnuncio } = await import("./.stub/anuncio.js");
+
+const comoResponderiaMeta = {
+  name: "CAMPAÑA SEPT - Note 17",
+  creative: {
+    title: "Redmi Note 17 en oferta",
+    body: "Llévatelo con Cashea, cuotas sin intereses",
+    image_url: "https://cdn/ad.jpg",
+    effective_object_story_id: "17841_18099",
+  },
+};
+
+globalThis.fetch = async (url) => {
+  if (String(url).includes("graph.facebook.com")) {
+    return { ok: true, status: 200, json: async () => comoResponderiaMeta };
+  }
+  return { ok: false, status: 404, text: async () => "", json: async () => ({}) };
+};
+
+let leido = await detallesDelAnuncio({ ADS_TOKEN: "t" }, "120212345678901234");
+comprobar("lee el título del anuncio", leido?.titulo, "Redmi Note 17 en oferta");
+comprobar("y su texto", /Cashea/.test(leido?.texto || ""), true);
+comprobar("y su imagen", leido?.imagen, "https://cdn/ad.jpg");
+comprobar("y el post del que salió", leido?.publicacion, "17841_18099");
+
+// Sin el secreto no se intenta siquiera: el bot sigue funcionando con lo
+// que traiga el aviso.
+comprobar("sin ADS_TOKEN no llama a Meta", await detallesDelAnuncio({}, "120"), null);
+
+// Los anuncios dinámicos ponen lo mismo en otro sitio.
+const dinamico = {
+  creative: {
+    asset_feed_spec: {
+      titles: [{ text: "Poco X8 pro 5G" }],
+      bodies: [{ text: "Potencia pura" }],
+      images: [{ url: "https://cdn/px8.jpg" }],
+    },
+  },
+};
+globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => dinamico });
+leido = await detallesDelAnuncio({ ADS_TOKEN: "t" }, "otro-anuncio");
+comprobar("un anuncio dinámico también se lee", leido?.titulo, "Poco X8 pro 5G");
+
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);

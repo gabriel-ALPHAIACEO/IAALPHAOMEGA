@@ -233,10 +233,35 @@ FRASE_DESPAUSAR = "te dejo con la asistente|ya puedes seguir con la asistente"
 #   npx wrangler secret put SLACK_WEBHOOK       https://hooks.slack.com/...
 #   npx wrangler secret put META_APP_SECRET_IG  la clave del producto Instagram
 #   npx wrangler secret put IG_TOKEN            el token de acceso de Instagram
+#   npx wrangler secret put ADS_TOKEN           para leer tus anuncios (opcional)
 #
 # OJO CON META_APP_SECRET_IG: Meta tiene DOS claves y las dos miden 32
 # caracteres, asi que no se distinguen a ojo. La que sirve es la del
 # producto Instagram, NO la de Configuracion -> Basica.
+#
+# ADS_TOKEN — PARA QUE EL BOT ENTIENDA DE QUE ANUNCIO VIENE LA PERSONA.
+#
+# Cuando alguien pulsa "Enviar mensaje" en una publicidad, Meta avisa al
+# webhook y muchas veces manda el titulo del anuncio y su foto. Con eso
+# solo, el bot ya identifica el equipo y contesta por el.
+#
+# Pero ese bloque NO SIEMPRE VIENE: depende del formato del anuncio y de
+# donde se hizo clic. Hay avisos que llegan con el id del anuncio y nada
+# mas. Con ADS_TOKEN el bot va a buscar ese anuncio a la API y saca su
+# titulo, su texto y su imagen — el contexto que faltaba.
+#
+# COMO SE SACA (una vez):
+#   1. La app y la cuenta publicitaria tienen que estar en el MISMO
+#      portafolio comercial, con la cuenta asignada como activo.
+#   2. Configuracion del negocio -> Usuarios del sistema -> Generar token,
+#      con la APP y la CUENTA PUBLICITARIA asignadas y el permiso
+#      ads_read.
+#   3. npx wrangler secret put ADS_TOKEN
+#
+# Es OPCIONAL: sin el, a quien llega por un anuncio se le atiende igual con
+# lo que traiga el aviso. Para comprobar que quedo bien, con el id de un
+# anuncio del Administrador de anuncios:
+#   https://TU-WORKER.workers.dev/probar-anuncio?id=120212345678901234
 #
 # EL IG_TOKEN NECESITA, ademas de los permisos de mensajes,
 # instagram_business_manage_comments — es el que deja contestar los

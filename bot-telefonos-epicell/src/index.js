@@ -30,6 +30,7 @@
 
 import { responderTexto, identificarEnImagen } from "./ia.js";
 import { referenciaEnTexto } from "./referencias.js";
+import { detallesDelAnuncio } from "./anuncio.js";
 // "comoSeLlama" ya existe aquí para el nombre del CLIENTE (estado.js), así
 // que el de los tipos entra con su propio nombre.
 import {
@@ -1044,6 +1045,7 @@ export default {
           `  META_APP_SECRET     ${secreto("META_APP_SECRET")}   (la de Facebook)`,
           `  META_APP_SECRET_IG  ${secreto("META_APP_SECRET_IG")}   (la de Instagram ← es esta)`,
           `  IG_TOKEN            ${secreto("IG_TOKEN")}`,
+          `  ADS_TOKEN           ${secreto("ADS_TOKEN")}   (opcional: leer tus anuncios)`,
           "",
           "CONFIGURACIÓN (wrangler.toml)",
           `  META_MODO           ${env.META_MODO || "todo (por defecto)"}`,
@@ -1232,6 +1234,84 @@ export default {
             : "No se pudo sacar nada de ese enlace. Si es de Instagram, el bot\n" +
               "igual sabe que es una publicacion nuestra y le pregunta al cliente\n" +
               "cual le gusto, en vez de saludarlo como si no hubiera mandado nada.\n",
+        ].join("\n")
+      );
+    }
+
+    if (url.pathname === "/probar-anuncio") {
+      const id = (url.searchParams.get("id") || "").trim();
+
+      if (!id) {
+        return texto200(
+          [
+            "Pasame el id de un anuncio asi:",
+            "  /probar-anuncio?id=120212345678901234",
+            "",
+            "El id sale en el Administrador de anuncios, en la columna",
+            '"Identificacion" del anuncio (no del conjunto ni de la campana).',
+            "",
+            `ADS_TOKEN     ${env.ADS_TOKEN ? "cargado" : "FALTA — sin el no se puede leer ningun anuncio"}`,
+            "",
+          ].join("\n")
+        );
+      }
+
+      if (!env.ADS_TOKEN) {
+        return texto200(
+          [
+            "FALTA ADS_TOKEN.",
+            "",
+            "Es el permiso para leer tus anuncios. Se saca una vez:",
+            "  1. En Meta, Configuracion del negocio -> Usuarios del sistema.",
+            "  2. Genera un token con la APP y la CUENTA PUBLICITARIA",
+            "     asignadas, y el permiso ads_read.",
+            "  3. npx wrangler secret put ADS_TOKEN",
+            "",
+            "Sin esto el bot sigue atendiendo a quien viene de un anuncio:",
+            "usa el titulo y la foto que Meta manda en el aviso. Esto es para",
+            "los avisos que llegan sin nada de eso.",
+            "",
+          ].join("\n")
+        );
+      }
+
+      const leido = await detallesDelAnuncio(env, id);
+
+      if (!leido) {
+        return texto200(
+          [
+            `No pude leer el anuncio ${id}.`,
+            "",
+            "Lo que suele fallar, por orden:",
+            "  · La cuenta publicitaria no esta asignada a la APP en el",
+            "    portafolio comercial (Business).",
+            "  · Al token le falta el permiso ads_read.",
+            "  · El id no es el del ANUNCIO (es el del conjunto o la campana).",
+            "",
+            "El motivo exacto sale en `npx wrangler tail` al abrir esta ruta.",
+            "",
+          ].join("\n")
+        );
+      }
+
+      const enElCatalogo = await catalogoCompleto(env);
+      const equipo = equipoQueNombra(`${leido.titulo} ${leido.texto}`, enElCatalogo);
+
+      return texto200(
+        [
+          `Anuncio       ${id}`,
+          `Titulo        ${leido.titulo || "(sin titulo)"}`,
+          `Texto         ${(leido.texto || "(sin texto)").slice(0, 200)}`,
+          `Imagen        ${leido.imagen || "(sin imagen)"}`,
+          `Publicacion   ${leido.publicacion || "(no viene del feed)"}`,
+          "",
+          equipo
+            ? `EQUIPO QUE RECONOCE: ${equipo}\n` +
+              "A quien llegue por este anuncio se le contesta con ese equipo.\n"
+            : "NO RECONOCE NINGUN EQUIPO en el texto del anuncio.\n" +
+              "Si el anuncio es de un modelo concreto, ponle el nombre tal como\n" +
+              "esta en la hoja (en el titulo o en el texto) y el bot lo pillara.\n" +
+              "Mientras, saluda y pregunta, que es lo correcto.\n",
         ].join("\n")
       );
     }
@@ -2780,17 +2860,37 @@ async function publicacionDelTurno(env, mensaje, contacto) {
   const enlaceEscrito = compartida || anuncio ? "" : enlaceEnTexto(mensaje.texto);
 
   if (compartida || enlaceEscrito || anuncio) {
-    const delPost =
-      anuncio?.publicacion ? await publicacionPorId(env, anuncio.publicacion) : null;
+    // EL AVISO NO SIEMPRE TRAE LO QUE EL CLIENTE VIO (29-sep-2026).
+    //
+    // Meta manda "ads_context_data" —título, foto, post— según el formato
+    // del anuncio y la versión de la API. Hay avisos que llegan con el id
+    // y nada más, y ahí el bot se quedaba preguntando "¿qué equipo viste?"
+    // a alguien que acababa de verlo en pantalla, y que la tienda pagó por
+    // traer.
+    //
+    // Con el id se va a buscar el anuncio entero a la API (ver anuncio.js).
+    // Hace falta el secreto ADS_TOKEN; sin él, esto no se intenta siquiera
+    // y todo sigue funcionando con lo que traiga el aviso.
+    // "leido" ya está usado más abajo para lo que se saca de un enlace.
+    const delAnuncio =
+      anuncio && !anuncio.titulo && !anuncio.foto && anuncio.id
+        ? await detallesDelAnuncio(env, anuncio.id)
+        : null;
+
+    const delPost = anuncio?.publicacion
+      ? await publicacionPorId(env, anuncio.publicacion)
+      : null;
 
     const cruda = compartida
       ? mensaje.publicacion
       : anuncio
         ? {
-            url: anuncio.foto || delPost?.imagen || "",
-            // El título del anuncio Y el pie del post: cualquiera de los
-            // dos puede ser el que nombre el equipo.
-            titulo: [anuncio.titulo, delPost?.titulo].filter(Boolean).join(" · "),
+            url: anuncio.foto || delAnuncio?.imagen || delPost?.imagen || "",
+            // El título del anuncio, su texto y el pie del post:
+            // cualquiera de los tres puede ser el que nombre el equipo.
+            titulo: [anuncio.titulo || delAnuncio?.titulo, delAnuncio?.texto, delPost?.titulo]
+              .filter(Boolean)
+              .join(" · "),
             enlace: delPost?.permalink || "",
           }
         : { url: "", titulo: "", enlace: enlaceEscrito };
