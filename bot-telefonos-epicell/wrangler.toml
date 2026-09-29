@@ -146,7 +146,22 @@ COMENTARIOS = "todo"
 META_VERIFY_TOKEN = "epiccell2026"
 
 # --- LOS MODELOS DE OPENAI ---------------------------------------------
-# Modelo que REDACTA las respuestas de texto.
+# Modelo que REDACTA las respuestas de texto. ES EL CEREBRO DEL BOT: de el
+# dependen lo bien que entienda una frase torcida, que no repita preguntas
+# y que siga el hilo de una conversacion larga.
+#
+#   "gpt-4o-mini"  el de ahora. Barato y rapido. Entiende bien lo normal,
+#                  pero con frases raras o conversaciones largas se pierde
+#                  mas que el grande.
+#   "gpt-4o"       el completo. Entiende bastante mejor el contexto y lo
+#                  mal escrito. Cuesta mas por mensaje. Es un cambio de una
+#                  palabra, y se vuelve atras igual de rapido.
+#
+# 29-sep-2026: antes de cambiarlo, ten en cuenta que la mitad del problema
+# era otra cosa. La memoria del bot eran 200 caracteres de resumen; ahora
+# le llega LA CONVERSACION ENTERA (ver la columna "conversacion" en
+# estado.js). Eso solo ya hace que el mini se equivoque mucho menos.
+# Prueba primero asi; si aun se queda corto, sube a "gpt-4o".
 OPENAI_MODELO = "gpt-4o-mini"
 
 # Modelo que IDENTIFICA las fotos: las que manda el cliente y tambien la
