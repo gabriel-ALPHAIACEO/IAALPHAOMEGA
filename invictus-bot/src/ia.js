@@ -27,7 +27,6 @@ import { urlPequena } from "./shopify.js";
 import { comoDataUri } from "./imagen.js";
 import { metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
 import { anotarGasto } from "./gasto.js";
-import { llamarGemini, modeloDeGemini } from "./gemini.js";
 
 // EL CATÁLOGO SE PEGA AL PROMPT AL ARRANCAR, NO EN CADA MENSAJE.
 //
@@ -355,45 +354,12 @@ const ESQUEMA_RESPUESTA = {
   },
 };
 
-// QUIÉN ATIENDE LAS FOTOS: OPENAI O GEMINI.
-//
-// Se elige desde wrangler.toml con PROVEEDOR_VISION = "gemini". Sin poner
-// nada sigue todo en OpenAI, igual que siempre.
-//
-// SOLO LAS FOTOS, Y EL MOTIVO ES LA CUENTA. Medido con los precios del
-// 29-sep-2026, por foto:
-//
-//   identificar + cotejo en gpt-4o          $0,056
-//   identificar + cotejo en Gemini Flash-Lite $0,010   ← 77% menos
-//
-// Pero el texto NO conviene moverlo: redactar cuesta $0,0038 en
-// gpt-4o-mini ($0,15 el millón) y saldría MÁS caro en Gemini Flash-Lite
-// ($0,25 el millón). Lo caro son las fotos, no las palabras.
-//
-// Y ojo con subir de modelo dentro de Gemini: 3.5 Flash cobra el mismo
-// cargo por imagen a un precio seis veces mayor, así que la misma foto
-// sale MÁS cara que en gpt-4o. Más grande no es más barato acá.
-function fotosPorGemini(env) {
-  return String(env.PROVEEDOR_VISION || "").toLowerCase() === "gemini";
-}
-
 async function llamar(
   env,
   sistema,
   contenido,
-  { maxTokens = 1024, json = true, schema = null, modelo = "", alFallar = null, tarea = "texto" } = {}
+  { maxTokens = 1024, json = true, schema = null, modelo = "", alFallar = null } = {}
 ) {
-  // Las fotos se desvían a Gemini si la tienda lo pidió. El que llama no se
-  // entera: recibe el mismo texto de vuelta y el gasto se anota igual.
-  if (tarea === "vision" && fotosPorGemini(env)) {
-    return llamarGemini(env, sistema, contenido, {
-      maxTokens,
-      schema,
-      alFallar,
-      anotar: (datos) => anotarGasto(env, datos),
-    });
-  }
-
   const cuerpo = {
     model: modelo || env.OPENAI_MODELO || MODELO_POR_DEFECTO,
     max_completion_tokens: maxTokens,
@@ -504,7 +470,6 @@ export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) 
     ],
     {
       schema: ESQUEMA_IDENTIFICACION,
-      tarea: "vision",
       // "modelo" lo usa la indexación del catálogo: son cientos de
       // fotos y el cupo por minuto del modelo grande no da, así que se
       // indexa con el mini —que tiene un cupo mucho más alto— mientras
@@ -661,7 +626,6 @@ async function unCotejo(env, foto, candidatos, textoCliente) {
     maxTokens: 300,
     schema: ESQUEMA_COTEJO,
     modelo: modeloDeVision(env),
-    tarea: "vision",
     alFallar: ({ deImagen }) => {
       falloDeImagen = deImagen;
     },
@@ -745,7 +709,6 @@ export async function rasgosDeProducto(env, urlImagen, { modelo = "" } = {}) {
     ],
     {
       schema: ESQUEMA_IDENTIFICACION,
-      tarea: "vision",
       modelo: modelo || modeloDeIndice(env),
       maxTokens: 400,
     }

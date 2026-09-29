@@ -72,7 +72,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-29 (9) · las fotos van a Gemini Flash-Lite: 77% menos por foto";
+const VERSION = "2026-09-29 (9) · El Emperador corre 100% con Gemini Flash-Lite";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -514,13 +514,16 @@ export default {
           `  FRASE_DESPAUSAR     "${fraseDespausar(env)}"   (el asesor la manda en el chat y el bot vuelve)`,
           `  OPENAI_MODELO       ${env.OPENAI_MODELO || "gpt-4o-mini (por defecto)"}   (el que redacta las respuestas)`,
           `  OPENAI_MODELO_VISION ${env.OPENAI_MODELO_VISION || "gpt-4o (por defecto)"}   (el que identifica las fotos)`,
-          `  PROVEEDOR_VISION    ${env.PROVEEDOR_VISION === "gemini" ? "gemini  ← las fotos van a Gemini" : "openai (por defecto)"}`,
-          ...(env.PROVEEDOR_VISION === "gemini"
+          `  PROVEEDOR           ${env.PROVEEDOR === "gemini" ? "gemini  ← TODO va a Gemini" : env.PROVEEDOR_VISION === "gemini" ? "openai, pero las FOTOS van a Gemini" : "openai (por defecto)"}`,
+          ...(env.PROVEEDOR === "gemini" || env.PROVEEDOR_VISION === "gemini"
             ? [
                 `  GEMINI_MODELO       ${env.GEMINI_MODELO || "gemini-3.1-flash-lite (por defecto)"}`,
                 `  GEMINI_API_KEY      ${secreto("GEMINI_API_KEY")}`,
-                "    El texto se queda en OpenAI a propósito: redactar es más barato",
-                "    en gpt-4o-mini. Lo caro son las fotos, y esas son las que se mueven.",
+                env.PROVEEDOR === "gemini"
+                  ? "    Todo en Gemini: una sola clave y una sola factura. Mover solo\n" +
+                    "    las FOTOS sería un 48% más barato, pero con dos proveedores."
+                  : "    Solo las fotos. El texto sigue en gpt-4o-mini, que es más barato\n" +
+                    "    para redactar ($0,15 el millón contra $0,25).",
               ]
             : []),
           `  COTEJO_BARRIDO      ${env.COTEJO_BARRIDO === "no" ? "no (apagado)" : "si"}   (mirar el catálogo cuando el nombre no acierta)`,

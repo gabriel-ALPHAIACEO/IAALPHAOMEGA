@@ -21,7 +21,6 @@ const SUITES = [
   ["gasto.mjs", "la medición del gasto de OpenAI"],
   ["prompt.mjs", "que los prompts se armen y las reglas sigan escritas"],
   ["corpus.mjs", "que los guardianes no alteren respuestas buenas"],
-  ["gemini.mjs", "el adaptador de Gemini y que no se active solo"],
 ];
 
 let roto = false;

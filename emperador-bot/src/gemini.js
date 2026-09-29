@@ -133,7 +133,7 @@ export async function llamarGemini(
   env,
   sistema,
   contenido,
-  { maxTokens = 1024, schema = null, modelo = "", alFallar = null, anotar = null } = {}
+  { maxTokens = 1024, schema = null, json = true, modelo = "", alFallar = null, anotar = null } = {}
 ) {
   const cual = modelo || modeloDeGemini(env);
 
@@ -161,6 +161,12 @@ export async function llamarGemini(
   if (schema) {
     cuerpo.generationConfig.responseMimeType = "application/json";
     cuerpo.generationConfig.responseSchema = traducirEsquema(schema.schema || schema);
+  } else if (json) {
+    // Sin esquema pero pidiendo JSON: al menos se le exige el formato. Hoy
+    // todas las llamadas llevan esquema, pero si mañana alguien añade una
+    // que no, mejor que conteste JSON suelto a que conteste en prosa y
+    // extraerJson se quede sin nada que sacar.
+    cuerpo.generationConfig.responseMimeType = "application/json";
   }
 
   let respuesta;

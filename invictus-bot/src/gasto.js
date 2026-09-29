@@ -34,25 +34,6 @@
 const TARIFAS = {
   "gpt-4o": { entrada: 2.5, cacheada: 1.25, salida: 10 },
   "gpt-4o-mini": { entrada: 0.15, cacheada: 0.075, salida: 0.6 },
-
-  // GEMINI (precios consultados el 29-sep-2026).
-  //
-  // "cacheada" va igual que "entrada" a propósito: Gemini sí tiene caché de
-  // contexto con descuento, pero no se confirmó cuánto. Cobrarlo entero es
-  // la suposición prudente — el gasto real será igual o MENOR que el que
-  // enseña /estado, nunca mayor. Es preferible a que la cuenta se quede
-  // corta y el presupuesto se pase sin avisar.
-  //
-  // OJO: en Gemini, un modelo más caro NO es solo "un poco más caro". Cada
-  // imagen cuesta ~1.120 tokens pase lo que pase, así que el salto de
-  // precio se multiplica por todas las fotos del cotejo. Con 3.5 Flash una
-  // foto sale MÁS cara que en gpt-4o. Ver gemini.js.
-  "gemini-3.1-flash-lite": { entrada: 0.25, cacheada: 0.25, salida: 1.5 },
-  "gemini-3.5-flash": { entrada: 1.5, cacheada: 1.5, salida: 9 },
-  "gemini-3-flash": { entrada: 0.5, cacheada: 0.5, salida: 3 },
-  // Google lo retira el 16-oct-2026. Está por si alguna tienda lo tenía
-  // puesto, no para empezar a usarlo.
-  "gemini-2.5-flash-lite": { entrada: 0.1, cacheada: 0.1, salida: 0.4 },
 };
 
 // Un modelo que no esté en la tabla se cobra como el grande. Es la

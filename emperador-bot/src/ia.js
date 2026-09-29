@@ -355,26 +355,39 @@ const ESQUEMA_RESPUESTA = {
   },
 };
 
-// QUIÉN ATIENDE LAS FOTOS: OPENAI O GEMINI.
+// QUIÉN ATIENDE: OPENAI O GEMINI.
 //
-// Se elige desde wrangler.toml con PROVEEDOR_VISION = "gemini". Sin poner
-// nada sigue todo en OpenAI, igual que siempre.
+// Dos interruptores, los dos desde wrangler.toml. Sin ninguno puesto, todo
+// sigue en OpenAI igual que siempre.
 //
-// SOLO LAS FOTOS, Y EL MOTIVO ES LA CUENTA. Medido con los precios del
-// 29-sep-2026, por foto:
+//   PROVEEDOR = "gemini"           TODO va a Gemini. Es lo que usa El
+//                                  Emperador: un solo proveedor, una sola
+//                                  clave, una sola factura.
+//   PROVEEDOR_VISION = "gemini"    Solo las fotos; el texto se queda en
+//                                  gpt-4o-mini.
 //
-//   identificar + cotejo en gpt-4o          $0,056
-//   identificar + cotejo en Gemini Flash-Lite $0,010   ← 77% menos
+// LA CUENTA, medida con los precios del 29-sep-2026 y los prompts de esta
+// tienda, por conversación de una foto y cinco mensajes:
 //
-// Pero el texto NO conviene moverlo: redactar cuesta $0,0038 en
-// gpt-4o-mini ($0,15 el millón) y saldría MÁS caro en Gemini Flash-Lite
-// ($0,25 el millón). Lo caro son las fotos, no las palabras.
+//   Todo OpenAI (como estaba)      $0,0790     189 conversaciones con $15
+//   Solo fotos en Gemini           $0,0332     451
+//   TODO en Gemini                 $0,0490     305
 //
-// Y ojo con subir de modelo dentro de Gemini: 3.5 Flash cobra el mismo
-// cargo por imagen a un precio seis veces mayor, así que la misma foto
-// sale MÁS cara que en gpt-4o. Más grande no es más barato acá.
-function fotosPorGemini(env) {
-  return String(env.PROVEEDOR_VISION || "").toLowerCase() === "gemini";
+// O sea: todo en Gemini es un 38% más barato que antes, pero un 48% MÁS
+// CARO que mover solo las fotos. El motivo es el texto: redactar cuesta
+// $0,15 el millón en gpt-4o-mini y $0,25 en Gemini Flash-Lite.
+//
+// Se eligió "todo" a propósito, y no es un descuido: un solo proveedor es
+// una clave que vigilar, una factura que leer y una cosa menos que se
+// pueda caer. Si algún día el ahorro pesa más que la simpleza, se cambia
+// PROVEEDOR por PROVEEDOR_VISION y se recupera esa diferencia.
+//
+// Y ojo con subir de modelo dentro de Gemini: cada imagen cuesta ~1.120
+// tokens pase lo que pase, así que con 3.5 Flash una foto sale MÁS cara
+// que en gpt-4o. Más grande no es más barato acá.
+function porGemini(env, tarea) {
+  if (String(env.PROVEEDOR || "").toLowerCase() === "gemini") return true;
+  return tarea === "vision" && String(env.PROVEEDOR_VISION || "").toLowerCase() === "gemini";
 }
 
 async function llamar(
@@ -383,12 +396,13 @@ async function llamar(
   contenido,
   { maxTokens = 1024, json = true, schema = null, modelo = "", alFallar = null, tarea = "texto" } = {}
 ) {
-  // Las fotos se desvían a Gemini si la tienda lo pidió. El que llama no se
+  // La llamada se desvía a Gemini si la tienda lo pidió. El que llama no se
   // entera: recibe el mismo texto de vuelta y el gasto se anota igual.
-  if (tarea === "vision" && fotosPorGemini(env)) {
+  if (porGemini(env, tarea)) {
     return llamarGemini(env, sistema, contenido, {
       maxTokens,
       schema,
+      json,
       alFallar,
       anotar: (datos) => anotarGasto(env, datos),
     });

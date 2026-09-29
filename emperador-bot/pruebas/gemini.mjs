@@ -47,15 +47,39 @@ const ronda35 = costeDe({ modelo: "gemini-3.5-flash", entrada: unaRonda(IMAGEN_G
 ok(ronda35 > rondaOpenAI, "y en 3.5 Flash sale MÁS cara que en gpt-4o — subir de modelo no abarata",
    `$${ronda35.toFixed(5)}`);
 
-titulo("sin PROVEEDOR_VISION no cambia nada");
+titulo("los dos interruptores, y que ninguno se active solo");
 
 const ia = fuente("ia.js");
-ok(/tarea === "vision" && fotosPorGemini\(env\)/.test(ia), "el desvío pide las DOS cosas: que sea foto y que la tienda lo haya pedido");
-ok(/String\(env\.PROVEEDOR_VISION \|\| ""\)\.toLowerCase\(\) === "gemini"/.test(ia), "y sin la variable puesta, se queda en OpenAI");
-ok((ia.match(/tarea: "vision"/g) || []).length === 3, "las tres llamadas con foto están marcadas: identificar, cotejo e indexar");
+
+// PROVEEDOR = "gemini"  → todo.  PROVEEDOR_VISION = "gemini" → solo fotos.
+ok(/String\(env\.PROVEEDOR \|\| ""\)\.toLowerCase\(\) === "gemini"\) return true/.test(ia),
+   'PROVEEDOR = "gemini" manda TODO a Gemini');
+ok(/tarea === "vision" && String\(env\.PROVEEDOR_VISION \|\| ""\)\.toLowerCase\(\) === "gemini"/.test(ia),
+   'PROVEEDOR_VISION = "gemini" manda solo las fotos');
+ok(/if \(porGemini\(env, tarea\)\)/.test(ia), "el desvío consulta esa decisión en un solo sitio");
+
+// Lo más importante: sin ninguna de las dos variables, nada cambia.
+const decision = (ia.split("function porGemini(env, tarea) {")[1] || "").split("\n}")[0];
+ok(decision.length > 20, "encontré la función que decide");
+ok(
+  (decision.match(/env\.PROVEEDOR\b/g) || []).length === 1 &&
+    (decision.match(/env\.PROVEEDOR_VISION\b/g) || []).length === 1,
+  "decide SOLO por esas dos variables, nada más"
+);
+const devuelveTrue = decision.split("\n").filter((l) => /return true/.test(l));
+ok(devuelveTrue.length > 0, "hay algún camino que sí activa Gemini");
+ok(
+  devuelveTrue.every((l) => /^\s*if \(/.test(l)),
+  "y TODOS van detrás de un if: ninguno se activa solo",
+  devuelveTrue.map((l) => l.trim()).join(" | ")
+);
+
+ok((ia.match(/tarea: "vision"/g) || []).length === 3,
+   "las tres llamadas con foto están marcadas: identificar, cotejo e indexar");
 const cuerpoRedactar = (ia.split("export async function responderTexto")[1] || "").split("\n}")[0];
 ok(cuerpoRedactar.length > 50, "encontré el cuerpo de responderTexto");
-ok(!/tarea:/.test(cuerpoRedactar), "y redactar NO lleva tarea: el texto se queda en OpenAI, que es más barato");
+ok(!/tarea: "vision"/.test(cuerpoRedactar),
+   "redactar no se marca como visión — con PROVEEDOR va a Gemini igual, con PROVEEDOR_VISION no");
 
 titulo("la traducción del esquema");
 
@@ -77,6 +101,8 @@ ok(/if \(!env\.GEMINI_API_KEY\)/.test(gem), "sin la clave avisa y devuelve null,
 ok(/npx\.cmd wrangler secret put GEMINI_API_KEY/.test(gem), "y el aviso dice el comando exacto para cargarla");
 ok(/catch \(error\)/.test(gem), "un fallo de red se atrapa");
 ok(/finishReason === "MAX_TOKENS"/.test(gem), "y si la respuesta se cortó, se dice por qué");
+ok(/\} else if \(json\) \{/.test(gem),
+   "una llamada que pida JSON sin esquema igual recibe JSON, no prosa");
 
 src.limpiar();
 terminar();
