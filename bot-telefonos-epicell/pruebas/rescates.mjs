@@ -86,5 +86,63 @@ r = await turno({
 comprobar("«¿y los cables en divisas?»: cables, no el Samsung", fichas(r.enviados).some((t) => /cable/i.test(t)), true);
 comprobar("y NINGÚN Samsung colado", fichas(r.enviados).some((t) => /Samsung A57/.test(t)), false);
 
+/* ── "ESE NO, PERO MIRA ESTOS" — CON COHERENCIA ────────────────────
+   Pedido del dueño: hablar como vendedor, distinguiendo lo que es de la
+   MISMA FAMILIA de lo que solo SE PARECE, y ser lógico cuando lo que
+   piden no es de esta tienda.
+   ───────────────────────────────────────────────────────────────── */
+const TIENDA = `Nombre,Precio Divisas ($),Precio Cashea,Foto
+Redmi Note 17 256GB,250,313,https://x/n17.jpg
+Redmi Note 17 Pro 5G,345,435,https://x/n17p.jpg
+Redmi A7 pro,135,170,https://x/a7.jpg
+Poco X8 pro 5G,490,615,https://x/px8.jpg
+Poco C81 pro,135,170,https://x/pc81.jpg
+Samsung A57,580,770,https://x/a57.jpg`;
+
+// 1. MISMA FAMILIA: pidió un Note 20, se le enseñan los Note.
+r = await turno({
+  texto: "tienen el redmi note 20?",
+  hoja: TIENDA,
+  respuestaDelModelo: { buscar: "Redmi Note 20", respuesta: "Te muestro 👇" },
+  fila: { historial: "Ya di la bienvenida." },
+});
+let dicho = textos(r.enviados).join(" ");
+comprobar("dice que ESE no lo tiene", /note 20/i.test(dicho), true);
+comprobar("y habla de la misma familia", /misma familia/i.test(dicho), true);
+comprobar("las fichas son de su familia, no todos los Redmi", fichas(r.enviados).every((t) => /Note/.test(t)), true);
+
+// 2. SE PARECEN: pidió un Poco F7, no hay familia "Poco F".
+r = await turno({
+  texto: "tienen el poco f7?",
+  hoja: TIENDA,
+  respuestaDelModelo: { buscar: "Poco F7", respuesta: "Te muestro 👇" },
+  fila: { historial: "Ya di la bienvenida." },
+});
+dicho = textos(r.enviados).join(" ");
+comprobar("con otra marca no dice «familia»", /misma familia/i.test(dicho), false);
+comprobar("dice que se parecen o van por la misma línea", /se le parecen|misma l[ií]nea|lo m[aá]s parecido/i.test(dicho), true);
+comprobar("y le enseña los Poco", fichas(r.enviados).every((t) => /Poco/.test(t)), true);
+
+// 3. OTRO RUBRO: lógico, no "un asesor te confirma".
+r = await turno({
+  texto: "tienen neveras?",
+  hoja: TIENDA,
+  respuestaDelModelo: { buscar: "nevera", respuesta: "Déjame revisar 😊" },
+  fila: { historial: "Ya di la bienvenida." },
+});
+dicho = textos(r.enviados).join(" ");
+comprobar("una nevera no se manda al asesor", /asesor/i.test(dicho), false);
+comprobar("se le dice que esto es una tienda de tecnología", /tecnolog[ií]a|tel[eé]fonos y accesorios/i.test(dicho), true);
+comprobar("y no le enseña teléfonos porque sí", fichas(r.enviados).length, 0);
+
+// 4. PERO UN TELEVISOR SÍ ES TECNOLOGÍA: eso se consigue.
+r = await turno({
+  texto: "tienen televisores?",
+  hoja: TIENDA,
+  respuestaDelModelo: { buscar: "televisor", respuesta: "Déjame revisar 😊" },
+  fila: { historial: "Ya di la bienvenida." },
+});
+comprobar("un televisor no se descarta: se confirma", /asesor|disponible/i.test(textos(r.enviados).join(" ")), true);
+
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);

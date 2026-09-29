@@ -63,6 +63,64 @@ const TIPOS = [
     "movil", "moviles", "smartphone", "smartphones"]],
 ];
 
+/* ── LO QUE NO ES DE ESTA TIENDA ───────────────────────────────────
+
+   Pedido del dueño (29-sep-2026): "si no vendemos algo, que sea lógico".
+
+   Hay dos cosas muy distintas que el bot trataba igual:
+
+     · "¿Tienen el Redmi Note 20?" — es un teléfono. Puede estar mañana,
+       puede conseguirse, y ahí la respuesta correcta es que HOY no está
+       disponible y que un asesor confirma (ver NO_HAY_DE_ESE_TIPO).
+
+     · "¿Tienen neveras?" — EPICELL es una tienda de tecnología. Contestar
+       "ahora mismo no la tengo disponible, un asesor te confirma si
+       podemos conseguirla" es absurdo: no es que se haya agotado, es que
+       no es lo que se vende. El cliente se queda esperando una llamada
+       que no va a llegar.
+
+   Esta lista es SOLO para lo segundo, y por eso es corta y obvia. Nada de
+   tecnología entra aquí: un televisor, un parlante o una consola son cosas
+   que una tienda de tecnología puede conseguir, y ahí la respuesta buena
+   sigue siendo la de disponibilidad.
+   ───────────────────────────────────────────────────────────────── */
+const OTRO_NEGOCIO = [
+  ["electrodomesticos", ["nevera", "neveras", "refrigerador", "lavadora", "lavadoras",
+    "secadora", "cocina", "cocinas", "horno", "hornos", "microondas", "licuadora",
+    "licuadoras", "freidora", "freidoras"]],
+  // "ventilador" NO entra: un cooler para el teléfono es de esta tienda.
+  // "televisor" tampoco: es tecnología, y eso se consigue.
+
+  ["ropa", ["ropa", "camisa", "camisas", "pantalon", "pantalones", "zapato", "zapatos",
+    "zapatillas", "gorra", "gorras", "franela", "franelas", "vestido", "vestidos"]],
+
+  ["comida", ["comida", "pizza", "hamburguesa", "hamburguesas", "almuerzo", "empanada",
+    "empanadas", "refresco", "cerveza", "cervezas", "torta", "tortas"]],
+
+  ["vehiculos", ["carro", "carros", "moto", "motos", "bicicleta", "bicicletas",
+    "camioneta", "cauchos", "repuesto", "repuestos"]],
+
+  ["muebles", ["mueble", "muebles", "colchon", "colchones", "cama", "camas", "sofa",
+    "silla", "sillas", "mesa", "mesas", "escritorio"]],
+
+  ["otros", ["medicina", "medicinas", "pastilla", "pastillas", "perfume", "perfumes",
+    "maquillaje", "juguete", "juguetes", "mascota", "mascotas", "comida de perro"]],
+];
+
+const DE_OTRO_NEGOCIO = new Map();
+for (const [rubro, palabras] of OTRO_NEGOCIO) {
+  for (const palabra of palabras) DE_OTRO_NEGOCIO.set(palabra, rubro);
+}
+
+// ¿Lo que pide es de otro rubro? Devuelve la palabra que lo delata, para
+// poder nombrarla en la respuesta ("neveras no manejamos").
+export function esDeOtroNegocio(texto) {
+  for (const palabra of palabras(texto)) {
+    if (DE_OTRO_NEGOCIO.has(palabra)) return palabra;
+  }
+  return "";
+}
+
 const DE_PALABRA = new Map();
 for (const [tipo, palabras] of TIPOS) {
   for (const palabra of palabras) DE_PALABRA.set(palabra, tipo);

@@ -32,7 +32,12 @@ import { responderTexto, identificarEnImagen } from "./ia.js";
 import { referenciaEnTexto } from "./referencias.js";
 // "comoSeLlama" ya existe aquí para el nombre del CLIENTE (estado.js), así
 // que el de los tipos entra con su propio nombre.
-import { tipoQuePide, tipoDelProducto, comoSeLlama as nombreDelTipo } from "./tipos.js";
+import {
+  tipoQuePide,
+  tipoDelProducto,
+  esDeOtroNegocio,
+  comoSeLlama as nombreDelTipo,
+} from "./tipos.js";
 import {
   buscarProductos,
   catalogoCompleto,
@@ -333,7 +338,14 @@ const NO_HAY_DE_ESE_TIPO = [
 
 function fraseSinResultados(env, tipo = "") {
   if (tipo && tipo !== "telefono") {
-    return alAzar(NO_HAY_DE_ESE_TIPO).replace("{tipo}", nombreDelTipo(tipo));
+    const frase = alAzar(NO_HAY_DE_ESE_TIPO);
+    const nombre = nombreDelTipo(tipo);
+    // Si la frase empieza por el tipo, va en mayúscula: "forros no tengo"
+    // escrito así, en minúscula, se lee como si faltara algo delante.
+    return frase.replace(
+      "{tipo}",
+      frase.startsWith("{tipo}") ? nombre[0].toUpperCase() + nombre.slice(1) : nombre
+    );
   }
   return hayCatalogo(env) ? SIN_RESULTADOS : alAzar(SIN_RESULTADOS_SIN_CATALOGO);
 }
@@ -489,10 +501,31 @@ const SOLO_ACCESORIOS_DE_ESO = [
 // {pedido} es lo que él nombró; {alternativa}, la primera ficha que va
 // debajo. Si por lo que sea no se sabe alguna de las dos, se usan las
 // frases de siempre, que no nombran ninguna.
-const NO_ESE_PERO_MIRA_CON_NOMBRES = [
-  "{pedido} no lo tengo disponible ahora 😅 Pero tengo el {alternativa}, que va por la misma línea 👇",
-  "De {pedido} no me queda por ahora 😊 Lo más parecido que tengo es el {alternativa}, míralo 👇",
-  "{pedido} justo no lo tengo disponible 😅 Te muestro el {alternativa} y los demás de esa línea 👇",
+// DE LA MISMA FAMILIA, O SOLO PARECIDOS: NO ES LO MISMO.
+//
+// Pedido del dueño (29-sep-2026): "que hable como vendedor, que no tiene
+// disponible pero te muestro estos que son de la misma familia, o estos
+// que se parecen, que sea coherente".
+//
+// Y la diferencia es real, no de palabras. Si pidió un Redmi Note 20 y se
+// le enseña un Note 17, eso ES su familia: mismo nombre, misma línea, el
+// cliente lo reconoce y la venta sigue viva. Si pidió un Poco F7 y se le
+// enseñan otros Poco, no son su familia: son de la misma marca y se le
+// parecen. Decir "familia" en ese segundo caso suena a vendedor que no
+// sabe lo que vende.
+//
+// Cuál de las dos se usa lo decide con qué se rescató la búsqueda: con dos
+// palabras o más ("redmi note") es la familia; con una ("poco"), la marca.
+const DE_LA_MISMA_FAMILIA = [
+  "El {pedido} justo no me queda disponible 😅 Pero de esa misma familia tengo el {alternativa} — te los muestro todos 👇",
+  "{pedido} no lo tengo disponible ahora 😊 De la misma familia me queda el {alternativa}, que es lo más cercano. Míralo 👇",
+  "Ese justo no me queda 😅 Pero el {alternativa} es de la misma familia que el {pedido}, y ese sí lo tengo 👇",
+];
+
+const SE_LE_PARECEN = [
+  "El {pedido} no lo tengo disponible ahora 😅 Pero mira estos {marca}, que se le parecen mucho 👇",
+  "{pedido} no me queda por ahora 😊 Lo más parecido que tengo son estos {marca}, empezando por el {alternativa} 👇",
+  "De {pedido} no tengo disponible 😅 Te muestro los {marca} que sí tengo, que van por la misma línea 👇",
 ];
 
 const NO_ESE_PERO_MIRA = [
@@ -528,7 +561,7 @@ function ordenarPorParecido(productos, termino) {
     .map(({ producto }) => producto);
 }
 
-function noEsePeroMira(termino, productos) {
+function noEsePeroMira(termino, productos, porCategoria = "") {
   const pedido = comoLoPidio(termino);
   const alternativa = productos[0]?.titulo || "";
 
@@ -542,9 +575,21 @@ function noEsePeroMira(termino, productos) {
 
   if (!distintos) return alAzar(NO_ESE_PERO_MIRA);
 
-  return alAzar(NO_ESE_PERO_MIRA_CON_NOMBRES)
-    .replace("{pedido}", pedido)
-    .replace("{alternativa}", alternativa);
+  const esFamilia = String(porCategoria || "").trim().split(/\s+/).filter(Boolean).length >= 2;
+
+  if (esFamilia) {
+    return alAzar(DE_LA_MISMA_FAMILIA)
+      .replaceAll("{pedido}", pedido)
+      .replaceAll("{alternativa}", alternativa);
+  }
+
+  // La marca, escrita como la lee un cliente: "poco" → "Poco".
+  const marca = comoLoPidio(porCategoria) || "equipos";
+
+  return alAzar(SE_LE_PARECEN)
+    .replaceAll("{pedido}", pedido)
+    .replaceAll("{alternativa}", alternativa)
+    .replaceAll("{marca}", marca);
 }
 
 // Lo que se le dice cuando vuelve a pedir lo mismo en divisas. No hace
@@ -578,6 +623,24 @@ const NO_PUDE_ABRIRLO = [
   "Eso no me llegó completo 😅 Dime cuál equipo te interesa y te lo muestro",
   "No pude abrir lo que me mandaste 😅 ¿Cuál equipo estás buscando?",
   "Se me trabó eso que mandaste 😅 Dime el modelo y te paso el precio enseguida",
+];
+
+// LO QUE NO ES DE ESTA TIENDA, DICHO COMO SE DICE (29-sep-2026).
+//
+// Pedido del dueño: "si no vendemos algo, que sea lógico".
+//
+// A quien pregunta por una nevera no se le puede contestar "ahora mismo no
+// la tengo disponible, un asesor te confirma si podemos conseguirla": no
+// se agotó, es que no es lo que se vende, y ese cliente se queda esperando
+// una llamada que no va a llegar. Se le dice lo que es, con buena cara, y
+// se le ofrece lo que sí hay.
+//
+// OJO: esto solo entra cuando la búsqueda no encontró NADA. Si pidió un
+// "ventilador" y la tienda tiene un Fan Cooler, manda el Fan Cooler.
+const ES_DE_OTRO_NEGOCIO = [
+  "{eso} no manejamos 😊 Nosotros somos tienda de tecnología: teléfonos, accesorios y todo lo que va con ellos. ¿Te ayudo con algún equipo?",
+  "Uy, {eso} no es lo nuestro 😅 Aquí vendemos teléfonos y accesorios. ¿Buscas algún equipo?",
+  "{eso} no vendemos 😊 Lo nuestro son los teléfonos, los accesorios, relojes, audífonos… ¿Te muestro algo de eso?",
 ];
 
 // LLEGA DESDE UN ANUNCIO Y NO SE SUPO DE QUÉ EQUIPO ERA.
@@ -3601,27 +3664,50 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   // hay nada, no hay rescate que valga y se le dice que no hay.
   const tipoPedido = tipoQuePide(`${texto} ${termino}`);
 
+  //
+  // PRIMERO LA FAMILIA, DESPUÉS LA MARCA (29-sep-2026, pedido del dueño:
+  // "que muestre estos que son la misma familia, o estos que se parecen").
+  //
+  // Antes se probaban las palabras sueltas de izquierda a derecha, así que
+  // "Redmi Note 20" se rescataba con "redmi" y traía TODOS los Redmi —el
+  // Pad, la afeitadora— cuando lo que el cliente quería era un Note. Ahora
+  // se prueba de lo más concreto a lo más general: primero el término sin
+  // la última palabra ("redmi note", que es la familia), después sin las
+  // dos últimas, y solo al final palabra por palabra.
+  //
+  // Lo que se rescató se guarda en porCategoria, y con cuántas palabras:
+  // dos o más es "la misma familia"; una sola es "la misma marca". De ahí
+  // sale lo que se le dice al cliente.
   let porCategoria = "";
+
   if (!productos.length && /\s/.test(termino)) {
-    for (const palabra of termino.split(/\s+/).filter((p) => p.length >= 3)) {
-      const intento = await buscarProductos(env, palabra, 10, { tipo: tipoPedido });
-      if (intento.productos.length) {
-        // LO MÁS PARECIDO, PRIMERO.
-        //
-        // Quien pide un "Redmi Note 20" tiene que ver el Note 17 en la
-        // primera ficha, no el A7 pro. El rescate trae todo lo de la
-        // categoría en el orden de la hoja, que no significa nada para el
-        // cliente: aquí se ordena por lo que su título comparte con lo que
-        // él pidió.
-        productos = ordenarPorParecido(intento.productos, termino);
-        hayMas = intento.hayMas;
-        porCategoria = palabra;
-        console.log(
-          `Sin resultados para "${termino}": le enseño los de "${palabra}" ` +
-            `(${productos.length}), con foto y precio`
-        );
-        break;
-      }
+    const palabras = termino.split(/\s+/).filter(Boolean);
+
+    const candidatos = [];
+    // "redmi note 20" → "redmi note" → "redmi"
+    for (let cuantas = palabras.length - 1; cuantas >= 1; cuantas--) {
+      candidatos.push(palabras.slice(0, cuantas).join(" "));
+    }
+    // Y al final, cada palabra por su cuenta: "forro samsung a57" no tiene
+    // ningún prefijo que valga, pero "samsung" sí.
+    for (const palabra of palabras) {
+      if (palabra.length >= 3 && !candidatos.includes(palabra)) candidatos.push(palabra);
+    }
+
+    for (const candidato of candidatos) {
+      const intento = await buscarProductos(env, candidato, 10, { tipo: tipoPedido });
+      if (!intento.productos.length) continue;
+
+      // LO MÁS PARECIDO, PRIMERO. Quien pide un "Redmi Note 20" tiene que
+      // ver el Note 17 en la primera ficha, no el A7 pro.
+      productos = ordenarPorParecido(intento.productos, termino);
+      hayMas = intento.hayMas;
+      porCategoria = candidato;
+      console.log(
+        `Sin resultados para "${termino}": le enseño los de "${candidato}" ` +
+          `(${productos.length}), con foto y precio`
+      );
+      break;
     }
   }
 
@@ -3655,6 +3741,14 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   // Si buscó y no encontró nada, no le damos la respuesta optimista del
   // modelo: no afirmamos que el producto no existe.
   const buscoSinExito = Boolean(termino) && !productos.length;
+
+  // ¿Lo que pide es de otro rubro? Solo cuenta si no se encontró nada: con
+  // producto delante, el producto manda.
+  const deOtroNegocio = esDeOtroNegocio(texto);
+
+  if (deOtroNegocio && !productos.length) {
+    console.log(`"${deOtroNegocio}" no es de esta tienda: se lo digo, no lo mando al asesor`);
+  }
 
   // No pidió ningún accesorio y todo lo que salió son accesorios: pidió un
   // teléfono de una marca de la que solo tenemos cosas para el teléfono.
@@ -3789,7 +3883,14 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   } else if (porCategoria) {
     // Lo que escribió el modelo no vale aquí: él creía que no había nada
     // que enseñar, o peor, iba a recitar la lista. Hay fotos que mandar.
-    respuestaCliente = noEsePeroMira(termino, productos);
+    respuestaCliente = noEsePeroMira(termino, productos, porCategoria);
+  } else if (deOtroNegocio && !productos.length) {
+    // No es que se haya agotado: no es de esta tienda.
+    const frase = alAzar(ES_DE_OTRO_NEGOCIO);
+    // Con mayúscula solo si abre la frase: "Uy, Neveras no es lo nuestro"
+    // se lee mal.
+    const eso = frase.startsWith("{eso}") ? comoLoPidio(deOtroNegocio) : deOtroNegocio;
+    respuestaCliente = frase.replace("{eso}", eso);
   } else if (buscoSinExito) {
     respuestaCliente = fraseSinResultados(env, tipoPedido);
   }
