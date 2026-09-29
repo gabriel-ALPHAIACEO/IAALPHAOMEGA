@@ -32,6 +32,14 @@ const SINONIMOS = {
     "precio", "precios", "pvp", "valor", "costo", "coste", "monto",
     "preciousd", "preciodolares", "precioventa", "venta", "preciodivisas",
   ],
+  // LA MARCA, cuando la hoja la trae en su propia columna.
+  //
+  // Sin ella la marca se adivinaba con la PRIMERA PALABRA del título, y en
+  // un inventario de verdad eso da pena: "Reloj", "Cargador", "Base",
+  // "Fan", "Ex141/" salían ofrecidos al cliente como si fueran marcas,
+  // mientras que Xiaomi —que en los títulos está como "Redmi" y "Poco"— no
+  // salía nunca. Con la columna, las marcas son las de verdad.
+  marca: ["marca", "marcas", "fabricante", "brand"],
   // La segunda moneda del precio en divisas: "$150 · Bs 5.400". Si tu hoja
   // no tiene esta columna, no pasa nada, el precio sale solo en la primera.
   precioLocal: [
@@ -233,10 +241,13 @@ function soloLoQuePidio(encontrados, termino, { tipo, conAccesorios } = {}) {
    Aquí se dice una vez y vale para el chat, para los comentarios y para
    las listas.
    ───────────────────────────────────────────────────────────────── */
+//
+// OJO CON LA DIRECCIÓN. "Xiaomi" es la casa y abarca a Redmi y a Poco, así
+// que quien pide un Xiaomi acepta los dos. Al revés NO: quien pide un Poco
+// quiere un Poco, no todo lo de la casa. Ampliar "poco" a "xiaomi" hacía
+// que "¿tienen el Poco F7?" ofreciera un Redmi A7 como lo más parecido.
 const OTRAS_FORMAS = new Map([
   ["xiaomi", ["xiaomi", "redmi", "poco"]],
-  ["redmi", ["redmi", "xiaomi"]],
-  ["poco", ["poco", "xiaomi"]],
   ["apple", ["apple", "iphone"]],
   ["iphone", ["iphone", "apple"]],
   ["samsung", ["samsung", "galaxy"]],
@@ -800,6 +811,7 @@ function convertir(filas, env) {
 
   const columnas = {
     titulo: nombreDe(indices.titulo),
+    marca: nombreDe(indices.marca),
     precio: nombreDe(indices.precio),
     precioLocal: nombreDe(indices.precioLocal),
     precioCashea: nombreDe(indices.precioCashea),
@@ -839,6 +851,9 @@ function convertir(filas, env) {
 
     productos.push({
       titulo,
+      // Tal como la escribió quien cargó el inventario. Puede venir vacía:
+      // quien la use tiene que aguantar que no esté (ver lista.js).
+      marca: indices.marca === -1 ? "" : String(fila[indices.marca] || "").trim(),
       // El precio "en divisas": si hay una segunda moneda en la hoja, las
       // dos se muestran juntas. En la ficha sale solo cuando el cliente
       // pregunta por divisas o por Cashea (ver precioParaMostrar en
@@ -893,6 +908,7 @@ function ubicarColumnas(fila) {
 
   return {
     titulo: buscar("titulo"),
+    marca: buscar("marca"),
     precio: buscar("precio"),
     precioLocal: buscar("precioLocal"),
     precioCashea: buscar("precioCashea"),

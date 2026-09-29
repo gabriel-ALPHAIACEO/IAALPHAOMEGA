@@ -43,6 +43,7 @@ for %f in (pruebas\*.mjs) do node pruebas\%f
 | `comentarios.mjs` | Los comentarios: leerlos en lote, no responderse solo, y contestar con el equipo de ESA publicación |
 | `rescates.mjs` | Cuando la búsqueda exacta falla: la capacidad, la categoría y el precio en divisas |
 | `alucinaciones.mjs` | Que ninguna cifra inventada por el modelo llegue al cliente ni al historial |
+| `anuncios.mjs` | Que a quien llega desde una publicidad se le conteste, con el equipo del anuncio |
 
 ## Antes de desplegar
 

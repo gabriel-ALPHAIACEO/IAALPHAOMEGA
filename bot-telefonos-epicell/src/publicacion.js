@@ -575,8 +575,20 @@ export function terminoDeTitulo(titulo) {
 // su pie de foto y, si el enlace era la ficha de un producto, su nombre
 // exacto. Son las dos cosas que muchas veces nombran el equipo mejor que la
 // propia imagen.
-export function marcaDePublicacion({ titulo, descripcion, termino }) {
+export function marcaDePublicacion({ titulo, descripcion, termino, deAnuncio = false }) {
   const lineas = [];
+
+  // De dónde viene cambia cómo se le habla: quien llega por un anuncio no
+  // compartió nada por el chat, hizo clic en una publicidad. Saludarlo con
+  // "vi la publicación que me mandaste" es hablarle de algo que él no hizo.
+  if (deAnuncio) {
+    lineas.push(
+      "[EL CLIENTE LLEGA DESDE UN ANUNCIO NUESTRO, es su primer mensaje.",
+      "Salúdalo, preséntate y atiéndelo por el equipo del anuncio. NO digas",
+      '"la publicación que me mandaste": él no mandó nada, hizo clic en una',
+      "publicidad]"
+    );
+  }
 
   const pie = [titulo, descripcion].filter(Boolean).join(" · ").slice(0, 300);
   if (pie) {

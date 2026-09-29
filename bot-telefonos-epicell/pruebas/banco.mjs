@@ -48,11 +48,56 @@ export function baseFalsa(filaInicial = {}) {
             if (/^SELECT \* FROM contactos/i.test(sql.trim())) return filas.get(args[0]) || null;
             if (/PRAGMA table_info/i.test(sql)) return { results: columnas.map((name) => ({ name })) };
             if (/INSERT INTO contactos/i.test(sql)) {
+              // LA D1 DE MENTIRA TIENE QUE MENTIR BIEN.
+              //
+              // Antes repartía los argumentos por orden entre TODAS las
+              // columnas, y eso solo funciona cuando el INSERT es "(?, ?,
+              // ?)". La pausa usa "VALUES (?, '', '', ?, '[]')" con un
+              // ON CONFLICT que toca UNA columna, y ahí el reparto se
+              // descolocaba: el test decía que el bot no pausaba cuando sí
+              // pausaba. Un banco de pruebas que miente esconde justo los
+              // fallos que tiene que enseñar.
               const campos = sql.match(/INSERT INTO contactos \(([^)]+)\)/i)[1].split(",").map((c) => c.trim());
-              const id = args[0];
-              const previa = filas.get(id) || {};
+              const literales = (sql.match(/VALUES\s*\(([^)]+)\)/i)?.[1] || "").split(",").map((v) => v.trim());
+
+              // Qué valor le toca a cada columna: los "?" se van comiendo
+              // los argumentos por orden; lo demás es un literal del SQL.
+              const valorDe = {};
+              let siguiente = 0;
+              campos.forEach((campo, i) => {
+                const literal = literales[i];
+                valorDe[campo] =
+                  literal === "?" ? args[siguiente++] : String(literal ?? "").replace(/^'|'$/g, "");
+              });
+
+              const id = valorDe[campos[0]];
+              const previa = filas.get(id);
+
+              // Fila nueva: entra entera.
+              if (!previa) {
+                filas.set(id, { ...valorDe });
+                return;
+              }
+
+              // Fila que ya existe: solo se tocan las columnas del
+              // ON CONFLICT DO UPDATE SET, como hace D1 de verdad.
+              const conflicto = sql.match(/DO UPDATE SET([\s\S]+)$/i)?.[1] || "";
               const nueva = { ...previa };
-              campos.forEach((campo, i) => { nueva[campo] = args[i]; });
+
+              if (!conflicto) {
+                filas.set(id, { ...previa, ...valorDe });
+                return;
+              }
+
+              for (const trozo of conflicto.split(",")) {
+                const [campo, valor] = trozo.split("=").map((t) => t.trim());
+                if (!campo || !valor) continue;
+                const col = campo.replace(/[`"]/g, "");
+                nueva[col] = /^excluded\./i.test(valor)
+                  ? valorDe[valor.split(".")[1].trim()]
+                  : String(valor).replace(/^'|'$/g, "");
+              }
+
               filas.set(id, nueva);
               return;
             }

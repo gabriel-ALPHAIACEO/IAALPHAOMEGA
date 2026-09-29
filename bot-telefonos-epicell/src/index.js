@@ -474,11 +474,77 @@ const SOLO_ACCESORIOS_DE_ESO = [
   "De teléfonos de esa marca no me queda disponible ahora 😅 Accesorios sí, míralos 👇",
 ];
 
+// NO TENGO ESE, PERO TENGO ESTE — Y SE DICEN LOS DOS NOMBRES.
+//
+// Pedido del dueño (29-sep-2026): "cuando no tenemos disponible que
+// mencione que no tenemos ese pero tenemos este que es parecido, con
+// coherencia".
+//
+// Decir "ese no lo tengo, mira estos" obliga al cliente a comparar solo,
+// deslizando fichas. Nombrar las DOS cosas —lo que pidió y lo que se le
+// ofrece en su lugar— es lo que hace un vendedor: "el Note 20 no lo tengo
+// disponible, pero tengo el Note 17, que va por la misma línea".
+//
+// {pedido} es lo que él nombró; {alternativa}, la primera ficha que va
+// debajo. Si por lo que sea no se sabe alguna de las dos, se usan las
+// frases de siempre, que no nombran ninguna.
+const NO_ESE_PERO_MIRA_CON_NOMBRES = [
+  "{pedido} no lo tengo disponible ahora 😅 Pero tengo el {alternativa}, que va por la misma línea 👇",
+  "De {pedido} no me queda por ahora 😊 Lo más parecido que tengo es el {alternativa}, míralo 👇",
+  "{pedido} justo no lo tengo disponible 😅 Te muestro el {alternativa} y los demás de esa línea 👇",
+];
+
 const NO_ESE_PERO_MIRA = [
   "Ese exacto no lo tengo ahora 😊 Pero mira estos, que te pueden servir 👇",
   "De ese no me queda 😅 Te muestro los que sí tengo 👇",
   "Justo ese no lo tengo disponible 😊 Pero estos van por la misma línea, míralos 👇",
 ];
+
+// Lo que el cliente pidió, escrito como para leerlo en un mensaje: sin la
+// palabra que rescató la búsqueda repetida y con la primera en mayúscula.
+function comoLoPidio(termino) {
+  const limpio = String(termino || "").trim();
+  if (!limpio || limpio.length > 40) return "";
+  return limpio[0].toUpperCase() + limpio.slice(1);
+}
+
+// Cuántas palabras del término pedido aparecen en el título. Es la misma
+// idea que mejorDelCatalogo, pero aquí solo hace falta ordenar.
+function ordenarPorParecido(productos, termino) {
+  const pedidas = palabrasDeTitulo(termino);
+  if (!pedidas.length) return productos;
+
+  const puntos = (producto) => {
+    const suyas = new Set(palabrasDeTitulo(producto.titulo));
+    return pedidas.filter((palabra) => suyas.has(palabra)).length;
+  };
+
+  // Estable: a igualdad de parecido se queda el orden de la hoja, que es
+  // el que eligió el dueño.
+  return productos
+    .map((producto, donde) => ({ producto, donde, punto: puntos(producto) }))
+    .sort((a, b) => b.punto - a.punto || a.donde - b.donde)
+    .map(({ producto }) => producto);
+}
+
+function noEsePeroMira(termino, productos) {
+  const pedido = comoLoPidio(termino);
+  const alternativa = productos[0]?.titulo || "";
+
+  // Si lo que pidió y lo que se le ofrece son lo mismo, nombrarlos los dos
+  // suena a broma ("el A57 no lo tengo, pero tengo el A57").
+  const distintos =
+    pedido &&
+    alternativa &&
+    !despejar(alternativa).includes(despejar(pedido)) &&
+    !despejar(pedido).includes(despejar(alternativa));
+
+  if (!distintos) return alAzar(NO_ESE_PERO_MIRA);
+
+  return alAzar(NO_ESE_PERO_MIRA_CON_NOMBRES)
+    .replace("{pedido}", pedido)
+    .replace("{alternativa}", alternativa);
+}
 
 // Lo que se le dice cuando vuelve a pedir lo mismo en divisas. No hace
 // falta buscar nada: son los equipos que acaba de ver.
@@ -511,6 +577,18 @@ const NO_PUDE_ABRIRLO = [
   "Eso no me llegó completo 😅 Dime cuál equipo te interesa y te lo muestro",
   "No pude abrir lo que me mandaste 😅 ¿Cuál equipo estás buscando?",
   "Se me trabó eso que mandaste 😅 Dime el modelo y te paso el precio enseguida",
+];
+
+// LLEGA DESDE UN ANUNCIO Y NO SE SUPO DE QUÉ EQUIPO ERA.
+//
+// Pasa cuando el anuncio no trae título ni foto en el aviso de Meta. No se
+// le puede enseñar un equipo —no sabemos cuál— pero tampoco se le puede
+// dejar sin contestar: la tienda pagó por ese clic. Se le saluda y se le
+// pregunta, que es lo que haría cualquiera en el mostrador.
+const BIENVENIDA_DESDE_ANUNCIO = [
+  "¡Hola! 😊 Soy la asistente de EPICELL. Vi que vienes de nuestra publicidad. ¿Qué equipo estás buscando?",
+  "¡Hola! 👋 Bienvenido a EPICELL. ¿Qué equipo viste en la publicidad? Dime el modelo y te paso el precio",
+  "¡Hola! 😊 Gracias por escribirnos. ¿Qué estás buscando? Dime el equipo y te muestro lo que tengo",
 ];
 
 const PUBLICACION_SIN_IDENTIFICAR = [
@@ -688,9 +766,37 @@ function fraseDespausar(env) {
   return String(env.FRASE_DESPAUSAR || FRASE_DESPAUSAR_POR_DEFECTO).trim();
 }
 
+// EL "BOTÓN" PARA DEVOLVERLE LA CONVERSACIÓN AL BOT.
+//
+// Instagram no deja poner botones flotantes en la app del asesor: lo único
+// que se puede es reconocer algo que él escriba. Así que hay dos caminos,
+// y los dos valen siempre:
+//
+//   · La frase de FRASE_DESPAUSAR, que el cliente lee como una despedida
+//     normal ("te dejo con la asistente"). Lo cómodo es guardarla como
+//     RESPUESTA GUARDADA de Instagram: sale como un botón encima del
+//     teclado y se manda con un toque. Ese es el botón.
+//   · Un código corto, #bot, para cuando hay prisa. El cliente no lo
+//     entiende, pero tampoco molesta.
+//
+// FRASE_DESPAUSAR admite VARIAS separadas por "|", por si cada asesor se
+// despide a su manera.
+const CODIGO_DESPAUSAR = "#bot";
+
+function frasesDespausar(env) {
+  return fraseDespausar(env)
+    .split("|")
+    .map((frase) => sinSignos(frase))
+    .filter(Boolean);
+}
+
 function esFraseDeDespausar(env, texto) {
-  const frase = sinSignos(fraseDespausar(env));
-  return Boolean(frase) && sinSignos(texto).includes(frase);
+  const dicho = sinSignos(texto);
+  if (!dicho) return false;
+
+  if (dicho.includes(sinSignos(CODIGO_DESPAUSAR))) return true;
+
+  return frasesDespausar(env).some((frase) => dicho.includes(frase));
 }
 
 function sinSignos(texto) {
@@ -1696,17 +1802,25 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       return;
     }
 
-    // El mid no aparece, pero el bot acaba de mandar algo: es su propio eco
-    // que ganó la carrera contra el guardado. Pausar aquí sería dejar al
-    // cliente sin atención durante horas por un mensaje que mandamos
-    // nosotros — pasó en producción, ver estado.js.
-    if (envioReciente(contacto)) {
-      console.log(
-        `Eco sin mid conocido de ${mensaje.igsid}, pero el bot envió hace ` +
-          "un momento: lo cuento como propio, no pauso."
-      );
-      return;
-    }
+    // EL RELOJ NO DECIDE CUANDO HAY TEXTO (29-sep-2026).
+    //
+    // EL FALLO QUE ESTO ARREGLA, dicho por el dueño: "cuando el asesor está
+    // hablando con el cliente la IA se interpone y responde".
+    //
+    // Aquí había una red de 90 segundos: si el bot había enviado algo hace
+    // menos de eso, CUALQUIER eco se contaba como suyo y no se pausaba. Y
+    // el asesor que se mete en una conversación viva contesta justo ahí,
+    // en los segundos siguientes a un mensaje del bot. Su mensaje se
+    // tomaba por nuestro, la pausa no entraba, y el bot seguía
+    // respondiendo por encima de él.
+    //
+    // Ya no hace falta adivinar con el reloj: los textos que manda el bot
+    // quedan guardados (ultimos_textos) y se comparan arriba, con
+    // esEcoPorTexto. Si el eco trae letras y no son las nuestras, es una
+    // persona — por muy seguido que haya escrito.
+    //
+    // El reloj se queda solo para los ecos SIN texto, que es donde no hay
+    // nada que comparar (el carrusel de fichas vuelve sin una letra).
 
     // UN ECO SIN UNA SOLA LETRA es casi siempre nuestro carrusel de fichas,
     // que sale como adjunto y vuelve sin texto que comparar. Con una
@@ -1735,7 +1849,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     if (
       esEcoPropio(alSegundoVistazo, mensaje.mid) ||
       esEcoPorTexto(alSegundoVistazo, mensaje.texto) ||
-      envioReciente(alSegundoVistazo) ||
+      // Igual que arriba: con texto manda la comparación de texto, no el
+      // reloj. Si no, el asesor que contesta rápido nunca pausa el bot.
       (!mensaje.texto && envioReciente(alSegundoVistazo, Date.now(), VENTANA_ECO_SIN_TEXTO_MS))
     ) {
       console.log(
@@ -1871,7 +1986,10 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // El adjunto que llegó queda en el registro (ver instagram.js), que es
   // por donde se arregla el caso siguiente.
   if (!mensaje.texto && !imagenCruda && !publicacion) {
-    const frase = alAzar(NO_PUDE_ABRIRLO);
+    // Quien viene de un anuncio no "mandó" nada que no se pudiera abrir:
+    // pulsó un botón de una publicidad. Decirle "no pude abrir eso" es
+    // recibirlo con un error. Se le da la bienvenida y se le pregunta.
+    const frase = mensaje.anuncio ? alAzar(BIENVENIDA_DESDE_ANUNCIO) : alAzar(NO_PUDE_ABRIRLO);
     console.log(
       `Mensaje sin nada que atender de ${mensaje.igsid} (tipo ${mensaje.tipo}): ` +
         "pregunto en vez de suponer con el historial"
@@ -2336,6 +2454,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
           titulo: publicacion.titulo,
           descripcion: publicacion.descripcion,
           termino: publicacion.termino,
+          deAnuncio: Boolean(mensaje.anuncio),
         }),
       ]
         .filter(Boolean)
@@ -2538,12 +2657,36 @@ async function atenderMeta(env, mensaje, rastro = {}) {
    ───────────────────────────────────────────────────────────────── */
 async function publicacionDelTurno(env, mensaje, contacto) {
   const compartida = mensaje.tipo === "publicacion";
-  const enlaceEscrito = compartida ? "" : enlaceEnTexto(mensaje.texto);
 
-  if (compartida || enlaceEscrito) {
+  // QUIEN VIENE DE UN ANUNCIO ESTÁ MIRANDO ESE ANUNCIO (29-sep-2026).
+  //
+  // Es exactamente el mismo caso que compartir una publicación: el cliente
+  // señaló un equipo con el dedo y escribe "precio?". La diferencia es que
+  // aquí lo señaló en una publicidad por la que la tienda pagó.
+  //
+  // El anuncio trae su título y su foto, y muchas veces el id del post del
+  // que salió — con ese id se lee el pie completo por la API, igual que
+  // con un comentario. Todo eso entra por el mismo camino que ya existe,
+  // así que el bot identifica el equipo y contesta con ÉL, no con lo
+  // último de la conversación.
+  const anuncio = mensaje.anuncio || null;
+  const enlaceEscrito = compartida || anuncio ? "" : enlaceEnTexto(mensaje.texto);
+
+  if (compartida || enlaceEscrito || anuncio) {
+    const delPost =
+      anuncio?.publicacion ? await publicacionPorId(env, anuncio.publicacion) : null;
+
     const cruda = compartida
       ? mensaje.publicacion
-      : { url: "", titulo: "", enlace: enlaceEscrito };
+      : anuncio
+        ? {
+            url: anuncio.foto || delPost?.imagen || "",
+            // El título del anuncio Y el pie del post: cualquiera de los
+            // dos puede ser el que nombre el equipo.
+            titulo: [anuncio.titulo, delPost?.titulo].filter(Boolean).join(" · "),
+            enlace: delPost?.permalink || "",
+          }
+        : { url: "", titulo: "", enlace: enlaceEscrito };
 
     // Si lo que llegó es un enlace, hay dos formas de leerlo, y el orden
     // importa:
@@ -2567,8 +2710,11 @@ async function publicacionDelTurno(env, mensaje, contacto) {
     // La excepción es Instagram, que a ratos no se deja leer desde fuera:
     // ahí sí sabemos que es una publicación nuestra, y eso ya cambia la
     // respuesta —le preguntamos cuál le gustó en vez de qué busca.
+    // El título cuenta tanto como la imagen: el de un anuncio ("Redmi Note
+    // 17 — llévatelo en cuotas") nombra el equipo igual de bien que una
+    // foto, y muchas veces es lo único que Meta manda.
     const algoUtil = Boolean(
-      cruda.url || leido.imagen || leido.titulo || leido.descripcion || leido.termino
+      cruda.url || cruda.titulo || leido.imagen || leido.titulo || leido.descripcion || leido.termino
     );
     if (!compartida && !algoUtil && !esEnlaceDeInstagram(enlaceEscrito)) {
       console.log(`El enlace de ${mensaje.igsid} no dio nada: sigo como mensaje normal`);
@@ -2586,12 +2732,13 @@ async function publicacionDelTurno(env, mensaje, contacto) {
       // Si el mismo mensaje ya trae la pregunta, no hay nada que esperar:
       // este turno contesta, y queda marcada para que nadie la repita.
       atendida: Boolean(mensaje.texto),
+      deAnuncio: Boolean(anuncio),
     };
 
     await guardarPublicacion(env.DB, mensaje.igsid, nueva);
     console.log(
-      `Publicación compartida por ${mensaje.igsid} · imagen: ${nueva.imagen ? "sí" : "no"} · ` +
-        `ficha: ${nueva.termino || "—"}`
+      `${anuncio ? "Anuncio" : "Publicación"} de ${mensaje.igsid} · imagen: ` +
+        `${nueva.imagen ? "sí" : "no"} · texto: ${nueva.titulo ? `"${nueva.titulo.slice(0, 60)}"` : "—"}`
     );
 
     if (mensaje.texto) return nueva;
@@ -3413,7 +3560,14 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     for (const palabra of termino.split(/\s+/).filter((p) => p.length >= 3)) {
       const intento = await buscarProductos(env, palabra, 10, { tipo: tipoPedido });
       if (intento.productos.length) {
-        productos = intento.productos;
+        // LO MÁS PARECIDO, PRIMERO.
+        //
+        // Quien pide un "Redmi Note 20" tiene que ver el Note 17 en la
+        // primera ficha, no el A7 pro. El rescate trae todo lo de la
+        // categoría en el orden de la hoja, que no significa nada para el
+        // cliente: aquí se ordena por lo que su título comparte con lo que
+        // él pidió.
+        productos = ordenarPorParecido(intento.productos, termino);
         hayMas = intento.hayMas;
         porCategoria = palabra;
         console.log(
@@ -3491,7 +3645,19 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   // Cuando NO está —pidió un modelo que no existe y se le enseñan otros de
   // la marca— la frase del modelo se respeta: ahí decir "ese no lo tengo"
   // es la verdad, y es lo que toca.
-  const loQuePidio = productos.length ? nombraDelCatalogo(texto, productos) : "";
+  // SI HUBO QUE RESCATAR LA BÚSQUEDA, NO ES LO QUE PIDIÓ (29-sep-2026).
+  //
+  // EL FALLO: "¿tienen el Redmi Note 20?" contestaba "¡Por supuesto! Te lo
+  // muestro 👇" con siete Redmi debajo, ninguno un Note 20. La culpa era
+  // de este reconocimiento: "redmi note" —las dos primeras palabras del
+  // título "Redmi Note 17"— aparecen en su mensaje, así que se daba por
+  // hecho que el carrusel traía lo suyo. Pero el número es el equipo: un
+  // 20 no es un 17.
+  //
+  // Cuando la búsqueda exacta falló y hubo que rescatarla por categoría,
+  // lo que pidió NO está, por definición. Ahí manda la frase de "ese no,
+  // pero tengo este".
+  const loQuePidio = productos.length && !porCategoria ? nombraDelCatalogo(texto, productos) : "";
 
   // Y TAMBIÉN CUANDO ÉL LO DICE DE OTRA FORMA QUE LA HOJA.
   //
@@ -3577,7 +3743,7 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   } else if (porCategoria) {
     // Lo que escribió el modelo no vale aquí: él creía que no había nada
     // que enseñar, o peor, iba a recitar la lista. Hay fotos que mandar.
-    respuestaCliente = alAzar(NO_ESE_PERO_MIRA);
+    respuestaCliente = noEsePeroMira(termino, productos);
   } else if (buscoSinExito) {
     respuestaCliente = fraseSinResultados(env, tipoPedido);
   }

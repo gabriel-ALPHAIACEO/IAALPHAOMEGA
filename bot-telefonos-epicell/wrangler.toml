@@ -180,21 +180,36 @@ PAUSA_HORAS = "1"
 #
 # Esto es lo que evita que una pausa equivocada cueste horas de silencio
 # con un cliente que esta preguntando.
-PAUSA_VUELVE_MIN = "10"
+# 29-sep-2026: estaba en 10 minutos y era poco. Un asesor que va al
+# mostrador a ver si queda un equipo tarda mas de diez, y al volver se
+# encontraba al bot metido en SU conversacion.
+PAUSA_VUELVE_MIN = "30"
 
-# La frase con la que el asesor le DEVUELVE la conversacion al bot, desde
-# el mismo chat de Instagram. Basta con que aparezca DENTRO del mensaje; no
-# importan tildes, mayusculas ni signos. El cliente la lee, asi que tiene
-# que sonar a despedida normal. Lo comodo es guardarla como Respuesta
-# guardada de Instagram: sale como un boton encima del teclado.
+# EL "BOTON" PARA DEVOLVERLE LA CONVERSACION AL BOT.
 #
-# CUIDADO CON QUE SEA UNA FRASE DEMASIADO COMUN. Esta ("Estamos para
-# ayudarte!") es de las que un asesor escribe sin pensar en medio de una
-# conversacion — y en cuanto la escribe, el bot entiende que ya puede
-# volver a meterse, aunque el asesor siga atendiendo. Si eso llega a pasar,
-# conviene cambiarla por algo que solo se diga al despedirse, del estilo:
-#   "Te dejo con la asistente virtual, ella te sigue ayudando 😊"
-FRASE_DESPAUSAR = "Estamos para ayudarte!"
+# Instagram no deja poner un boton flotante en la app del asesor: lo unico
+# que se puede es reconocer algo que el escriba. Hay dos formas, y las dos
+# funcionan siempre:
+#
+#   1. Una de estas frases. Se separan con "|" por si cada asesor se
+#      despide a su manera. Basta con que aparezca DENTRO del mensaje; no
+#      importan tildes, mayusculas ni signos, y el cliente la lee como una
+#      despedida normal.
+#
+#      ASI SE CONVIERTE EN UN BOTON DE VERDAD: en Instagram, Ajustes ->
+#      Herramientas de empresa -> Respuestas guardadas -> crear una con
+#      este texto. Al escribir en el chat sale encima del teclado y se
+#      manda con un toque.
+#
+#   2. Escribir #bot en el chat. Ese codigo funciona siempre, no hay que
+#      configurarlo, y al cliente no le dice nada.
+#
+# 29-sep-2026: aqui decia "Estamos para ayudarte!", que es de las frases
+# que un asesor escribe SIN PENSAR en medio de una conversacion. En cuanto
+# la escribia, el bot entendia que ya podia volver a meterse — y se metia,
+# encima del asesor. La frase que devuelve la conversacion tiene que ser
+# una que SOLO se diga al despedirse.
+FRASE_DESPAUSAR = "te dejo con la asistente|ya puedes seguir con la asistente"
 
 # ------------------------------------------------------------------------
 # Los secretos NO van aqui. Se cargan uno por uno con:

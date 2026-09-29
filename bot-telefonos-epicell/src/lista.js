@@ -34,6 +34,8 @@
 //
 // "esté lista", "está lista", "cuando esté lista" no entran por ninguna,
 // que es todo lo que hacía falta.
+import { tipoDelProducto } from "./tipos.js";
+
 const PIDE_LISTA = new RegExp(
   [
     "\\blistados?\\b",
@@ -71,19 +73,68 @@ export function marcasDelCatalogo(productos) {
   const cuenta = new Map();
 
   for (const producto of productos || []) {
-    const primera = String(producto?.titulo || "").trim().split(/\s+/)[0];
-    if (!primera || primera.length < 2) continue;
+    // LA COLUMNA "MARCA" MANDA, Y SI NO HAY, LA PRIMERA PALABRA.
+    //
+    // EL FALLO QUE ESTO ARREGLA (29-sep-2026, dicho por el dueño: "no
+    // muestra más cosas cuando preguntan sobre más modelos"). Adivinar la
+    // marca con la primera palabra del título funcionaba con ocho
+    // productos de prueba; con el inventario de verdad daba 25 "marcas",
+    // y de los once botones que caben en Instagram, cuatro eran "Audifonos",
+    // "Reloj", "Base" y "Fan" — mientras Infinix y Honor se quedaban fuera,
+    // y Xiaomi no aparecía nunca porque sus títulos empiezan por "Redmi".
+    //
+    // La hoja tiene una columna Marca. Con ella, las marcas son las que el
+    // cliente reconoce.
+    const suya = String(producto?.marca || "").trim();
+    const nombre = suya || String(producto?.titulo || "").trim().split(/\s+/)[0];
+    if (!nombre || nombre.length < 2) continue;
 
-    const clave = despejar(primera);
+    const clave = despejar(nombre);
     const antes = cuenta.get(clave);
-    // Se queda la forma en que está escrita en la hoja, no la normalizada:
-    // al cliente se le enseña "iPhone", no "iphone".
-    cuenta.set(clave, { nombre: antes?.nombre || primera, cuantos: (antes?.cuantos || 0) + 1 });
+
+    // Se queda la forma MEJOR ESCRITA de las que hay en la hoja: el mismo
+    // inventario trae "Samsung" y "samsung", "Xbyte" y "xbyte", y al
+    // cliente se le enseña la que empieza por mayúscula.
+    const mejor =
+      antes?.nombre && !/^[a-z]/.test(antes.nombre) ? antes.nombre : nombre;
+
+    cuenta.set(clave, {
+      nombre: mejor,
+      cuantos: (antes?.cuantos || 0) + 1,
+      // Cuántos TELÉFONOS tiene esa marca. Las marcas de teléfonos van
+      // primero en los botones: es lo que la tienda vende, y en Instagram
+      // solo caben once.
+      equipos: (antes?.equipos || 0) + (esEquipo(producto) ? 1 : 0),
+    });
   }
 
   return [...cuenta.values()]
-    .sort((a, b) => b.cuantos - a.cuantos)
-    .map(({ nombre, cuantos }) => ({ nombre, cuantos }));
+    .sort((a, b) => b.equipos - a.equipos || b.cuantos - a.cuantos)
+    .map(({ nombre, cuantos }) => ({ nombre: comoSeEnsena(nombre), cuantos }));
+}
+
+// ¿ES UN TELÉFONO O UN ACCESORIO?
+//
+// Para ordenar los botones hace falta saberlo, y la hoja lo dice mejor que
+// cualquier lista de palabras: los teléfonos llevan almacenamiento
+// ("8GB / 256GB") y los accesorios no, o dicen "N/A". Un cargador no tiene
+// gigas.
+//
+// Si la hoja no trae esa columna, se cae a tipos.js, que lo adivina por el
+// título. Ahí un "Game TV Stick" pasa por teléfono —no lleva ninguna
+// palabra de accesorio— y por eso la columna manda cuando existe.
+function esEquipo(producto) {
+  const capacidad = String(producto?.capacidad || "").trim();
+
+  if (capacidad) return !/^n\s*\/?\s*a$/i.test(capacidad);
+
+  return tipoDelProducto(producto?.titulo || "") === "telefono";
+}
+
+// "xbyte" en la hoja, "Xbyte" para el cliente. Si la marca viene entera en
+// minúscula se le pone la inicial: es un botón que va a ver una persona.
+function comoSeEnsena(nombre) {
+  return nombre === nombre.toLowerCase() ? nombre[0].toUpperCase() + nombre.slice(1) : nombre;
 }
 
 // ¿El cliente nombró alguna de esas marcas? Devuelve la marca tal como

@@ -407,7 +407,60 @@ function recortar(texto, limite) {
 // texto, al modelo le llegaba la nada y contestaba la bienvenida genérica
 // a alguien que acababa de señalar un equipo con el dedo (ver
 // publicacion.js).
-const ACEPTADOS = new Set(["historia", "imagen", "texto", "eco", "publicacion"]);
+// "anuncio" es quien llega desde una publicidad. Meta manda ese aviso SIN
+// mensaje dentro, y por eso se caía por el "evento que no lleva mensaje":
+// el cliente pulsaba "Enviar mensaje" en el anuncio y del otro lado no
+// contestaba nadie (ver leerAnuncio).
+const ACEPTADOS = new Set(["historia", "imagen", "texto", "eco", "publicacion", "anuncio"]);
+
+/* ── QUIEN LLEGA DESDE UN ANUNCIO ──────────────────────────────────
+
+   EL FALLO QUE ESTO ARREGLA (29-sep-2026, dicho por el dueño: "no
+   responde a las personas que vienen de los anuncios").
+
+   Cuando alguien pulsa "Enviar mensaje" en una publicidad, Meta abre el
+   chat y manda un aviso de referencia. Ese aviso NO lleva "message"
+   dentro, así que se descartaba con un "evento que no lleva mensaje" — y
+   la persona se quedaba mirando un chat vacío, después de que la tienda
+   pagara por ese clic.
+
+   Y trae lo más valioso que puede traer un primer contacto: DE QUÉ
+   ANUNCIO viene. El título del anuncio y su foto dicen qué equipo estaba
+   mirando, igual que el pie de una publicación compartida.
+
+   Meta lo pone en tres sitios distintos según cómo llegue —el aviso
+   suelto, dentro del primer mensaje, o en un botón— así que se miran los
+   tres.
+
+   HACE FALTA EN EL PANEL DE META: suscribirse al campo
+   "messaging_referral" (además de "messages"). Sin eso, el aviso suelto
+   no llega nunca.
+   ───────────────────────────────────────────────────────────────── */
+function leerAnuncio(evento) {
+  const referencia = evento?.referral || evento?.message?.referral || evento?.postback?.referral;
+  if (!referencia) return null;
+
+  // Lo que Meta cuenta del anuncio: su título, su foto y el post del que
+  // salió. No siempre viene todo, y a veces no viene nada más que el id.
+  const datos = referencia.ads_context_data || {};
+
+  const anuncio = {
+    // "ADS" cuando viene de una publicidad pagada; también existe
+    // "SHORTLINK" (un ig.me/m/...) y "CUSTOMER_CHAT_PLUGIN".
+    fuente: String(referencia.source || "").trim(),
+    // La referencia que TÚ pones al crear el anuncio, si pusiste alguna.
+    ref: String(referencia.ref || "").trim(),
+    id: String(referencia.ad_id || referencia.ads_context_data?.ad_id || "").trim(),
+    titulo: String(datos.ad_title || "").trim(),
+    foto: urlBuena(datos.photo_url || ""),
+    video: urlBuena(datos.video_url || ""),
+    // El post del feed desde el que se hizo el anuncio. Con él se puede
+    // leer el pie completo por la API, igual que con un comentario.
+    publicacion: String(datos.post_id || "").trim(),
+  };
+
+  return anuncio.fuente || anuncio.id || anuncio.titulo || anuncio.ref ? anuncio : null;
+}
 
 export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
   const entrada = cuerpo?.entry?.[0];
@@ -424,9 +477,39 @@ export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
   if (evento.read) return descartar("un 'visto'");
   if (evento.delivery) return descartar("un 'entregado'");
   if (evento.reaction) return descartar("una reacción");
-  if (evento.postback) return descartar("un botón de plantilla");
+  const anuncio = leerAnuncio(evento);
+
+  if (anuncio) {
+    console.log(
+      `Meta → VIENE DE UN ANUNCIO (${anuncio.fuente || "sin fuente"})` +
+        (anuncio.titulo ? `: "${anuncio.titulo.slice(0, 80)}"` : "") +
+        (anuncio.id ? ` · anuncio ${anuncio.id}` : "") +
+        (anuncio.publicacion ? ` · publicación ${anuncio.publicacion}` : "")
+    );
+  }
+
+  if (evento.postback && !anuncio) return descartar("un botón de plantilla");
 
   const mensaje = evento.message;
+
+  // Sin mensaje pero con anuncio: es el aviso de que alguien acaba de
+  // llegar desde una publicidad. Se atiende, que para eso se pagó.
+  if (!mensaje && anuncio) {
+    if (!aceptar.has("anuncio")) return descartar("un aviso de anuncio");
+
+    return {
+      tipo: "anuncio",
+      igsid: evento.sender?.id || "",
+      mid: "",
+      texto: "",
+      foto: "",
+      historia: { url: "", id: "" },
+      publicacion: { url: "", titulo: "", enlace: "" },
+      opcion: String(evento.postback?.payload || "").trim(),
+      anuncio,
+    };
+  }
+
   if (!mensaje) return descartar("un evento que no lleva mensaje");
 
   // El eco es la copia de CUALQUIER mensaje que sale de la cuenta: el
@@ -497,6 +580,9 @@ export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
     // propósito: el texto es lo que se lee en la conversación, esto es lo
     // que el bot puede reconocer sin ambigüedad.
     opcion: String(mensaje.quick_reply?.payload || "").trim(),
+    // De qué anuncio viene, si viene de uno. El primer mensaje de quien
+    // llega por publicidad lo trae dentro.
+    anuncio,
   };
 }
 

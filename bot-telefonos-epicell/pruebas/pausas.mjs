@@ -49,5 +49,45 @@ comprobar("asesor escribiendo ahora: sigue pausado", Math.round(calladoMin(aseso
 comprobar("asesor callado 20 min: el bot retoma", Math.round(calladoMin(asesorEscribioHace(20))) >= 10, true);
 comprobar("y la pausa seguía vigente", estaPausado({ pausado_hasta: asesorEscribioHace(20) }), true);
 
+/* ── EL ASESOR QUE CONTESTA RÁPIDO SÍ PAUSA EL BOT ─────────────────
+   El fallo que reportó el dueño: "cuando el asesor está hablando con el
+   cliente la IA se interpone y responde". Había una red de 90 segundos
+   que contaba CUALQUIER eco como propio del bot si acababa de enviar
+   algo — y el asesor que se mete en una conversación viva escribe justo
+   ahí. Ahora, con texto, manda la comparación de texto.
+   ───────────────────────────────────────────────────────────────── */
+const { turno } = await import("./banco.mjs");
+
+// El bot acaba de escribir (hace 30 segundos) y el asesor contesta.
+let r = await turno({
+  fila: {
+    historial: "Ya di la bienvenida.",
+    ultimo_envio: Date.now() - 30 * 1000,
+    ultimos_textos: JSON.stringify(["te muestro el samsung a57 👇"]),
+  },
+  mensaje: { tipo: "eco", texto: "Hola! Soy Luis, un asesor. Ya te ayudo con eso 😊", mid: "otro-mid" },
+});
+comprobar("el asesor escribe 30s después del bot: SÍ pausa", Number(r.fila.pausado_hasta) > Date.now(), true);
+
+// Y el eco del PROPIO bot, en la misma ventana, sigue sin pausar.
+r = await turno({
+  fila: {
+    historial: "Ya di la bienvenida.",
+    ultimo_envio: Date.now() - 30 * 1000,
+    ultimos_textos: JSON.stringify(["te muestro el samsung a57 👇"]),
+  },
+  mensaje: { tipo: "eco", texto: "Te muestro el Samsung A57 👇", mid: "otro-mid" },
+});
+comprobar("su propio eco NO lo pausa", Number(r.fila.pausado_hasta || 0) > Date.now(), false);
+
+// El "botón" para devolverle la conversación: la frase y el código corto.
+for (const dicho of ["Te dejo con la asistente, ella te sigue ayudando 😊", "#bot"]) {
+  r = await turno({
+    fila: { historial: "Ya di la bienvenida.", pausado_hasta: Date.now() + 60 * 60 * 1000 },
+    mensaje: { tipo: "eco", texto: dicho, mid: "otro-mid" },
+  });
+  comprobar(`«${dicho.slice(0, 22)}…» devuelve la conversación`, Number(r.fila.pausado_hasta || 0), 0);
+}
+
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);
