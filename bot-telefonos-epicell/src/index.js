@@ -31,6 +31,13 @@
 import { responderTexto, identificarEnImagen } from "./ia.js";
 import { referenciaEnTexto } from "./referencias.js";
 import { detallesDelAnuncio } from "./anuncio.js";
+import {
+  parentesco,
+  partesDelTitulo,
+  nombraUnModelo,
+  loQuePidioDicho,
+  raizDeLaFamilia,
+} from "./modelo.js";
 // "comoSeLlama" ya existe aquí para el nombre del CLIENTE (estado.js), así
 // que el de los tipos entra con su propio nombre.
 import {
@@ -3662,6 +3669,73 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     );
   }
 
+  /* ── LO QUE ESCRIBIÓ EL CLIENTE MANDA SOBRE LO QUE ESCRIBIÓ EL MODELO
+
+     Dos fallos vistos en producción el 29-sep-2026, los dos con la misma
+     pregunta: "¿Tienes redmi 17?".
+
+       1. Con el Redmi 17 en la hoja, el modelo buscó "Redmi Note 17" —la
+          palabra que le sonaba— y el cliente recibió otro teléfono.
+       2. Con el Redmi 17 AGOTADO, el bot contestó "¡Claro! Te muestro los
+          Redmi Note 17", como si fueran el mismo. No lo son.
+
+     Lo que el cliente escribió se compara con el equipo más cercano de la
+     hoja (ver modelo.js) y sale una de tres cosas:
+
+       · ES EL MISMO: se busca ese, aunque el modelo haya decidido otra
+         cosa, y se enseña con sus versiones (Pro, Pro Max) pero sin los
+         que solo se llaman parecido.
+       · ES UN PARIENTE, o solo la misma marca, y él pidió un modelo
+         concreto: lo que pidió NO ESTÁ. Se le dice, nombrando las dos
+         cosas, y se le enseña la familia o la marca.
+       · Nada: el camino de siempre.
+     ───────────────────────────────────────────────────────────────── */
+  const enLaHoja = await catalogoCompleto(env);
+  const elQuePidio = equipoQueNombra(texto, enLaHoja);
+  const relacion = elQuePidio ? parentesco(texto, elQuePidio) : "";
+
+  // Si el modelo escribió el texto pensando en otro equipo, ese texto ya no
+  // sirve: se le cambia por uno que no nombre ningún modelo.
+  let elModeloHablabaDeOtro = false;
+  // Lo que pidió, cuando no está y se le ofrece un pariente: "Redmi 17".
+  let noEstaElQuePidio = "";
+  // Y cómo se le llama a lo que se le ofrece: la familia ("redmi note 17",
+  // dos palabras o más) o la marca ("poco").
+  let loQueSeLeOfrece = "";
+
+  if (relacion === "mismo") {
+    const suyo = terminoDeTitulo(elQuePidio);
+
+    // Vale lo del modelo SOLO si es igual o MÁS concreto que lo que
+    // escribió el cliente ("Samsung A57 256GB" cuando dijo "Samsung A57").
+    // Si es más vago —"Poco" cuando dijo "Poco C81"— o apunta a otro
+    // equipo, gana el cliente.
+    const partes = partesDelTitulo(elQuePidio);
+    const raiz = partes ? [partes.marca, ...partes.linea, partes.numero].join(" ") : despejar(suyo);
+    const valeElDelModelo = termino && despejar(termino).includes(raiz);
+
+    if (!valeElDelModelo) {
+      console.log(
+        `El cliente nombró "${elQuePidio}" y el modelo iba a buscar ` +
+          `"${termino || "nada"}": mando lo que él escribió.`
+      );
+      elModeloHablabaDeOtro = Boolean(termino);
+      termino = suyo;
+    }
+  } else if ((relacion === "familia" || relacion === "marca") && nombraUnModelo(texto)) {
+    noEstaElQuePidio = loQuePidioDicho(texto);
+    loQueSeLeOfrece =
+      relacion === "familia" ? raizDeLaFamilia(texto, elQuePidio) : partesDelTitulo(elQuePidio).marca;
+
+    console.log(
+      `Pidió "${noEstaElQuePidio}" y no está: lo más cercano es "${elQuePidio}" ` +
+        `(${relacion === "familia" ? "de su familia" : "de su marca"}). Se lo digo y le enseño "${loQueSeLeOfrece}".`
+    );
+
+    elModeloHablabaDeOtro = Boolean(termino);
+    termino = loQueSeLeOfrece;
+  }
+
   let productos = [];
   let hayMas = false;
   if (termino) {
@@ -3671,6 +3745,38 @@ async function decidir({ env, salida, texto, historialPrevio }) {
         ? `Busqué "${termino}": ${productos.length} resultado(s)${hayMas ? " (y hay más)" : ""}`
         : `Sin resultados para "${termino}"`
     );
+  }
+
+  // Si lo que pidió no está, la familia se ordena por parecido: al que pidió
+  // un Redmi 17 le va primero el Redmi Note 17, no el Redmi A7.
+  if (noEstaElQuePidio && productos.length > 1) {
+    productos = ordenarPorParecido(productos, texto);
+  }
+
+  // Y SI NOMBRÓ UN MODELO EXACTO, VA ESE — CON SUS VERSIONES, SIN LOS PARECIDOS.
+  //
+  // "Redmi 17" encuentra también "Redmi Note 17": las dos palabras están en
+  // los dos títulos. Pero son teléfonos distintos, y quien escribió "Redmi
+  // 17" no dijo "Note". Se quedan los que EMPIEZAN por el modelo que nombró
+  // —el Redmi 17 y, si hubiera, el Redmi 17 de 256—, que es su familia de
+  // verdad. Si el filtro dejara la búsqueda vacía, no se aplica.
+  if (relacion === "mismo" && productos.length > 1) {
+    // La raíz es MARCA + LÍNEA + NÚMERO, sin la capacidad: el A57 de 128 y
+    // el de 512 son el mismo modelo y los dos se quedan.
+    const partes = partesDelTitulo(elQuePidio);
+    const raiz = partes
+      ? [partes.marca, ...partes.linea, partes.numero].join(" ")
+      : despejar(elQuePidio);
+    const suyos = productos.filter((p) => despejar(p.titulo).startsWith(raiz));
+
+    if (suyos.length && suyos.length < productos.length) {
+      console.log(
+        `Pidió "${elQuePidio}": dejo ${suyos.length} y aparto ${productos.length - suyos.length} ` +
+          "que se llaman parecido pero son otro modelo"
+      );
+      productos = suyos;
+      hayMas = false;
+    }
   }
 
   // EL CLIENTE DESCRIBIÓ EN VEZ DE NOMBRAR.
@@ -3967,6 +4073,16 @@ async function decidir({ env, salida, texto, historialPrevio }) {
     // Los equipos se le muestran igual: lo único que no sabemos es la
     // capacidad, no el producto.
     respuestaCliente = alAzar(SIN_DATO_DE_CAPACIDAD);
+  } else if (noEstaElQuePidio && productos.length) {
+    // Lo que pidió no está: se le dice, nombrando las dos cosas, antes de
+    // que ninguna otra frase le diga "¡claro, aquí lo tienes!".
+    respuestaCliente = noEsePeroMira(noEstaElQuePidio, productos, loQueSeLeOfrece);
+  } else if (elModeloHablabaDeOtro && productos.length) {
+    // Escribió su respuesta para un equipo distinto del que pidió el
+    // cliente ("te muestro los Redmi Note 17" cuando pidió el Redmi 17).
+    // Las fichas de abajo ya dicen cuál es: arriba va una frase que no
+    // nombre ningún modelo.
+    respuestaCliente = alAzar(SI_LO_TENGO);
   } else if (leMuestroLoQuePidio && (AFIRMA_QUE_NO_HAY.test(respuestaFinal) || porCategoria)) {
     // DIJO QUE NO HAY ALGO QUE SÍ ESTÁ EN EL CARRUSEL QUE VA DEBAJO.
     //

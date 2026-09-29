@@ -150,7 +150,11 @@ r = await turno({
   respuestaDelModelo: { respuesta: "Ese no lo tengo disponible, pero mira estos 👇", buscar: "Poco" },
   fila: yaSeConocen,
 });
-comprobar("«no lo tengo disponible» se respeta", /no lo tengo disponible/i.test(textos(r.enviados)), true);
+// Lo que importa no es la frase exacta sino que diga que ESE no está —con
+// sus palabras o con las del bot, que además nombra lo que se le ofrece—
+// y que en ningún caso le diga que sí lo tiene.
+comprobar("dice que ese no lo tiene disponible", /no (lo )?tengo|no me queda|no est[aá] disponible/i.test(textos(r.enviados)), true);
+comprobar("y nunca que sí lo tiene", /s[ií] lo tengo|aqu[ií] lo tienes|claro que s[ií]/i.test(textos(r.enviados)), false);
 
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);

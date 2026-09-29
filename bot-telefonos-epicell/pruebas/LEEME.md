@@ -45,6 +45,7 @@ for %f in (pruebas\*.mjs) do node pruebas\%f
 | `alucinaciones.mjs` | Que ninguna cifra inventada por el modelo llegue al cliente ni al historial |
 | `anuncios.mjs` | Que a quien llega desde una publicidad se le conteste, con el equipo del anuncio (y leerlo en la API con ADS_TOKEN) |
 | `memoria.mjs` | Que el bot guarde la conversación entera y se la dé al modelo |
+| `modelos.mjs` | Mismo modelo, pariente o solo la marca: "Redmi 17" agotado no es "¡Claro!, los Note 17" |
 
 ## Antes de desplegar
 
