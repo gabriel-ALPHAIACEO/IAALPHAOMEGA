@@ -1,5 +1,31 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: a quien viene de un anuncio se le manda EL equipo del anuncio (30-sep-2026)
+
+El dueño: "las personas que vienen de los anuncios no responde bien, no
+manda las imágenes exactas". Tres causas, las tres arregladas:
+
+1. **El mensaje con el que llegan no nombra nada** ("¡Hola! Quiero más
+   información"), y el modelo buscaba a lo ancho: salían todos los Poco en
+   vez del Poco X8 del anuncio, o ninguna foto y un "¿qué equipo buscas?".
+   Ahora el equipo del anuncio cuenta como si el cliente lo hubiera
+   escrito: sale ESE, solo ese (con todas sus capacidades).
+2. **Se miraba la imagen antes que el texto.** La IA de visión puede
+   confundir un Note 15 con un Note 17. Ahora, si el texto del anuncio
+   nombra el modelo, manda el texto (y se ahorra la llamada a gpt-4o).
+3. **Con foto pero sin título, no se leía el anuncio en la API.** Ahora se
+   lee siempre que haya id y `ADS_TOKEN` (guardado 30 min por anuncio).
+
+Y de paso, un fallo que afectaba a TODOS los chats: "5G" y "8/256" se
+tomaban por otro número de modelo, así que "¿tienes el Poco X8 pro 5G?"
+podía contestar "ese no lo tengo" teniéndolo.
+
+- Si el equipo del anuncio **se agotó**: "El Poco X8 Pro 5G no lo tengo
+  ahora, pero mira estos 👇" con lo más parecido.
+- Si el anuncio nombra **varios** teléfonos, o el cliente pide **otros**,
+  no se impone ninguno.
+- `/probar-anuncio?id=...` dice exactamente cuál de esos casos es.
+
 ## Hecho: los comentarios se contestan (25-sep-2026)
 
 Hasta hoy se tiraban a la basura: en `instagram.js`, todo lo que llegaba

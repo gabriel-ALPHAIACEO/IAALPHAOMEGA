@@ -156,7 +156,7 @@ export function baseFalsa(filaInicial = {}) {
 }
 
 // Devuelve todo lo que el bot mandó a Instagram en este turno.
-export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelModelo = {}, mensaje = {}, hoja = HOJA, env: envExtra = {} } = {}) {
+export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelModelo = {}, mensaje = {}, hoja = HOJA, env: envExtra = {}, apis = {} } = {}) {
   const enviados = [];
   // Lo que se le mandó a OpenAI, para mirar qué sabía el modelo.
   const alModelo = [];
@@ -176,6 +176,11 @@ export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelMo
         ...respuestaDelModelo,
       });
       return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: cuerpo } }] }) };
+    }
+
+    // Otras APIs, por un trozo de su dirección: { "graph.facebook.com": {...} }.
+    for (const [trozo, json] of Object.entries(apis)) {
+      if (donde.includes(trozo)) return { ok: true, status: 200, json: async () => json };
     }
 
     if (donde.includes("graph.instagram.com")) {

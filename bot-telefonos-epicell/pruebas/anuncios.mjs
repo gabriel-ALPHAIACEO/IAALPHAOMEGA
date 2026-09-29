@@ -59,6 +59,112 @@ r = await turno({
 comprobar("sin datos del anuncio, lo saluda y le pregunta", /qu[eé] (equipo|est[aá]s)/i.test(textos(r.enviados)), true);
 comprobar("y no le dice que no pudo abrir nada", /no pude abrir|no me lleg[oó]/i.test(textos(r.enviados)), false);
 
+// ── LAS IMÁGENES EXACTAS DEL ANUNCIO (30-sep-2026) ─────────────
+//
+// El dueño: "las personas que vienen de los anuncios no responde bien, no
+// manda las imágenes exactas". El anuncio era de UN equipo y el cliente
+// recibía la marca entera, porque el mensaje con el que llega ("Quiero
+// más información") no nombra nada y el modelo buscaba a lo ancho.
+const anuncioDelX8 = {
+  fuente: "ADS", id: "", titulo: "Poco X8 pro 5G 8/256 — ¡llévatelo hoy!", foto: "", publicacion: "",
+};
+
+r = await turno({
+  texto: "¡Hola! Quiero más información",
+  mensaje: { anuncio: anuncioDelX8 },
+  respuestaDelModelo: { buscar: "Poco", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Mira 👇" },
+});
+comprobar("del anuncio del Poco X8 sale el Poco X8, no todos los Poco", fichas(r.enviados), ["Poco X8 pro 5G"]);
+
+r = await turno({
+  texto: "precio?",
+  mensaje: { anuncio: anuncioDelX8 },
+  respuestaDelModelo: { buscar: "NADA", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 ¿Qué equipo buscas?" },
+});
+comprobar("aunque el modelo no busque nada, sale el del anuncio", fichas(r.enviados), ["Poco X8 pro 5G"]);
+comprobar("y no le pregunta qué equipo busca", /qu[eé] equipo buscas/i.test(textos(r.enviados)), false);
+
+// Pero si el cliente nombra OTRO, manda el cliente.
+r = await turno({
+  texto: "tienes el samsung a57?",
+  mensaje: { anuncio: anuncioDelX8 },
+  respuestaDelModelo: { buscar: "Samsung A57", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Déjame revisar 👇" },
+});
+comprobar("si pide otro equipo, sale el que pidió", fichas(r.enviados), ["Samsung A57"]);
+
+// Y si el equipo del anuncio se agotó, no se inventa: sale su familia.
+const sinElX8 = HOJA.split("\n").filter((l) => !l.startsWith("Poco X8")).join("\n");
+r = await turno({
+  texto: "info",
+  hoja: sinElX8,
+  mensaje: { anuncio: anuncioDelX8 },
+  respuestaDelModelo: { buscar: "Poco X8 pro 5G", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Déjame revisar 👇" },
+});
+comprobar("agotado el del anuncio, no sale como si estuviera", fichas(r.enviados).includes("Poco X8 pro 5G"), false);
+comprobar("y le muestra otros Poco", fichas(r.enviados).some((t) => /^Poco/.test(t)), true);
+comprobar("diciéndole que ESE no está, por su nombre", /Poco X8 Pro 5G/i.test(textos(r.enviados)) && /no\b/i.test(textos(r.enviados)), true);
+comprobar("sin decirle que lo tiene", /aqu[ií] lo tienes|s[ií] lo tengo|este es/i.test(textos(r.enviados)), false);
+comprobar("y con la bienvenida, que es su primer mensaje", /asistente virtual de EPICELL/.test(textos(r.enviados)), true);
+
+// Un anuncio que nombra DOS equipos no señala uno: no se impone ninguno.
+r = await turno({
+  texto: "info",
+  mensaje: { anuncio: { ...anuncioDelX8, titulo: "Samsung A57 y Samsung A17 con Cashea" } },
+  respuestaDelModelo: { buscar: "Samsung", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Mira 👇" },
+});
+comprobar("anuncio de dos equipos: salen los dos", ["Samsung A57", "Samsung A17"].every((t) => fichas(r.enviados).includes(t)), true);
+
+// Y el que escribe el nombre completo, con "5G", no es "otro modelo".
+r = await turno({
+  texto: "tienes el poco x8 pro 5g?",
+  respuestaDelModelo: { buscar: "Poco X8 pro 5G", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Déjame revisar 👇" },
+});
+comprobar("\"poco x8 pro 5g\" en la hoja: no le dice que no está", /no (lo )?tengo|no est[aá]/i.test(textos(r.enviados)), false);
+comprobar("y sale el X8", fichas(r.enviados)[0], "Poco X8 pro 5G");
+
+// ── ANUNCIOS DE VERDAD: LARGOS Y LLENOS DE NÚMEROS ─────────────
+//
+// "3 cuotas", "$210", "20%": nada de eso es otro modelo.
+const largo = {
+  ...anuncioDelX8,
+  titulo: "🔥 ¡Llegó el Poco X8 pro 5G 8/256! Llévatelo por $210 o con Cashea en 3 cuotas, inicial desde el 20% 💥",
+};
+r = await turno({
+  texto: "¡Hola! Quiero más información",
+  mensaje: { anuncio: largo },
+  respuestaDelModelo: { buscar: "Poco", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Mira 👇" },
+});
+comprobar("anuncio largo con precio y cuotas: sale el Poco X8", fichas(r.enviados), ["Poco X8 pro 5G"]);
+comprobar("y no le dice que no está", /no (lo )?tengo|no me queda|no est[aá]/i.test(textos(r.enviados)), false);
+
+// Un accesorio: "45w" no es un número de modelo de teléfono.
+const hojaConCargador = HOJA + "\nSamsung Cargador original 45w Samsung,25,,https://x/carg.jpg";
+r = await turno({
+  texto: "precio?",
+  hoja: hojaConCargador,
+  mensaje: { anuncio: { ...anuncioDelX8, titulo: "Cargador Samsung original de 45W, carga súper rápida ⚡" } },
+  respuestaDelModelo: { buscar: "cargador", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Mira 👇" },
+});
+comprobar("anuncio de un cargador: sale ese cargador", fichas(r.enviados), ["Samsung Cargador original 45w Samsung"]);
+
+// Meta manda la FOTO pero no el título: el texto se lee de la API.
+r = await turno({
+  texto: "info",
+  env: { ADS_TOKEN: "t" },
+  apis: { "graph.facebook.com": { creative: { title: "Samsung A17 al mejor precio", image_url: "https://cdn/a17.jpg" } } },
+  mensaje: { anuncio: { fuente: "ADS", id: "555", titulo: "", foto: "https://cdn/foto-del-anuncio.jpg", publicacion: "" } },
+  respuestaDelModelo: { buscar: "Samsung", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Mira 👇" },
+});
+comprobar("con foto y sin título, lee el anuncio y manda el A17", fichas(r.enviados), ["Samsung A17"]);
+
+// Si en ese primer mensaje pide OTROS, no se le impone el del anuncio.
+r = await turno({
+  texto: "hola, tienes otros modelos?",
+  mensaje: { anuncio: anuncioDelX8 },
+  respuestaDelModelo: { buscar: "Poco", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Mira estos 👇" },
+});
+comprobar("pide otros: no se queda solo con el del anuncio", fichas(r.enviados).length > 1, true);
+
 // ── EL AVISO QUE LLEGA PELADO ─────────────────────────────────
 //
 // Meta no siempre manda el titulo y la foto del anuncio: hay avisos con el

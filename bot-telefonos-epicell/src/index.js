@@ -38,6 +38,8 @@ import {
   nombraUnModelo,
   loQuePidioDicho,
   raizDeLaFamilia,
+  modeloNombrado,
+  palabrasDe,
 } from "./modelo.js";
 // "comoSeLlama" ya existe aquí para el nombre del CLIENTE (estado.js), así
 // que el de los tipos entra con su propio nombre.
@@ -1303,7 +1305,21 @@ export default {
       }
 
       const enElCatalogo = await catalogoCompleto(env);
-      const equipo = equipoQueNombra(`${leido.titulo} ${leido.texto}`, enElCatalogo);
+      const { estado, titulo: equipo, dicho } = queEquipoSenala(
+        `${leido.titulo} ${leido.texto}`,
+        enElCatalogo
+      );
+      const queHara = {
+        exacto:
+          `EQUIPO QUE RECONOCE: ${equipo}\n` +
+          "A quien llegue por este anuncio se le manda ESE equipo, solo ese.\n",
+        agotado:
+          `EL ANUNCIO ES DEL "${dicho}", Y HOY NO ESTA EN LA HOJA.\n` +
+          `Se le dice que ese no esta ahora y se le muestra lo mas parecido (${equipo}).\n`,
+        varios:
+          "EL ANUNCIO NOMBRA VARIOS TELEFONOS: no se impone ninguno.\n" +
+          "El bot mira la imagen y lo que escriba el cliente.\n",
+      }[estado];
 
       return texto200(
         [
@@ -1313,10 +1329,8 @@ export default {
           `Imagen        ${leido.imagen || "(sin imagen)"}`,
           `Publicacion   ${leido.publicacion || "(no viene del feed)"}`,
           "",
-          equipo
-            ? `EQUIPO QUE RECONOCE: ${equipo}\n` +
-              "A quien llegue por este anuncio se le contesta con ese equipo.\n"
-            : "NO RECONOCE NINGUN EQUIPO en el texto del anuncio.\n" +
+          queHara ||
+            "NO RECONOCE NINGUN EQUIPO en el texto del anuncio.\n" +
               "Si el anuncio es de un modelo concreto, ponle el nombre tal como\n" +
               "esta en la hoja (en el titulo o en el texto) y el bot lo pillara.\n" +
               "Mientras, saluda y pregunta, que es lo correcto.\n",
@@ -2637,7 +2651,57 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // aparte porque más abajo hay una decisión que depende de si de verdad
   // SABEMOS qué equipo es, y no de si el modelo escribió algo.
   let equipoDeLaPublicacion = "";
-  if (foto) {
+  // Y si ese equipo es UNO concreto (no solo la marca), se le pasa a
+  // decidir() para que salga ese y no la marca entera.
+  let equipoSenalado = "";
+
+  // EL TEXTO DEL ANUNCIO VA ANTES QUE SU IMAGEN (30-sep-2026).
+  //
+  // Antes se miraba primero la imagen, y el texto solo si la imagen no
+  // decía nada. Al revés de lo que conviene: el texto de un anuncio
+  // ("Poco X8 pro 5G 8/256") nombra el modelo EXACTO, y la IA de visión,
+  // mirando la foto de un teléfono, puede confundir un Note 15 con un Note
+  // 17 —se parecen—, y entonces al cliente le llegaban las fotos de otro
+  // equipo. Si el texto ya lo nombra, no hace falta mirar la imagen: una
+  // llamada a gpt-4o menos, que además es la más cara.
+  //
+  // Solo con una publicación que llega AHORA: si ya se contestó por ella
+  // (soloContexto), es conversación vieja y no se impone.
+  //
+  // Un texto que nombra VARIOS modelos ("Samsung A57 y A37") no señala uno:
+  // ahí se sigue como antes, mirando la imagen.
+  const pie = publicacion ? `${publicacion.titulo || ""} ${publicacion.descripcion || ""}`.trim() : "";
+
+  // Si en ese mismo mensaje pide OTROS ("¿tienes otros modelos?"), se le
+  // dice cuál es el del anuncio pero no se le impone.
+  const pideOtros = PIDE_OTROS.test(mensaje.texto || "");
+
+  if (pie && !publicacion.soloContexto) {
+    const { estado, titulo: delPie, dicho } = queEquipoSenala(pie, await catalogoCompleto(env));
+
+    if (estado === "exacto") {
+      equipoDeLaPublicacion = delPie;
+      equipoSenalado = pideOtros ? "" : dicho;
+      marcaFoto = marcarIdentificacion(delPie, false, esHistoria, true);
+      console.log(`El texto de la publicación nombra "${delPie}": eso es lo que busco, sin mirar la imagen`);
+    } else if (estado === "agotado") {
+      // Nombra un modelo que HOY NO ESTÁ (lo más cercano de la hoja es un
+      // pariente o solo la marca). No se mira la imagen —la IA de visión,
+      // con el catálogo delante, lo "encontraría" en el pariente— y se le
+      // dice al modelo la verdad; decidir() arma el "ese no, pero mira".
+      equipoDeLaPublicacion = dicho;
+      equipoSenalado = pideOtros ? "" : dicho;
+      marcaFoto =
+        `[${publicacion.deAnuncio ? "EL ANUNCIO" : "LA PUBLICACIÓN"} ES DEL "${dicho}", QUE HOY NO ` +
+        "ESTÁ DISPONIBLE. El sistema le muestra lo más parecido que hay. NO digas que lo " +
+        "tienes: dile que ese no está ahora y que mire estos]";
+      console.log(`La publicación es del "${dicho}" y no está en la hoja (lo más cercano: "${delPie}")`);
+    }
+  }
+
+  // Con el equipo sabido por el texto, la imagen ya no aporta: no se gasta
+  // la llamada de visión.
+  if (foto && !equipoDeLaPublicacion) {
     const identificacion = await identificarEnImagen(env, foto, catalogo, {
       esPublicacion: Boolean(publicacion),
     });
@@ -2654,6 +2718,11 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
       if (String(identificacion.buscar).toUpperCase() !== "NADA") {
         equipoDeLaPublicacion = identificacion.buscar;
+        // Solo la marca ("Samsung") no señala un equipo: ahí se le enseña
+        // la marca y se le pregunta el modelo, como siempre.
+        if (publicacion && !identificacion.pedirNombreExacto && !pideOtros) {
+          equipoSenalado = identificacion.buscar;
+        }
       }
     } else {
       console.error("La IA de visión no respondió: sigo solo con el texto");
@@ -2670,6 +2739,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // Galaxy S25 FE 256GB"). Contando palabras sí se reconoce, y entonces el
   // modelo recibe el nombre exacto de la hoja en vez de tener que
   // adivinarlo del texto de venta.
+  // (Si el texto nombraba UN modelo, ya se resolvió arriba. Esto queda
+  // para los que nombran varios y para la publicación que sigue de
+  // contexto.)
   if (publicacion && !equipoDeLaPublicacion) {
     const delPie = equipoQueNombra(
       `${publicacion.titulo || ""} ${publicacion.descripcion || ""}`,
@@ -2693,7 +2765,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // ficha, el nombre exacto del producto.
   const marca = publicacion
     ? [
-        foto ? marcaFoto : marcarPublicacionSinVer(porQueNo),
+        foto || equipoDeLaPublicacion ? marcaFoto : marcarPublicacionSinVer(porQueNo),
         marcaDePublicacion({
           titulo: publicacion.titulo,
           descripcion: publicacion.descripcion,
@@ -2753,7 +2825,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     buscoSinExito,
     hayMas,
     porCategoria,
-  } = await decidir({ env, salida, texto: mensaje.texto, historialPrevio });
+  } = await decidir({ env, salida, texto: mensaje.texto, historialPrevio, senalado: equipoSenalado });
 
   // El precio que va en cada ficha depende de lo que preguntó el cliente
   // (Cashea, divisas, o el de por defecto). Se resuelve ACÁ y las fichas
@@ -2932,10 +3004,14 @@ async function publicacionDelTurno(env, mensaje, contacto) {
     // Hace falta el secreto ADS_TOKEN; sin él, esto no se intenta siquiera
     // y todo sigue funcionando con lo que traiga el aviso.
     // "leido" ya está usado más abajo para lo que se saca de un enlace.
-    const delAnuncio =
-      anuncio && !anuncio.titulo && !anuncio.foto && anuncio.id
-        ? await detallesDelAnuncio(env, anuncio.id)
-        : null;
+    //
+    // Y no solo cuando el aviso llega pelado (30-sep-2026): muchas veces
+    // trae la FOTO pero no el título, o un título que no nombra el equipo
+    // ("¡Oferta!"). Con la foto sola el equipo lo adivina la IA de visión,
+    // y un Note 15 y un Note 17 se parecen. El texto del anuncio lo dice
+    // exacto. Se guarda 30 minutos por anuncio (ver anuncio.js), así que
+    // cuesta una llamada por anuncio, no una por cliente.
+    const delAnuncio = anuncio?.id ? await detallesDelAnuncio(env, anuncio.id) : null;
 
     const delPost = anuncio?.publicacion
       ? await publicacionPorId(env, anuncio.publicacion)
@@ -2948,7 +3024,7 @@ async function publicacionDelTurno(env, mensaje, contacto) {
             url: anuncio.foto || delAnuncio?.imagen || delPost?.imagen || "",
             // El título del anuncio, su texto y el pie del post:
             // cualquiera de los tres puede ser el que nombre el equipo.
-            titulo: [anuncio.titulo || delAnuncio?.titulo, delAnuncio?.texto, delPost?.titulo]
+            titulo: [...new Set([anuncio.titulo, delAnuncio?.titulo, delAnuncio?.texto, delPost?.titulo])]
               .filter(Boolean)
               .join(" · "),
             enlace: delPost?.permalink || "",
@@ -3633,6 +3709,72 @@ function equipoQueNombra(texto, productos) {
   return nombraDelCatalogo(texto, productos) || mejorDelCatalogo(texto, productos);
 }
 
+// "¿Tienes otros?", "¿qué más modelos hay?": no quiere solo ese.
+const PIDE_OTROS = /\b(otros?|otras?|dem[aá]s|m[aá]s\s+(modelos|opciones|equipos|tel[eé]fonos))\b/i;
+
+// ¿El título es EL MISMO equipo que nombra el texto, un pariente, o solo la
+// marca? (ver modelo.js). Un producto sin número de modelo —un mouse, un
+// cable— no tiene con qué contradecir al texto: si lo nombra, es ese.
+//
+// Y lo mismo un accesorio, aunque lleve cifras ("Cargador original 45w"):
+// el parentesco de modelo.js es para teléfonos, y con un cargador daría
+// "familia" por cualquier palabra de menos.
+function relacionConElTexto(texto, titulo) {
+  if (!partesDelTitulo(titulo) || tipoDelProducto(titulo) !== "telefono") return "mismo";
+  return parentesco(texto, titulo);
+}
+
+// QUÉ EQUIPO SEÑALA EL TEXTO DE UN ANUNCIO O UNA PUBLICACIÓN.
+//
+//   · "exacto":  nombra un equipo que está en la hoja → ese y solo ese.
+//   · "agotado": nombra UN modelo que hoy no está (lo más cercano es un
+//                pariente o solo la marca) → "ese no, pero mira estos".
+//   · "varios":  nombra más de un teléfono → no se impone ninguno.
+//   · "":        no nombra nada reconocible.
+//
+// Lo usan el chat y /probar-anuncio, para que lo que ve el dueño al probar
+// un anuncio sea exactamente lo que hará el bot.
+function queEquipoSenala(texto, productos) {
+  if (telefonosQueNombra(texto, productos) > 1) return { estado: "varios", titulo: "", dicho: "" };
+
+  const titulo = equipoQueNombra(texto, productos);
+  if (!titulo) return { estado: "", titulo: "", dicho: "" };
+
+  // Solo el nombre del modelo, sin el resto del anuncio: "3 cuotas" o
+  // "$250" no pueden pasar por otro número de modelo.
+  const dicho = modeloNombrado(texto, partesDelTitulo(titulo)?.marca);
+  if (relacionConElTexto(dicho, titulo) === "mismo") return { estado: "exacto", titulo, dicho };
+  if (nombraUnModelo(dicho)) return { estado: "agotado", titulo, dicho };
+  return { estado: "", titulo: "", dicho: "" };
+}
+
+// Cuántos teléfonos DISTINTOS de la hoja nombra un texto. Para saber si un
+// anuncio es de UN equipo o de varios ("Llegaron el A17, el A27 y el A37").
+//
+// Cuenta el número de modelo de cada teléfono de la hoja cuando aparece en
+// el texto con cara de modelo: con letra ("a57", "x8") o justo detrás de
+// su marca o su línea ("note 17", "spark 50"). Así el "3" de "3 cuotas" o
+// el "250" de un precio no cuentan como teléfonos.
+function telefonosQueNombra(texto, productos) {
+  const suyas = palabrasDe(texto);
+  const vistos = new Set();
+
+  for (const producto of productos) {
+    if (tipoDelProducto(producto.titulo) !== "telefono") continue;
+    const partes = partesDelTitulo(producto.titulo);
+    if (!partes) continue;
+
+    suyas.forEach((palabra, i) => {
+      if (palabra !== partes.numero) return;
+      const antes = suyas[i - 1];
+      const conCara = /[a-z]/.test(palabra) || antes === partes.marca || partes.linea.includes(antes);
+      if (conCara) vistos.add(`${partes.marca} ${palabra}`);
+    });
+  }
+
+  return vistos.size;
+}
+
 function despejar(texto) {
   return String(texto || "")
     .toLowerCase()
@@ -3670,6 +3812,12 @@ function primerNombre(nombre) {
 const PRESENTACION =
   /^\s*[¡!]*\s*hola\b[^\n]{0,25}?\bsoy\s+(la|el)\s+asistente(\s+virtual)?(\s+de\s+[^\n]{0,30}?)?\s*[👋😊🙌]*\s*[.!,]*\s*/i;
 
+// La bienvenida ENTERA, para conservarla: "¡Hola María! Soy la asistente
+// virtual de EPICELL 👋". (PRESENTACION sirve para quitarla, pero corta en
+// "de" y se deja fuera el nombre de la tienda.)
+const SU_BIENVENIDA =
+  /^\s*[¡!]*\s*hola\b[^\n]{0,25}?\bsoy\s+(la|el)\s+asistente(\s+virtual)?(\s+de\s+(?:la\s+tienda|[\p{L}\d]+))?[\s.!,]*[👋😊🙌]?/iu;
+
 function sinBienvenida(respuesta) {
   const recortado = respuesta.replace(PRESENTACION, "").trim();
   // Si al quitarla no queda nada que decir, es que el mensaje era solo el
@@ -3681,7 +3829,7 @@ function sinBienvenida(respuesta) {
 // De lo que escribió el modelo a lo que se le manda al cliente: se limpia el
 // término, se le quita el color, se busca en la hoja y se decide si la
 // respuesta del modelo sirve o hay que sustituirla.
-async function decidir({ env, salida, texto, historialPrevio }) {
+async function decidir({ env, salida, texto, historialPrevio, senalado = "" }) {
   // El color se busca en lo que escribió EL CLIENTE, no en el término que
   // escribió el modelo: si el modelo ya lo quitó por su cuenta, el cliente
   // igual lo preguntó y el asesor tiene que enterarse.
@@ -3744,8 +3892,34 @@ async function decidir({ env, salida, texto, historialPrevio }) {
        · Nada: el camino de siempre.
      ───────────────────────────────────────────────────────────────── */
   const enLaHoja = await catalogoCompleto(env);
-  const elQuePidio = equipoQueNombra(texto, enLaHoja);
-  const relacion = elQuePidio ? parentesco(texto, elQuePidio) : "";
+  const loQueEscribio = equipoQueNombra(texto, enLaHoja);
+
+  // EL EQUIPO DEL ANUNCIO CUENTA COMO SI LO HUBIERA ESCRITO (30-sep-2026).
+  //
+  // El dueño: "las personas que vienen de los anuncios no responde bien,
+  // no manda las imágenes exactas". El anuncio era del Poco X8 y el
+  // cliente llega con el mensaje de Meta —"¡Hola! Quiero más
+  // información"—, que no nombra nada. El modelo buscaba "Poco" (y salían
+  // los tres Poco) o no buscaba nada y preguntaba "¿qué equipo buscas?" a
+  // alguien que acababa de verlo en pantalla.
+  //
+  // Si el anuncio (o la publicación compartida) nombra un equipo de la
+  // hoja, y el cliente NO nombró otro, es ESE. Si nombró otro, manda él.
+  //
+  // Y con él vale lo mismo que con lo que escribe el cliente: si el del
+  // anuncio se agotó, se le dice por su nombre y se le enseña lo parecido.
+  const textoDelAnuncio = !loQueEscribio && senalado ? senalado : "";
+  const delAnuncio = textoDelAnuncio ? equipoQueNombra(textoDelAnuncio, enLaHoja) : "";
+  const elQuePidio = loQueEscribio || delAnuncio;
+  // Dónde se nombró: en su mensaje o en el anuncio.
+  const dondeLoNombro = loQueEscribio ? texto : textoDelAnuncio;
+  const relacion = loQueEscribio
+    ? parentesco(texto, loQueEscribio)
+    : delAnuncio
+      ? relacionConElTexto(textoDelAnuncio, delAnuncio)
+      : "";
+  // El del anuncio, cuando está en la hoja: ese y solo ese.
+  const elDelAnuncio = delAnuncio && relacion === "mismo" ? delAnuncio : "";
 
   // Si el modelo escribió el texto pensando en otro equipo, ese texto ya no
   // sirve: se le cambia por uno que no nombre ningún modelo.
@@ -3772,13 +3946,16 @@ async function decidir({ env, salida, texto, historialPrevio }) {
         `El cliente nombró "${elQuePidio}" y el modelo iba a buscar ` +
           `"${termino || "nada"}": mando lo que él escribió.`
       );
-      elModeloHablabaDeOtro = Boolean(termino);
+      // Con el del anuncio, además, cuenta el "no buscar nada": su texto
+      // ("¿qué equipo buscas?") no sirve si va el equipo debajo.
+      elModeloHablabaDeOtro = Boolean(termino) || Boolean(elDelAnuncio);
       termino = suyo;
     }
-  } else if ((relacion === "familia" || relacion === "marca") && nombraUnModelo(texto)) {
-    noEstaElQuePidio = loQuePidioDicho(texto);
+  } else if ((relacion === "familia" || relacion === "marca") && nombraUnModelo(dondeLoNombro)) {
+    // (El del anuncio ya llega como nombre limpio: "Poco X8 Pro 5G".)
+    noEstaElQuePidio = loQueEscribio ? loQuePidioDicho(texto) : textoDelAnuncio;
     loQueSeLeOfrece =
-      relacion === "familia" ? raizDeLaFamilia(texto, elQuePidio) : partesDelTitulo(elQuePidio).marca;
+      relacion === "familia" ? raizDeLaFamilia(dondeLoNombro, elQuePidio) : partesDelTitulo(elQuePidio).marca;
 
     console.log(
       `Pidió "${noEstaElQuePidio}" y no está: lo más cercano es "${elQuePidio}" ` +
@@ -3803,7 +3980,7 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   // Si lo que pidió no está, la familia se ordena por parecido: al que pidió
   // un Redmi 17 le va primero el Redmi Note 17, no el Redmi A7.
   if (noEstaElQuePidio && productos.length > 1) {
-    productos = ordenarPorParecido(productos, texto);
+    productos = ordenarPorParecido(productos, dondeLoNombro);
   }
 
   // Y SI NOMBRÓ UN MODELO EXACTO, VA ESE — CON SUS VERSIONES, SIN LOS PARECIDOS.
@@ -3828,6 +4005,22 @@ async function decidir({ env, salida, texto, historialPrevio }) {
           "que se llaman parecido pero son otro modelo"
       );
       productos = suyos;
+      hayMas = false;
+    }
+  }
+
+  // DEL ANUNCIO, EL EQUIPO EXACTO: ni los Pro Max del Pro ni los demás de
+  // la marca. Todas sus filas sí (el mismo equipo en 128 y en 256 es el
+  // mismo anuncio). Si se agotó, esto no deja nada y se sigue con lo que
+  // haya encontrado la búsqueda: su familia, con el "ese no, pero mira".
+  if (elDelAnuncio && productos.length > 1) {
+    // Sin la capacidad: si la hoja algún día trae "A57 256GB" y "A57
+    // 512GB" como títulos aparte, son el mismo equipo del anuncio.
+    const sinGigas = (t) => despejar(t).replace(/\b\d+\s*(gb|tb)\b/g, "").replace(/\s+/g, " ").trim();
+    const exactos = productos.filter((p) => sinGigas(p.titulo) === sinGigas(elDelAnuncio));
+    if (exactos.length && exactos.length < productos.length) {
+      console.log(`Del anuncio: dejo solo "${elDelAnuncio}" (${exactos.length} de ${productos.length})`);
+      productos = exactos;
       hayMas = false;
     }
   }
@@ -4106,6 +4299,12 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   // búsqueda: no sabe en qué capacidades quedó el equipo ni si hubo algo.
   let respuestaCliente = respuestaFinal;
 
+  // Cuando la frase del modelo se cambia por una del código, la bienvenida
+  // que él escribió se queda si es el primer mensaje: a quien llega de un
+  // anuncio se le saluda antes de enseñarle el equipo.
+  const saludoDelModelo = historialPrevio ? "" : (respuestaFinal.match(SU_BIENVENIDA)?.[0] || "").trim();
+  const conSuSaludo = (frase) => [saludoDelModelo, frase].filter(Boolean).join(" ");
+
   if (preguntoPorPagos) {
     respuestaCliente = PAGOS_CASHEA;
   } else if (soloAsesor) {
@@ -4129,13 +4328,16 @@ async function decidir({ env, salida, texto, historialPrevio }) {
   } else if (noEstaElQuePidio && productos.length) {
     // Lo que pidió no está: se le dice, nombrando las dos cosas, antes de
     // que ninguna otra frase le diga "¡claro, aquí lo tienes!".
-    respuestaCliente = noEsePeroMira(noEstaElQuePidio, productos, loQueSeLeOfrece);
+    respuestaCliente = conSuSaludo(noEsePeroMira(noEstaElQuePidio, productos, loQueSeLeOfrece));
   } else if (elModeloHablabaDeOtro && productos.length) {
     // Escribió su respuesta para un equipo distinto del que pidió el
     // cliente ("te muestro los Redmi Note 17" cuando pidió el Redmi 17).
     // Las fichas de abajo ya dicen cuál es: arriba va una frase que no
     // nombre ningún modelo.
-    respuestaCliente = alAzar(SI_LO_TENGO);
+    //
+    // Si es su primer mensaje, la bienvenida que escribió el modelo se
+    // queda: a quien llega de un anuncio se le saluda antes del equipo.
+    respuestaCliente = conSuSaludo(alAzar(SI_LO_TENGO));
   } else if (leMuestroLoQuePidio && (AFIRMA_QUE_NO_HAY.test(respuestaFinal) || porCategoria)) {
     // DIJO QUE NO HAY ALGO QUE SÍ ESTÁ EN EL CARRUSEL QUE VA DEBAJO.
     //

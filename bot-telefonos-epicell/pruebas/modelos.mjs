@@ -4,7 +4,7 @@
 // agotado. El bot contestó "¡Claro! Te muestro los Redmi Note 17", como si
 // fueran el mismo. Tocaba decir que el Redmi 17 no está y ofrecer el Note
 // 17 como lo que es: un pariente.
-import { parentesco, loQuePidioDicho, raizDeLaFamilia } from "./.stub/modelo.js";
+import { parentesco, loQuePidioDicho, raizDeLaFamilia, modeloNombrado } from "./.stub/modelo.js";
 import { turno } from "./banco.mjs";
 
 let fallos = 0;
@@ -25,6 +25,13 @@ comprobar("«note 17» y Note 17 Pro: el mismo (Pro es una versión)", parentesc
 comprobar("«note 20» y Note 17: pariente (misma línea)", parentesco("tienen el redmi note 20?", "Redmi Note 17"), "familia");
 comprobar("«poco z99» y Poco M8: solo la marca", parentesco("tienes poco z99?", "Poco M8 pro 5G"), "marca");
 comprobar("la capacidad no cambia el modelo", parentesco("samsung a57 de 256", "Samsung A57 128GB"), "mismo");
+// "5G" y "8/256" no son otro número de modelo (30-sep-2026): con ellos,
+// "¿tienes el poco x8 pro 5g?" salía como "no lo tengo" teniéndolo.
+comprobar("«poco x8 pro 5g» y Poco X8 pro 5G: el mismo", parentesco("tienes el poco x8 pro 5g?", "Poco X8 pro 5G"), "mismo");
+comprobar("«a57 12/512» y Samsung A57: el mismo", parentesco("samsung a57 12/512", "Samsung A57"), "mismo");
+comprobar("«x8» no es el M8 aunque los dos sean Poco pro 5G", parentesco("Poco X8 pro 5G 8/256", "Poco M8 pro 5G"), "marca");
+comprobar("el nombre sale limpio de un anuncio", modeloNombrado("🔥 Poco X8 pro 5G 8/256 — ¡llévatelo hoy!", "poco"), "Poco X8 Pro 5G");
+comprobar("sin el relleno de delante", modeloNombrado("El nuevo Note 17 Pro llegó", "redmi"), "Note 17 Pro");
 comprobar("un cargador no es un teléfono con esta forma", parentesco("tienen iphone?", "Apple cargador iphone 20w"), "");
 
 comprobar("se nombra con sus palabras", loQuePidioDicho("tienes el redmi 17?"), "Redmi 17");
