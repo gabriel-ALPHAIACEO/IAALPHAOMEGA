@@ -7,7 +7,6 @@ Repositorio de trabajo para los chatbots de IA de los distintos clientes. Punto 
 | Carpeta | Qué es |
 |---|---|
 | `invictus-bot/` | **Producción.** El código que atiende clientes hoy. Todo cambio para Invictus va acá. |
-| `worker/` | Rama **multi-tienda sin fusionar** (`tienda.js`, `tiendas/*.js`, prompts con `{{TIENDA}}`). Base más vieja: sin visión en dos pasos, sin `hayMas`, sin despausar, sin nombres de clientes. No copiar sus archivos a la carpeta de despliegue. |
 
 Lo que sigue describe el bot en general; donde hay diferencia, manda `invictus-bot/`.
 
@@ -388,7 +387,7 @@ Las dos ramas divergieron a arquitecturas **incompatibles**:
    ```
    npx wrangler d1 create invictus-bot-db
    ```
-   Copiar el `database_id` que imprime ese comando dentro de `worker/wrangler.toml` (busca `PENDIENTE`), y luego:
+   Copiar el `database_id` que imprime ese comando dentro del `wrangler.toml` de esa tienda (busca `PENDIENTE`), y luego:
    ```
    npx wrangler d1 migrations apply invictus-bot-db --remote
    ```
@@ -396,17 +395,36 @@ Las dos ramas divergieron a arquitecturas **incompatibles**:
 3. **Confirmar en el panel de Meta Developers** que el webhook de Instagram está suscrito al campo `message_echoes` además de `messages` — sin eso, la pausa automática cuando un asesor responde a mano no funciona (nunca le llega el eco al Worker).
 4. Revisar `GET /estado` después de desplegar: tiene que decir "DB conectada". Si dice "FALTA", el paso 1 no se completó.
 
-### Multi-tienda (22-sep-2026)
+### Un Worker por tienda (decidido el 29-sep-2026)
 
-El mismo código atiende a varias tiendas. Lo que cambia por tienda son dos archivos: `wrangler.toml` (credenciales, Shopify, WhatsApp, y `TIENDA = "..."`) y `src/tiendas/<tienda>.js` (nombre, horarios, calidad, catálogo, términos de búsqueda). **Todo lo que hay en `src/` es idéntico en las dos carpetas de despliegue**, así que un arreglo se aplica pegando los mismos archivos en las dos.
+Se probó la vía multi-tienda —un solo Worker atendiendo a varias, con
+`tienda.js`, `tiendas/*.js` y prompts con `{{TIENDA}}`— y **se descartó**. Con
+pocos clientes que son negocios de verdad, el aislamiento vale más que dar de
+alta rápido:
 
-- `src/tienda.js` — elige la tienda según `env.TIENDA` y rellena los marcadores de los prompts. Si `TIENDA` no existe, **lanza** en vez de seguir: con la tienda equivocada el bot se presentaría con el nombre de otro negocio y buscaría en el catálogo que no es.
-- `src/tiendas/invictus.js`, `src/tiendas/emperador.js` — los datos de cada una.
-- Los prompts (`texto.txt`, `vision.txt`) quedaron **sin marca**: `{{TIENDA}}`, `{{CALIDAD}}`, `{{CATALOGO}}`, `{{TERMINOS}}`, `{{HORARIOS}}`. Se rellenan una vez por arranque en `ia.js` y se guardan en memoria. Así las ~1000 líneas de tono, reglas y ejemplos —lo que más costó afinar— valen para cualquier tienda.
-- **Comprobado que Invictus no cambia:** el prompt reconstruido difiere del anterior en 8 líneas, todas intencionales (el nombre fijo que se quitó, un salto de línea y un ejemplo con la frase de calidad completa).
-- Una tienda **sin catálogo todavía** no rompe: `tienda.js` mete en su lugar un texto que le dice al modelo que use las palabras exactas del cliente y no invente nombres de modelos. Conversa y vende; busca peor hasta que se cargue la lista.
-- `parecidos.js` se comparte a propósito: el parecido entre un Vapormax y un TN es de los zapatos, no de quién los venda. Si una tienda no maneja un término, la búsqueda devuelve cero y se pasa a la siguiente alternativa.
-- **El Emperador vende doble A y triple A**, no 1.1 como Invictus. Como son dos gamas y el bot no puede saber de cuál es un par concreto (ve el título y la foto, no la gama), su sección de calidad nombra las dos y manda al asesor cuando preguntan por un modelo en particular. Decir "triple A" de un par que es doble A es la equivocación más cara que podría cometer.
+- Un despliegue malo tumba **una** tienda, no todas a la vez.
+- Cada tienda tiene su D1. Los datos de un cliente no pueden mezclarse con los
+  de otro — y eso no es teórico: `contactos` se indexa por el igsid del
+  cliente, y la misma persona puede escribirle a dos tiendas. En una base
+  compartida sería la misma fila.
+- El índice del catálogo se lee entero (`SELECT ... FROM catalogo`). Compartido,
+  el cotejo visual de una tienda compararía la foto contra los zapatos de otra.
+- `gasto.js` ya mide por tienda sin hacer nada más: cada Worker tiene su tabla.
+
+La carpeta `worker/` se borró. Está en el historial de git si hace falta.
+
+**Lo que evita que las copias se separen no es meter todo en un Worker**, es
+que `src/` sea idéntico en todas las carpetas y que un arreglo se pegue en
+todas. Lo que NUNCA se cruza: `wrangler.toml`, `src/prompts/` y los secretos.
+
+- `parecidos.js` se comparte a propósito: el parecido entre un Vapormax y un TN
+  es de los zapatos, no de quién los venda. Si una tienda no maneja un término,
+  la búsqueda devuelve cero y se pasa a la siguiente alternativa.
+- **El Emperador vende doble A y triple A**, no 1.1 como Invictus. Como son dos
+  gamas y el bot no puede saber de cuál es un par concreto (ve el título y la
+  foto, no la gama), su sección de calidad nombra las dos y manda al asesor
+  cuando preguntan por un modelo en particular. Decir "triple A" de un par que
+  es doble A es la equivocación más cara que podría cometer.
 - Guía de montaje paso a paso: `MONTAR-OTRA-TIENDA.md`.
 
 ### Cotejo visual contra el catálogo (22-sep-2026)
@@ -442,7 +460,7 @@ Ahora la tabla se crea desde el código igual que las columnas (`CREATE TABLE IF
 ### Estructura
 
 ```
-worker/
+invictus-bot/        (y emperador-bot/, bot-telefonos-epicell/: la misma forma)
   wrangler.toml          configuración del Worker (vars, binding de D1, binding de prompts .txt)
   migrations/
     0001_contactos.sql   crea la tabla de memoria en D1
@@ -472,11 +490,11 @@ worker/
 
 ### Prompts
 
-- `worker/src/prompts/texto.txt` — prompt principal de conversación/ventas. Devuelve JSON `{"respuesta":"...","buscar":"...","historial":"..."}`. Tabla de términos verificados para el catálogo de Shopify, reglas de tono (español neutro), bienvenida, manejo de historial, divisas, tallas, precios, etc.
+- `src/prompts/texto.txt` — prompt principal de conversación/ventas. Devuelve JSON `{"respuesta":"...","buscar":"...","historial":"..."}`. Tabla de términos verificados para el catálogo de Shopify, reglas de tono (español neutro), bienvenida, manejo de historial, divisas, tallas, precios, etc.
   - **21-sep-2026 — vendedor, no repartidor de enlaces.** Se eliminó la contradicción entre "CATÁLOGO GENERAL" (elige una marca y búscala) y "MÁS MODELOS" (no busques, manda a la tienda): ganó la primera. "¿Qué más tienen?", "¿eso es todo?" y "¿solo tienen esos?" ahora se responden mostrando OTRA marca del catálogo. Sección nueva **"SI NO SABE QUÉ QUIERE, OFRÉCELE TÚ"**, con una tabla de pista→búsqueda ("para el gym" → `metcon`, "algo elegante" → `Superstar`, "para mi novia" → `dama`). Punto 7 nuevo en el repaso final: si la respuesta manda al catálogo, se reescribe. Se arregló además un ejemplo cortado a la mitad ("PEDIR MÁS — variantes del mismo producto" no tenía ni mensaje del cliente ni JSON).
   - **21-sep-2026 — historias reales.** Toda la sección "RESPUESTAS A HISTORIAS" describía un marcador `[PRODUCTO DE LA HISTORIA: X]` que el código dejó de mandar al retirar ManyChat: eran ~70 líneas y 6 ejemplos enseñando un contrato inexistente. Reescrita con los marcadores que `index.js` sí manda (historia en vídeo / imagen que no se pudo ver), y con la regla que faltaba: si el mensaje del cliente ya nombra marca, color o tipo, se busca en vez de preguntar.
   - **21-sep-2026 — se resolvió la contradicción del "¡sí tenemos!".** El prompt lo prohibía en una sección y lo pedía como ejemplo correcto en otras tres. Ahora la regla es una sola y tiene condición verificable: el entusiasmo vale **si en el mismo mensaje `buscar` no es "NADA"** — si la búsqueda no devuelve nada, `decidir()` sustituye la respuesta entera por la del asesor antes de que llegue al cliente, así que nunca se afirma en falso.
-- `worker/src/prompts/vision.txt` — prompt de análisis de imágenes. Devuelve JSON `{"visto":"...","rasgos":{...},"respuesta":"...","buscar":"...","historial":"..."}`. Usa "escalera de confianza" (4 niveles) y firmas visuales por marca/modelo.
+- `src/prompts/vision.txt` — prompt de análisis de imágenes. Devuelve JSON `{"visto":"...","rasgos":{...},"respuesta":"...","buscar":"...","historial":"..."}`. Usa "escalera de confianza" (4 niveles) y firmas visuales por marca/modelo.
   - **19-sep-2026 (1):** ampliado con firmas visuales para ~30 marcas más (LV, Dior, Hermès, Golden Goose, Off White, Bape, Asics, Salomon, firmas de jugadores NBA, etc. — antes solo cubría ~12 modelos de Nike/Adidas/On Cloud/Vans/Puma) y con una "regla de marca única" que evita exigir dos rasgos en marcas donde el catálogo solo tiene un modelo. También se suavizó el sesgo hacia "no reconozco nada" en la escalera de confianza.
   - **19-sep-2026 (2):** una foto de prueba real (Nike Uplift, verde menta) salió identificada como "Air Max 270" — mal, porque no había firma para Uplift ni para el propio Air Max 270. Se agregaron esas dos, más Huarache, Cortez, Vapormax, M2K Tekno, Waffle Trainer, Wildhorse, Total 90, Puma Palermo, Adidas SL 72, Adidas Bad Bunny (Forum) y NB 530 Miu Miu — y una regla nueva, "NO FUERCES EL AJUSTE AL MODELO MÁS PARECIDO".
   - **19-sep-2026 (3):** firma completa para Metcon 6/7 (suela plana con placa dura, muesca lateral para trepar cuerda) — antes solo tenía una línea suelta. Se aclaró que Metcon 6 y 7 buscan igual (`metcon`).

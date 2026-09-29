@@ -21,11 +21,21 @@ Como los archivos se pegan a mano, **cada entrega sube la constante `VERSION` de
 | `emperador-bot/` | **El Emperador** (calzado, Shopify). Copia al día de Invictus con sus propios prompts: calidad doble A / triple A en vez de 1.1. **Le falta el catálogo** — ver su `EMPEZAR-AQUI.md`. |
 | `kit-meta/` | Las piezas de Meta directo (`instagram.js`, `estado.js`, `imagen.js` + migraciones), copiadas de producción sin cambios, con `GUIA.md` para portarlas a otro bot. **Decisión del dueño (22-sep): todos los bots van a Meta directo, ManyChat se retira de todos.** |
 | `bot-telefonos-epicell/` | **EPICELL** (teléfonos, Google Sheets). Meta directo, completo. Ver su `PENDIENTE.md`. |
-| `worker/` | Rama **multi-tienda sin fusionar** (`tienda.js`, `tiendas/*.js`, prompts con `{{TIENDA}}`). Viene de una base más vieja: no tiene visión en dos pasos, ni `hayMas`, ni despausar, ni nombres de clientes. **No copiar sus archivos a la carpeta de despliegue.** |
 
 **`src/` es casi idéntico en `invictus-bot/`, `emperador-bot/` y `bot-telefonos-epicell/` a propósito.** Un arreglo se aplica pegando el mismo archivo en las carpetas que correspondan. Lo que NUNCA se cruza entre tiendas: `wrangler.toml`, `src/prompts/` y los secretos — ahí vive lo que hace que cada bot sea de su tienda. (EPICELL además lee de Google Sheets en vez de Shopify, así que sus `sheets.js`, `capacidad.js` y `recomendados.js` son suyos.)
 
-Si algún día se integra el multi-tienda, se porta `tienda.js` + `tiendas/` + los prompts con marcadores **hacia** `invictus-bot/`, nunca al revés.
+**UN WORKER POR TIENDA, y así se queda (decidido el 29-sep-2026).** Se probó
+la vía multi-tienda —un solo Worker que atendía a varias con `tienda.js` y
+`tiendas/*.js`— y se descartó: con pocos clientes que son negocios de verdad,
+el aislamiento vale más que dar de alta rápido. Un despliegue malo tumba a UNA
+tienda, no a todas, y cada una tiene su D1 sin que los datos se mezclen.
+
+Esa carpeta (`worker/`) se borró para que nadie vuelva a trabajar así. Está en
+el historial de git si alguna vez hace falta mirarla.
+
+Lo que evita las copias que se separan no es meter todo en un Worker: es que
+`src/` sea idéntico en todas las carpetas y que un arreglo se pegue en todas.
+Eso ya es la regla de arriba.
 
 ## Reglas aprendidas a golpes
 
