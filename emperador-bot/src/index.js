@@ -72,7 +72,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-29 (9) · El Emperador corre 100% con Gemini Flash-Lite";
+const VERSION = "2026-09-29 (10) · /estado solo enseña lo del proveedor que se usa";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -488,6 +488,11 @@ export default {
         indexados = -1;
       }
 
+      // Un bot que corre entero con Gemini no tiene por qué enseñar la
+      // configuración de OpenAI: sobra, y una alarma que no aplica es
+      // ruido que tapa las que sí.
+      const todoGemini = String(env.PROVEEDOR || "").toLowerCase() === "gemini";
+
       const gasto = await gastoDelMes(env);
 
       return texto200(
@@ -497,7 +502,17 @@ export default {
           "  el despliegue no llegó: vuelve a correr `wrangler deploy`.",
           "",
           "SECRETOS",
-          `  OPENAI_API_KEY      ${secreto("OPENAI_API_KEY")}`,
+          // LA CLAVE DEL QUE DE VERDAD ATIENDE. Enseñar "OPENAI_API_KEY
+          // FALTA" en un bot que corre entero con Gemini es una alarma
+          // falsa: da un susto y esconde lo que sí importa mirar.
+          ...(todoGemini
+            ? [`  GEMINI_API_KEY      ${secreto("GEMINI_API_KEY")}`]
+            : [
+                `  OPENAI_API_KEY      ${secreto("OPENAI_API_KEY")}`,
+                ...(env.PROVEEDOR_VISION === "gemini"
+                  ? [`  GEMINI_API_KEY      ${secreto("GEMINI_API_KEY")}   (para las fotos)`]
+                  : []),
+              ]),
           `  SHOPIFY_TOKEN       ${secreto("SHOPIFY_TOKEN")}`,
           `  SLACK_WEBHOOK       ${secreto("SLACK_WEBHOOK")}`,
           `  META_APP_SECRET     ${secreto("META_APP_SECRET")}   (la de Facebook)`,
@@ -512,8 +527,14 @@ export default {
           `  WHATSAPP            ${String(env.WHATSAPP || "").replace(/\D/g, "") ? "puesto" : "sin poner (no sale el botón Comprar)"}`,
           `  PAUSA_HORAS         ${env.PAUSA_HORAS || `${PAUSA_HORAS_POR_DEFECTO} (por defecto)`}   (se cuenta desde el ULTIMO mensaje del asesor)`,
           `  FRASE_DESPAUSAR     "${fraseDespausar(env)}"   (el asesor la manda en el chat y el bot vuelve)`,
-          `  OPENAI_MODELO       ${env.OPENAI_MODELO || "gpt-4o-mini (por defecto)"}   (el que redacta las respuestas)`,
-          `  OPENAI_MODELO_VISION ${env.OPENAI_MODELO_VISION || "gpt-4o (por defecto)"}   (el que identifica las fotos)`,
+          ...(todoGemini
+            ? []
+            : [
+                `  OPENAI_MODELO       ${env.OPENAI_MODELO || "gpt-4o-mini (por defecto)"}   (el que redacta las respuestas)`,
+                ...(env.PROVEEDOR_VISION === "gemini"
+                  ? []
+                  : [`  OPENAI_MODELO_VISION ${env.OPENAI_MODELO_VISION || "gpt-4o (por defecto)"}   (el que identifica las fotos)`]),
+              ]),
           `  PROVEEDOR           ${env.PROVEEDOR === "gemini" ? "gemini  ← TODO va a Gemini" : env.PROVEEDOR_VISION === "gemini" ? "openai, pero las FOTOS van a Gemini" : "openai (por defecto)"}`,
           ...(env.PROVEEDOR === "gemini" || env.PROVEEDOR_VISION === "gemini"
             ? [
@@ -528,7 +549,7 @@ export default {
             : []),
           `  COTEJO_BARRIDO      ${env.COTEJO_BARRIDO === "no" ? "no (apagado)" : "si"}   (mirar el catálogo cuando el nombre no acierta)`,
           "",
-          "GASTO DE OPENAI ESTE MES — medido, no estimado",
+          `GASTO DE ${todoGemini ? "GEMINI" : "IA"} ESTE MES — medido, no estimado`,
           ...(gasto
             ? [
                 ...gasto.filas.map(
