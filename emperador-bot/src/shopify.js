@@ -246,3 +246,38 @@ function aProducto(env) {
     url: node.onlineStoreUrl || env.URL_CATALOGO,
   });
 }
+
+// LA MISMA FOTO, PERO PEQUEÑA.
+//
+// EL FALLO QUE ARREGLA (24-sep-2026, capturado en producción):
+//
+//   El modelo respondió 400 · "Unable to download content from the
+//   provided URL before the timeout" · code: "invalid_image_url"
+//
+// featuredImage devuelve la imagen ORIGINAL, que en esta tienda son fotos
+// de varios MB. Mandarle diez de esas a OpenAI en una sola llamada la
+// hace descargarlas todas antes de mirar nada, y se pasa del tiempo que
+// se da a sí misma. La llamada entera falla — los diez candidatos de esa
+// ronda se pierden, no solo el que pesaba.
+//
+// El CDN de Shopify redimensiona al vuelo si se le pide por la URL. Una
+// foto de 512px se descarga en un pestañeo y, en "detail: low", el modelo
+// no ve ni un pixel menos: a esa resolución la imagen se reescala igual
+// antes de mirarla.
+//
+// No cambia la clave del índice a propósito: lo guardado sigue siendo la
+// URL original, y esto se aplica solo al mandarla. Así el arreglo no
+// obliga a reindexar nada.
+const ANCHO_PARA_EL_MODELO = 512;
+
+export function urlPequena(url) {
+  const limpia = String(url || "");
+  if (!limpia) return "";
+
+  // Solo el CDN de Shopify entiende este parámetro. Cualquier otra cosa
+  // se devuelve tal cual: mejor una foto grande que una URL rota.
+  if (!/cdn\.shopify\.com|myshopify\.com/i.test(limpia)) return limpia;
+  if (/[?&]width=/i.test(limpia)) return limpia;
+
+  return limpia + (limpia.includes("?") ? "&" : "?") + `width=${ANCHO_PARA_EL_MODELO}`;
+}

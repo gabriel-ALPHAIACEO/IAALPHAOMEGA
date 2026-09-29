@@ -20,8 +20,13 @@ import promptTexto from "./prompts/texto.txt";
 import promptVision from "./prompts/vision.txt";
 import promptCotejo from "./prompts/cotejo.txt";
 import listaCatalogo from "./prompts/catalogo.txt";
+import listaModelos from "./prompts/modelos.txt";
 import promptIndexar from "./prompts/indexar.txt";
 import { RASGOS_CLAVE } from "./identificar.js";
+import { urlPequena } from "./shopify.js";
+import { comoDataUri } from "./imagen.js";
+import { metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
+import { anotarGasto } from "./gasto.js";
 
 // EL CATÁLOGO SE PEGA AL PROMPT AL ARRANCAR, NO EN CADA MENSAJE.
 //
@@ -42,6 +47,29 @@ Eso significa que NO SABES qué modelos existen aquí. No supongas que hay
 algo por ser una marca conocida, y no nombres modelos concretos que no te
 haya dicho el cliente: usa sus palabras exactas y deja que el catálogo
 responda. Si existe, aparece.)`;
+
+// Lo que se le dice al modelo cuando prompts/pagos.txt está vacío: lo mismo
+// que hacía antes de que existiera este bloque, pasar la pregunta a un
+// asesor. Una tienda que todavía no cargó sus métodos NO empieza a
+// inventárselos.
+const SIN_PAGOS = `(Todavía no están cargados los métodos de pago de esta tienda.
+
+Así que NO SABES con qué se puede pagar acá. Si preguntan por métodos o
+formas de pago, responde "Eso te lo confirma un asesor en un momento 😊" y
+"buscar" es "NADA". No nombres ni un solo método: ni pago móvil, ni
+transferencia, ni efectivo, ni Zelle. Ninguno.)`;
+
+// Y lo mismo con la tasa: sin dato cargado, la pregunta sigue yendo al
+// asesor como hasta ahora. Este texto entra DENTRO de una frase del prompt
+// ("ESTA TIENDA RECIBE A ..."), así que está escrito para leerse ahí y para
+// anular lo que sigue en ese bloque.
+const SIN_TASA = `UNA TASA QUE TODAVÍA NO ESTÁ CARGADA, así que NO la sabes y
+TODO LO QUE SIGUE EN ESTE BLOQUE NO APLICA: si preguntan por la tasa, el
+cambio o los bolívares, responde "Eso te lo confirma un asesor en un momento
+😊", "buscar" es "NADA", y no nombres ninguna tasa —ni la del BCV ni otra`;
+
+const SIN_MODELOS = `(Todavía no está cargada la lista de modelos de esta tienda.
+Identifica por lo que VES y quédate en la marca si no estás seguro.)`;
 
 function textoConCatalogo() {
   if (!promptTextoArmado) {
@@ -65,9 +93,69 @@ function textoConCatalogo() {
         `Catálogo pegado al prompt: ${lista.split("\n").filter(Boolean).length} títulos`
       );
     }
+
+    // LOS MÉTODOS DE PAGO VAN POR EL MISMO CAMINO QUE EL CATÁLOGO: una sola
+    // lista (prompts/pagos.txt), leída una vez y pegada acá. Así el prompt y
+    // la red de seguridad de pagos.js no pueden decir cosas distintas.
+    const metodos = metodosDePago();
+    if (!metodos.length) {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{PAGOS}}", SIN_PAGOS);
+      console.log("Sin métodos de pago cargados: esa pregunta seguirá yendo al asesor");
+    } else {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{PAGOS}}", bloqueDeMetodos());
+      console.log(`Métodos de pago pegados al prompt: ${metodos.length}`);
+    }
+
+    const tasa = tasaDePago();
+    if (!tasa) {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{TASA}}", SIN_TASA);
+      console.log("Sin tasa cargada: esa pregunta seguirá yendo al asesor");
+    } else {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{TASA}}", tasa);
+      console.log(`Tasa pegada al prompt: ${tasa}`);
+    }
   }
 
   return promptTextoArmado;
+}
+
+// LA VISIÓN TAMBIÉN NECESITA SABER QUÉ EXISTE, PERO NO LA LISTA ENTERA.
+//
+// El 22-sep se le quitaron al prompt de visión los 347 títulos porque
+// costaban ~3.100 tokens en CADA foto, contra el cupo de 30.000 por
+// minuto de OpenAI — el mismo del que vive el cotejo visual. El recorte
+// estaba bien, pero dejó al modelo sin saber qué se vende aquí, justo
+// mientras el prompt le exige escribir "buscar" como aparece en los
+// títulos.
+//
+// prompts/modelos.txt es el término medio: los modelos sin género ni
+// color, ~640 tokens. Que hay 17 "New Balance 9060" por color no le hace
+// falta saberlo; de elegir el color se encarga el cotejo, que mira la foto.
+let promptVisionArmado = "";
+
+function visionConModelos() {
+  if (!promptVisionArmado) {
+    const lista = listaModelos
+      .split("\n")
+      .filter((linea) => !linea.trimStart().startsWith("#"))
+      .join("\n")
+      .trim();
+
+    // Sin lista, el prompt sigue sirviendo: se queda con sus firmas
+    // visuales y su tabla de términos. Es el estado de una tienda recién
+    // montada, igual que con el catálogo.
+    if (!lista) {
+      promptVisionArmado = promptVision.replace("{{MODELOS}}", SIN_MODELOS);
+      console.log("Sin lista de modelos: la visión irá solo con sus firmas visuales");
+    } else {
+      promptVisionArmado = promptVision.replace("{{MODELOS}}", lista);
+      console.log(
+        `Modelos pegados al prompt de visión: ${lista.split("\n").filter(Boolean).length}`
+      );
+    }
+  }
+
+  return promptVisionArmado;
 }
 
 const API = "https://api.openai.com/v1/chat/completions";
@@ -136,6 +224,7 @@ export function modeloDeIndice(env) {
   return env.OPENAI_MODELO_INDICE || MODELO_INDICE_POR_DEFECTO;
 }
 
+
 // Del mensaje de OpenAI ("Please try again in 22.538s") sale cuánto
 // esperar. Si no se puede leer, 30 segundos, que es la ventana del
 // límite por minuto.
@@ -180,12 +269,34 @@ const ESQUEMA_IDENTIFICACION = {
         additionalProperties: false,
       },
       buscar: { type: "string" },
+      // EL COLOR DEL ZAPATO, en una palabra ("negro", "blanco", "azul"...)
+      // o "" si no se distingue.
+      //
+      // Va aparte de "visto" a propósito. Antes había que sacarlo de esa
+      // frase libre, y ahí "suela blanca" convertía un zapato negro en uno
+      // blanco. Con su propio campo, el modelo contesta por el zapato
+      // entero y el código no tiene que adivinar.
+      //
+      // Es lo que evita el fallo que más duele: la historia enseña el
+      // negro y el bot manda el blanco.
+      color: { type: "string" },
+      // LA FOTO ES UNA VITRINA, NO UN PRODUCTO.
+      //
+      // El dueño publica historias enseñando la tienda entera: estantes
+      // llenos, mesas con veinte pares, vídeos recorriendo el local. Ahí
+      // no hay un zapato que identificar, y elegir "el que sale más
+      // grande" es adivinar — le llegaron al cliente calzados que no
+      // tenían nada que ver con lo que él miraba.
+      //
+      // Con esto el bot deja de adivinar y le manda el catálogo completo,
+      // que es lo que de verdad responde a "quiero ver lo que tienen".
+      variosProductos: { type: "boolean" },
       // true = solo se reconoce la marca o familia, no el modelo exacto.
       // Con esto la IA de texto sabe si, además de mostrar la marca, tiene
       // que pedirle al cliente el nombre exacto en el mismo mensaje.
       pedirNombreExacto: { type: "boolean" },
     },
-    required: ["visto", "rasgos", "buscar", "pedirNombreExacto"],
+    required: ["visto", "rasgos", "buscar", "color", "variosProductos", "pedirNombreExacto"],
     additionalProperties: false,
   },
 };
@@ -247,7 +358,7 @@ async function llamar(
   env,
   sistema,
   contenido,
-  { maxTokens = 1024, json = true, schema = null, modelo = "" } = {}
+  { maxTokens = 1024, json = true, schema = null, modelo = "", alFallar = null } = {}
 ) {
   const cuerpo = {
     model: modelo || env.OPENAI_MODELO || MODELO_POR_DEFECTO,
@@ -290,6 +401,17 @@ async function llamar(
   if (!respuesta.ok) {
     const detalle = await respuesta.text();
 
+    // Se avisa del MOTIVO a quien llamó, para que pueda reaccionar. El
+    // caso que lo pidió: una foto del catálogo que OpenAI no consigue
+    // descargar tumba la llamada entera y con ella los 10 candidatos de
+    // esa ronda. Quien llama puede reintentar con menos.
+    if (typeof alFallar === "function") {
+      alFallar({
+        estado: respuesta.status,
+        deImagen: /invalid_image_url|Unable to download|Timeout while downloading/i.test(detalle),
+      });
+    }
+
     // 429 = límite de tokens por minuto de la organización. No es un
     // fallo del código ni de la petición: es que no queda cupo en este
     // minuto. Se anota para que el barrido no siga machacando.
@@ -303,6 +425,21 @@ async function llamar(
   }
 
   const datos = await respuesta.json();
+
+  // LO QUE COSTÓ, ANOTADO. OpenAI devuelve el gasto real de cada llamada y
+  // hasta ahora se tiraba. Sin esto no hay forma de saber qué parte del
+  // presupuesto se come una foto y qué parte un mensaje de texto — y con un
+  // presupuesto de 10 a 20 dólares al mes, eso es lo primero que hay que
+  // saber. Ver gasto.js.
+  if (datos.usage) {
+    await anotarGasto(env, {
+      modelo: cuerpo.model,
+      entrada: datos.usage.prompt_tokens || 0,
+      cacheadas: datos.usage.prompt_tokens_details?.cached_tokens || 0,
+      salida: datos.usage.completion_tokens || 0,
+    });
+  }
+
   return datos.choices?.[0]?.message?.content || null;
 }
 
@@ -317,11 +454,11 @@ export async function responderTexto(env, entrada) {
 }
 
 // SOLO identifica: no redacta nada para el cliente. Devuelve
-// { visto, rasgos, buscar, pedirNombreExacto } o null si algo falló.
+// { visto, rasgos, buscar, color, variosProductos, pedirNombreExacto } o null.
 export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) {
   const salida = await llamar(
     env,
-    promptVision,
+    visionConModelos(),
     [
       // detail:"high" fuerza la resolución máxima que admite el modelo. Sin
       // esto, OpenAI decide solo ("auto") y en fotos de producto —donde hay
@@ -362,6 +499,8 @@ export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) 
   return {
     visto: String(datos.visto || "").trim(),
     buscar: String(datos.buscar || "NADA").trim(),
+    color: String(datos.color || "").trim().toLowerCase(),
+    variosProductos: Boolean(datos.variosProductos),
     rasgos: datos.rasgos && typeof datos.rasgos === "object" ? datos.rasgos : null,
     pedirNombreExacto: Boolean(datos.pedirNombreExacto),
   };
@@ -385,7 +524,41 @@ export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) 
 // alta. Cualquier fallo (el modelo no responde, un índice fuera de
 // rango) devuelve null: esto es una mejora oportunista, nunca puede
 // dejar peor al cliente de lo que estaba sin ella.
+// UNA FOTO QUE NO SE PUEDE DESCARGAR NO PUEDE COSTAR LA RONDA ENTERA.
+//
+// Pasó en producción: OpenAI devolvió 400 "invalid_image_url" en la
+// tercera ronda y se perdieron los 10 candidatos, no solo el de la foto
+// mala. Ahora, cuando el fallo es de imagen, se reintenta UNA vez con la
+// primera mitad — que además son los más parecidos, porque vienen
+// ordenados. Si la foto rota estaba en la segunda mitad, la ronda se
+// salva entera.
+//
+// Solo un reintento, y solo partiendo por la mitad: buscar cuál de los
+// diez es la mala costaría más llamadas de las que vale la pena.
 export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
+  const elegido = await unCotejo(env, foto, candidatos, textoCliente);
+  if (elegido !== FALLO_DE_IMAGEN) return elegido;
+
+  if (candidatos.length < 2) {
+    console.error("Cotejo visual: no pude descargar la foto del catálogo y no queda con qué reintentar");
+    return null;
+  }
+
+  const mitad = candidatos.slice(0, Math.ceil(candidatos.length / 2));
+  console.log(
+    `Cotejo visual: OpenAI no pudo bajar alguna foto del catálogo; ` +
+      `reintento con los ${mitad.length} más parecidos`
+  );
+
+  const segundo = await unCotejo(env, foto, mitad, textoCliente);
+  return segundo === FALLO_DE_IMAGEN ? null : segundo;
+}
+
+// Marca interna: distingue "no es ninguno" (null) de "la llamada se cayó
+// por una foto que no se pudo bajar", que sí merece reintento.
+const FALLO_DE_IMAGEN = Symbol("fallo de imagen");
+
+async function unCotejo(env, foto, candidatos, textoCliente) {
   if (!foto || !candidatos?.length) return null;
 
   const contenido = [
@@ -395,28 +568,70 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
     { type: "text", text: "↑ ESTA es la foto del cliente. Abajo, el catálogo:" },
   ];
 
+  // LAS FOTOS DEL CATÁLOGO VIAJAN DENTRO DE LA LLAMADA (24-sep-2026).
+  //
+  // Antes se le pasaba a OpenAI la URL de Shopify y ERA ELLA quien tenía
+  // que descargarla. Eso se rompía una y otra vez:
+  //
+  //   400 · "Unable to download content from the provided URL before the
+  //          timeout" · code: invalid_image_url
+  //
+  // Y cuando pasa, no falla una foto: falla la llamada entera y se pierden
+  // los diez candidatos de esa ronda. Encima el reintento vuelve a gastar.
+  //
+  // Ahora las baja el Worker —que está al lado del CDN, tarda
+  // milisegundos y tiene la caché de Cloudflare delante— y las manda ya
+  // convertidas. OpenAI no sale a Internet a buscar nada, así que ese
+  // error desaparece de raíz.
+  //
+  // Se bajan las PEQUEÑAS (urlPequena) y van en "detail: low": son fotos
+  // de producto limpias, con el zapato centrado sobre fondo liso, y a esa
+  // resolución la silueta y la suela se leen igual.
+  const fotos = await Promise.all(
+    candidatos.map((producto) => fotoDelCatalogo(env, producto.imagen))
+  );
+
+  const conFoto = [];
   candidatos.forEach((producto, i) => {
-    contenido.push({ type: "text", text: `${i + 1}. ${producto.titulo}` });
-    // Las del catálogo en baja: son fotos de producto limpias, con el
-    // zapato centrado y sobre fondo liso. La silueta y la suela se leen
-    // igual de bien, y así una comparación contra 8 productos cuesta una
-    // fracción de lo que costaría en alta.
-    contenido.push({
-      type: "image_url",
-      image_url: { url: producto.imagen, detail: "low" },
-    });
+    // Una foto que no se pudo bajar se queda fuera, y ya está: antes esa
+    // sola tumbaba la ronda entera.
+    if (!fotos[i]) return;
+    conFoto.push(producto);
+    contenido.push({ type: "text", text: `${conFoto.length}. ${producto.titulo}` });
+    contenido.push({ type: "image_url", image_url: { url: fotos[i], detail: "low" } });
   });
+
+  if (!conFoto.length) {
+    console.error("Cotejo visual: no pude bajar NINGUNA foto del catálogo");
+    return null;
+  }
+
+  if (conFoto.length < candidatos.length) {
+    console.log(
+      `Cotejo visual: ${candidatos.length - conFoto.length} foto(s) del catálogo no se ` +
+        `pudieron bajar; sigo con las otras ${conFoto.length}`
+    );
+  }
+
+  // A partir de aquí los números que ve el modelo son los de "conFoto".
+  candidatos = conFoto;
 
   contenido.push({
     type: "text",
     text: `El cliente escribió: ${textoCliente ? `"${textoCliente}"` : "(nada, solo mandó la foto)"}`,
   });
 
+  let falloDeImagen = false;
   const salida = await llamar(env, promptCotejo, contenido, {
     maxTokens: 300,
     schema: ESQUEMA_COTEJO,
     modelo: modeloDeVision(env),
+    alFallar: ({ deImagen }) => {
+      falloDeImagen = deImagen;
+    },
   });
+
+  if (falloDeImagen) return FALLO_DE_IMAGEN;
 
   const datos = extraerJson(salida);
   if (!datos) {
@@ -489,7 +704,7 @@ export async function rasgosDeProducto(env, urlImagen, { modelo = "" } = {}) {
     env,
     promptIndexar,
     [
-      { type: "image_url", image_url: { url: urlImagen, detail: DETALLE_INDICE } },
+      { type: "image_url", image_url: { url: urlPequena(urlImagen), detail: DETALLE_INDICE } },
       { type: "text", text: "Cataloga este producto." },
     ],
     {
@@ -542,4 +757,71 @@ function normalizar(salida) {
     buscar: String(datos.buscar || "NADA").trim(),
     historial: String(datos.historial || "").trim(),
   };
+}
+
+
+// LAS FOTOS DEL CATÁLOGO, BAJADAS UNA SOLA VEZ.
+//
+// El mismo producto sale en varias rondas y en varios mensajes, y su foto
+// no cambia. Guardarla mientras viva el Worker ahorra descargas y hace
+// que la ronda 2 y la 3 salgan casi instantáneas.
+//
+// El tope existe porque un isolate no puede crecer sin freno: con 40
+// fotos de 512px son unos pocos MB, de sobra para una conversación.
+const MAXIMO_FOTOS_GUARDADAS = 40;
+const fotosDelCatalogo = new Map();
+
+async function fotoDelCatalogo(env, url) {
+  if (!url) return "";
+  if (fotosDelCatalogo.has(url)) return fotosDelCatalogo.get(url);
+
+  const { uri } = await comoDataUri(env, urlPequena(url), { silencioso: true });
+
+  // SOLO SE GUARDAN LAS QUE SÍ BAJARON.
+  //
+  // La primera versión guardaba también el fallo, para no reintentar. Pero
+  // un tropiezo de un momento —el CDN lento, un corte de red— dejaba ese
+  // producto fuera del cotejo durante toda la vida del Worker, que son
+  // minutos y muchos clientes. Reintentar una descarga que falla rápido
+  // cuesta mucho menos que perder un producto del catálogo.
+  if (uri) {
+    if (fotosDelCatalogo.size >= MAXIMO_FOTOS_GUARDADAS) fotosDelCatalogo.clear();
+    fotosDelCatalogo.set(url, uri);
+  }
+
+  return uri;
+}
+
+// LA FAMILIA A LA QUE PERTENECE UN TÍTULO.
+//
+// "Air Force One marrón blanco Caballero"  ->  "Air Force One"
+// "Nike Metcon 7 negro dama"               ->  "Nike Metcon 7"
+// "Skechers caballero"                     ->  "Skechers"
+//
+// Se usa para enseñar, detrás del zapato que se reconoció en la foto, los
+// demás del MISMO modelo. En este catálogo cada color es un producto con
+// su propio título, así que "los del mismo título" son casi siempre uno
+// solo: la familia es lo que de verdad agrupa lo que el cliente quiere
+// ver después del suyo.
+//
+// La lista de familias es prompts/modelos.txt, la misma que ve la IA de
+// visión, y se eligió la MÁS LARGA que encaje: así "Nike Metcon 7" gana a
+// "Nike", y el cliente ve los Metcon 7 y no cualquier Nike.
+let familiasOrdenadas = null;
+
+export function familiaDelTitulo(titulo) {
+  const texto = String(titulo || "").toLowerCase();
+  if (!texto) return "";
+
+  if (!familiasOrdenadas) {
+    familiasOrdenadas = listaModelos
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#"))
+      // De la más larga a la más corta: la primera que encaje es la más
+      // específica que existe.
+      .sort((a, b) => b.length - a.length);
+  }
+
+  return familiasOrdenadas.find((f) => texto.includes(f.toLowerCase())) || "";
 }

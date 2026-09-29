@@ -34,9 +34,17 @@
 // seguiría sin este archivo.
 
 import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
-import { cotejarConCatalogo, estaLimitado, modeloDeVision } from "./ia.js";
+import { cotejarConCatalogo, estaLimitado, modeloDeVision, familiaDelTitulo } from "./ia.js";
 import { terminosCompatibles } from "./identificar.js";
-import { leerIndice, mejoresPorRasgos } from "./indice.js";
+import {
+  leerIndice,
+  mejoresPorRasgos,
+  parecidoDeRasgos,
+  puntosDeColor,
+  puntosDeDescripcion,
+  palabrasDe,
+  pesoDeLasPalabras,
+} from "./indice.js";
 
 // Cuántas fotos del catálogo se le mandan al modelo. Con 8 se cubre de
 // sobra una marca del catálogo, y cada una en "detail: low" cuesta poco.
@@ -105,7 +113,37 @@ const MAXIMO_CATALOGO = 600;
 // foto según sus rasgos guardados, así que con 10 sobra: si no está
 // entre los diez más parecidos de todo el catálogo, mirar veinte no lo
 // va a arreglar.
-const DESDE_EL_INDICE = 10;
+// BAJÓ DE 10 A 8, Y LAS RONDAS DE 3 A 2 (24-sep-2026).
+//
+// La cuenta que lo pidió, sacada del registro de producción:
+//
+//   OpenAI puso límite de tokens por minuto en gpt-4o · Limit 30000,
+//   Used 24768, Requested 9374
+//
+// Cada ronda son ~9.400 tokens, y el cupo de gpt-4o son 30.000 por
+// MINUTO. O sea que tres rondas se comían el minuto entero de la tienda
+// por UNA sola foto: el siguiente cliente que mandara otra se quedaba sin
+// cotejo.
+//
+// Y ya no hacen falta tantas: desde que las descripciones traen el texto
+// del zapato, la primera ronda acierta mucho más. Dos rondas de ocho son
+// ~15.000 tokens, la mitad, y dejan sitio para el resto de la tienda.
+const DESDE_EL_INDICE = 8;
+
+// Cuántas rondas se bajan por el ranking antes de rendirse. Dos rondas
+// son los 16 que MÁS se parecen a la foto de todo el catálogo. Si no está
+// entre esos dieciséis, una tercera ronda no lo va a encontrar — y el
+// cupo de gpt-4o no da para más (ver arriba).
+//
+// Se puede subir desde wrangler.toml con COTEJO_RONDAS cuando la cuenta
+// de OpenAI aguante más.
+const RONDAS_DEL_INDICE = 2;
+
+// A partir de cuántas filas se considera que el índice ES el catálogo, y
+// barrer Shopify deja de tener sentido. Por debajo de esto la indexación
+// va a medias y el barrido todavía puede encontrar lo que al índice le
+// falta.
+const INDICE_SUFICIENTE = 200;
 
 export async function cotejoPorImagen({
   env,
@@ -114,6 +152,18 @@ export async function cotejoPorImagen({
   productos,
   termino,
   rasgos,
+  // El color del zapato de la foto, en una palabra. Es lo que evita
+  // mandarle el mismo modelo en otro color — la queja número uno.
+  color = "",
+  // La frase con lo que la IA VIO en la foto ("cuero blanco, corte bajo,
+  // suela plana, sin logo"). Desempata los zapatos lisos, que en los 15
+  // rasgos empatan todos entre sí.
+  visto = "",
+  // La IA de visión nombró un MODELO concreto, no solo la marca. Si
+  // además la búsqueda por ese nombre devolvió producto, lo que hay que
+  // enseñar ya está encontrado y el índice no pinta nada: solo puede
+  // irse a otro modelo. Ver más abajo.
+  nombreFiable = false,
   // El modelo se nombró pero su detalle distintivo no se ve en la foto
   // (ver identificar.js). Entonces el cotejo ya no está desempatando
   // entre varios: está VERIFICANDO que el que se encontró sea el de la
@@ -148,18 +198,45 @@ export async function cotejoPorImagen({
   // diferencia entre ocho fotos al azar y ocho del estante correcto.
   const porRasgos = await buscarPorRasgos(env, rasgos, termino);
 
+  // El índice se lee UNA vez, al principio: hace falta para ordenar (trae
+  // los rasgos de cada producto del catálogo) y no solo para elegir
+  // candidatos al final.
+  const indice = await leerIndiceSeguro(env);
+
   // Primero los del rasgo, después los que ya había: si el cupo de 8 se
   // llena, que lo llenen los que tienen motivo para parecerse.
-  const pila = unir(porRasgos, productos);
+  //
+  // Y ORDENADOS POR COLOR Y RASGOS, que es lo que arregla el "me mostró
+  // otro color": diez Adidas sin ordenar son diez tiros al aire, y el
+  // modelo solo ve los 8 primeros.
+  const pila = ordenar(unir(porRasgos, productos), { color, rasgos, indice, visto });
 
   // Todo lo que ya se le puso delante al modelo. Lo que descartó no se
   // le vuelve a mostrar en el barrido: sería pagar dos veces por la
   // misma respuesta.
   const yaMirados = new Set();
 
+  // ¿Llegó el cotejo a MIRAR los que encontró la búsqueda por nombre? Si
+  // los miró y dijo que ninguno era, eso es una opinión sobre el NOMBRE, y
+  // hay que hacerle caso.
+  //
+  // OJO: NO BASTA CON QUE cotejar() DEVUELVA null. Devuelve null también
+  // cuando ni siquiera llamó al modelo —porque de los que llegaron ninguno
+  // tenía foto y no se alcanzó el mínimo— y, sobre todo, solo le enseña al
+  // modelo los 8 primeros de la pila: los del nombre pueden haber quedado
+  // fuera detrás de los que trajeron los rasgos. Darlos por rechazados en
+  // esos casos apaga el guard de "nombreFiable" y devuelve justo el fallo
+  // que ese guard existe para evitar: cambiarle al cliente los 5 Jordan 40
+  // buenos por un Jordan Lukka del índice.
+  //
+  // cotejar() apunta en "yaMirados" EXACTAMENTE lo que le puso delante al
+  // modelo, así que esa es la pregunta que hay que hacer.
+  let losDelNombreFueronRechazados = false;
+
   if (pila.length >= minimo) {
     const elegido = await cotejar(env, foto, pila, textoCliente, minimo, yaMirados);
-    if (elegido) return resultado(elegido, productos);
+    if (elegido) return resultado(elegido, productos, indice, { nombreFiable, termino });
+    losDelNombreFueronRechazados = productos.some((p) => yaMirados.has(clave(p)));
   }
 
   // Ni los rasgos ni la búsqueda dieron con él. Queda la marca, que es lo
@@ -172,74 +249,151 @@ export async function cotejoPorImagen({
     // devolvería lo mismo que acaba de devolver cero.
     if (marca && marca.toLowerCase() !== String(termino).trim().toLowerCase()) {
       console.log(`Sin resultados para "${termino}": cotejo la foto contra "${marca}"`);
-      const { productos: deLaMarca } = await buscarProductos(env, marca, MAXIMO_CANDIDATOS);
+      // Se piden más de los que caben: con el orden por color y rasgos,
+      // los 8 que se le enseñan al modelo salen de un grupo más grande.
+      const { productos: deLaMarca } = await buscarProductos(env, marca, MAXIMO_CANDIDATOS * 3);
       const elegido = await cotejar(
         env,
         foto,
-        unir(pila, deLaMarca),
+        ordenar(unir(pila, deLaMarca), { color, rasgos, indice, visto }),
         textoCliente,
         minimo,
         yaMirados
       );
-      if (elegido) return resultado(elegido, productos);
+      if (elegido) return resultado(elegido, productos, indice, { nombreFiable, termino });
     }
   }
 
-  // EL ÍNDICE: TODO EL CATÁLOGO, EN UNA SOLA LLAMADA.
+  // EL ÍNDICE: TODO EL CATÁLOGO, ORDENADO POR PARECIDO.
   //
-  // Si el catálogo está indexado (ver indice.js y /indexar-catalogo),
-  // acá se compara —en código, sin gastar modelo ni cupo— los rasgos de
-  // la foto contra los de los cientos de productos guardados, y solo los
-  // 10 más parecidos van a una llamada de cotejo.
+  // Los rasgos de la foto se comparan contra los de los cientos de
+  // productos guardados —en código, sin gastar modelo ni cupo— y solo los
+  // mejores van a una llamada de cotejo. Es la forma de mirar el catálogo
+  // entero sin las veinte llamadas que el cupo de OpenAI no aguanta.
   //
-  // Es la forma de mirar el catálogo entero sin las veinte llamadas que
-  // el cupo de OpenAI no aguanta. Por eso va ANTES del barrido a ciegas:
-  // si hay índice, el barrido casi nunca hace falta.
-  const delIndice = await candidatosDelIndice(env, rasgos, yaMirados);
-  if (delIndice.length >= 1) {
-    const elegido = await cotejar(env, foto, delIndice, textoCliente, 1, yaMirados, DESDE_EL_INDICE);
-    if (elegido) return resultado(elegido, productos);
+  // SE BAJA POR EL RANKING, NO SE MIRA UNA VEZ Y YA (24-sep-2026). Antes
+  // era una sola ronda de 10: si el par no estaba entre esos diez, se
+  // pasaba al barrido a ciegas. Ahora, si la primera ronda falla, van los
+  // diez siguientes, y los diez siguientes. Son candidatos ordenados por
+  // parecido real, así que la ronda 2 sigue siendo mejor apuesta que
+  // veinte productos cualesquiera de Shopify.
+  // EL ÍNDICE NO SUSTITUYE UN NOMBRE QUE YA ACERTÓ (crítico — 24-sep-2026).
+  //
+  // Caso real: una historia con unos Jordan 40. La visión los nombró bien,
+  // la búsqueda devolvió los 5 Jordan 40 del catálogo, el cotejo no llegó
+  // a "alta" sobre ninguno... y entonces las rondas del índice miraban los
+  // 581 productos, encontraban un "Jordan Lukka" que también lleva jumpman,
+  // y ESE se le mandaba al cliente — descartando los 5 Jordan 40 buenos,
+  // porque resultado() se queda con el elegido y sus hermanos.
+  //
+  // El índice existe para cuando el NOMBRE falla. Si el nombre acertó y
+  // trajo producto, lo que se enseña son esos: como mucho hay que
+  // ordenarlos, nunca cambiarlos por otro modelo. Devolver null aquí deja
+  // que decidir() muestre lo que encontró la búsqueda, que es lo correcto.
+  // PERO UN RECHAZO DEL COTEJO GANA AL NOMBRE (24-sep-2026).
+  //
+  // Caso real: el cliente mandó un New Balance 2000. La visión vio "N
+  // grande, suela con cápsulas, malla blanca" y de ahí se sacó un "9060"
+  // que no había leído en ninguna parte. La búsqueda trajo 10 nueveses
+  // mil sesenta, el cotejo los miró y dijo —con razón, y explicándolo—
+  // que la suela del cliente era más bulbosa que la de todos ellos... y
+  // este guard los enseñaba igual.
+  //
+  // Si el cotejo MIRÓ los del nombre y los rechazó, el nombre no es de
+  // fiar: se sigue al índice. Y ya no hay nada que perder haciéndolo,
+  // porque resultado() guarda los del nombre detrás del elegido.
+  if (nombreFiable && productos.length && !losDelNombreFueronRechazados) {
+    console.log(
+      `La búsqueda por "${termino}" trajo ${productos.length} producto(s), la visión ` +
+        "nombró el modelo y el cotejo no los descartó: no toco el índice"
+    );
+    return null;
+  }
+
+  if (nombreFiable && losDelNombreFueronRechazados) {
+    console.log(
+      `El cotejo miró los ${productos.length} de "${termino}" y dijo que ninguno es: ` +
+        "el nombre no es de fiar, busco en el índice"
+    );
+  }
+
+  if (indice.length) {
+    const rondas = Number(env.COTEJO_RONDAS) || RONDAS_DEL_INDICE;
+
+    for (let ronda = 1; ronda <= rondas; ronda++) {
+      const candidatos = mejoresPorRasgos(indice, rasgos, DESDE_EL_INDICE + yaMirados.size, color, visto)
+        .filter((p) => !yaMirados.has(clave(p)))
+        .slice(0, DESDE_EL_INDICE);
+
+      if (!candidatos.length) break;
+
+      console.log(
+        `Índice (ronda ${ronda}): ${indice.length} productos guardados, ` +
+          `miro los ${candidatos.length} más parecidos que aún no vi` +
+          (color ? ` (color de la foto: ${color})` : "")
+      );
+
+      const elegido = await cotejar(env, foto, candidatos, textoCliente, 1, yaMirados, DESDE_EL_INDICE);
+      if (elegido) return resultado(elegido, productos, indice, { nombreFiable, termino });
+
+      // Si OpenAI se quedó sin cupo, las rondas siguientes fallarían
+      // igual y el cliente está esperando.
+      if (estaLimitado(modeloDeVision(env))) {
+        console.log("Índice: OpenAI sin cupo, corto aquí");
+        break;
+      }
+    }
+
+    // EL BARRIDO NO CORRE CON EL CATÁLOGO INDEXADO (crítico — esto era un
+    // gasto puro).
+    //
+    // Capturado en producción el 24-sep: con los 581 ya indexados, el bot
+    // miraba los 10 del índice, fallaba, y acto seguido pedía el catálogo
+    // ENTERO a Shopify para barrer "20 de 539" elegidos por parecido de
+    // TÍTULO. Dos llamadas más al modelo, medio minuto del cliente, y
+    // peores candidatos que los que ya había descartado: el índice ordena
+    // por los rasgos de la foto, el barrido por palabras del título de un
+    // término que en este caso era "NADA".
+    //
+    // Si el índice cubre el catálogo, lo que hay que mirar ya se miró.
+    if (indice.length >= INDICE_SUFICIENTE) {
+      console.log(
+        `No barro Shopify: el índice ya cubre el catálogo (${indice.length} productos) ` +
+          `y ya miré los ${yaMirados.size} más parecidos a esta foto`
+      );
+      return null;
+    }
   }
 
   // ÚLTIMO RECURSO: MIRARLOS TODOS, A CIEGAS.
   //
-  // Solo hace falta si el catálogo NO está indexado. Es caro y el cupo
-  // de OpenAI apenas deja mirar unos pocos por mensaje, así que es una
-  // red por si acaso, no la vía principal.
+  // Solo se llega aquí si el catálogo NO está indexado —recién desplegado,
+  // o una tienda que todavía no corrió su indexación—. Es caro y el cupo
+  // de OpenAI apenas deja mirar unos pocos por mensaje: es una red por si
+  // acaso, no la vía principal.
   if (!barrer) return null;
+  console.log(
+    indice.length
+      ? `Índice con solo ${indice.length} productos: no cubre el catálogo, barro Shopify`
+      : "Sin índice: barro Shopify a ciegas"
+  );
 
   const elegido = await barrerCatalogo(env, foto, textoCliente, { termino, yaMirados });
   if (!elegido) return null;
 
-  return resultado(elegido, productos);
+  return resultado(elegido, productos, indice, { nombreFiable, termino });
 }
 
-// Los del índice que más se parecen a la foto, quitando los que el
-// modelo ya descartó en las rondas anteriores.
-async function candidatosDelIndice(env, rasgos, yaMirados) {
-  if (!env.DB || !rasgos) return [];
-
-  let indice = [];
+// El índice entero, una sola vez. Sin él el bot sigue funcionando: solo
+// se queda sin su mejor atajo y cae al barrido.
+async function leerIndiceSeguro(env) {
+  if (!env.DB) return [];
   try {
-    indice = await leerIndice(env.DB);
+    return await leerIndice(env.DB);
   } catch (error) {
-    // Sin índice el bot sigue funcionando: solo se queda sin este atajo.
     console.error("No pude leer el índice del catálogo:", error?.message || error);
     return [];
   }
-
-  if (!indice.length) return [];
-
-  const mejores = mejoresPorRasgos(indice, rasgos, DESDE_EL_INDICE + yaMirados.size)
-    .filter((p) => !yaMirados.has(clave(p)))
-    .slice(0, DESDE_EL_INDICE);
-
-  console.log(
-    `Índice: ${indice.length} productos guardados, los ${mejores.length} ` +
-      "más parecidos a la foto van al cotejo"
-  );
-
-  return mejores;
 }
 
 // Compara la foto contra TODO el catálogo, en lotes y en paralelo.
@@ -340,7 +494,7 @@ function clave(producto) {
 }
 
 // Qué se le devuelve a decidir() según de dónde salió el par elegido.
-function resultado(elegido, productos) {
+function resultado(elegido, productos, indice = [], { nombreFiable = false, termino = '' } = {}) {
   const estaba = productos.some((p) => p.titulo === elegido.titulo);
 
   // Salió de la búsqueda original: el cliente pidió ESE modelo y los
@@ -353,10 +507,121 @@ function resultado(elegido, productos) {
     };
   }
 
-  // Salió de otro lado (los rasgos, o la marca), así que lo demás no
-  // tiene que ver con la foto: mandarlo sería enterrar el que pidió
-  // entre siete que no.
-  return { elegido, productos: [elegido] };
+  // SALIÓ DEL ÍNDICE O DE LA MARCA: SE LE ENSEÑA CON SUS HERMANOS.
+  //
+  // DETRÁS VA SU FAMILIA, NO SOLO SU TÍTULO EXACTO (26-sep-2026).
+  //
+  // Antes se buscaban los del MISMO TÍTULO. Eso cubría el caso de los 17
+  // "New Balance 9060 Dama", pero en este catálogo cada color suele ser un
+  // producto con su propio nombre —"Air Force One marrón blanco
+  // Caballero", "Air Force One Negro dama"—, así que el mismo título era
+  // casi siempre uno solo y el cliente recibía una ficha suelta.
+  //
+  // Pedido del dueño: "que mande la familia completa y que el que está en
+  // la historia salga de primero". La familia sale de prompts/modelos.txt
+  // (ver familiaDelTitulo en ia.js), que es la lista de los 163 modelos
+  // reales; se elige la más específica que encaje, así que un Metcon 7
+  // trae Metcon 7 y no cualquier Nike.
+  const familia = familiaDelTitulo(elegido.titulo);
+
+  const hermanos = familia
+    ? indice.filter(
+        (p) =>
+          p.imagen &&
+          p.imagen !== elegido.imagen &&
+          p.titulo !== elegido.titulo &&
+          familiaDelTitulo(p.titulo) === familia
+      )
+    : indice.filter(
+        (p) => p.titulo === elegido.titulo && p.imagen !== elegido.imagen && p.imagen
+      );
+
+  if (hermanos.length) {
+    console.log(
+      `De la familia "${familia || elegido.titulo}" hay ${hermanos.length} más: ` +
+        "van detrás del de la foto"
+    );
+  }
+
+  // Y DETRÁS, LO QUE ENCONTRÓ LA BÚSQUEDA — SOLO SI ERA DEL MISMO MODELO.
+  //
+  // Guardarlos detrás resolvió el caso de los Jordan 40: el índice eligió
+  // un "Jordan Lukka" y, sin esto, los 5 Jordan 40 que la búsqueda SÍ
+  // había encontrado se perdían.
+  //
+  // PERO SOLO VALE SI LA BÚSQUEDA ERA DEL MODELO (26-sep-2026). Cuando la
+  // visión se queda en la marca —"Nike"— lo que trae la búsqueda son diez
+  // Nike cualesquiera, y detrás del zapato reconocido le llegaban al
+  // cliente un Nike Trail y compañía que no tienen nada que ver con su
+  // foto. Reportado tal cual: "cuando reconoce 1 calzado que mande solo el
+  // calzado que reconoció, no la plantilla de Nike Trail".
+  //
+  // "nombreFiable" es justo esa diferencia: true cuando la visión nombró
+  // un MODELO, false cuando se quedó en la marca.
+  const delNombre = nombreFiable
+    ? productos.filter(
+        (p) => p.titulo !== elegido.titulo && !hermanos.some((h) => h.titulo === p.titulo)
+      )
+    : [];
+
+  if (!nombreFiable && productos.length) {
+    console.log(
+      `Los ${productos.length} de "${termino}" eran de la marca, no del modelo: ` +
+        "no los mando detrás del que reconocí"
+    );
+  }
+
+  if (delNombre.length) {
+    console.log(
+      `Detrás van los ${delNombre.length} que encontró la búsqueda: si me equivoqué, ` +
+        "el cliente los tiene igual delante"
+    );
+  }
+
+  return {
+    elegido,
+    productos: [elegido, ...hermanos.slice(0, MAXIMO_HERMANOS), ...delNombre].slice(0, 10),
+  };
+}
+
+// Cuántos del mismo modelo se enseñan detrás del de la foto. El carrusel
+// de Instagram admite 10, y el primero ya está ocupado.
+const MAXIMO_HERMANOS = 9;
+
+// ORDENA POR LO QUE DE VERDAD DISTINGUE UN ZAPATO DE OTRO: el color que
+// se ve en la foto, y después los rasgos.
+//
+// Los productos que llegan de Shopify no traen rasgos —eso vive en el
+// índice—, así que se emparejan por la URL de su foto, que es la clave
+// del índice. El que no esté indexado puntúa solo por color, y queda
+// detrás de los que sí: es lo correcto, de ese no sabemos nada.
+function ordenar(productos, { color, rasgos, indice, visto = "" }) {
+  // "visto" cuenta igual que el color y los rasgos: en los zapatos lisos
+  // —sin logo, sin cámara de aire, sin franjas— es lo ÚNICO que distingue
+  // uno de otro, y dejarlo fuera del guard devolvía la lista sin ordenar
+  // justo en el caso que la descripción vino a resolver.
+  if (!color && !rasgos && !visto) return productos;
+
+  const porFoto = new Map((indice || []).map((p) => [p.imagen, p]));
+
+  // El peso de cada palabra se calcula UNA vez sobre todo el catálogo, no
+  // una por producto: hacerlo dentro del bucle sería recorrer las 581
+  // descripciones por cada candidato.
+  const delaFoto = palabrasDe(visto);
+  const peso = delaFoto.size ? pesoDeLasPalabras(indice || []) : new Map();
+
+  return [...productos]
+    .map((producto, orden) => {
+      const guardado = porFoto.get(producto.imagen);
+      const puntos =
+        puntosDeColor(producto.titulo, color) +
+        (guardado ? parecidoDeRasgos(guardado.rasgos, rasgos) : 0) +
+        (guardado ? puntosDeDescripcion(guardado.visto, delaFoto, peso) : 0);
+      // "orden" mantiene estable el orden original entre empatados.
+      return { producto, puntos, orden };
+    })
+    .sort((a, b) => b.puntos - a.puntos || a.orden - b.orden)
+    .map((x) => x.producto);
 }
 
 // Busca en Shopify los modelos que encajan con lo que la IA dijo VER.
@@ -423,4 +688,34 @@ async function cotejar(
 
 function primeraPalabra(termino) {
   return String(termino || "").trim().split(/\s+/)[0] || "";
+}
+
+
+// ORDENA LO QUE SE LE VA A ENSEÑAR AL CLIENTE.
+//
+// EL FALLO QUE ARREGLA (24-sep-2026). Una historia con unos Adidas
+// Adistar XLG blancos, y el cliente recibió el beige. El orden por color
+// ya existía, pero se aplicaba SOLO a la copia que se le pasa al modelo
+// para cotejar. Lo que sale por Instagram era la lista tal cual la
+// devolvió Shopify, en el orden que le diera la gana.
+//
+// O sea: el bot sabía cuál era el bueno y lo mandaba en tercer lugar.
+//
+// Se usa cuando el cotejo no llegó a afirmar nada pero la búsqueda sí
+// trajo producto — que es el caso más frecuente de todos.
+export async function ordenarPorLaFoto(env, productos, { color, rasgos, visto } = {}) {
+  if (productos.length < 2) return productos;
+  if (!color && !rasgos && !visto) return productos;
+
+  const indice = await leerIndiceSeguro(env);
+  const ordenados = ordenar(productos, { color, rasgos, indice, visto });
+
+  if (ordenados[0] !== productos[0]) {
+    console.log(
+      `Reordeno para el cliente: primero "${ordenados[0].titulo}"` +
+        (color ? ` (color de la foto: ${color})` : "")
+    );
+  }
+
+  return ordenados;
 }

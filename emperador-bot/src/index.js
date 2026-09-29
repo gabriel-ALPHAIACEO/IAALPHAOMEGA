@@ -28,23 +28,19 @@
 // vivía en KV. Si ves un memoria.js o un nombre.js sueltos, son de esa otra
 // versión y NO van con este código — mezclarlos rompe el arranque.
 
-import {
-  responderTexto,
-  identificarEnImagen,
-  rasgosDeProducto,
-  esperarCupo,
-  modeloDeIndice,
-} from "./ia.js";
-import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
+import { responderTexto, identificarEnImagen } from "./ia.js";
+import { revisarPagos, metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
+import { gastoDelMes } from "./gasto.js";
+import { buscarProductos } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo } from "./catalogo.js";
 import { alternativasPara } from "./parecidos.js";
-import { separarColor, filtrarPorColor, terminoDeColor } from "./color.js";
+import { separarColor, filtrarPorColor, terminoDeColor, nombreDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
-import { cotejoPorImagen } from "./cotejo.js";
-import { leerIndice, guardarIndexados, limpiarLosQueYaNoEstan } from "./indice.js";
+import { cotejoPorImagen, ordenarPorLaFoto } from "./cotejo.js";
+import { leerIndice, indexarTanda } from "./indice.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
   cargarContacto,
@@ -76,7 +72,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-23 (7) · indexar con foto liviana: lo caro era la imagen";
+const VERSION = "2026-09-29 (8) · al dia con Invictus: indice por foto, cotejo, pagos y medicion de gasto";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -104,6 +100,46 @@ const ENCONTRE_EL_DE_LA_FOTO = [
   "¡Lo encontré! 😊 Aquí lo tienes 👇",
   "¡Ese mismo lo manejamos! 👟 Mira 👇",
 ];
+
+// NO SE RECONOCIÓ EL CALZADO DE LA FOTO.
+//
+// Ninguna dice "no sé" ni le pide el nombre: le abren el catálogo, que es
+// lo que puede mirar él mismo. Antes aquí se le enseñaban los seis del
+// índice que más se parecían, y acababan siendo siempre los mismos seis
+// —ninguno el suyo—. Seis fichas equivocadas parecen una respuesta, y por
+// eso son peores que mandarlo a mirar.
+const NO_SE_CUAL_ES = [
+  "Ese no lo tengo a mano ahora mismo 😅 Pero mira el catálogo completo 👇 y dime cuál es",
+  "Échale un ojo al catálogo completo 👇 Cuando lo veas, dime cuál y te paso el precio 😊",
+  "Aquí tienes todo lo que manejamos 👇 Búscalo con calma y me dices cuál es 👟",
+  "Mira el catálogo entero 👇 Dime cuál de esos es y te lo muestro con su precio",
+];
+
+// LA FOTO ERA LA TIENDA ENTERA, NO UN ZAPATO.
+//
+// El dueño publica historias enseñando el local: estantes llenos, mesas
+// con veinte pares, vídeos recorriendo la tienda. El bot elegía uno "el
+// que sale más grande" y le mandaba al cliente calzados que no tenían
+// nada que ver con lo que estaba mirando.
+//
+// Aquí el catálogo completo SÍ es la respuesta correcta, y es de los
+// pocos sitios donde lo es: el cliente está pidiendo ver lo que hay.
+const ERA_LA_VITRINA = [
+  "¡Tenemos todo eso y más! 😍 Mira el catálogo completo 👇 y dime cuál te gustó",
+  "Ahí sale buena parte de la tienda 🙌 Aquí lo tienes todo 👇 Dime cuál te llamó la atención",
+  "¡Esa es la tienda! 😊 Échale un ojo al catálogo completo 👇 y me dices cuál quieres ver de cerca",
+  "Mira todo lo que tenemos aquí 👇 Cuando veas uno que te guste, dime cuál y te lo muestro 👟",
+];
+
+// Lo que cabe en un carrusel de Instagram.
+const MAXIMO_EN_CARRUSEL = 10;
+
+// Cuántos se le piden a Shopify cuando después hay que filtrar por color.
+// Tiene que cubrir con holgura el modelo más repetido del catálogo: hay
+// trece "Air Force One" y diecisiete "New Balance 9060 Dama", y si el
+// color pedido cae fuera de lo que se pidió, el bot dice que no hay algo
+// que sí tiene.
+const CUANTOS_PARA_FILTRAR = 60;
 
 // Hay un modelo parecido que enseñarle: van con fichas debajo.
 const TE_OFREZCO_PARECIDOS = [
@@ -261,6 +297,49 @@ const PREGUNTA_TALLA =
 // "talla" o "size": si no, nos cargaríamos nombres como "Jordan 40".
 const TALLA_EN_BUSQUEDA = /\b(tallas?|sizes?|n[uú]mero)\s*:?\s*\d{1,2}(\.\d)?\b|\b(tallas?|sizes?)\b/gi;
 
+// ¿El cliente NOMBRÓ algo concreto, o solo mandó la foto con un "precio"?
+//
+// Decide si una vitrina se trata como vitrina. Si escribió "las Nike
+// blancas", eso manda aunque la foto sea un estante lleno; si escribió
+// "cuánto?" o nada, no hay nada que buscar y toca el catálogo.
+//
+// ANTE LA DUDA, NO PIDIÓ NADA. Mandar el catálogo cuando el cliente sí
+// había nombrado algo es un fallo menor —lo ve todo igual—; adivinar un
+// zapato cuando no nombró nada es el fallo que hay que evitar.
+const PALABRAS_SIN_PRODUCTO = new Set([
+  "hola", "buenas", "buenos", "dias", "tardes", "noches", "saludos",
+  "precio", "precios", "cuanto", "cuanta", "cuesta", "cuestan", "vale",
+  "valen", "info", "informacion", "disponible", "disponibles", "hay",
+  "tienen", "tiene", "tienes", "queda", "quedan", "eso", "esos", "esas",
+  "esa", "este", "esta", "estos", "estas", "ese", "me", "interesa",
+  "quiero", "quisiera", "gusta", "gustan", "gustaron", "gustó", "gusto",
+  "encanta", "encantan", "busco", "buscando", "necesito", "ando",
+  "muestra", "muestrame", "muéstrame", "mostrar", "ensename", "enseñame",
+  "manda", "mandame", "pasa", "pasame", "dame",
+  "por", "favor", "porfa", "gracias", "si", "no",
+  "y", "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del",
+  "que", "a", "al", "con", "para", "mi", "tu", "su",
+  "ver", "verlo", "verlos", "mas", "todo", "todos", "ok", "dale",
+  // Genéricas de calzado. "¿Cuánto cuestan esos zapatos?" sobre una foto
+  // del estante NO es nombrar un modelo: es justo el mensaje que llega con
+  // una vitrina. Si cuentan como "pidió algo concreto", el bot vuelve a
+  // adivinar un par entre veinte, que es lo que esto vino a evitar.
+  "zapato", "zapatos", "calzado", "calzados", "tenis", "zapatilla",
+  "zapatillas", "par", "pares", "modelo", "modelos", "botas", "bota",
+]);
+
+function textoPideAlgo(texto) {
+  const palabras = String(texto || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return palabras.some((p) => p.length > 1 && !PALABRAS_SIN_PRODUCTO.has(p));
+}
+
 function sinTalla(termino) {
   return String(termino || "")
     .replace(TALLA_EN_BUSQUEDA, " ")
@@ -409,6 +488,8 @@ export default {
         indexados = -1;
       }
 
+      const gasto = await gastoDelMes(env);
+
       return texto200(
         [
           `CÓDIGO DESPLEGADO   ${VERSION}`,
@@ -435,17 +516,59 @@ export default {
           `  OPENAI_MODELO_VISION ${env.OPENAI_MODELO_VISION || "gpt-4o (por defecto)"}   (el que identifica las fotos)`,
           `  COTEJO_BARRIDO      ${env.COTEJO_BARRIDO === "no" ? "no (apagado)" : "si"}   (mirar el catálogo cuando el nombre no acierta)`,
           "",
+          "GASTO DE OPENAI ESTE MES — medido, no estimado",
+          ...(gasto
+            ? [
+                ...gasto.filas.map(
+                  (f) =>
+                    `  ${String(f.modelo).padEnd(20)} $${(f.dolares || 0).toFixed(2)}   ` +
+                    `${(f.llamadas || 0).toLocaleString()} llamadas, ` +
+                    `${(f.entrada || 0).toLocaleString()} tok de entrada` +
+                    (f.cacheadas
+                      ? ` (${Math.round(((f.cacheadas || 0) / (f.entrada || 1)) * 100)}% con descuento de caché)`
+                      : "")
+                ),
+                gasto.filas.length
+                  ? `  ${"TOTAL".padEnd(20)} $${gasto.total.toFixed(2)} en ${gasto.dias} día(s) → ` +
+                    `el mes va a salir en unos $${gasto.proyectado.toFixed(2)}`
+                  : "  Todavía no hay ninguna llamada medida este mes.",
+                "  Una foto cuesta como 16 mensajes de texto: casi todo el gasto",
+                "  son fotos. Si el proyectado se pasa, eso es lo que hay que bajar.",
+              ]
+            : ["  (no pude leer la tabla de gasto)"]),
+          "",
+          "CÓMO SE PAGA (src/prompts/pagos.txt)",
+          metodosDePago().length
+            ? `  Métodos             ${metodosDePago().length} cargados:\n` +
+              bloqueDeMetodos()
+                .split("\n")
+                .map((l) => `                      ${l}`)
+                .join("\n")
+            : "  Métodos             NINGUNO CARGADO. Esa pregunta sigue yendo\n" +
+              "                      al asesor. Se llenan en la sección [METODOS]\n" +
+              "                      de src/prompts/pagos.txt, uno por línea.",
+          tasaDePago()
+            ? `  Tasa                ${tasaDePago()}`
+            : "  Tasa                SIN CARGAR. Esa pregunta sigue yendo al asesor.",
+          "  El bot dice CON QUÉ se paga y CUÁL es la tasa. Los datos de la",
+          "  cuenta y la cifra del día no: eso es del asesor, siempre.",
+          "",
           "ÍNDICE DEL CATÁLOGO — lo que hace que el cotejo mire TODO",
           indexados > 0
             ? `  ${indexados} productos indexados.`
             : indexados === 0
-              ? "  VACÍO. El cotejo visual solo puede mirar unos pocos productos\n" +
-                "  por mensaje (el cupo de OpenAI no da para más a ciegas).\n" +
-                "  Abre /indexar-catalogo para llenarlo; hay que repetirlo\n" +
-                "  hasta que diga LISTO."
+              ? "  VACÍO TODAVÍA. Mientras tanto el cotejo visual solo puede\n" +
+                "  mirar unos pocos productos por mensaje (el cupo de OpenAI\n" +
+                "  no da para más a ciegas).\n" +
+                "  NO HACE FALTA QUE HAGAS NADA: el cron lo llena solo, en\n" +
+                "  un par de horas desde cero. Si tienes prisa, abre\n" +
+                "  /indexar-catalogo para adelantar una tanda."
               : "  No se pudo leer (¿falta la base de datos?).",
           indexados > 0
-            ? "  Vuelve a correr /indexar-catalogo cuando agregues productos."
+            ? "  Se mantiene solo: los productos nuevos los recoge el cron\n" +
+              "  (cada 15 min, ver [triggers] en wrangler.toml). Si aquí\n" +
+              "  el número lleva horas sin subir y sabes que faltan, mira\n" +
+              "  `wrangler tail`: casi siempre es saldo o cupo de OpenAI."
             : "",
           "",
           "BASE DE DATOS (D1) — la memoria del bot entre mensajes",
@@ -480,116 +603,64 @@ export default {
     // cotejo. Es lo que permite mirar el catálogo entero con el cupo de
     // OpenAI que hay.
     if (url.pathname === "/indexar-catalogo") {
-      if (!env.DB) {
-        return texto200(
-          "No hay base de datos conectada, y el índice vive ahí.\n" +
-            "Revisa el binding DB en wrangler.toml (mira /estado).\n"
-        );
-      }
-
-      // Con 20 en 20, un catálogo de 600 son 30 recargas a mano y nadie
-      // llega al final. La tanda puede ser grande porque la foto va en
-      // detail:"low" (ver DETALLE_INDICE en ia.js): con la foto pesada
-      // entraban 7 por minuto, no 40.
       const cuantos = Math.min(Number(url.searchParams.get("cuantos")) || 40, 100);
-      const rehacer = url.searchParams.get("rehacer") === "si";
-
-      const { productos } = await traerCatalogoCompleto(
-        env,
-        Number(env.COTEJO_MAXIMO) || 600
-      );
-
-      if (!productos.length) {
-        return texto200(
-          "Shopify no devolvió productos.\n\n" +
-            "Revisa SHOPIFY_TIENDA y el secreto SHOPIFY_TOKEN; el motivo\n" +
-            "exacto sale en `wrangler tail`.\n"
-        );
-      }
-
-      const indice = await leerIndice(env.DB);
-      // Se reindexa un producto si nunca se miró o si le cambiaron la
-      // foto: la URL del CDN de Shopify cambia con la imagen, así que
-      // comparar la URL alcanza para saberlo.
-      const guardados = new Map(indice.map((p) => [p.titulo, p]));
-      const pendientes = productos.filter((p) => {
-        if (!p.imagen) return false;
-        if (rehacer) return true;
-        const antes = guardados.get(p.titulo);
-        return !antes || antes.imagen !== p.imagen;
+      const r = await indexarTanda(env, {
+        cuantos,
+        rehacer: url.searchParams.get("rehacer") === "si",
       });
 
-      const tanda = pendientes.slice(0, cuantos);
-      const indexados = [];
-      const modelo = modeloDeIndice(env);
-      let corto = "";
-
-      // De a POCOS a la vez: el cupo por minuto de OpenAI es el techo de
-      // todo esto, y reventarlo acá solo hace que la tanda falle entera.
-      //
-      // Si se acaba el cupo NO se abandona: acá no hay ningún cliente
-      // esperando, así que se espera a que vuelva y se sigue. Solo se
-      // corta si la espera es tan larga que conviene que la persona
-      // recargue la página.
-      for (let i = 0; i < tanda.length; i += 4) {
-        if (!(await esperarCupo(modelo))) {
-          corto = "Me quedé sin cupo de OpenAI a mitad de la tanda.";
-          console.log("Indexación: sin cupo y la espera es larga, corto la tanda");
-          break;
-        }
-
-        const resultados = await Promise.all(
-          tanda.slice(i, i + 4).map(async (producto) => {
-            // Prompt propio, no el de visión completo: ver
-            // rasgosDeProducto() en ia.js.
-            const visto = await rasgosDeProducto(env, producto.imagen, { modelo });
-            return visto ? { ...producto, visto: visto.visto, rasgos: visto.rasgos } : null;
-          })
+      if (!r.ok) {
+        return texto200(
+          `${r.error}\n\n` +
+            "Revisa SHOPIFY_TIENDA, el secreto SHOPIFY_TOKEN y el binding DB\n" +
+            "(mira /estado); el motivo exacto sale en `wrangler tail`.\n"
         );
-
-        indexados.push(...resultados.filter(Boolean));
       }
 
-      // Ni uno solo. Casi siempre es la clave de OpenAI (sin saldo, o sin
-      // permiso para este modelo), y decirlo acá ahorra media hora de
-      // recargar la página esperando que cambie algo.
-      if (tanda.length && !indexados.length) {
+      if (r.ningunoSalio) {
         return texto200(
-          `No pude indexar NINGUNO de los ${tanda.length} que intenté, con ${modelo}.\n\n` +
-            (corto ? `${corto}\n\n` : "") +
+          `No pude indexar NINGUNO de los ${r.intentados} que intenté, con ${r.modelo}.\n\n` +
+            (r.corto ? `${r.corto}\n\n` : "") +
             "El motivo exacto sale en `wrangler tail`. Los dos habituales:\n" +
             "  · la cuenta de OpenAI se quedó sin saldo\n" +
-            `  · la clave no tiene permiso para "${modelo}"\n\n` +
+            `  · la clave no tiene permiso para "${r.modelo}"\n\n` +
             "Si en el registro ves 429 con \"tokens per min\", es solo cupo:\n" +
             "espera un minuto y vuelve a abrir esta dirección.\n"
         );
       }
 
-      await guardarIndexados(env.DB, indexados);
-
-      const faltan = pendientes.length - indexados.length;
-      let quitados = 0;
-      if (!faltan) {
-        quitados = await limpiarLosQueYaNoEstan(
-          env.DB,
-          productos.map((p) => p.titulo)
-        );
-      }
+      // El porcentaje se cuenta sobre los que SE PUEDEN indexar, no sobre
+      // los 581. Contar los que no tienen foto hacía que no llegara nunca
+      // al 100% por mucho que estuviera todo hecho.
+      const hecho = r.indexables
+        ? Math.round(((r.yaEstaban + r.indexados) * 100) / r.indexables)
+        : 0;
 
       return texto200(
-        `Catálogo en Shopify: ${productos.length} productos\n` +
-          `Ya estaban indexados: ${indice.length}\n` +
-          `Indexados en esta tanda: ${indexados.length} (con ${modelo})\n` +
-          (quitados ? `Quitados del índice (ya no están en Shopify): ${quitados}\n` : "") +
+        `Catálogo en Shopify: ${r.catalogo} productos\n` +
+          (r.sinFoto
+            ? `  de los cuales ${r.sinFoto} NO tienen foto y no se pueden indexar\n` +
+              `  (el cotejo compara imágenes). Quedan ${r.indexables} indexables.\n`
+            : "") +
+          `Ya estaban indexados: ${r.yaEstaban}\n` +
+          `Indexados en esta tanda: ${r.indexados} (con ${r.modelo})\n` +
+          (r.fallados
+            ? `No se pudieron catalogar: ${r.fallados} — el motivo exacto sale\n` +
+              "en `wrangler tail`. Si son 429, es cupo: espera un minuto.\n"
+            : "") +
+          (r.refrescados
+            ? `Precio, enlace o título actualizados: ${r.refrescados} (sin mirar ninguna foto)\n`
+            : "") +
+          (r.quitados ? `Quitados del índice (ya no están en Shopify): ${r.quitados}\n` : "") +
           "\n" +
-          (faltan > 0
-            ? `FALTAN ${faltan}. Vuelve a abrir esta misma dirección para\n` +
-              "seguir con la próxima tanda. Si dice que faltan los mismos\n" +
-              "una y otra vez, mira `wrangler tail`: casi siempre es el\n" +
-              "cupo por minuto de OpenAI (429) y basta con esperar.\n"
+          (r.faltan > 0
+            ? `FALTAN ${r.faltan} de ${r.indexables} (${hecho}% hecho).\n\n` +
+              "NO HACE FALTA QUE HAGAS NADA: el cron indexa lo que queda\n" +
+              "solo, en las próximas pasadas (ver [triggers] en\n" +
+              "wrangler.toml). Recarga esta dirección solo si tienes prisa.\n"
             : "LISTO: el catálogo está indexado entero.\n\n" +
-              "Vuelve a correr esto cuando agregues productos nuevos. Los\n" +
-              "que ya están no se vuelven a mirar, así que es barato.\n")
+              "Los productos nuevos los recoge el cron solo. Esta dirección\n" +
+              "queda para mirar cómo va o para forzar una pasada.\n")
       );
     }
 
@@ -647,6 +718,9 @@ export default {
         historialPrevio: "",
         foto: descargada,
         rasgos: identificacion.rasgos,
+        colorFoto: nombreDeColor(identificacion.color),
+        vistoFoto: identificacion.visto || "",
+        modeloNombrado: !pedirNombreExacto && String(buscar).toUpperCase() !== "NADA",
         porConfirmar: Boolean(confirmar),
       });
 
@@ -654,7 +728,7 @@ export default {
         `La IA de visión vio: ${identificacion.buscar}` +
           (corregido ? ` (corregido a "${buscar}" porque sus rasgos lo contradecían)` : "") +
           (confirmar ? " (sin confirmar: falta ver un detalle, lo verifica el cotejo)" : "") +
-          `\nLe diría al cliente: ${respuestaCliente}\n` +
+          `\nLe diría al cliente: ${revisarPagos(respuestaCliente).respuesta}\n` +
           `Buscó: ${termino || "(nada)"}\n` +
           `Encontró: ${productos.length}\n` +
           productos.map((p) => `   ${p.titulo}  —  ${p.precio}`).join("\n") +
@@ -662,9 +736,95 @@ export default {
       );
     }
 
-    return new Response(`bot activo · ${VERSION}\n`, { status: 200 });
+    return new Response("emperador-bot", { status: 200 });
+  },
+
+  // EL ÍNDICE SE LLENA SOLO.
+  //
+  // POR QUÉ ESTO TENÍA QUE EXISTIR. Todo el cotejo visual depende del
+  // índice: con él, los rasgos de la foto del cliente se comparan contra
+  // los de los cientos de productos EN CÓDIGO, sin gastar un token, y
+  // solo los 10 más parecidos van a una llamada. Sin él, el cotejo cae al
+  // barrido corto, que mira 20 productos de 581 — el zapato casi nunca
+  // está entre esos veinte.
+  //
+  // Y llenarlo eran ~15 recargas a mano de /indexar-catalogo. Una tarea
+  // que depende de que alguien recargue quince veces no se hace nunca: el
+  // índice se quedaba vacío y la mejor parte del bot, apagada. Es la
+  // misma lección que dejó la columna "mostrados" — lo que se pueda
+  // resolver desde el archivo que sí se copia, se resuelve ahí.
+  //
+  // Cloudflare llama aquí según [triggers] en wrangler.toml. Cada pasada
+  // mira lo que falte dentro de un presupuesto de tiempo, y cuando ya no
+  // falta nada no gasta ni una llamada al modelo: solo comprueba si
+  // entraron productos nuevos, y esos los recoge sola.
+  async scheduled(evento, env, ctx) {
+    ctx.waitUntil(indexarLoQueFalte(env));
   },
 };
+
+// Cuánto se le permite tardar a una pasada. Cloudflare corta las tareas
+// largas, y no hace falta terminar en una sola: lo que quede lo agarra la
+// siguiente.
+const PRESUPUESTO_CRON_MS = 60000;
+
+// Los mismos 40 por tanda que usa la ruta a mano: la foto va en
+// detail:"low", así que entran sin reventar el cupo de OpenAI.
+const POR_TANDA_CRON = 40;
+
+// Tope de tandas por pasada, por si el presupuesto de tiempo no llegara a
+// cortar. Con 40 por tanda son 200 productos en una pasada.
+const MAXIMO_TANDAS = 5;
+
+async function indexarLoQueFalte(env) {
+  const hasta = Date.now() + PRESUPUESTO_CRON_MS;
+
+  for (let tanda = 1; tanda <= MAXIMO_TANDAS; tanda++) {
+    const r = await indexarTanda(env, { cuantos: POR_TANDA_CRON });
+
+    if (!r.ok) {
+      console.error("Indexación automática: no pude arrancar —", r.error);
+      return;
+    }
+
+    // Ya estaba todo mirado. Es el caso normal una vez lleno el índice, y
+    // no cuesta ni una llamada al modelo.
+    if (!r.pendientes) {
+      if (r.quitados) console.log(`Índice: quité ${r.quitados} producto(s) que ya no están`);
+      return;
+    }
+
+    console.log(
+      `Indexación automática: ${r.indexados} de ${r.intentados} en esta tanda; ` +
+        `faltan ${r.faltan} de ${r.catalogo}`
+    );
+
+    // Ni uno salió: no es que falte trabajo, es que algo está mal (sin
+    // saldo, sin permiso para el modelo, o el cupo agotado). Insistir
+    // solo gasta.
+    if (r.ningunoSalio) {
+      console.error(
+        `Indexación automática: no salió ninguno de ${r.intentados} con ${r.modelo}. ` +
+          (r.corto || "Revisa saldo y permisos de OpenAI en `wrangler tail`.")
+      );
+      return;
+    }
+
+    if (!r.faltan) {
+      console.log("Índice completo: el cotejo visual ya puede mirar el catálogo entero.");
+      return;
+    }
+
+    // Se quedó sin cupo a mitad, o se acabó el tiempo de esta pasada. En
+    // los dos casos, lo que falta lo recoge la próxima.
+    if (r.corto || Date.now() >= hasta) {
+      console.log(
+        `Indexación automática: corto aquí, faltan ${r.faltan}. Sigo en la próxima pasada.`
+      );
+      return;
+    }
+  }
+}
 
 /* ════════════════════════════════════════════════════════════════════
    Webhook de Meta — es el bot entero, de punta a punta
@@ -939,10 +1099,16 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (imagenCruda) {
     ({ uri: foto, motivo: porQueNo } = await comoDataUri(env, imagenCruda));
 
-    // La historia era un vídeo: último intento antes de rendirse. Meta
-    // guarda una miniatura de cada vídeo; si la da para historias, es una
-    // imagen normal y el bot la mira como cualquier otra foto. Si no la
-    // da, se sigue exactamente como antes (ver instagram.js).
+    // LA HISTORIA ERA UN VÍDEO: ÚLTIMO INTENTO ANTES DE RENDIRSE.
+    //
+    // Es el caso más común de todos —la mayoría de las historias son
+    // vídeo— y el más caro: quien responde a una historia está mirando
+    // el zapato mientras escribe. Preguntarle "¿cuál te gustó?" cuando
+    // lo tiene delante es perder la venta por un formato de archivo.
+    //
+    // Meta guarda una miniatura de cada vídeo. Si la da para historias,
+    // es una imagen normal y el bot la mira como cualquier otra foto.
+    // Si no la da, no pasa nada: se sigue exactamente como antes.
     if (!foto && porQueNo === "video" && mensaje.historia.id) {
       const miniatura = await fotogramaDeHistoria(env, mensaje.historia.id);
       if (miniatura) {
@@ -965,6 +1131,15 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // productos comparar, en vez de contra los primeros que devuelva
   // Shopify (ver cotejo.js).
   let rasgosFoto = null;
+  // El color que la IA vio en el zapato. Ordena los candidatos para que
+  // no se le mande el mismo modelo en otro color.
+  let colorFoto = "";
+  // La frase de lo que la IA vio. Desempata los zapatos sin logo.
+  let vistoFoto = "";
+  // La visión llegó al MODELO, no se quedó en la marca.
+  let modeloNombrado = false;
+  // La foto era una vitrina: la tienda entera, un estante, muchos pares.
+  let eraLaVitrina = false;
   // El modelo se nombró pero el detalle que lo confirmaría no se ve en la
   // foto (ver identificar.js). Se busca igual, y el cotejo visual lo
   // verifica contra la foto real del catálogo — incluso si hay un solo
@@ -978,13 +1153,34 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       // SIN ESTA LÍNEA NO SE PUEDE DEPURAR NADA. Un barrido que no
       // encuentra y un nombre mal identificado se ven igual en los
       // registros si no queda escrito qué vio y qué va a buscar.
+      // La descripción se registra entera a propósito: en los zapatos sin
+      // logo es lo ÚNICO que los distingue, así que si uno falla hay que
+      // poder leer qué vio exactamente.
       console.log(
-        `La IA de visión vio: "${identificacion.visto}" → busco: "${buscar}"` +
+        `La IA de visión vio: "${identificacion.visto}"` +
+          (identificacion.color ? ` · color: ${identificacion.color}` : " · color: no lo distingue") +
+          ` → busco: "${buscar}"` +
           (confirmar ? " (sin confirmar)" : "")
       );
 
       marcaFoto = marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar);
       rasgosFoto = identificacion.rasgos;
+      colorFoto = nombreDeColor(identificacion.color);
+      vistoFoto = identificacion.visto || "";
+      modeloNombrado = !pedirNombreExacto && String(buscar).toUpperCase() !== "NADA";
+
+      // UNA VITRINA NO SE ADIVINA. Solo cuenta si el cliente no nombró
+      // nada: si escribió "las Nike blancas", eso manda aunque la foto
+      // sea un estante lleno.
+      eraLaVitrina =
+        Boolean(identificacion.variosProductos) && !textoPideAlgo(mensaje.texto);
+
+      if (eraLaVitrina) {
+        console.log(
+          "La foto es la tienda entera, no un zapato: le mando el catálogo " +
+            "completo en vez de adivinar cuál miraba"
+        );
+      }
       porConfirmar = Boolean(confirmar);
     } else {
       console.error(
@@ -1038,7 +1234,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     return;
   }
 
-  const {
+  let {
     productos,
     respuestaCliente,
     termino,
@@ -1046,6 +1242,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     buscoSinExito,
     seAcabaron,
     hayMasDelCatalogo,
+    noReconociLaFoto,
     alternativa,
   } = await decidir({
     env,
@@ -1058,8 +1255,43 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     pideMas: !imagenCruda && pideMasVariedad(mensaje.texto),
     foto,
     rasgos: rasgosFoto,
+    colorFoto,
+    vistoFoto,
+    modeloNombrado,
+    eraLaVitrina,
     porConfirmar,
   });
+
+  // LOS DATOS PARA PAGAR NO SALEN DE ACÁ (crítico).
+  //
+  // El bot enumera los métodos de pago —eso lo sabe, está en
+  // prompts/pagos.txt— pero no tiene ni un número de cuenta, y prometer que
+  // los manda deja al cliente esperando un mensaje que no llega. Peor:
+  // escribir una cuenta inventada es mandar a alguien a transferirle dinero
+  // a nadie. El prompt ya lo prohíbe con todas las letras; esto es la red
+  // debajo, por lo mismo que cuotas.js en el bot de teléfonos. Ver pagos.js.
+  const revisionDePagos = revisarPagos(respuestaCliente);
+  let avisePorLosPagos = false;
+  if (revisionDePagos.corregido) {
+    // AL ASESOR SE LE MANDA LO QUE EL BOT IBA A DECIR, no lo corregido: el
+    // aviso existe para que una persona vea el invento y le dé al cliente
+    // el dato bueno.
+    const loQueIbaADecir = respuestaCliente;
+    respuestaCliente = revisionDePagos.respuesta;
+    avisePorLosPagos = true;
+
+    await avisarAsesor(env, {
+      ...paraElAviso(contacto),
+      igsid: mensaje.igsid,
+      mensaje: textoCliente,
+      respuesta: loQueIbaADecir,
+      motivo: `IBA A DAR DATOS DE PAGO — ${revisionDePagos.motivos.join("; ")}`,
+      historial: salida.historial,
+      busco: termino,
+      productos,
+      historia: esHistoria ? "respuesta a una historia" : "",
+    });
+  }
 
   // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO (crítico).
   //
@@ -1098,15 +1330,19 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     productos,
     preguntoTalla,
     buscoSinExito,
+    noReconociLaFoto,
   });
 
-  if (escalada) {
+  // Si ya se avisó por los datos de pago, no se avisa otra vez: la frase
+  // con la que se corrigió lleva "en un momento" y hayEscalada la leería
+  // como una escalada nueva.
+  if (escalada && !avisePorLosPagos) {
     await avisarAsesor(env, {
       ...paraElAviso(contacto),
       igsid: mensaje.igsid,
       mensaje: textoCliente,
       respuesta: respuestaCliente,
-      motivo: motivo({ preguntoTalla }),
+      motivo: motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto }),
       historial: salida.historial,
       busco: termino,
       productos,
@@ -1277,9 +1513,12 @@ function marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar =
   if (String(buscar).toUpperCase() === "NADA") {
     return (
       encabezado +
-      "NO SE PUDO IDENTIFICAR NINGÚN MODELO NI MARCA CON SEGURIDAD. " +
-      "Pregúntale con naturalidad cuál le interesa, como preguntaría una " +
-      "vendedora. NUNCA le pidas que mande otra foto" +
+      "NO SE PUDO PONERLE NOMBRE AL MODELO. Se le van a enseñar los del " +
+      "catálogo que más se parecen a su foto, así que escribe una frase " +
+      "corta y cálida que lo invite a mirarlos y decir cuál es. " +
+      "PROHIBIDO decir que no lo reconoces, que no sabes o que no se ve; " +
+      "PROHIBIDO pedirle el nombre del modelo —si lo supiera lo habría " +
+      "escrito en vez de mandar una foto— y PROHIBIDO pedirle otra foto" +
       (esHistoria ? ": ya tienes la imagen delante." : ".") +
       "]"
     );
@@ -1303,8 +1542,10 @@ function marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar =
     return (
       encabezado +
       `SE RECONOCIÓ LA MARCA "${buscar}", PERO NO EL MODELO EXACTO. ` +
-      "Muéstrale esa marca Y pídele el nombre exacto del modelo, las dos " +
-      "cosas en el mismo mensaje.]"
+      "Muéstrale lo que hay de esa marca y pregúntale CUÁL DE ESOS es el " +
+      "suyo. No le pidas el nombre del modelo: el cliente que manda una " +
+      "foto casi nunca lo sabe, y preguntárselo lo deja sin salida. " +
+      "Elegir entre lo que tiene delante sí puede.]"
     );
   }
 
@@ -1384,11 +1625,50 @@ async function decidir({
   // Lo que la IA de visión marcó que VE en esa foto. El cotejo elige por
   // ahí contra qué productos comparar.
   rasgos = null,
+  // El color del zapato de la foto, en una palabra. Ordena los candidatos
+  // para que no se le mande el mismo modelo en otro color.
+  colorFoto = "",
+  // Lo que la IA describió de la foto. Es lo único que distingue un
+  // zapato liso de otro: en los 15 rasgos, todos los lisos empatan.
+  vistoFoto = "",
+  // La visión nombró un MODELO concreto, no solo la marca. Si además la
+  // búsqueda encontró producto, el índice no debe cambiarlo por otro.
+  modeloNombrado = false,
+  // La foto era la tienda entera. No hay nada que buscar: toca el catálogo.
+  eraLaVitrina = false,
   // El modelo se identificó pero sin confirmar del todo: el cotejo pasa a
   // verificar, no solo a desempatar.
   porConfirmar = false,
 }) {
   const preguntoTalla = PREGUNTA_TALLA.test(texto);
+
+  // LA FOTO ERA LA VITRINA: NI SE BUSCA.
+  //
+  // No hay un zapato que encontrar, así que buscar es gastar llamadas
+  // para acabar adivinando. Se le manda el catálogo completo, que es
+  // exactamente lo que estaba pidiendo al mirar la tienda entera.
+  if (eraLaVitrina) {
+    salida.respuesta = alAzar(ERA_LA_VITRINA);
+    salida.historial = conNota(
+      salida.historial,
+      "Mandó una foto de la tienda entera; le pasé el catálogo completo."
+    );
+    // hayMasDelCatalogo es lo que hace salir el botón del catálogo (ver
+    // dónde se decide el envío). Los demás campos van en su forma normal
+    // para que quien llama no tenga que saber de este caso.
+    return {
+      preguntoTalla,
+      termino: "",
+      aBuscar: "",
+      colores: [],
+      productos: [],
+      buscoSinExito: false,
+      seAcabaron: false,
+      hayMasDelCatalogo: true,
+      alternativa: "",
+      respuestaCliente: salida.respuesta,
+    };
+  }
 
   // El modelo cuela la talla en el término cuando el cliente la nombra, y eso
   // devuelve cero productos siempre. Se le quita antes de buscar.
@@ -1419,7 +1699,25 @@ async function decidir({
   // Shopify no hay forma honesta de saber cuántos habría de ESE color.
   let hayMasEnCatalogo = false;
   if (aBuscar) {
-    const resultado = await buscarProductos(env, aBuscar);
+    // CUANDO HAY QUE FILTRAR POR COLOR, SE PIDEN MUCHOS MÁS (24-sep-2026).
+    //
+    // Capturado en producción. El cliente escribió "Air Force One marrón
+    // blanco", que EXISTE en el catálogo — y el bot contestó que no hay:
+    //
+    //   Color pedido: blanco + marrón · busco: "Air Force One"
+    //   Del modelo había 10; en blanco + marrón quedan 0
+    //   Sin resultados para "Air Force One"
+    //
+    // El catálogo tiene TRECE "Air Force One" y la búsqueda pedía diez.
+    // El filtro de color corre aquí, sobre lo que llegó, así que se
+    // aplicaba a una lista ya recortada: el marrón y blanco estaba en los
+    // tres que nunca se pidieron.
+    //
+    // El filtro tiene que ser lo último que recorte, nunca lo segundo. Se
+    // pide un grupo grande, se filtra por color, y lo que quede se recorta
+    // después al tamaño del carrusel.
+    const cuantosPedir = colores.length && sinColor ? CUANTOS_PARA_FILTRAR : undefined;
+    const resultado = await buscarProductos(env, aBuscar, cuantosPedir);
     productos = resultado.productos;
     habiaDelModelo = productos.length;
 
@@ -1430,6 +1728,11 @@ async function decidir({
       console.log(
         `Del modelo había ${habiaDelModelo}; en ${colores.join(" + ")} quedan ${productos.length}`
       );
+      // Ahora sí, al tamaño del carrusel.
+      if (productos.length > MAXIMO_EN_CARRUSEL) {
+        hayMasEnCatalogo = true;
+        productos = productos.slice(0, MAXIMO_EN_CARRUSEL);
+      }
     } else {
       hayMasEnCatalogo = resultado.hayMas;
     }
@@ -1450,6 +1753,7 @@ async function decidir({
   // Esto compara la foto del cliente contra las fotos REALES del
   // catálogo y saca el par que es. Ver ./cotejo.js: no corre siempre, y
   // cuando no está seguro devuelve null y todo sigue igual que sin él.
+  let cotejoAcerto = false;
   if (foto) {
     const cotejo = await cotejoPorImagen({
       env,
@@ -1458,6 +1762,9 @@ async function decidir({
       productos,
       termino: aBuscar,
       rasgos,
+      color: colorFoto,
+      visto: vistoFoto,
+      nombreFiable: modeloNombrado,
       verificar: porConfirmar,
       // El barrido del catálogo completo es el último recurso y el único
       // paso caro de todo esto. Se apaga con COTEJO_BARRIDO = "no".
@@ -1465,6 +1772,7 @@ async function decidir({
     });
 
     if (cotejo) {
+      cotejoAcerto = true;
       productos = cotejo.productos;
       habiaDelModelo = productos.length;
 
@@ -1481,6 +1789,70 @@ async function decidir({
         `Le mostré ${cotejo.elegido.titulo} (identificado por la foto).`
       );
     }
+  }
+
+  // LO QUE SE LE ENSEÑA AL CLIENTE VA EN EL ORDEN DE LA FOTO (crítico).
+  //
+  // Caso real (24-sep): una historia con unos Adidas Adistar XLG blancos,
+  // y el cliente recibió el beige. El orden por color YA existía, pero se
+  // aplicaba solo a la copia que se le pasa al modelo para cotejar; lo que
+  // sale por Instagram era la lista tal cual la devolvió Shopify.
+  //
+  // O sea: el bot sabía cuál era el bueno y lo mandaba en tercer lugar.
+  //
+  // Esto corre cuando el cotejo no afirmó nada —el caso más frecuente— y
+  // la búsqueda sí trajo producto. Si el cotejo SÍ acertó, no hace falta:
+  // ese ya viene primero de cotejo.js.
+  if (foto && productos.length > 1 && !cotejoAcerto) {
+    productos = await ordenarPorLaFoto(env, productos, {
+      color: colorFoto,
+      rasgos,
+      visto: vistoFoto,
+    });
+  }
+
+  // NO SE RECONOCIÓ LA FOTO: EL CATÁLOGO COMPLETO (26-sep-2026).
+  //
+  // LO QUE HABÍA AQUÍ Y POR QUÉ SE QUITÓ. Cuando el cotejo se abstenía, se
+  // le enseñaban los 6 del índice que más se parecían a la foto, con un
+  // "¿es alguno de estos?". La idea era no preguntarle el nombre a quien
+  // no lo sabe, y eso sigue siendo cierto — pero en producción salió mal:
+  //
+  //   "siempre manda cuando no sabe qué es, manda Nike Trail y otros ahí"
+  //
+  // Y tenía razón. Cuando la descripción de la foto es pobre —un zapato
+  // liso, mala luz, lejos— el parecido por palabras da CASI EMPATE entre
+  // cientos, y desempata siempre igual. Al cliente le llegaban los mismos
+  // seis zapatos una y otra vez, ninguno el suyo. Seis fichas equivocadas
+  // no son mejores que una pregunta: son peores, porque parecen una
+  // respuesta.
+  //
+  // Cuando de verdad no se sabe, la respuesta honesta y la más útil es la
+  // misma: el catálogo entero, que es lo que el cliente puede mirar él.
+  if (foto && !productos.length) {
+    salida.respuesta = alAzar(NO_SE_CUAL_ES);
+    salida.historial = conNota(
+      salida.historial,
+      "No se reconoció el calzado de la foto; le pasé el catálogo completo."
+    );
+    console.log("No reconocí la foto: aviso al asesor y le mando el catálogo completo");
+
+    return {
+      preguntoTalla,
+      termino: "",
+      aBuscar,
+      colores,
+      productos: [],
+      buscoSinExito: false,
+      seAcabaron: false,
+      hayMasDelCatalogo: true,
+      // El asesor tiene que enterarse: hay un cliente con una foto en la
+      // mano que el bot no supo leer, y ese es de los que más cerca están
+      // de comprar. Ver hayEscalada().
+      noReconociLaFoto: true,
+      alternativa: "",
+      respuestaCliente: salida.respuesta,
+    };
   }
 
   // NO LE MANDES DOS VECES EL MISMO CARRUSEL (crítico).
@@ -1590,6 +1962,7 @@ async function decidir({
     buscoSinExito,
     seAcabaron,
     hayMasDelCatalogo,
+    noReconociLaFoto: false,
     alternativa,
     respuestaCliente,
   };
@@ -1605,17 +1978,30 @@ async function decidir({
 //     frases de cierre del prompt llevan "en un momento", y la oferta "¿Te
 //     paso con un asesor?" no, porque el cliente aún no ha dicho que sí.
 //
+//   · Mandó una FOTO y el bot no supo qué calzado era. Este se añadió el
+//     26-sep-2026, a pedido del dueño. Quien manda una foto ya vio el
+//     zapato y lo quiere: es de los mensajes que más cerca están de una
+//     venta, y si la máquina no lo reconoció, una persona sí va a poder.
+//     Al cliente se le manda el catálogo completo mientras tanto, así que
+//     no se queda esperando.
+//
 // No se avisa mientras el bot esté mostrando calzados: la venta sigue viva.
-// Tampoco cuando una búsqueda no da resultados — eso queda en los registros,
-// no es trabajo para el asesor.
-function hayEscalada({ respuesta, productos, preguntoTalla, buscoSinExito }) {
+// Tampoco cuando una búsqueda por texto no da resultados — eso queda en los
+// registros, no es trabajo para el asesor. La foto sin reconocer sí lo es:
+// ahí hay una imagen concreta que alguien puede mirar.
+function hayEscalada({ respuesta, productos, preguntoTalla, buscoSinExito, noReconociLaFoto }) {
   if (preguntoTalla) return true;
+  if (noReconociLaFoto) return true;
   if (buscoSinExito || productos.length) return false;
   return respuesta.toLowerCase().includes("en un momento");
 }
 
-// Primera línea de la notificación: le dice al asesor qué tiene que contestar
-// antes de abrir la conversación.
-function motivo({ preguntoTalla }) {
-  return preguntoTalla ? "PREGUNTO POR TALLAS" : "QUIERE CERRAR LA COMPRA";
+// Primera línea de la notificación: le dice al asesor qué tiene que
+// contestar antes de abrir la conversación.
+function motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto }) {
+  if (preguntoTalla) return "PREGUNTO POR TALLAS";
+  if (noReconociLaFoto) return "MANDO UNA FOTO Y NO SUPE QUE CALZADO ES";
+  return "QUIERE CERRAR LA COMPRA";
 }
+
+
