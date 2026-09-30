@@ -1,8 +1,18 @@
 # Pruebas de Invictus
 
-**Esto NO se despliega.** Vive fuera de `src/`, así que nada de esta carpeta
-se pega en la carpeta del proyecto ni sube al Worker. Es red de seguridad
-para el repo y nada más.
+**Esto NO se despliega.** Va en la carpeta del proyecto, AL LADO de `src/`
+(no dentro), a la misma altura que `wrangler.toml`:
+
+```
+invictus-bot\
+├── wrangler.toml
+├── src\        ← lo que va a Cloudflare
+└── pruebas\    ← esto: se queda en tu PC
+```
+
+No sube al Worker: `wrangler deploy` empaqueta solo lo que importa
+`src/index.js`, y nada de `src/` importa estas pruebas. Tenerla ahí sirve
+justo para probar los archivos que acabas de pegar, antes de desplegar.
 
 ## Cómo se corren
 
@@ -44,6 +54,8 @@ Nada de eso lo atrapa `node --check`. Por eso existe esta carpeta.
 | `gasto.mjs` | Que la cuenta de tokens y dólares esté bien —incluido el descuento de caché, que no se puede cobrar dos veces— y, sobre todo, que **medir nunca deje a un cliente sin respuesta**: con la base de datos caída no lanza. |
 | `prompt.mjs` | Que los prompts se armen enteros, sin marcadores sin rellenar, y que las reglas que costaron sangre sigan escritas: el catálogo no es la respuesta por defecto, la talla nunca va en la búsqueda, el número del modelo no se adivina, el aviso al asesor no se duplica. |
 | `corpus.mjs` | **La más importante.** Saca las respuestas que el bot escribe de verdad —los ejemplos del prompt y las frases fijas del código— y se las pasa a cada guardián. Si alguno altera una sola, es un falso positivo. Crece solo: cada ejemplo nuevo del prompt entra sin tocar nada. |
+| `cotejo.mjs` | Que al modelo le llegue el zapato del color de la foto: con diecisiete "New Balance 9060 Dama" iguales de título, que salga primero el del color correcto. Y que una foto cuyo color no se pudo leer no se vuelva a pagar en cada pasada del cron. |
+| `cupo.mjs` | Que "OpenAI sin cupo" no se cuente como "miré y no está" (incidente del 30-sep): esos zapatos no cuentan como mirados, se reintenta solo si da el tiempo, y el aviso al asesor lo dice. También que `/indexar-catalogo` no pase del 100% y no dé la falsa alarma de "se están pisando". |
 
 ## Cómo está armado
 
