@@ -48,6 +48,38 @@ titulo("mezclado con un calzado, NO se queda con el turno");
 ok(D.nombraUnProducto("tienen las air force one y hacen envios?"), '"las air force one y hacen envíos" nombra un calzado');
 ok(!D.nombraUnProducto("hacen envios a valencia?"), '"hacen envíos a Valencia" no nombra ninguno');
 
+titulo("la IA redacta, personalizado: lo bueno pasa");
+
+for (const [tema, t] of [
+  ["delivery", "¡Sí! 🛵 Hacemos delivery a toda la isla de Margarita, así que a Macanao te llega. En algunas zonas es gratis; si la tuya es una, te lo confirma un asesor 😊 ¿Qué modelo te gustaría?"],
+  ["envios", "¡Claro! 📦 Hacemos envíos a todo el país por ZOOM y MRW, así que a Caracas te llega sin problema. ¿Cuál te gustó?"],
+  ["horarios", "¡Sí! 🕘 Los domingos abrimos de 9:00am a 5:00pm."],
+  ["horarios", "Abrimos de lunes a viernes de 9am a 7pm 😊"],
+  ["horarios", "El horario del sábado te lo confirma un asesor 😊"],
+  ["trabajo", "¡Gracias por escribirnos! 😊 Por ahora el personal está completo, pero cuando necesitemos gente lo publicamos en las historias 👀"],
+]) {
+  ok(!D.revisarDatoDeLaTienda(t, tema).corregido, `pasa: "${t.slice(0, 60)}…"`);
+}
+
+titulo("…y lo inventado se descarta (sale el texto fijo)");
+
+for (const [tema, t, que] of [
+  ["delivery", "¡Sí! A Macanao el delivery es gratis 🛵", "su zona gratis"],
+  ["delivery", "El delivery a Macanao sale en 5$", "un precio"],
+  ["delivery", "¡Claro! Te llega mañana mismo 🛵", "un plazo"],
+  ["envios", "Enviamos por Tealca y MRW a todo el país", "otra empresa"],
+  ["envios", "El envío a Caracas cuesta 8 dólares", "un precio"],
+  ["envios", "Te llega en 48 horas por ZOOM", "un plazo"],
+  ["delivery", "Sí, hacemos delivery a Caracas", "delivery fuera de la isla"],
+  ["horarios", "Abrimos los sábados de 9am a 2pm", "el sábado"],
+  ["horarios", "Los domingos abrimos de 10am a 3pm", "horas que no son"],
+  ["trabajo", "¡Sí, estamos contratando! Envíanos tu CV", "que contratan"],
+  ["delivery", "", "respuesta vacía"],
+]) {
+  const r = D.revisarDatoDeLaTienda(t, tema);
+  ok(r.corregido && r.respuesta === D.RESPUESTAS[tema], `atrapa ${que}: "${t.slice(0, 50)}"`, (r.motivos || []).join("; "));
+}
+
 titulo("métodos de pago: la lista entera; datos: al asesor");
 
 const P = await src.cargar("pagos.js");

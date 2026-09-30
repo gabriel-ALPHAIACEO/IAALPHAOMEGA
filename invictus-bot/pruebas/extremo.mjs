@@ -230,15 +230,24 @@ for (const [texto, buscar] of [
      `"${texto}" → contesta el modelo, no un atajo`, r.todo.slice(0, 80));
 }
 
-titulo("las preguntas de la tienda, por el camino real");
-for (const [texto, espera] of [
-  ["hacen envios?", /ZOOM y MRW/],
-  ["tienen delivery?", /isla de Margarita/],
-  ["a que hora abren?", /Lunes a viernes/],
-  ["estan contratando?", /personal completo/],
+titulo("las preguntas de la tienda: las redacta la IA, personalizadas");
+{
+  const buena = "¡Sí! 🛵 Hacemos delivery a toda la isla de Margarita, así que a Macanao te llega. En algunas zonas es gratis 😊";
+  const r = await conversar("Tienes delivery para macanao?", {
+    respuestaModelo: { respuesta: buena, buscar: "NADA", historial: "Preguntó delivery a Macanao." },
+  });
+  ok(r.todo.includes("a Macanao te llega"), "le llega la respuesta personalizada (nombra Macanao)", r.todo.slice(0, 80));
+  ok(/delivery/.test(r.registro) && /lo redacta el modelo/.test(r.registro), "y el registro dice que la redactó el modelo");
+}
+titulo("…y si la IA inventa, sale el texto fijo de la tienda");
+for (const [texto, inventa, espera] of [
+  ["Tienes delivery para macanao?", "¡Sí! A Macanao el delivery es gratis 🛵", /isla de Margarita/],
+  ["hacen envios?", "Enviamos por Tealca, llega en 24 horas", /ZOOM y MRW/],
+  ["abren el sabado?", "Los sábados abrimos de 9am a 2pm", /Lunes a viernes/],
+  ["estan contratando?", "¡Sí, estamos contratando!", /personal completo/],
 ]) {
-  const r = await conversar(texto);
-  ok(espera.test(r.todo), `"${texto}"`, r.todo.slice(0, 60));
+  const r = await conversar(texto, { respuestaModelo: { respuesta: inventa, buscar: "NADA", historial: "x" } });
+  ok(espera.test(r.todo) && !r.todo.includes(inventa), `"${texto}" con invento → texto fijo`, r.todo.slice(0, 60));
 }
 
 titulo("la talla sigue yendo al asesor");

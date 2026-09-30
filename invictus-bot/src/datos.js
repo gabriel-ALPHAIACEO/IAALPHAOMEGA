@@ -146,3 +146,82 @@ export function nombraUnProducto(texto) {
 
   return "";
 }
+
+/* ── La IA redacta; esto comprueba que no invente (30-sep-2026) ────
+   Pedido del dueño: "que la IA tenga más libertad para personalizar los
+   mensajes, pero con la información clara y que no alucine". Caso real:
+   "¿Tienes delivery para Macanao?" recibía el texto fijo, sin nombrar
+   Macanao. Ahora lo redacta el modelo con los DATOS DE LA TIENDA del
+   prompt —"¡Sí! A Macanao te llega 🛵"— y esto revisa lo que escribió.
+
+   Si inventa algo —un precio de envío, que su zona es gratis, un plazo de
+   entrega, otra empresa de envíos, un horario que no es, que están
+   contratando— se descarta y sale el texto fijo de arriba. Nunca queda
+   peor que antes: en el peor caso, es lo de antes.
+   ───────────────────────────────────────────────────────────────── */
+
+// Empresas de envío que NO son las nuestras (ZOOM y MRW).
+const OTRA_EMPRESA = /\b(tealca|domesa|liberty\s*express|dhl|fedex|ups|ipostel|mail\s*boxes)\b/i;
+
+// Un precio o un número pegado al envío o al delivery ("el envío sale en
+// 5$", "delivery de 3 dólares"). Lo que cuesta lo dice un asesor.
+const PRECIO_DEL_ENVIO =
+  /\b(env[ií]os?|delivery|flete)\b[^.!?\n]{0,35}(\$|usd|bs\.?\b|bol[ií]var|d[oó]lar|\d)|(\$|usd|d[oó]lar|bs\.?\b)[^.!?\n]{0,20}\b(de\s+)?(env[ií]o|delivery)\b/i;
+
+// Plazos inventados: "te llega mañana", "entregamos en 24 horas".
+const PLAZO =
+  /\b(llega|llegan|llegar[ií]a|entrega\w*|sale|despacha\w*)\b[^.!?\n]{0,25}\b(hoy|ma[ñn]ana|mismo\s+d[ií]a|en\s+\d+|\d+\s*(?:h|horas|d[ií]as))\b/i;
+
+// "Gratis" solo se puede decir como está: "en algunas zonas". Que SU zona
+// sea gratis no lo sabe nadie más que el asesor.
+const GRATIS = /\b(gratis|sin\s+costo|gratuito|free)\b/i;
+const EN_ALGUNAS_ZONAS = /\balgunas\s+zonas\b/i;
+
+// Delivery fuera de la isla: eso no es delivery, son los envíos nacionales.
+const FUERA_DE_LA_ISLA =
+  /\bdelivery\b[^.!?\n]{0,40}\b(caracas|valencia|maracay|barquisimeto|maracaibo|puerto\s+la\s+cruz|barcelona|m[eé]rida|san\s+crist[oó]bal|maturin|cuman[aá]|ciudad\s+bol[ií]var|puerto\s+ordaz)\b/i;
+
+// Horas: solo las del horario (9am, 7pm, 5pm). Y del sábado no hay dato.
+const HORAS_VALIDAS = new Set(["9am", "7pm", "5pm"]);
+const UNA_HORA = /\b(\d{1,2})(?::(\d{2}))?\s*(a\.?\s?m\.?|p\.?\s?m\.?)/gi;
+const SABADO_CON_HORA = /s[aá]bados?\b[^.!?\n]{0,40}\d|\d[^.!?\n]{0,40}s[aá]bados?\b|\babrimos\s+(?:el|los)\s+s[aá]bados?\b/i;
+
+// Que están contratando, o que manden el CV: el personal está completo.
+const CONTRATANDO =
+  /\b(s[ií]\s+estamos\s+contratando|estamos\s+contratando|estamos\s+buscando\s+personal|hay\s+vacantes?|tenemos\s+vacantes?|env[ií]a(?:me|nos)?\s+tu\s+(?:cv|curr[ií]cul))/i;
+
+export function revisarDatoDeLaTienda(respuesta, tema = "") {
+  const texto = String(respuesta || "").trim();
+  if (!texto) return { corregido: true, motivos: ["respuesta vacía"], respuesta: RESPUESTAS[tema] || "" };
+
+  const motivos = [];
+  if (OTRA_EMPRESA.test(texto)) motivos.push(`nombró una empresa de envíos que no es ZOOM ni MRW`);
+  if (PRECIO_DEL_ENVIO.test(texto)) motivos.push(`puso un precio o un número al envío/delivery`);
+  if (PLAZO.test(texto)) motivos.push(`prometió un plazo de entrega`);
+  if (GRATIS.test(texto) && !EN_ALGUNAS_ZONAS.test(texto)) motivos.push(`dijo gratis sin el 'en algunas zonas'`);
+  if (FUERA_DE_LA_ISLA.test(texto)) motivos.push(`ofreció delivery fuera de Margarita`);
+  if (SABADO_CON_HORA.test(texto)) motivos.push(`dio un horario para el sábado (no hay dato)`);
+  for (const m of texto.matchAll(UNA_HORA)) {
+    const h = `${Number(m[1])}${m[3].replace(/[.\s]/g, "").toLowerCase()}`;
+    if ((m[2] && m[2] !== "00") || !HORAS_VALIDAS.has(h)) {
+      motivos.push(`dio una hora que no es del horario (${m[0].trim()})`);
+      break;
+    }
+  }
+  if (CONTRATANDO.test(texto)) motivos.push(`dijo que están contratando`);
+
+  return motivos.length
+    ? { corregido: true, motivos, respuesta: RESPUESTAS[tema] || texto }
+    : { corregido: false, respuesta: texto };
+}
+
+// La nota que acompaña a la pregunta cuando el modelo la va a contestar.
+export function notaDeDatoDeLaTienda(tema) {
+  const que = { delivery: "el DELIVERY", envios: "los ENVÍOS", horarios: "el HORARIO", trabajo: "el EMPLEO" }[tema] || tema;
+  return (
+    `[PREGUNTA POR ${que} DE LA TIENDA. Contéstala TÚ con los DATOS DE LA TIENDA, ` +
+    "personalizada a lo que escribió: si nombra su zona, su ciudad o un día, nómbralos. " +
+    "Cálida y corta. SIN inventar nada que no esté en esos datos: ni precios de envío, " +
+    "ni si su zona paga o no el delivery, ni plazos, ni horas que no estén, ni otras empresas de envío]"
+  );
+}

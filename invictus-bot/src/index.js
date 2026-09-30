@@ -51,7 +51,13 @@ import {
   tarjetaCashea,
   revisarCashea,
 } from "./cashea.js";
-import { queDatoPide, RESPUESTAS, nombraUnProducto } from "./datos.js";
+import {
+  queDatoPide,
+  RESPUESTAS,
+  nombraUnProducto,
+  revisarDatoDeLaTienda,
+  notaDeDatoDeLaTienda,
+} from "./datos.js";
 import { hayQueRescatar, FRASE_DE_RESCATE, MOTIVO_DE_RESCATE } from "./rescate.js";
 import {
   hayUbicacion,
@@ -105,7 +111,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-30 (37) · revision completa: los atajos nuevos ya no se confunden con frases normales";
+const VERSION = "2026-09-30 (38) · la IA redacta delivery, envios, horario y empleo personalizados, con red contra inventos";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1241,27 +1247,23 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // salta cuando la pregunta VA SOLA: si nombra un calzado, o habla de
   // Cashea, sigue el camino normal y el modelo contesta las dos cosas con
   // las fichas debajo. Ni una llamada a OpenAI cuando va sola.
+  //
+  // AHORA LO REDACTA EL MODELO, PERSONALIZADO (30-sep-2026, pedido del
+  // dueño: "más libertad para personalizar, pero con la información clara y
+  // sin que alucine"). "¿Tienes delivery para Macanao?" recibía el texto
+  // fijo sin nombrar Macanao. El modelo contesta con los DATOS DE LA TIENDA
+  // del prompt, y revisarDatoDeLaTienda() comprueba que no se haya
+  // inventado nada; si se inventó algo, sale el texto fijo de siempre.
   const datoQuePide = !imagenCruda ? queDatoPide(mensaje.texto) : "";
-  if (
+  const datoDeLaTienda =
     datoQuePide &&
     !nombraUnProducto(mensaje.texto) &&
     !preguntaPorCashea(mensaje.texto) &&
-    // Dos preguntas de la tienda a la vez ("¿hacen envíos y cómo pago?"):
-    // las contesta el modelo juntas, no se queda una sin respuesta.
     !preguntaPorMetodos(mensaje.texto) &&
     !pideDatosDePago(mensaje.texto)
-  ) {
-    console.log(`Preguntó por ${datoQuePide}: contesto con el dato de la tienda`);
-    await mandar(() => enviarTexto(env, mensaje.igsid, RESPUESTAS[datoQuePide]));
-    await guardarContacto(env.DB, {
-      ...contacto,
-      nombre,
-      historial: conNota(historialPrevio, `Preguntó por ${datoQuePide} y se lo respondí.`),
-      mids_enviados: mids,
-      ultimo_envio: enviadoEn || Date.now(),
-    });
-    return;
-  }
+      ? datoQuePide
+      : "";
+  if (datoDeLaTienda) console.log(`Preguntó por ${datoDeLaTienda}: lo redacta el modelo con los datos de la tienda`);
 
   // "¿QUÉ MÉTODOS DE PAGO TIENEN?": TODOS, DESDE EL CÓDIGO (30-sep-2026).
   //
@@ -1428,12 +1430,31 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     nombre,
     historialPrevio,
     textoCliente,
-    [marca, notaUbicacion].filter(Boolean).join("\n"),
+    [marca, notaUbicacion, datoDeLaTienda ? notaDeDatoDeLaTienda(datoDeLaTienda) : ""].filter(Boolean).join("\n"),
     esHistoria,
     minutosCallado
   );
 
-  const salida = await responderTexto(env, entrada);
+  let salida = await responderTexto(env, entrada);
+
+  // LA RED DE LOS DATOS DE LA TIENDA. Si el modelo no respondió, o se
+  // inventó algo (un precio de envío, una zona gratis, una hora), sale el
+  // texto fijo: exactamente lo que salía antes de darle libertad.
+  if (datoDeLaTienda) {
+    const revision = revisarDatoDeLaTienda(salida?.respuesta, datoDeLaTienda);
+    if (!salida || revision.corregido) {
+      console.log(
+        `Datos de la tienda (${datoDeLaTienda}): ` +
+          (salida ? `el modelo ${revision.motivos.join(" y ")}` : "el modelo no respondió") +
+          " → mando el texto fijo"
+      );
+      salida = {
+        respuesta: RESPUESTAS[datoDeLaTienda],
+        buscar: "NADA",
+        historial: conNota(historialPrevio, `Preguntó por ${datoDeLaTienda} y se lo respondí.`),
+      };
+    }
+  }
 
   // Y si además el modelo falla, la pregunta se la hacemos nosotros, que es
   // infinitamente mejor que decirle que el sistema se trabó.
