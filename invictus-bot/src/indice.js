@@ -63,6 +63,7 @@ const TABLA = `
     url TEXT,
     visto TEXT,
     rasgos TEXT,
+    color TEXT,
     actualizado INTEGER
   )
 `;
@@ -82,8 +83,51 @@ export async function asegurarIndice(db) {
 
   await db.prepare(TABLA).run();
   await migrarDeTituloAFoto(db);
+  // Va DESPUÉS de migrar: la migración vieja recrea la tabla sin esta
+  // columna, así que añadirla antes sería añadirla a una tabla que se tira.
+  await asegurarColumnaColor(db);
 
   tablaLista = true;
+}
+
+// EL COLOR DE CADA FOTO DEL CATÁLOGO (30-sep-2026).
+//
+// EL FALLO QUE ARREGLA, medido con el inventario real: el 57% del catálogo
+// comparte título con otro producto —diecisiete "New Balance 9060 Dama",
+// quince "On Cloud Caballero"—, uno por color. Y de esos, solo 9 llevan el
+// color escrito en el título.
+//
+// El índice decidía el color LEYENDO EL TÍTULO. Con diecisiete títulos
+// idénticos, los diecisiete empataban, y de cada título se quedaba con uno
+// solo: el que casualmente estuviera primero. Simulando la foto de cada
+// producto contra el índice de verdad, el zapato correcto llegaba al modelo
+// el 82% de las veces si su título era único... y el 18% si era repetido.
+// Los 17 New Balance 9060 Dama: 0 de 17.
+//
+// Lo absurdo es que el color ya se sabía. Al indexar, la IA mira cada foto
+// y devuelve su color —el esquema lo exige—, y se tiraba. Ahora se guarda.
+//
+// NULL y "" NO SON LO MISMO, y la diferencia evita un gasto sin fin:
+//   NULL  → esta foto nunca se miró buscando el color: hay que mirarla.
+//   ""    → se miró y no se pudo decir (sombra, filtro): no se vuelve a
+//           mirar. Sin esta distinción, una foto oscura se reindexaría en
+//           cada pasada del cron, para siempre.
+async function asegurarColumnaColor(db) {
+  try {
+    const { results } = await db.prepare("PRAGMA table_info(catalogo)").all();
+    const hay = (results || []).some((f) => String(f.name) === "color");
+    if (hay) return;
+
+    await db.prepare("ALTER TABLE catalogo ADD COLUMN color TEXT").run();
+    console.log(
+      "Índice: columna \"color\" creada. Las fotos ya indexadas se vuelven a " +
+        "mirar solas en las próximas pasadas del cron para rellenarla."
+    );
+  } catch (error) {
+    // Si esto falla el bot sigue igual que antes: sin color guardado, el
+    // orden cae al del título, que es lo que hacía hasta hoy.
+    console.error("No pude añadir la columna color al índice:", error?.message || error);
+  }
 }
 
 async function migrarDeTituloAFoto(db) {
@@ -142,7 +186,7 @@ export async function leerIndice(db) {
   let results;
   try {
     ({ results } = await db
-      .prepare("SELECT titulo, imagen, precio, url, visto, rasgos FROM catalogo")
+      .prepare("SELECT titulo, imagen, precio, url, visto, rasgos, color FROM catalogo")
       .all());
   } catch (error) {
     // La tabla se daba por hecha y no estaba. Se apunta para que el
@@ -158,6 +202,8 @@ export async function leerIndice(db) {
     url: fila.url || "",
     visto: fila.visto || "",
     rasgos: leerRasgos(fila.rasgos),
+    // null a propósito, no "": ver asegurarColumnaColor.
+    color: fila.color ?? null,
   }));
 }
 
@@ -172,8 +218,8 @@ export async function guardarIndexados(db, filas) {
       db
         .prepare(
           `INSERT OR REPLACE INTO catalogo
-             (imagen, titulo, precio, url, visto, rasgos, actualizado)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
+             (imagen, titulo, precio, url, visto, rasgos, color, actualizado)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           fila.imagen || "",
@@ -182,6 +228,7 @@ export async function guardarIndexados(db, filas) {
           fila.url || "",
           String(fila.visto || "").slice(0, 300),
           JSON.stringify(fila.rasgos || {}),
+          String(fila.color || ""),
           ahora
         )
     )
@@ -286,7 +333,7 @@ export function mejoresPorRasgos(indice, rasgos, cuantos = 10, color = "", visto
     producto,
     puntos:
       puntuar(producto.rasgos, rasgos) +
-      puntosDeColor(producto.titulo, color) +
+      puntosDeColor(producto.titulo, color, producto.color) +
       puntosDeDescripcion(producto.visto, delaFoto, peso),
   }));
 
@@ -382,8 +429,16 @@ export function puntosDeDescripcion(vistoDelCatalogo, delaFoto, peso) {
   return Math.round((compartido / maximo) * PUNTOS_DESCRIPCION);
 }
 
-export function puntosDeColor(titulo, color) {
+export function puntosDeColor(titulo, color, colorVisto = "") {
   if (!color) return 0;
+
+  // LO QUE SE VIO EN LA FOTO MANDA SOBRE LO QUE DICE EL TÍTULO. El título
+  // sirve para el 27% del catálogo que lleva el color escrito; la foto,
+  // para todos. Y la foto no se equivoca de producto: es ESA ficha.
+  if (colorVisto) return colorVisto === color ? PUNTOS_MISMO_COLOR : PUNTOS_OTRO_COLOR;
+
+  // Sin color guardado (una tienda que todavía no reindexó, o una foto que
+  // la IA no se atrevió a nombrar), lo de siempre.
   if (tituloEsDelColor(titulo, color)) return PUNTOS_MISMO_COLOR;
   return tituloNombraColor(titulo) ? PUNTOS_OTRO_COLOR : 0;
 }
@@ -449,7 +504,11 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
 
   // Pendiente es el que no está guardado POR SU FOTO. Si le cambian la
   // imagen a un producto, su URL cambia, así que entra solo como nuevo.
-  const guardados = new Set(indice.map((p) => p.imagen));
+  //
+  // Y TAMBIÉN el que se indexó antes de que existiera el color (NULL): así
+  // el catálogo entero se completa solo, de a una tanda por pasada, sin que
+  // nadie tenga que acordarse de correr /indexar-catalogo?rehacer=si.
+  const guardados = new Set(indice.filter((p) => p.color !== null).map((p) => p.imagen));
 
   // Un producto sin featuredImage no se puede indexar: el cotejo compara
   // imágenes y aquí no hay ninguna. Se cuentan aparte para que el
@@ -492,7 +551,9 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
       tanda.slice(i, i + DE_A_LA_VEZ).map(async (producto) => {
         // Prompt propio, no el de visión completo: ver rasgosDeProducto().
         const visto = await rasgosDeProducto(env, producto.imagen, { modelo });
-        return visto ? { ...producto, visto: visto.visto, rasgos: visto.rasgos } : null;
+        return visto
+          ? { ...producto, visto: visto.visto, rasgos: visto.rasgos, color: visto.color || "" }
+          : null;
       })
     );
 

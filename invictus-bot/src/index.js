@@ -72,7 +72,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-28 (26) · los 9 metodos de pago cargados, en sus dos grupos";
+const VERSION = "2026-09-30 (27) · el índice guarda el color de cada foto: llega el zapato del color correcto";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo

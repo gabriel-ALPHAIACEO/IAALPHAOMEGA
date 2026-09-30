@@ -21,6 +21,7 @@ const SUITES = [
   ["gasto.mjs", "la medición del gasto de OpenAI"],
   ["prompt.mjs", "que los prompts se armen y las reglas sigan escritas"],
   ["corpus.mjs", "que los guardianes no alteren respuestas buenas"],
+  ["cotejo.mjs", "que llegue al modelo el zapato del color correcto"],
 ];
 
 let roto = false;

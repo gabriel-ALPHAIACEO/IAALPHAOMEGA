@@ -23,6 +23,7 @@ import listaCatalogo from "./prompts/catalogo.txt";
 import listaModelos from "./prompts/modelos.txt";
 import promptIndexar from "./prompts/indexar.txt";
 import { RASGOS_CLAVE } from "./identificar.js";
+import { nombreDeColor } from "./color.js";
 import { urlPequena } from "./shopify.js";
 import { comoDataUri } from "./imagen.js";
 import { metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
@@ -720,6 +721,13 @@ export async function rasgosDeProducto(env, urlImagen, { modelo = "" } = {}) {
   return {
     visto: String(datos.visto || "").trim(),
     rasgos: datos.rasgos,
+    // Normalizado con el MISMO diccionario que el color de la foto del
+    // cliente (color.js). Si no, "white" en el catálogo y "blanco" en la
+    // foto no coincidirían nunca aunque sean el mismo zapato.
+    //
+    // "" si la IA no se atrevió a nombrarlo: se guarda así, y no NULL,
+    // para que esa foto no se vuelva a mirar en cada pasada.
+    color: nombreDeColor(datos.color),
   };
 }
 
