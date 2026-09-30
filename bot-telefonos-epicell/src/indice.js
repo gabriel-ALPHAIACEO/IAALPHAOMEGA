@@ -315,12 +315,16 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
   // RED DE SEGURIDAD. Si se guardaron productos y las filas no subieron lo
   // que debían, algo los está pisando — y lo peor de ese fallo, cuando
   // pasó en el bot de calzado, no fue el fallo: fue que no dijo nada.
-  if (indexados.length) {
+  //
+  // Solo cuentan los que NO tenían fila: con ?rehacer=si se reescriben
+  // filas que ya estaban, y eso no suma ninguna ni es un pisotón.
+  const debianSerNuevas = indexados.filter((p) => !guardados.has(p.imagen)).length;
+  if (debianSerNuevas) {
     const hayAhora = await contarFilas(env.DB);
     const nuevas = hayAhora - indice.length;
-    if (nuevas < indexados.length) {
+    if (nuevas < debianSerNuevas) {
       console.error(
-        `ÍNDICE: guardé ${indexados.length} producto(s) pero solo quedaron ${nuevas} ` +
+        `ÍNDICE: guardé ${debianSerNuevas} producto(s) nuevos pero solo quedaron ${nuevas} ` +
           "fila(s) nuevas. Se están pisando y la indexación no va a terminar nunca. " +
           "Mira la clave primaria de la tabla en indice.js."
       );
@@ -341,7 +345,10 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
     catalogo: productos.length,
     indexables: indexables.length,
     sinFoto,
-    yaEstaban: indice.length,
+    // Los que no hacía falta mirar. NO es indice.length: ahí entran los
+    // de fotos que ya no están en la hoja, y con eso el porcentaje podía
+    // pasar del 100 (le pasó a Invictus el 30-sep).
+    yaEstaban: indexables.length - pendientes.length,
     intentados: tanda.length,
     indexados: indexados.length,
     fallados,

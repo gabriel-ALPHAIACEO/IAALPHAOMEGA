@@ -80,7 +80,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-26 (14) · las fichas de la foto llevan su precio Cashea, y un solo aviso";
+const VERSION = "2026-09-30 (15) · sin cupo de OpenAI ya no cuenta como \"miré y no está\" (portado de Invictus)";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -504,7 +504,14 @@ export default {
       // A Meta se le responde 200 siempre y rápido. Si tarda o falla, lo
       // reintenta y el cliente acaba recibiendo la misma respuesta varias
       // veces; y si falla mucho, Meta desactiva el webhook.
-      if (mensaje) ctx.waitUntil(atenderConRed(env, mensaje));
+      //
+      // La hora de llegada viaja con el mensaje: Cloudflare da 30 segundos
+      // de trabajo desde esta respuesta, y el cotejo la usa para saber si
+      // le da el tiempo de esperar el cupo de OpenAI (ver cotejo.js).
+      if (mensaje) {
+        mensaje.recibidoEn = Date.now();
+        ctx.waitUntil(atenderConRed(env, mensaje));
+      }
       return new Response("ok", { status: 200 });
     }
 
@@ -1248,6 +1255,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       foto,
       vistoFoto,
       modeloNombrado,
+      recibidoEn: mensaje.recibidoEn,
     });
 
   // El precio que va en cada ficha depende de lo que preguntó el cliente
@@ -1580,6 +1588,9 @@ async function decidir({
   vistoFoto = "",
   // Nombró un modelo concreto, no solo la marca.
   modeloNombrado = false,
+  // Cuándo llegó el mensaje. El cotejo lo usa para saber si le da el
+  // tiempo de esperar el cupo de OpenAI.
+  recibidoEn = 0,
 }) {
   // El color se busca en lo que escribió EL CLIENTE, no en el término que
   // escribió el modelo: si el modelo ya lo quitó por su cuenta, el cliente
@@ -1707,6 +1718,7 @@ async function decidir({
       termino,
       visto: vistoFoto,
       nombreFiable: modeloNombrado,
+      recibidoEn,
     });
 
     if (cotejo) {

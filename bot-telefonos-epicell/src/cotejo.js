@@ -20,7 +20,7 @@
 // seguiría sin este archivo.
 
 import { buscarProductos, catalogoCompleto } from "./sheets.js";
-import { cotejarConCatalogo, estaLimitado, modeloDeVision } from "./ia.js";
+import { cotejarConCatalogo, estaLimitado, esperarCupo, modeloDeVision } from "./ia.js";
 import { leerIndice, mejoresPorDescripcion, palabrasDe, pesoDeLasPalabras, puntosDeDescripcion } from "./indice.js";
 
 // Cuántas fotos del catálogo se le mandan al modelo de una vez. Con 8 se
@@ -40,6 +40,19 @@ const RONDAS_DEL_INDICE = 2;
 // Cuántos del mismo modelo se enseñan detrás del de la foto.
 const MAXIMO_HERMANOS = 9;
 
+// --- Sin cupo no es "no está" (30-sep-2026, portado de Invictus) -----
+//
+// Cloudflare le da a la respuesta 30 segundos desde que se le contesta a
+// Meta; pasado eso corta el trabajo a medias y el cliente se queda sin
+// nada. De ahí sale cuánto se puede esperar a que OpenAI devuelva el
+// cupo: solo si después queda tiempo para una ronda de cotejo entera y
+// para mandar la respuesta.
+const TIEMPO_PARA_CONTESTAR_MS = 25000;
+
+// Lo que tarda una ronda de cotejo (bajar las fotos del catálogo y la
+// llamada a gpt-4o), tirando por lo alto.
+const DURACION_DE_UNA_RONDA_MS = 7000;
+
 export async function cotejoPorImagen({
   env,
   foto,
@@ -53,7 +66,19 @@ export async function cotejoPorImagen({
   // búsqueda por ese nombre devolvió producto, lo que hay que enseñar ya
   // está encontrado y el índice no pinta nada. Ver abajo.
   nombreFiable = false,
+  // Cuándo llegó el mensaje (Date.now() en el webhook). Dice cuánto queda
+  // de los 30 segundos y, con eso, si da para esperar a que vuelva el
+  // cupo de OpenAI. Sin él no se espera nunca.
+  recibidoEn = 0,
+  // Opcional. Sale con sinCupo = true si algo se quedó SIN MIRAR porque
+  // OpenAI no tenía cupo.
+  informe = null,
 } = {}) {
+  // Lo que cotejar() necesita para decidir si puede esperar al cupo, y
+  // dónde apuntar que algo se quedó sin mirar.
+  const cupo = { recibidoEn, informe: informe || {} };
+  cupo.informe.sinCupo = false;
+
   if (!foto) return null;
 
   // Un solo resultado: no hay elección que hacer, y descartarlo por una
@@ -88,7 +113,9 @@ export async function cotejoPorImagen({
       ordenar(productos, { visto, indice }),
       textoCliente,
       2,
-      yaMirados
+      yaMirados,
+      MAXIMO_CANDIDATOS,
+      cupo
     );
     if (elegido) return resultado(env, elegido, productos, indice);
     losDelNombreFueronRechazados = productos.some((p) => yaMirados.has(clave(p)));
@@ -133,7 +160,7 @@ export async function cotejoPorImagen({
       console.log(`Sin resultados para "${termino}": cotejo la foto contra "${marca}"`);
       const { productos: deLaMarca } = await buscarProductos(env, marca, MAXIMO_CANDIDATOS * 3);
       const candidatos = ordenar(deLaMarca, { visto, indice }).filter((p) => !yaMirados.has(clave(p)));
-      const elegido = await cotejar(env, foto, candidatos, textoCliente, 2, yaMirados);
+      const elegido = await cotejar(env, foto, candidatos, textoCliente, 2, yaMirados, MAXIMO_CANDIDATOS, cupo);
       if (elegido) return resultado(env, elegido, productos, indice);
     }
   }
@@ -157,15 +184,24 @@ export async function cotejoPorImagen({
         `miro los ${candidatos.length} más parecidos que aún no vi`
     );
 
-    const elegido = await cotejar(env, foto, candidatos, textoCliente, 1, yaMirados, DESDE_EL_INDICE);
+    const elegido = await cotejar(env, foto, candidatos, textoCliente, 1, yaMirados, DESDE_EL_INDICE, cupo);
     if (elegido) return resultado(env, elegido, productos, indice);
 
-    // Si OpenAI se quedó sin cupo, las rondas siguientes fallarían igual
-    // y el cliente está esperando.
-    if (estaLimitado(modeloDeVision(env))) {
-      console.log("Índice: OpenAI sin cupo, corto aquí");
+    // Si OpenAI se quedó sin cupo y no dio el tiempo para esperarlo, las
+    // rondas siguientes fallarían igual y el cliente está esperando.
+    if (cupo.informe.sinCupo) {
+      console.log("Índice: OpenAI sin cupo y no da el tiempo para esperar, corto aquí");
       break;
     }
+  }
+
+  if (cupo.informe.sinCupo) {
+    console.log(
+      `No encontré el de la foto, PERO NO LO MIRÉ TODO: OpenAI se quedó sin cupo. ` +
+        `Miré ${yaMirados.size}; los demás se quedaron sin mirar. Puede estar en el catálogo.`
+    );
+  } else if (yaMirados.size) {
+    console.log(`No encontré el de la foto entre los ${yaMirados.size} que miré`);
   }
 
   return null;
@@ -251,17 +287,78 @@ function ordenar(productos, { visto, indice }) {
     .map((x) => x.producto);
 }
 
-async function cotejar(env, foto, productos, textoCliente, minimo = 2, yaMirados = null, maximo = MAXIMO_CANDIDATOS) {
+async function cotejar(
+  env,
+  foto,
+  productos,
+  textoCliente,
+  minimo = 2,
+  yaMirados = null,
+  maximo = MAXIMO_CANDIDATOS,
+  // { recibidoEn, informe } de cotejoPorImagen: si se puede esperar al
+  // cupo, y dónde apuntar que algo se quedó sin mirar.
+  cupo = null
+) {
   // Un producto sin imagen dejaría al modelo eligiendo por el título, que
   // es justamente lo que este archivo evita.
   const candidatos = productos.filter((p) => p.imagen).slice(0, maximo);
   if (candidatos.length < minimo) return null;
 
-  // Se anotan aunque el cotejo falle: no hay por qué volver a pagar por
-  // unas fotos que el modelo ya descartó.
+  // SIN CUPO NO ES "NINGUNO ES" (crítico — caso real en Invictus, 30-sep).
+  //
+  // Una historia con unos Adidas que la tienda SÍ tiene. La ronda del
+  // índice se cayó por el límite de gpt-4o, el modelo no vio ni una
+  // foto... y esos candidatos se anotaban igual como "ya mirados", porque
+  // se anotaban ANTES de llamar. Aquí pasaba exactamente lo mismo.
+  //
+  // Ahora:
+  //   · Si el cupo está agotado ANTES de llamar, ni se llama (sería un 429
+  //     seguro): se espera a que vuelva, SOLO si da el tiempo.
+  //   · Si la llamada se cae por cupo, se espera y se reintenta UNA vez,
+  //     con la misma condición.
+  //   · Si no da el tiempo, esos candidatos NO cuentan como mirados, y
+  //     queda apuntado que algo se quedó sin mirar.
+  const modelo = modeloDeVision(env);
+  if (estaLimitado(modelo) && !(await esperarSiDaElTiempo(modelo, cupo))) {
+    return sinMirar(candidatos, cupo);
+  }
+
+  const informe = {};
+  let elegido = await cotejarConCatalogo(env, foto, candidatos, textoCliente, informe);
+
+  if (informe.sinCupo && (await esperarSiDaElTiempo(modelo, cupo))) {
+    console.log(`Cotejo: vuelvo a intentar con los ${candidatos.length} que el cupo dejó sin mirar`);
+    informe.sinCupo = false;
+    elegido = await cotejarConCatalogo(env, foto, candidatos, textoCliente, informe);
+  }
+
+  if (informe.sinCupo) return sinMirar(candidatos, cupo);
+
+  // El modelo SÍ los miró: se anotan aunque no haya elegido ninguno, para
+  // no volver a pagar por unas fotos que ya descartó.
   if (yaMirados) candidatos.forEach((p) => yaMirados.add(clave(p)));
 
-  return cotejarConCatalogo(env, foto, candidatos, textoCliente);
+  return elegido;
+}
+
+// Espera a que vuelva el cupo de OpenAI solo si, después, queda tiempo
+// para una ronda entera y para contestar. Sin la hora de llegada del
+// mensaje no se sabe cuánto queda, y no se espera.
+async function esperarSiDaElTiempo(modelo, cupo) {
+  if (!cupo?.recibidoEn) return false;
+  const margen = cupo.recibidoEn + TIEMPO_PARA_CONTESTAR_MS - DURACION_DE_UNA_RONDA_MS - Date.now();
+  // esperarCupo() duerme un cuarto de segundo de más, por si acaso.
+  if (margen <= 250) return false;
+  return esperarCupo(modelo, margen - 250);
+}
+
+function sinMirar(candidatos, cupo) {
+  if (cupo) cupo.informe.sinCupo = true;
+  console.log(
+    `Cotejo: ${candidatos.length} candidato(s) se quedaron SIN MIRAR — OpenAI sin cupo ` +
+      "y no queda tiempo para esperarlo"
+  );
+  return null;
 }
 
 // Qué se le devuelve a quien llamó, según de dónde salió el elegido.

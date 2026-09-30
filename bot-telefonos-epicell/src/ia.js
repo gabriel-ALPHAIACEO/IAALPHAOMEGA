@@ -134,7 +134,7 @@ async function llamar(
   env,
   sistema,
   contenido,
-  { maxTokens = 1024, json = true, schema = null, modelo = "" } = {}
+  { maxTokens = 1024, json = true, schema = null, modelo = "", alFallar = null } = {}
 ) {
   const cuerpo = {
     model: modelo || env.OPENAI_MODELO || MODELO_POR_DEFECTO,
@@ -175,6 +175,11 @@ async function llamar(
 
   if (!respuesta.ok) {
     const detalle = await respuesta.text();
+
+    // Se avisa del MOTIVO a quien llamó, para que pueda reaccionar: el
+    // cotejo necesita distinguir "no es ninguno" de "OpenAI no me dejó
+    // mirar", y las dos cosas devuelven null.
+    if (typeof alFallar === "function") alFallar({ estado: respuesta.status });
 
     // 429 = se acabó el cupo de tokens por minuto de la cuenta de OpenAI.
     // No es un fallo del código ni de la petición, y conviene que se lea
@@ -348,7 +353,12 @@ export async function describirProducto(env, urlImagen, { modelo = "" } = {}) {
 // Le pone al modelo la foto del cliente al lado de las fotos reales del
 // catálogo y le pregunta cuál es el mismo equipo. Devuelve el producto
 // elegido, o null si no lo tiene claro.
-export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
+//
+// "informe" es opcional: si se pasa, sale con sinCupo = true cuando OpenAI
+// rechazó la llamada por falta de cupo (429). Hace falta para no confundir
+// "el modelo miró y dijo que ninguno es" con "el modelo no llegó a mirar"
+// — las dos cosas devuelven null. Ver cotejar() en cotejo.js.
+export async function cotejarConCatalogo(env, foto, candidatos, textoCliente, informe = null) {
   if (!foto || !candidatos?.length) return null;
 
   const contenido = [
@@ -407,6 +417,9 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
     maxTokens: 300,
     schema: ESQUEMA_COTEJO,
     modelo: modeloDeVision(env),
+    alFallar: ({ estado }) => {
+      if (estado === 429 && informe) informe.sinCupo = true;
+    },
   });
 
   const datos = extraerJson(salida);
