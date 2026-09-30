@@ -224,6 +224,19 @@ export function cuentaCashea(precio, porcentaje) {
   const leido = leerPrecio(precio);
   if (!leido || porcentaje === null || porcentaje === undefined) return null;
 
+  // EL 0% DE INICIAL TAMBIÉN TIENE MÍNIMO (dueño, 30-sep-2026: "a partir de
+  // 100$ es que se admite el 0% de inicial"). Por debajo no se hace la
+  // cuenta con 0%: se avisa, y la inicial de ese par la confirma un asesor.
+  const { minimo: minimoCero } = leer();
+  if (porcentaje === 0 && minimoCero && leido.cifra < minimoCero) {
+    return {
+      precio: leido.escribir(leido.cifra),
+      ceroSinMinimo: true,
+      alcanzaMinimo: false,
+      cuotas: null,
+    };
+  }
+
   const inicial = Math.round(leido.cifra * porcentaje) / 100;
   const resto = Math.round((leido.cifra - inicial) * 100) / 100;
 
@@ -277,7 +290,7 @@ export function nombreDeLasCuotas() {
 function enCuotas(cuenta) {
   const nombre = nombreDeLasCuotas();
   if (!cuenta.alcanzaMinimo) {
-    return `en cuotas con Cashea (el modo ${nombre || "de cuotas"} es para ${textoDelMinimo()})`;
+    return `en cuotas con Cashea (las ${nombre || "cuotas"} son para ${textoDelMinimo()})`;
   }
   if (!cuenta.cuotas) return nombre ? `en ${nombre}` : "en cuotas";
   const c = cuenta.cuotas;
@@ -324,15 +337,18 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
   const lasCuotas = nombreDeLasCuotas();
   const minimo = textoDelMinimo();
   const lineaCuotas = lasCuotas
-    ? `🗓️ El resto, en ${lasCuotas}${minimo ? ` (${minimo})` : ""}.`
+    ? minimo
+      ? `🗓️ El resto, en ${lasCuotas}.\n💲 El 0% de inicial y las ${lasCuotas} son para ${minimo}.`
+      : `🗓️ El resto, en ${lasCuotas}.`
     : "";
 
   // ── Sin nivel (o uno que no existe): la promoción, la tabla y la pregunta.
   if (pct === null) {
     // Del nivel más alto al más bajo: el 0% primero, que es el gancho.
+    const marcaDelCero = minimo ? " 🎉 (" + minimo + ")" : " 🎉";
     const tabla = [...niveles.entries()]
       .sort((a, b) => b[0] - a[0])
-      .map(([n, v]) => `• Nivel ${n} → ${formatoPct(v)} de inicial${v === 0 ? " 🎉" : ""}`)
+      .map(([n, v]) => `• Nivel ${n} → ${formatoPct(v)} de inicial${v === 0 ? marcaDelCero : ""}`)
       .join("\n");
 
     const aviso = nivel ? `No tengo el Nivel ${nivel} en la tabla de Cashea. ` : "";
@@ -358,9 +374,10 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
   }
 
   // ── Con nivel.
+  const condicionDelCero = minimo ? " en " + minimo : "";
   const encabezado =
     pct === 0
-      ? `🎉 ¡Con tu Nivel ${nivel} en Cashea te lo llevas con 0% de inicial!`
+      ? `🎉 ¡Con tu Nivel ${nivel} en Cashea te lo llevas con 0% de inicial${condicionDelCero}!`
       : `💜 Con tu Nivel ${nivel} en Cashea pagas solo el ${formatoPct(pct)} de inicial`;
 
   if (!conCuenta.length) {
@@ -376,11 +393,14 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
   }
 
   const lineas = conCuenta.map(({ p, cuenta }) =>
-    `👟 ${p.titulo} — ${cuenta.precio}\n` +
-    `   ✅ Inicial: ${cuenta.inicial}\n` +
-    (pct === 0
-      ? `   🗓️ Todo (${cuenta.resto}) ${enCuotas(cuenta)}`
-      : `   🗓️ El resto (${cuenta.resto}) ${enCuotas(cuenta)}`)
+    cuenta.ceroSinMinimo
+      ? `👟 ${p.titulo} — ${cuenta.precio}\n` +
+        `   ⚠️ El 0% de inicial es para ${minimo}: la inicial de este par te la confirma un asesor`
+      : `👟 ${p.titulo} — ${cuenta.precio}\n` +
+        `   ✅ Inicial: ${cuenta.inicial}\n` +
+        (pct === 0
+          ? `   🗓️ Todo (${cuenta.resto}) ${enCuotas(cuenta)}`
+          : `   🗓️ El resto (${cuenta.resto}) ${enCuotas(cuenta)}`)
   );
 
   const cierre = conCuenta.length > 1 ? "¿Con cuál te quedas? 😊" : "¿Te animas? 😊";

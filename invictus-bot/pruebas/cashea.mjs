@@ -60,7 +60,9 @@ const c4 = C.cuentaCashea("99.99 USD", 10);
 ok(Math.round((c4.inicialCifra + c4.restoCifra) * 100) === 9999,
    "la inicial y el resto suman EXACTAMENTE el precio, sin perder un céntimo", `${c4.inicial} + ${c4.resto}`);
 
-ok(C.cuentaCashea("90 USD", 0).inicial === "0 USD", "Nivel 6: 0 de inicial");
+ok(C.cuentaCashea("120 USD", 0).inicial === "0 USD", "Nivel 6 con 120 USD: 0 de inicial");
+ok(C.cuentaCashea("90 USD", 0).ceroSinMinimo === true && C.cuentaCashea("90 USD", 0).inicial === undefined,
+   "Nivel 6 con 90 USD: el 0% NO se promete (es desde 100$)");
 ok(C.cuentaCashea("", 30) === null && C.cuentaCashea("consultar", 30) === null,
    "sin precio no hay cuenta (no se inventa)");
 
@@ -97,7 +99,9 @@ ok(/¡Arranca el 1 de octubre!/.test(hoy), "HOY la anuncia: arranca el 1 de octu
 ok(/Bajada de inicial/.test(hoy) && /Nivel 6 → 0% de inicial/.test(hoy) && /Nivel 1 → 50% de inicial/.test(hoy),
    "la bajada de inicial, los 6 niveles");
 ok(hoy.indexOf("Nivel 6") < hoy.indexOf("Nivel 1"), "del 6 al 1: el 0% primero");
-ok(/6 cuotas sin interés \(compras desde 100\$\)/.test(hoy), "las 6 cuotas sin interés, desde 100$");
+ok(/El 0% de inicial y las 6 cuotas sin interés son para compras desde 100\$/.test(hoy),
+   "dice que el 0% y las 6 cuotas son desde 100$");
+ok(/Nivel 6 → 0% de inicial 🎉 \(compras desde 100\$\)/.test(hoy), "y la línea del Nivel 6 lo lleva al lado");
 ok(/¿Qué nivel tienes en Cashea\?/.test(hoy), "y le pregunta su nivel");
 ok(!/🔥.*🔥.*🔥/.test(hoy.split("\n")[0]), "sin fuegos repetidos en el titular");
 
@@ -112,12 +116,17 @@ const n3 = C.tarjetaCashea({ nivel: 3, productos: [jordan, samba], ahora: EN });
 ok(/Nivel 3/.test(n3) && /30% de inicial/.test(n3), "con Nivel 3: su porcentaje");
 ok(/Inicial: 36 USD/.test(n3) && /El resto \(84 USD\) en 6 cuotas sin interés de 14 USD/.test(n3),
    "los Jordan (120): 36 de inicial + 6 cuotas de 14");
-ok(/Inicial: 22.50 USD/.test(n3) && /es para compras desde 100\$/.test(n3),
+ok(/Inicial: 22.50 USD/.test(n3) && /son para compras desde 100\$/.test(n3),
    "las Samba (75): su inicial, y que las 6 cuotas son desde 100$");
 
 const n6 = C.tarjetaCashea({ nivel: 6, productos: [jordan], ahora: EN });
-ok(/0% de inicial!/.test(n6) && /Todo \(120 USD\) en 6 cuotas sin interés de 20 USD/.test(n6) && !/!:/.test(n6),
+ok(/0% de inicial en compras desde 100\$!/.test(n6) && /Todo \(120 USD\) en 6 cuotas sin interés de 20 USD/.test(n6) && !/!:/.test(n6),
    "Nivel 6: sin inicial, todo en 6 cuotas de 20");
+
+const n6Barato = C.tarjetaCashea({ nivel: 6, productos: [samba], ahora: EN });
+ok(/El 0% de inicial es para compras desde 100\$/.test(n6Barato) && !/Inicial: 0 USD/.test(n6Barato),
+   "Nivel 6 con las Samba (75): NO le promete 0%, le dice que es desde 100$");
+ok(/0% de inicial en compras desde 100\$/.test(n6), "el encabezado del Nivel 6 lleva la condición");
 
 const nivelSinZapato = C.tarjetaCashea({ nivel: 2, ahora: HOY });
 ok(/40% de inicial/.test(nivelSinZapato) && /¿Qué modelo te gustó\?/.test(nivelSinZapato) && /Arranca/.test(nivelSinZapato),
