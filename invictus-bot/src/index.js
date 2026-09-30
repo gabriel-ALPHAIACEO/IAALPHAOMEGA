@@ -29,7 +29,16 @@
 // versión y NO van con este código — mezclarlos rompe el arranque.
 
 import { responderTexto, identificarEnImagen } from "./ia.js";
-import { revisarPagos, metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
+import {
+  revisarPagos,
+  metodosDePago,
+  bloqueDeMetodos,
+  tasaDePago,
+  hayMetodosDePago,
+  listaDeMetodos,
+  preguntaPorMetodos,
+  pideDatosDePago,
+} from "./pagos.js";
 import {
   hayCashea,
   preguntaPorCashea,
@@ -42,6 +51,7 @@ import {
   tarjetaCashea,
   revisarCashea,
 } from "./cashea.js";
+import { queDatoPide, RESPUESTAS, nombraUnProducto } from "./datos.js";
 import {
   hayUbicacion,
   mensajeDeUbicacion,
@@ -84,6 +94,8 @@ import {
   enviarFichas,
   enviarBotonCatalogo,
   enviarBotonEnlace,
+  enviarTarjeta,
+  revisarImagen,
   obtenerPerfil,
   fotogramaDeHistoria,
 } from "./instagram.js";
@@ -92,7 +104,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-30 (31) · Cashea activo desde hoy 30-sep hasta el 6 de octubre";
+const VERSION = "2026-09-30 (32) · vuelven envíos, delivery, horarios, empleo y la ubicación con foto; métodos de pago completos y aviso solo si piden los datos";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -695,6 +707,47 @@ export default {
       );
     }
 
+    // Cómo queda la ubicación ANTES de que la vea un cliente, y por qué sale
+    // rota la foto si sale rota (25-sep-2026).
+    if (url.pathname === "/probar-ubicacion") {
+      const u = mensajeDeUbicacion(env);
+      const original = String(env.FOTO_LOCAL || "").trim();
+      const foto = u.foto ? await revisarImagen(u.foto) : null;
+
+      return texto200(
+        [
+          "UBICACION (sale de wrangler.toml: DIRECCION, MAPS_URL, FOTO_LOCAL)",
+          "",
+          `  Texto   ${u.texto || "SIN PONER: el bot no manda la ubicacion (DIRECCION vacia)"}`,
+          `  Boton   ${u.enlace ? `${u.boton} -> ${u.enlace}` : "NO SALE (falta MAPS_URL)"}`,
+          "",
+          "FOTO",
+          `  En wrangler  ${original || "(vacio)"}`,
+          `  Se usa       ${u.foto || "NINGUNA"}`,
+          u.foto && u.foto !== original ? "               ^ se arreglo sola (enlace de Drive)" : "",
+          `  Se descarga  ${foto ? (foto.ok ? "SI - " + foto.detalle : "NO - " + foto.detalle) : "no hay foto que probar"}`,
+          original && !u.foto
+            ? "  ^ ese enlace NO es una imagen (un mapa, Google Fotos, Instagram...).\n" +
+              "    Tiene que ser la direccion de LA FOTO, la que termina en .jpg o .png."
+            : "",
+          "",
+          "COMO LE LLEGA AL CLIENTE",
+          !u.texto
+            ? "  No le llega: sin DIRECCION, la pregunta la contesta la IA o un asesor."
+            : u.foto && u.enlace
+              ? [...u.texto].length <= 78
+                ? "  UN mensaje: foto + direccion + boton"
+                : "  DOS mensajes: la direccion en texto, y la foto con el boton"
+              : u.enlace
+                ? "  UN mensaje: la direccion con el boton debajo"
+                : "  UN mensaje: la direccion, sin boton",
+          "",
+        ]
+          .filter((linea) => linea !== "")
+          .join("\n") + "\n"
+      );
+    }
+
     if (url.pathname === "/probar-imagen") {
       const imagen = url.searchParams.get("url") || "";
       if (!urlValida(imagen)) {
@@ -1102,10 +1155,32 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // otra cosa —"¿dónde están y tienen Jordan?"— la ubicación sale primero y
   // el resto sigue al modelo, avisado de que no la repita. Ver ubicacion.js.
   let notaUbicacion = "";
-  if (!imagenCruda && hayUbicacion() && preguntaPorUbicacion(mensaje.texto)) {
-    const lugar = mensajeDeUbicacion();
-    console.log(`Preguntó la ubicación → la mando${lugar.enlace ? " con el botón de Maps" : " (sin botón: falta el enlace en ubicacion.txt)"}`);
-    await mandar(() => enviarBotonEnlace(env, mensaje.igsid, lugar.texto, lugar.boton, lugar.enlace));
+  if (!imagenCruda && hayUbicacion(env) && preguntaPorUbicacion(mensaje.texto)) {
+    const lugar = mensajeDeUbicacion(env);
+    console.log(
+      "Preguntó la ubicación → la mando" +
+        (lugar.enlace ? " con el botón de Maps" : " (sin botón: falta MAPS_URL en wrangler.toml)") +
+        (lugar.foto ? " y la foto del local" : "")
+    );
+
+    if (lugar.foto && lugar.enlace) {
+      // CON FOTO. La dirección entra en el título de la tarjeta si cabe (80
+      // letras); si no, va entera en un mensaje y la tarjeta —foto y botón—
+      // detrás. Cortarla sería peor: el cliente leería media calle.
+      const cabe = [...lugar.texto].length <= 78;
+      if (!cabe) await mandar(() => enviarTexto(env, mensaje.igsid, lugar.texto));
+      await mandar(() =>
+        enviarTarjeta(env, mensaje.igsid, {
+          titulo: cabe ? `📍 ${lugar.texto}` : "📍 INVICTUS SHOES",
+          texto: lugar.texto,
+          resumen: "Toca el botón y te abre el mapa 👇",
+          imagen: lugar.foto,
+          boton: { url: lugar.enlace, title: lugar.boton },
+        })
+      );
+    } else {
+      await mandar(() => enviarBotonEnlace(env, mensaje.igsid, lugar.texto, lugar.boton, lugar.enlace));
+    }
 
     if (soloPreguntaUbicacion(mensaje.texto)) {
       await guardarContacto(env.DB, {
@@ -1118,6 +1193,62 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       return;
     }
     notaUbicacion = NOTA_UBICACION_ENVIADA;
+  }
+
+  // HORARIOS, ENVÍOS, DELIVERY, EMPLEO: EL TEXTO EXACTO DE LA TIENDA.
+  //
+  // Hecho el 25-sep en otra rama y traído el 30-sep (ver datos.js). Solo
+  // salta cuando la pregunta VA SOLA: si nombra un calzado, o habla de
+  // Cashea, sigue el camino normal y el modelo contesta las dos cosas con
+  // las fichas debajo. Ni una llamada a OpenAI cuando va sola.
+  const datoQuePide = !imagenCruda ? queDatoPide(mensaje.texto) : "";
+  if (
+    datoQuePide &&
+    !nombraUnProducto(mensaje.texto) &&
+    !preguntaPorCashea(mensaje.texto) &&
+    // Dos preguntas de la tienda a la vez ("¿hacen envíos y cómo pago?"):
+    // las contesta el modelo juntas, no se queda una sin respuesta.
+    !preguntaPorMetodos(mensaje.texto) &&
+    !pideDatosDePago(mensaje.texto)
+  ) {
+    console.log(`Preguntó por ${datoQuePide}: contesto con el dato de la tienda`);
+    await mandar(() => enviarTexto(env, mensaje.igsid, RESPUESTAS[datoQuePide]));
+    await guardarContacto(env.DB, {
+      ...contacto,
+      nombre,
+      historial: conNota(historialPrevio, `Preguntó por ${datoQuePide} y se lo respondí.`),
+      mids_enviados: mids,
+      ultimo_envio: enviadoEn || Date.now(),
+    });
+    return;
+  }
+
+  // "¿QUÉ MÉTODOS DE PAGO TIENEN?": TODOS, DESDE EL CÓDIGO (30-sep-2026).
+  //
+  // Pedido del dueño: "cuando preguntan métodos de pago envía todos los
+  // métodos disponibles". La lista sale de prompts/pagos.txt, entera, y no
+  // se avisa a nadie. Solo cuando va sola: si nombra un calzado o habla de
+  // Cashea, contesta el modelo las dos cosas. Si PIDE LOS DATOS, tampoco
+  // entra aquí: eso lo contesta el modelo con el asesor, y avisa.
+  if (
+    !imagenCruda &&
+    hayMetodosDePago() &&
+    preguntaPorMetodos(mensaje.texto) &&
+    !pideDatosDePago(mensaje.texto) &&
+    !nombraUnProducto(mensaje.texto) &&
+    !preguntaPorCashea(mensaje.texto) &&
+    !queDatoPide(mensaje.texto)
+  ) {
+    console.log("Preguntó los métodos de pago: le mando la lista completa");
+    await mandar(() => enviarTexto(env, mensaje.igsid, listaDeMetodos()));
+    await guardarContacto(env.DB, {
+      ...contacto,
+      nombre,
+      historial: conNota(historialPrevio, "Preguntó los métodos de pago y se los mandé todos."),
+      mids_enviados: mids,
+      ultimo_envio: enviadoEn || Date.now(),
+    });
+    return;
   }
 
   // El cliente PIDIÓ el catálogo por su nombre: "mándame el catálogo", "¿me
@@ -1441,8 +1572,14 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   // Cashea fuera de fecha avisa SIEMPRE, aunque se le hayan enseñado
   // zapatos: el cliente quiere pagar así y alguien le tiene que contestar.
+  //
+  // Y quien PIDE LOS DATOS para pagar —número de cuenta, "¿a dónde
+  // transfiero?"—, también, aunque se le estén enseñando zapatos: es lo
+  // único de pagos que va al asesor (pedido del dueño, 30-sep-2026).
+  const pidioDatos = pideDatosDePago(mensaje.texto);
   const escalada =
     casheaFueraDeFecha ||
+    pidioDatos ||
     hayEscalada({
       respuesta: respuestaCliente,
       productos,
@@ -1462,7 +1599,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       respuesta: respuestaCliente,
       motivo: casheaFueraDeFecha
         ? `PREGUNTO POR CASHEA FUERA DE LA PROMOCION${fechasDeLaPromocion() ? ` (${fechasDeLaPromocion().toUpperCase()})` : ""}`
-        : motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo }),
+        : pidioDatos && !preguntoTalla
+          ? "PIDE LOS DATOS PARA PAGAR"
+          : motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo }),
       historial: salida.historial,
       busco: termino,
       productos,

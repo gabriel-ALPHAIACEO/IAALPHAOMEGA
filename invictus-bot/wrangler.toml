@@ -50,8 +50,28 @@ crons = ["*/15 * * * *"]
 # arriba.
 D1_NOMBRE = "invictus-bot-db"
 
-# La ubicacion de la tienda (texto, boton y enlace de Google Maps) ya NO va
-# aqui: vive en src/prompts/ubicacion.txt.
+# --- LA UBICACION DE LA TIENDA ---------------------------------------
+#
+# A quien pregunte "donde estan?", "direccion", "tienen tienda fisica?" le
+# llega ESTE texto tal cual, con el boton "MAPS/GOOGLE" que le abre el mapa,
+# y la foto del local si pones una. Sin gastar ni una llamada a OpenAI.
+#
+# Para verlo antes que un cliente, abre en el navegador:
+#   https://invictus-bot.invictusshoes.workers.dev/probar-ubicacion
+
+# El texto exacto que lee el cliente. Una linea (sin saltos).
+DIRECCION = "Estamos ubicados en el centro comercial mercado la isla, (LOCAL CF-04 y CF-05 TIENDA INVICTUS SHOES) avenida llano adentro entre circunvalación y terranova (Isla de margarita)"
+
+# El enlace de Google Maps: busca tu local en Google Maps -> Compartir ->
+# Copiar vinculo. Vale el corto (maps.app.goo.gl/...).
+MAPS_URL = "https://maps.app.goo.gl/H1UF1f5CjcJc1LeWA"
+
+# Una FOTO del local: la direccion de LA IMAGEN, la que termina en .jpg o
+# .png (no un enlace de Maps, ni de Google Fotos, ni de Instagram: esos son
+# paginas y la foto saldria rota). Un "Compartir" de Google Drive SI vale:
+# el bot lo arregla solo (la foto en Drive tiene que estar en "Cualquier
+# persona con el enlace"). Vacio = la ubicacion sale sin foto.
+FOTO_LOCAL = ""
 
 # Enlace que se le manda al cliente cuando no hay productos que mostrar
 URL_CATALOGO = "https://8vds1e-jw.myshopify.com/"

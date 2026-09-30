@@ -118,7 +118,7 @@ están, responde "Eso te lo confirma un asesor en un momento 😊".)`;
 const SIN_MODELOS = `(Todavía no está cargada la lista de modelos de esta tienda.
 Identifica por lo que VES y quédate en la marca si no estás seguro.)`;
 
-function textoConCatalogo() {
+function textoConCatalogo(env = {}) {
   if (!promptTextoArmado) {
     // Las líneas que empiezan con # son notas para quien mantiene el
     // archivo, no para el modelo.
@@ -161,8 +161,8 @@ function textoConCatalogo() {
       console.log("Sin Cashea cargado: esa pregunta seguirá yendo al asesor");
     }
 
-    const lugar = mensajeDeUbicacion();
-    if (hayUbicacion()) {
+    const lugar = mensajeDeUbicacion(env);
+    if (hayUbicacion(env)) {
       promptTextoArmado = promptTextoArmado.replaceAll("{{UBICACION}}", conUbicacion(lugar.texto));
       console.log("Ubicación pegada al prompt" + (lugar.enlace ? " (con botón de Maps)" : " (SIN enlace de Maps todavía)"));
     } else {
@@ -510,7 +510,7 @@ async function llamar(
 export async function responderTexto(env, entrada) {
   const salida = await llamar(
     env,
-    textoConCatalogo(),
+    textoConCatalogo(env),
     [{ type: "text", text: entrada }],
     { schema: ESQUEMA_RESPUESTA }
   );

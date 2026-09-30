@@ -23,6 +23,8 @@ const SUITES = [
   ["corpus.mjs", "que los guardianes no alteren respuestas buenas"],
   ["cotejo.mjs", "que llegue al modelo el zapato del color correcto"],
   ["cashea.mjs", "las cuentas de Cashea, sus fechas, y la ubicación tal cual"],
+  ["config.mjs", "que el wrangler.toml esté completo (cron, ubicación) y sin duplicados"],
+  ["datos.mjs", "horarios, envíos, delivery y empleo: que estén y salten solos"],
   ["botas.mjs", "que las botas de básquet no busquen las tácticas"],
   ["cupo.mjs", "que sin cupo de OpenAI no se cuente como \"miré y no está\""],
 ];

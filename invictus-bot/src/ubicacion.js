@@ -1,58 +1,98 @@
-// "¿DÓNDE ESTÁN?": LA DIRECCIÓN, TAL CUAL, CON EL BOTÓN DE GOOGLE MAPS.
+// "¿DÓNDE ESTÁN?": LA DIRECCIÓN, TAL CUAL, CON FOTO Y BOTÓN DE GOOGLE MAPS.
 //
 // QUÉ SE PEDÍA (30-sep-2026). Lo mismo que hacía la automatización de
-// ManyChat "Ubicación MAPS": el texto exacto de la dirección y, debajo, un
-// botón "MAPS/GOOGLE" que abre el mapa. Tal cual, sin que la IA lo reescriba.
+// ManyChat "Ubicación MAPS": el texto exacto de la dirección y un botón
+// "MAPS/GOOGLE" que abre el mapa. Y con la foto del local, si la hay.
 //
-// Por eso esto NO pasa por el modelo: el texto sale de prompts/ubicacion.txt
-// letra por letra. Cuando el mensaje es SOLO la pregunta de la ubicación, ni
-// se llama a OpenAI (cero tokens). Cuando además pide otra cosa —"¿dónde
-// están y tienen Jordan?"— se manda la ubicación y el resto sigue al modelo
-// como siempre, avisado de que la dirección ya salió.
+// DE DÓNDE SALE: de wrangler.toml, [vars] — como se armó el 25-sep:
 //
-// Sin prompts/ubicacion.txt rellenado, nada de esto se activa.
+//   DIRECCION   el texto exacto que lee el cliente (tal cual, sin retoques)
+//   MAPS_URL    el enlace de Google Maps (Compartir → Copiar vínculo)
+//   FOTO_LOCAL  el enlace http de UNA IMAGEN del local (opcional)
+//
+// Esto NO pasa por el modelo. Cuando el mensaje es SOLO la pregunta de la
+// ubicación, ni se llama a OpenAI (cero tokens). Cuando además pide otra
+// cosa —"¿dónde están y tienen Jordan?"— se manda la ubicación y el resto
+// sigue al modelo como siempre, avisado de que la dirección ya salió.
 
-import textoUbicacion from "./prompts/ubicacion.txt";
+// Lo que dice el botón. Instagram corta a 20 letras.
+export const BOTON_MAPS = "MAPS/GOOGLE";
 
-let leido = null;
+// Lo que se deja en wrangler.toml cuando todavía no se sabe el dato.
+const SIN_PONER = /^$|CAMBIA-ESTO|PENDIENTE|PON_AQUI|PEGA_AQUI|ejemplo\.com/i;
 
-function leer() {
-  if (!leido) {
-    const secciones = { TEXTO: [], BOTON: [], ENLACE: [] };
-    let seccion = "";
+function puesto(valor) {
+  const texto = String(valor || "").trim();
+  return texto && !SIN_PONER.test(texto) ? texto : "";
+}
 
-    for (const cruda of String(textoUbicacion || "").split("\n")) {
-      const linea = cruda.trim();
-      if (linea.startsWith("#")) continue;
+// LA FOTO SALE ROTA CUANDO EL ENLACE NO ES LA IMAGEN (25-sep-2026).
+//
+// Instagram no abre el enlace en un navegador: se descarga el archivo él
+// mismo, desde sus servidores y sin sesión. Así que solo sirve una
+// dirección que devuelva LA IMAGEN. Lo que la gente pega casi siempre —y
+// sale roto— es un "Compartir" de Google Drive, Google Fotos, una
+// publicación de Instagram o Facebook, o un enlace de Google Maps.
+//
+// Los de Drive se arreglan solos: del enlace se saca el id del archivo y se
+// arma la dirección que sí devuelve la imagen. Los demás se descartan, y el
+// mensaje sale SIN foto —pero con su dirección y su botón— en vez de salir
+// con un cuadro roto.
+const DRIVE = /drive\.google\.com\/(?:file\/d\/([\w-]{20,})|open\?id=([\w-]{20,})|uc\?[^ ]*id=([\w-]{20,}))/i;
 
-      const marca = linea.match(/^\[(\w+)\]$/);
-      if (marca) {
-        seccion = marca[1].toUpperCase();
-        continue;
-      }
-      if (secciones[seccion]) secciones[seccion].push(cruda.trimEnd());
-    }
+const NO_ES_UNA_IMAGEN =
+  /photos\.app\.goo\.gl|photos\.google\.com|instagram\.com|facebook\.com|fb\.watch|dropbox\.com\/scl|\/folders\/|maps\.app\.goo\.gl|google\.[a-z.]+\/maps|goo\.gl\/maps/i;
 
-    const enlace = secciones.ENLACE.map((l) => l.trim()).find(Boolean) || "";
-    leido = {
-      // Las líneas en blanco de dentro del texto se respetan; las de los
-      // bordes, no.
-      texto: secciones.TEXTO.join("\n").trim(),
-      boton: (secciones.BOTON.map((l) => l.trim()).find(Boolean) || "Ver en el mapa").slice(0, 20),
-      // Solo un enlace de verdad. Con el texto de ejemplo, sin botón.
-      enlace: /^https?:\/\/\S+$/i.test(enlace) ? enlace : "",
+export function fotoUtilizable(url) {
+  const enlace = puesto(url);
+  if (!enlace) return { foto: "", motivo: "" };
+
+  const drive = enlace.match(DRIVE);
+  if (drive) {
+    const id = drive[1] || drive[2] || drive[3];
+    return { foto: `https://drive.google.com/uc?export=view&id=${id}`, motivo: "", arreglada: true };
+  }
+
+  if (NO_ES_UNA_IMAGEN.test(enlace)) {
+    return {
+      foto: "",
+      motivo:
+        "ese enlace abre una página (o un mapa), no la imagen. Instagram descarga el " +
+        "archivo él mismo y no puede entrar a ver nada.",
     };
   }
-  return leido;
+
+  if (!/^https?:\/\//i.test(enlace)) return { foto: "", motivo: "no es una dirección http." };
+
+  return { foto: enlace, motivo: "" };
 }
 
-export function hayUbicacion() {
-  return Boolean(leer().texto);
+// { texto, boton, enlace, foto }. Sin enlace, sale el texto solo; sin foto,
+// texto y botón en un mensaje.
+export function mensajeDeUbicacion(env = {}) {
+  let texto = puesto(env.DIRECCION);
+  let enlace = puesto(env.MAPS_URL);
+
+  // LOS DATOS PEGADOS EN LA CASILLA EQUIVOCADA SE ACOMODAN SOLOS. En el
+  // wrangler.toml del 30-sep el enlace de Maps estaba en DIRECCION (y en
+  // FOTO_LOCAL), y MAPS_URL decía "PENDIENTE". Un enlace en DIRECCION es
+  // el botón, no el texto: se usa como tal y no se le manda al cliente
+  // una dirección que es una URL.
+  if (/^https?:\/\/\S+$/i.test(texto)) {
+    if (!enlace) enlace = texto;
+    texto = "";
+  }
+
+  if (!/^https?:\/\/\S+$/i.test(enlace)) enlace = "";
+
+  const { foto, motivo } = fotoUtilizable(env.FOTO_LOCAL);
+  if (motivo) console.error(`FOTO_LOCAL no sirve: ${motivo} Mando la ubicación sin foto.`);
+
+  return { texto, boton: BOTON_MAPS, enlace, foto };
 }
 
-// { texto, boton, enlace }. "enlace" vacío = mandar solo el texto.
-export function mensajeDeUbicacion() {
-  return leer();
+export function hayUbicacion(env = {}) {
+  return Boolean(mensajeDeUbicacion(env).texto);
 }
 
 // Las formas de preguntar dónde está la tienda. Se compara sin tildes.

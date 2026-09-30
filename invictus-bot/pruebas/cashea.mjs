@@ -13,7 +13,9 @@
 // Las pruebas no saben de qué tienda son: leen la tabla de pagos.txt y el
 // texto de ubicacion.txt, y comprueban contra eso.
 
-import { prepararSrc, prompt, ok, titulo, terminar } from "./ayuda.mjs";
+import fs from "node:fs";
+import path from "node:path";
+import { prepararSrc, ok, titulo, terminar } from "./ayuda.mjs";
 
 const src = await prepararSrc();
 const C = await src.cargar("cashea.js");
@@ -148,20 +150,33 @@ ok(!C.revisarCashea("Tenemos 20% de descuento en Nike", EN_FECHA).corregido,
    "un descuento que no es de Cashea no se toca");
 
 // ───────────────────────────────────────────────────────────────────────
-titulo("la ubicación: tal cual, con su botón");
+titulo("la ubicación: tal cual, con su botón, desde wrangler.toml");
 
-const lugar = U.mensajeDeUbicacion();
-const delArchivo = prompt("ubicacion.txt")
-  .split(/\[TEXTO\]/)[1]
-  .split(/\[BOTON\]/)[0]
-  .split("\n")
-  .filter((l) => l.trim() && !l.trim().startsWith("#"))
-  .join("\n")
-  .trim();
-ok(lugar.texto === delArchivo, "el texto sale EXACTAMENTE como está en ubicacion.txt");
+const TOML = fs.readFileSync(path.join(import.meta.dirname, "..", "wrangler.toml"), "utf8");
+const deToml = (nombre) => TOML.match(new RegExp(`^${nombre}\\s*=\\s*"([^"]*)"`, "m"))?.[1] ?? "";
+const ENV = { DIRECCION: deToml("DIRECCION"), MAPS_URL: deToml("MAPS_URL"), FOTO_LOCAL: deToml("FOTO_LOCAL") };
+
+const lugar = U.mensajeDeUbicacion(ENV);
+ok(lugar.texto === ENV.DIRECCION && lugar.texto.length > 20, "el texto sale EXACTAMENTE como está en DIRECCION");
 ok(lugar.boton === "MAPS/GOOGLE", "el botón dice MAPS/GOOGLE");
-ok(lugar.enlace === "" || /^https?:\/\//.test(lugar.enlace),
-   "sin enlace de verdad, no hay botón (nunca un botón a un enlace roto)", lugar.enlace || "(sin enlace todavía)");
+ok(/^https:\/\/maps\.app\.goo\.gl\//.test(lugar.enlace), "y abre el enlace de Maps", lugar.enlace);
+
+// Así estaba el wrangler.toml del dueño el 30-sep: el enlace en DIRECCION y
+// en FOTO_LOCAL, y MAPS_URL con "PENDIENTE".
+const cruzado = U.mensajeDeUbicacion({
+  DIRECCION: "https://maps.app.goo.gl/H1UF1f5CjcJc1LeWA",
+  MAPS_URL: "PENDIENTE: el enlace de Google Maps",
+  FOTO_LOCAL: "https://maps.app.goo.gl/H1UF1f5CjcJc1LeWA",
+});
+ok(cruzado.enlace === "https://maps.app.goo.gl/H1UF1f5CjcJc1LeWA" && cruzado.texto === "",
+   "un enlace pegado en DIRECCION se usa de botón, nunca se le manda al cliente como dirección");
+ok(cruzado.foto === "", "un enlace de Maps en FOTO_LOCAL se descarta: no es una imagen (no sale un cuadro roto)");
+
+const drive = U.fotoUtilizable("https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/view?usp=sharing");
+ok(drive.foto === "https://drive.google.com/uc?export=view&id=1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+   "un 'Compartir' de Google Drive se arregla solo");
+ok(U.fotoUtilizable("https://ejemplo.net/local.jpg").foto === "https://ejemplo.net/local.jpg", "una imagen normal vale tal cual");
+ok(!U.hayUbicacion({}), "sin DIRECCION no hay ubicación que mandar (no se inventa)");
 
 for (const t of ["dónde están ubicados?", "Donde queda la tienda", "tienen tienda física?", "ubicación",
                  "me pasas la dirección por favor", "cómo llego?", "google maps", "hola buenas, donde estan?"]) {
