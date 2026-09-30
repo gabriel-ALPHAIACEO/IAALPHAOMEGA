@@ -95,6 +95,11 @@ export function casheaVigente(ahora = Date.now()) {
 // sabe qué condiciones hay ese día.
 export const CASHEA_FUERA_DE_FECHA = "Lo de Cashea te lo confirma un asesor en un momento 😊";
 
+// Las fechas de la promoción en palabras ("del 1 al 6 de octubre"), o "".
+export function fechasDeLaPromocion() {
+  return leer().fechas;
+}
+
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
   "septiembre", "octubre", "noviembre", "diciembre"];
 

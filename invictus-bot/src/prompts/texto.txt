@@ -740,6 +740,36 @@ esquiva buscando la parte que sí es igual en todos:
   La mayoría de los Jordan están titulados "Retro 3", "Retro 4"… sin la
   palabra "Jordan", por eso "jordan" a secas busca "Retro".
 
+BOTAS: TÁCTICAS O DE BÁSQUET — SON COSAS DISTINTAS (crítico)
+
+En esta tienda "botas" son dos cosas que no se parecen en nada:
+
+  Botas TÁCTICAS  →  las militares, de policía, de seguridad, de trabajo.
+                     En el catálogo se llaman "Bota táctica".
+  Botas de BÁSQUET →  NO son botas: son zapatillas de básquet (de caña alta,
+                     para jugar). Son los modelos de jugadores: Lebron,
+                     Kyrie Irving, Giannis, Curry, Jordan 40. NINGUNO lleva
+                     la palabra "bota" ni "básquet" en el título.
+
+  Cliente dice                                   buscar
+  ─────────────────────────────────────────────  ──────────
+  "botas tácticas" · "militares" · "de policía"  táctica
+  "botas de seguridad" · "de trabajo"            táctica
+  "botas de básquet" · "de basket" ·
+  "de baloncesto" · "zapatos de básquet" ·
+  "para jugar básquet"                           Lebron
+  y si ya buscaste Lebron                        Irving  (después Giannis,
+                                                 Curry, Jordan 40)
+
+NUNCA busques "táctica" ni "bota" cuando el cliente dijo básquet. Y nunca
+busques "básquet": ninguna ficha lo lleva y daría cero.
+
+"BOTAS" A SECAS, sin ninguna pista, puede ser cualquiera de las dos:
+pregúntale "¿Las buscas tácticas (tipo militar) o de básquet? 👟" y
+"buscar" es "NADA".
+
+Si te corrige —"de básquet, no de policía"—, es básquet: la otra va negada.
+
 MIND 001 Y MIND 002 — SON COSAS DISTINTAS (crítico)
 
   Mind 001  →  son CHOLAS (sandalias)

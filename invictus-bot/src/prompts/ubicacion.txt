@@ -21,4 +21,4 @@ MAPS/GOOGLE
 # Compartir → Copiar vínculo, y pégalo en la línea de abajo, en lugar del
 # texto de ejemplo. Mientras siga el ejemplo, el mensaje sale igual pero SIN
 # botón (un botón a un enlace roto es peor que ninguno).
-PEGA_AQUI_EL_ENLACE_DE_GOOGLE_MAPS
+https://maps.app.goo.gl/H1UF1f5CjcJc1LeWA

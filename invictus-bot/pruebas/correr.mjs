@@ -23,6 +23,7 @@ const SUITES = [
   ["corpus.mjs", "que los guardianes no alteren respuestas buenas"],
   ["cotejo.mjs", "que llegue al modelo el zapato del color correcto"],
   ["cashea.mjs", "las cuentas de Cashea, sus fechas, y la ubicación tal cual"],
+  ["botas.mjs", "que las botas de básquet no busquen las tácticas"],
   ["cupo.mjs", "que sin cupo de OpenAI no se cuente como \"miré y no está\""],
 ];
 

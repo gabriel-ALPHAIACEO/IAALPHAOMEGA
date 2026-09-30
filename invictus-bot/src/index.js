@@ -35,6 +35,7 @@ import {
   preguntaPorCashea,
   casheaVigente,
   CASHEA_FUERA_DE_FECHA,
+  fechasDeLaPromocion,
   nivelDelCliente,
   nivelEnElHistorial,
   notaDeNivel,
@@ -52,7 +53,7 @@ import { gastoDelMes } from "./gasto.js";
 import { buscarProductos } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
-import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo } from "./catalogo.js";
+import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo, corregirBusquedaDeBotas } from "./catalogo.js";
 import { alternativasPara } from "./parecidos.js";
 import { separarColor, filtrarPorColor, terminoDeColor, nombreDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
@@ -91,7 +92,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-30 (29) · Cashea personalizado (nivel, inicial y 6 cuotas; promo del 1 al 6 de octubre) y la ubicación con botón de Maps";
+const VERSION = "2026-09-30 (30) · botas de básquet ≠ tácticas; ubicación con el enlace de Maps; aviso de Cashea fuera de fecha bien puesto";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1374,6 +1375,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   }
 
   let tarjetaDeCashea = "";
+  let casheaFueraDeFecha = false;
   if (!revisionDeCashea.corregido && preguntaPorCashea(mensaje.texto)) {
     if (casheaVigente()) {
       tarjetaDeCashea = tarjetaCashea({ nivel: nivelCashea, productos });
@@ -1385,6 +1387,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     } else if (hayCashea()) {
       // Cargado pero fuera de fecha: al asesor, sin prometer nada.
       console.log("Preguntó por Cashea con la promoción fuera de fecha → al asesor");
+      casheaFueraDeFecha = true;
       if (productos.length) tarjetaDeCashea = CASHEA_FUERA_DE_FECHA;
       else respuestaCliente = CASHEA_FUERA_DE_FECHA;
     }
@@ -1436,13 +1439,17 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     await mandar(() => enviarTexto(env, mensaje.igsid, tarjetaDeCashea));
   }
 
-  const escalada = hayEscalada({
-    respuesta: respuestaCliente,
-    productos,
-    preguntoTalla,
-    buscoSinExito,
-    noReconociLaFoto,
-  });
+  // Cashea fuera de fecha avisa SIEMPRE, aunque se le hayan enseñado
+  // zapatos: el cliente quiere pagar así y alguien le tiene que contestar.
+  const escalada =
+    casheaFueraDeFecha ||
+    hayEscalada({
+      respuesta: respuestaCliente,
+      productos,
+      preguntoTalla,
+      buscoSinExito,
+      noReconociLaFoto,
+    });
 
   // Si ya se avisó por los datos de pago, no se avisa otra vez: la frase
   // con la que se corrigió lleva "en un momento" y hayEscalada la leería
@@ -1453,7 +1460,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       igsid: mensaje.igsid,
       mensaje: textoCliente,
       respuesta: respuestaCliente,
-      motivo: motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo }),
+      motivo: casheaFueraDeFecha
+        ? `PREGUNTO POR CASHEA FUERA DE LA PROMOCION${fechasDeLaPromocion() ? ` (${fechasDeLaPromocion().toUpperCase()})` : ""}`
+        : motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo }),
       historial: salida.historial,
       busco: termino,
       productos,
@@ -1786,6 +1795,16 @@ async function decidir({
 
   // El modelo cuela la talla en el término cuando el cliente la nombra, y eso
   // devuelve cero productos siempre. Se le quita antes de buscar.
+  // BOTAS TÁCTICAS vs. BÁSQUET: si el cliente habla de básquet, la búsqueda
+  // no puede ser la de las tácticas (y al revés). Ver catalogo.js.
+  const botas = corregirBusquedaDeBotas(texto, salida.buscar, historialPrevio);
+  if (botas.corregido) {
+    console.log(`Botas: "${salida.buscar}" no es lo que pidió → busco "${botas.buscar}"`);
+    salida.buscar = botas.buscar;
+    salida.respuesta = botas.respuesta;
+    salida.historial = conNota(salida.historial || historialPrevio, botas.nota);
+  }
+
   const termino = salida.buscar.toUpperCase() === "NADA" ? "" : sinTalla(salida.buscar);
   if (salida.buscar !== termino && termino) {
     console.log(`Quité la talla del término: "${salida.buscar}" -> "${termino}"`);

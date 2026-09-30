@@ -43,6 +43,16 @@ database_id = "b7cc27df-dbcf-4188-b0f2-c00a1629d1e2"
 crons = ["*/15 * * * *"]
 
 [vars]
+# El nombre de la base D1, SOLO para que /estado imprima los comandos ya
+# escritos y se puedan copiar y pegar (reanudar una conversacion pausada,
+# por ejemplo). Sin esto, /estado los escribe con "tu-base-d1" y hay que
+# corregirlos a mano cada vez. Tiene que ser el mismo database_name de
+# arriba.
+D1_NOMBRE = "invictus-bot-db"
+
+# La ubicacion de la tienda (texto, boton y enlace de Google Maps) ya NO va
+# aqui: vive en src/prompts/ubicacion.txt.
+
 # Enlace que se le manda al cliente cuando no hay productos que mostrar
 URL_CATALOGO = "https://8vds1e-jw.myshopify.com/"
 
