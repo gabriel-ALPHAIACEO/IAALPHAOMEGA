@@ -92,7 +92,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-30 (30) · botas de básquet ≠ tácticas; ubicación con el enlace de Maps; aviso de Cashea fuera de fecha bien puesto";
+const VERSION = "2026-09-30 (31) · Cashea activo desde hoy 30-sep hasta el 6 de octubre";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo

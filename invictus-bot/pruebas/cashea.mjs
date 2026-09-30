@@ -4,7 +4,7 @@
 //
 //   · Las cuentas de Cashea son dinero. 30% de 90 USD son 27 USD, y la
 //     inicial más el resto tienen que sumar EXACTAMENTE el precio.
-//   · La promoción tiene fecha (del 1 al 6 de octubre). Antes y después, el
+//   · La promoción tiene fecha (del 30 de septiembre al 6 de octubre). Antes y después, el
 //     bot no puede ofrecer esos porcentajes.
 //   · La ubicación sale TAL CUAL, con su botón, y solo cuando preguntan por
 //     la tienda — no cuando el cliente da SU dirección para un envío, ni
@@ -30,11 +30,12 @@ ok(C.inicialDelNivel(1) === 50 && C.inicialDelNivel(3) === 30 && C.inicialDelNiv
 ok(C.inicialDelNivel(7) === null, "un nivel que no existe no se inventa");
 
 // ───────────────────────────────────────────────────────────────────────
-titulo("la vigencia: del 1 al 6 de octubre, hora de Venezuela");
+titulo("la vigencia: del 30 de septiembre al 6 de octubre, hora de Venezuela");
 
 const hora = (iso) => Date.parse(iso);
-ok(!C.casheaVigente(hora("2026-09-30T23:59:00-04:00")), "el 30 de septiembre a las 23:59 todavía NO");
-ok(C.casheaVigente(hora("2026-10-01T00:00:00-04:00")), "el 1 de octubre a las 00:00 SÍ");
+ok(!C.casheaVigente(hora("2026-09-29T23:59:00-04:00")), "el 29 de septiembre a las 23:59 todavía NO");
+ok(C.casheaVigente(hora("2026-09-30T00:00:00-04:00")), "el 30 de septiembre a las 00:00 SÍ");
+ok(C.casheaVigente(hora("2026-09-30T18:03:00-04:00")), "hoy 30 de septiembre a las 6:03 pm SÍ (la hora del registro)");
 ok(C.casheaVigente(hora("2026-10-06T23:59:00-04:00")), "el 6 de octubre a las 23:59 todavía SÍ");
 ok(!C.casheaVigente(hora("2026-10-07T00:00:01-04:00")), "el 7 de octubre ya NO");
 
@@ -82,7 +83,7 @@ const samba = { titulo: "Adidas Samba", precio: "70 USD" };
 
 const sinNivel = C.tarjetaCashea({});
 ok(/Nivel 1 → 50%/.test(sinNivel) && /Nivel 6 → 0%/.test(sinNivel), "sin nivel: enseña la tabla entera");
-ok(/Promoción por tiempo limitado \(del 1 al 6 de octubre\)/.test(sinNivel), "con la promoción y sus fechas");
+ok(/Promoción por tiempo limitado \(del 30 de septiembre al 6 de octubre\)/.test(sinNivel), "con la promoción y sus fechas");
 ok(/¿Qué nivel tienes en Cashea\?/.test(sinNivel), "y le pregunta su nivel");
 ok(/el resto lo pagas en 6 cuotas/i.test(sinNivel), "y dice que el resto va en 6 cuotas");
 

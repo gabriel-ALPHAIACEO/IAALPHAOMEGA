@@ -68,7 +68,7 @@ la tasa del BCV (Banco Central de Venezuela)
 # escribes algo después del número ("Cuotas: 6 sin interés"), sale tal cual
 # junto a "cuotas" en el mensaje al cliente.
 
-Vigencia: 2026-10-01 al 2026-10-06
+Vigencia: 2026-09-30 al 2026-10-06
 Cuotas: 6
 Cashea 0%: Promoción por tiempo limitado
 Nivel 1: 50%
