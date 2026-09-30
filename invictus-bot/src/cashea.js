@@ -39,6 +39,7 @@ function leer() {
       cuotas: 0,
       detalleCuotas: "",
       minimo: 0,
+      minimoAlCero: false,
     };
     let seccion = "";
 
@@ -67,9 +68,13 @@ function leer() {
 
       // "Mínimo para las cuotas: 100" — desde qué monto aplica el modo de
       // cuotas (en la moneda de los precios de la tienda).
-      const minimo = linea.match(/^m[ií]nimo[^:]*:\s*\$?\s*(\d+(?:[.,]\d+)?)/i);
+      const minimo = linea.match(/^(m[ií]nimo[^:]*):\s*\$?\s*(\d+(?:[.,]\d+)?)/i);
       if (minimo) {
-        leido.minimo = Number(minimo[1].replace(",", "."));
+        leido.minimo = Number(minimo[2].replace(",", "."));
+        // Si la línea nombra el 0% ("Mínimo para el 0% y las 6 cuotas"), el
+        // mínimo vale también para el 0% de inicial. Si no, solo para las
+        // cuotas —que es lo que decidió el dueño el 30-sep—.
+        leido.minimoAlCero = /0\s*%|cero/i.test(minimo[1]);
         continue;
       }
 
@@ -227,8 +232,8 @@ export function cuentaCashea(precio, porcentaje) {
   // EL 0% DE INICIAL TAMBIÉN TIENE MÍNIMO (dueño, 30-sep-2026: "a partir de
   // 100$ es que se admite el 0% de inicial"). Por debajo no se hace la
   // cuenta con 0%: se avisa, y la inicial de ese par la confirma un asesor.
-  const { minimo: minimoCero } = leer();
-  if (porcentaje === 0 && minimoCero && leido.cifra < minimoCero) {
+  const { minimo: minimoCero, minimoAlCero } = leer();
+  if (porcentaje === 0 && minimoAlCero && minimoCero && leido.cifra < minimoCero) {
     return {
       precio: leido.escribir(leido.cifra),
       ceroSinMinimo: true,
@@ -278,6 +283,16 @@ export function textoDelMinimo() {
   return minimo ? `compras desde ${minimo}$` : "";
 }
 
+// La condición, con las palabras del dueño: "para optar por las 6 cuotas la
+// compra debe ser de 100$ en adelante".
+export function fraseDelMinimo() {
+  const { minimo, minimoAlCero } = leer();
+  if (!minimo) return "";
+  const cuotas = "las " + (nombreDeLasCuotas() || "cuotas");
+  const que = minimoAlCero ? "el cero por ciento de inicial y " + cuotas : cuotas;
+  return "para optar por " + que + " la compra debe ser de " + minimo + "$ en adelante";
+}
+
 // "6 cuotas", o "6 cuotas sin interés" si pagos.txt lo dice. "" sin dato.
 export function nombreDeLasCuotas() {
   const { cuotas, detalleCuotas } = leer();
@@ -290,7 +305,7 @@ export function nombreDeLasCuotas() {
 function enCuotas(cuenta) {
   const nombre = nombreDeLasCuotas();
   if (!cuenta.alcanzaMinimo) {
-    return `en cuotas con Cashea (las ${nombre || "cuotas"} son para ${textoDelMinimo()})`;
+    return `en cuotas con Cashea (${fraseDelMinimo()})`;
   }
   if (!cuenta.cuotas) return nombre ? `en ${nombre}` : "en cuotas";
   const c = cuenta.cuotas;
@@ -338,14 +353,14 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
   const minimo = textoDelMinimo();
   const lineaCuotas = lasCuotas
     ? minimo
-      ? `🗓️ El resto, en ${lasCuotas}.\n💲 El 0% de inicial y las ${lasCuotas} son para ${minimo}.`
+      ? `🗓️ El resto, en ${lasCuotas}.\n💲 ${mayuscula(fraseDelMinimo())}.`
       : `🗓️ El resto, en ${lasCuotas}.`
     : "";
 
   // ── Sin nivel (o uno que no existe): la promoción, la tabla y la pregunta.
   if (pct === null) {
     // Del nivel más alto al más bajo: el 0% primero, que es el gancho.
-    const marcaDelCero = minimo ? " 🎉 (" + minimo + ")" : " 🎉";
+    const marcaDelCero = minimo && leer().minimoAlCero ? " 🎉 (" + minimo + ")" : " 🎉";
     const tabla = [...niveles.entries()]
       .sort((a, b) => b[0] - a[0])
       .map(([n, v]) => `• Nivel ${n} → ${formatoPct(v)} de inicial${v === 0 ? marcaDelCero : ""}`)
@@ -374,7 +389,7 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
   }
 
   // ── Con nivel.
-  const condicionDelCero = minimo ? " en " + minimo : "";
+  const condicionDelCero = minimo && leer().minimoAlCero ? " en " + minimo : "";
   const encabezado =
     pct === 0
       ? `🎉 ¡Con tu Nivel ${nivel} en Cashea te lo llevas con 0% de inicial${condicionDelCero}!`
@@ -413,6 +428,10 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
 function cuotasSueltas() {
   const nombre = nombreDeLasCuotas();
   return nombre ? `en ${nombre}` : "en cuotas";
+}
+
+function mayuscula(texto) {
+  return texto ? texto[0].toUpperCase() + texto.slice(1) : "";
 }
 
 function formatoPct(v) {

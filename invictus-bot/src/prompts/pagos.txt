@@ -68,10 +68,11 @@ la tasa del BCV (Banco Central de Venezuela)
 # escribes algo después del número ("Cuotas: 6 sin interés"), sale tal cual
 # junto a "cuotas" en el mensaje al cliente.
 #
-# MÍNIMO: desde qué monto aplican el 0% de inicial y las 6 cuotas ("a partir
-# de 100$ es que se admite el 0% de inicial"; "para optar por el modo 6
-# cuotas la compra debe ser 100$ en adelante"). Por debajo, el bot no
-# promete el 0% ni reparte en 6 cuotas: lo dice.
+# MÍNIMO: desde qué monto se puede optar por las 6 cuotas ("para optar por
+# las 6 cuotas la compra debe ser de 100$ en adelante"). Por debajo, el bot
+# no reparte en 6 cuotas: lo dice. Si algún día el 0% de inicial también
+# pide mínimo, escribe "Mínimo para el 0% y las 6 cuotas: 100" y el bot lo
+# aplica a los dos.
 #
 # ANTES de la fecha de inicio el bot SÍ contesta: anuncia la promoción
 # ("¡Arranca el 1 de octubre!") con la tabla y las cuentas. DESPUÉS de la
@@ -79,7 +80,7 @@ la tasa del BCV (Banco Central de Venezuela)
 
 Vigencia: 2026-10-01 al 2026-10-06
 Cuotas: 6 sin interés
-Mínimo para el 0% y las 6 cuotas: 100
+Mínimo para las 6 cuotas: 100
 6 cuotas + 0% de inicial en Cashea 🔥
 Nivel 6: 0%
 Nivel 5: 10%
