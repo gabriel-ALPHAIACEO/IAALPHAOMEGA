@@ -27,6 +27,7 @@ const SUITES = [
   ["datos.mjs", "horarios, envíos, delivery y empleo: que estén y salten solos"],
   ["botas.mjs", "que las botas de básquet no busquen las tácticas"],
   ["rescate.mjs", "que un \"no es ese\" pase a una persona en vez de seguir adivinando"],
+  ["extremo.mjs", "de punta a punta: lo que de verdad le llega al cliente"],
   ["cupo.mjs", "que sin cupo de OpenAI no se cuente como \"miré y no está\""],
 ];
 

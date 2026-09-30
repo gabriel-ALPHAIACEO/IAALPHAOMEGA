@@ -105,7 +105,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-30 (33) · rescate: \"no es ese\" pasa a un asesor; Cashea 6 cuotas sin interés desde 100$, se anuncia antes del 1 de octubre";
+const VERSION = "2026-09-30 (34) · Cashea: la tabla ya no sale detrás de un \"te lo confirma un asesor\"";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1564,11 +1564,32 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     }
   }
 
+  // LA TARJETA NO VA DETRÁS DE UN "TE LO CONFIRMA UN ASESOR" (30-sep-2026).
+  //
+  // El dueño lo vio en producción: el cliente preguntaba "¿tienes Cashea?",
+  // el modelo —por su regla general de mandar al asesor lo que no sabe—
+  // escribía "Eso te lo confirma un asesor en un momento 😊", y la tabla
+  // salía DEBAJO. El cliente leía "asesor" primero, y encima esa frase
+  // disparaba un aviso a Slack. Si va la tarjeta, lo del asesor sobra: se
+  // quita, y si no queda nada, la tarjeta va sola.
+  if (tarjetaDeCashea && tarjetaDeCashea !== CASHEA_FUERA_DE_FECHA) {
+    const sinAsesor = respuestaCliente
+      .split(/(?<=[.!?😊🙌])\s+/)
+      .filter((frase) => !/\basesor/i.test(frase))
+      .join(" ")
+      .trim();
+    if (sinAsesor !== respuestaCliente.trim()) {
+      console.log("Cashea: quito el 'te lo confirma un asesor' del modelo, va la tarjeta");
+    }
+    // Con zapatos, el texto va solo antes del carrusel: nunca vacío.
+    respuestaCliente = sinAsesor || (productos.length ? "¡Claro que sí! 🙌 Mira 👇" : "");
+  }
+
   // Sin zapatos que enseñar, la tarjeta va en el MISMO mensaje que la frase
   // del modelo ("¡Claro que sí! Mira cómo te queda 👇"): un solo mensaje se
   // lee mejor que dos seguidos. Con zapatos, va detrás del carrusel.
   if (tarjetaDeCashea && !productos.length && !buscoSinExito && !seAcabaron && !hayMasDelCatalogo) {
-    respuestaCliente = `${respuestaCliente}\n\n${tarjetaDeCashea}`.trim();
+    respuestaCliente = respuestaCliente ? `${respuestaCliente}\n\n${tarjetaDeCashea}` : tarjetaDeCashea;
     tarjetaDeCashea = "";
   }
 
