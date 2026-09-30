@@ -26,6 +26,7 @@ const SUITES = [
   ["config.mjs", "que el wrangler.toml esté completo (cron, ubicación) y sin duplicados"],
   ["datos.mjs", "horarios, envíos, delivery y empleo: que estén y salten solos"],
   ["botas.mjs", "que las botas de básquet no busquen las tácticas"],
+  ["rescate.mjs", "que un \"no es ese\" pase a una persona en vez de seguir adivinando"],
   ["cupo.mjs", "que sin cupo de OpenAI no se cuente como \"miré y no está\""],
 ];
 

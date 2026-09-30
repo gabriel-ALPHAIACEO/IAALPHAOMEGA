@@ -29,7 +29,17 @@ let leido = null;
 
 function leer() {
   if (!leido) {
-    leido = { titular: "", niveles: new Map(), desde: 0, hasta: 0, fechas: "", cuotas: 0, detalleCuotas: "" };
+    leido = {
+      titular: "",
+      niveles: new Map(),
+      desde: 0,
+      hasta: 0,
+      fechas: "",
+      empieza: "",
+      cuotas: 0,
+      detalleCuotas: "",
+      minimo: 0,
+    };
     let seccion = "";
 
     for (const cruda of String(listaPagos || "").split("\n")) {
@@ -51,6 +61,15 @@ function leer() {
         leido.desde = Date.parse(`${vigencia[1]}T00:00:00-04:00`);
         leido.hasta = Date.parse(`${vigencia[2]}T23:59:59-04:00`);
         leido.fechas = rangoLegible(vigencia[1], vigencia[2]);
+        leido.empieza = diaLegible(vigencia[1]);
+        continue;
+      }
+
+      // "Mínimo para las cuotas: 100" — desde qué monto aplica el modo de
+      // cuotas (en la moneda de los precios de la tienda).
+      const minimo = linea.match(/^m[ií]nimo[^:]*:\s*\$?\s*(\d+(?:[.,]\d+)?)/i);
+      if (minimo) {
+        leido.minimo = Number(minimo[1].replace(",", "."));
         continue;
       }
 
@@ -79,15 +98,27 @@ export function hayCashea() {
   return leer().niveles.size > 0;
 }
 
-// ¿Está la promoción en fecha AHORA? Sin línea de vigencia, siempre. Se
+// ¿En qué momento de la promoción estamos? "antes" (todavía no empezó),
+// "vigente", "despues" (ya terminó), o "siempre" (sin línea de vigencia). Se
 // pregunta en cada mensaje —no al arrancar— porque un Worker puede seguir
-// vivo de un día para otro, y la promoción tiene que apagarse sola a la
-// medianoche del último día.
+// vivo de un día para otro, y la promoción tiene que cambiar sola a la
+// medianoche.
+export function momentoDeLaPromocion(ahora = Date.now()) {
+  const { desde, hasta } = leer();
+  if (!desde || !hasta) return "siempre";
+  if (ahora < desde) return "antes";
+  if (ahora > hasta) return "despues";
+  return "vigente";
+}
+
+// ¿Se contesta Cashea con la tabla y las cuentas? SÍ mientras está en fecha
+// Y TAMBIÉN ANTES DE QUE EMPIECE (pedido del dueño, 30-sep-2026: "que
+// responda la IA, no que como no está activa no responda"): antes, se
+// anuncia —"arranca el 1 de octubre"— con sus cuentas. Solo cuando YA
+// TERMINÓ pasa al asesor, que no se promete una promoción vencida.
 export function casheaVigente(ahora = Date.now()) {
-  const { niveles, desde, hasta } = leer();
-  if (!niveles.size) return false;
-  if (!desde || !hasta) return true;
-  return ahora >= desde && ahora <= hasta;
+  if (!leer().niveles.size) return false;
+  return momentoDeLaPromocion(ahora) !== "despues";
 }
 
 // Lo que se contesta a una pregunta de Cashea fuera de fecha. Lleva "en un
@@ -102,6 +133,12 @@ export function fechasDeLaPromocion() {
 
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
   "septiembre", "octubre", "noviembre", "diciembre"];
+
+// "2026-10-01" → "el 1 de octubre".
+function diaLegible(a) {
+  const [, m, d] = a.split("-").map(Number);
+  return `el ${d} de ${MESES[m - 1]}`;
+}
 
 // "2026-10-01", "2026-10-06" → "del 1 al 6 de octubre".
 function rangoLegible(a, b) {
@@ -193,9 +230,12 @@ export function cuentaCashea(precio, porcentaje) {
   // LAS CUOTAS, EXACTAS. 63 entre 6 son 10,50 justos. Pero 59,85 entre 6 son
   // 9,975: redondeando a 9,98 las seis sumarían 59,88 — tres céntimos que no
   // existen. Así que se dicen como son: cinco de 9,98 y la última de 9,95.
-  const n = leer().cuotas;
+  // EL MODO DE CUOTAS TIENE UN MÍNIMO ("la compra debe ser 100$ en
+  // adelante"). Por debajo no se le reparte en cuotas: se le dice.
+  const { cuotas: n, minimo } = leer();
+  const alcanzaMinimo = !minimo || leido.cifra >= minimo;
   let cuotas = null;
-  if (n > 0 && resto > 0) {
+  if (n > 0 && resto > 0 && alcanzaMinimo) {
     const cada = Math.round((resto / n) * 100) / 100;
     const ultima = Math.round((resto - cada * (n - 1)) * 100) / 100;
     cuotas = {
@@ -215,7 +255,14 @@ export function cuentaCashea(precio, porcentaje) {
     inicialCifra: inicial,
     restoCifra: resto,
     cuotas,
+    alcanzaMinimo,
   };
+}
+
+// "compras desde 100$", o "" si no hay mínimo.
+export function textoDelMinimo() {
+  const { minimo } = leer();
+  return minimo ? `compras desde ${minimo}$` : "";
 }
 
 // "6 cuotas", o "6 cuotas sin interés" si pagos.txt lo dice. "" sin dato.
@@ -229,6 +276,9 @@ export function nombreDeLasCuotas() {
 // 9.95 USD". Sin cuotas cargadas: "en cuotas".
 function enCuotas(cuenta) {
   const nombre = nombreDeLasCuotas();
+  if (!cuenta.alcanzaMinimo) {
+    return `en cuotas con Cashea (el modo ${nombre || "de cuotas"} es para ${textoDelMinimo()})`;
+  }
   if (!cuenta.cuotas) return nombre ? `en ${nombre}` : "en cuotas";
   const c = cuenta.cuotas;
   return c.iguales
@@ -250,25 +300,39 @@ const MAXIMO_EN_LA_CUENTA = 3;
 //     está mirando un zapato, le promete la cuenta de ESE zapato)
 //
 // Devuelve "" si Cashea no está cargado.
-export function tarjetaCashea({ nivel = null, productos = [] } = {}) {
+export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now() } = {}) {
   if (!hayCashea()) return "";
 
-  const { titular: soloTitular, niveles, fechas } = leer();
-  // El titular con sus fechas: "Cashea 0%: Promoción por tiempo limitado
-  // (del 1 al 6 de octubre)". Las fechas son lo que da urgencia de verdad.
-  const titular = soloTitular && fechas ? `${soloTitular} (${fechas})` : soloTitular;
+  const { titular, niveles, fechas, empieza } = leer();
   const pct = nivel ? inicialDelNivel(nivel) : null;
+  const momento = momentoDeLaPromocion(ahora);
+
+  // La línea de las fechas: la urgencia de verdad. Antes de empezar, se
+  // anuncia ("¡Arranca el 1 de octubre!"); en fecha, cuándo termina.
+  const cuando =
+    momento === "antes"
+      ? `⏳ ¡Arranca ${empieza}! Promoción por tiempo limitado ${fechas}.`
+      : fechas
+        ? `⏳ Promoción por tiempo limitado ${fechas}.`
+        : "";
 
   const conCuenta = (productos || [])
     .map((p) => ({ p, cuenta: cuentaCashea(p.precio, pct ?? 0) }))
     .filter((x) => x.p?.titulo && x.cuenta)
     .slice(0, MAXIMO_EN_LA_CUENTA);
 
-  // ── Sin nivel (o uno que no existe): la tabla, y la pregunta.
+  const lasCuotas = nombreDeLasCuotas();
+  const minimo = textoDelMinimo();
+  const lineaCuotas = lasCuotas
+    ? `🗓️ El resto, en ${lasCuotas}${minimo ? ` (${minimo})` : ""}.`
+    : "";
+
+  // ── Sin nivel (o uno que no existe): la promoción, la tabla y la pregunta.
   if (pct === null) {
+    // Del nivel más alto al más bajo: el 0% primero, que es el gancho.
     const tabla = [...niveles.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([n, v]) => `▫️ Nivel ${n} → ${formatoPct(v)}${v === 0 ? " 🎉" : ""}`)
+      .sort((a, b) => b[0] - a[0])
+      .map(([n, v]) => `• Nivel ${n} → ${formatoPct(v)} de inicial${v === 0 ? " 🎉" : ""}`)
       .join("\n");
 
     const aviso = nivel ? `No tengo el Nivel ${nivel} en la tabla de Cashea. ` : "";
@@ -276,33 +340,40 @@ export function tarjetaCashea({ nivel = null, productos = [] } = {}) {
       ? `¿Qué nivel tienes en Cashea? Dímelo y te digo exactamente cuánto das de inicial por ${nombreCorto(conCuenta[0].p.titulo)} 😉`
       : "¿Qué nivel tienes en Cashea? Dímelo y te saco la cuenta exacta 😉";
 
-    const lasCuotas = nombreDeLasCuotas();
-    return (
-      "💜 ¡Sí, trabajamos con Cashea!\n\n" +
-      (titular ? `🔥 ${titular}\n\n` : "") +
-      "Tu inicial según tu nivel:\n" +
-      `${tabla}\n\n` +
-      (lasCuotas ? `🗓️ Y el resto lo pagas en ${lasCuotas}.\n\n` : "") +
-      aviso +
-      cierre
-    );
+    return [
+      titular ? (/🔥/.test(titular) ? titular : `🔥 ${titular}`) : "💜 ¡Sí, trabajamos con Cashea!",
+      cuando,
+      "",
+      "Bajada de inicial ⬇️",
+      tabla,
+      "",
+      lineaCuotas,
+      lineaCuotas ? "" : null,
+      aviso + cierre,
+    ]
+      .filter((l) => l !== null && l !== undefined)
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/^\n+/, "");
   }
 
   // ── Con nivel.
-  const promo = titular ? `\n🔥 ${titular}` : "";
-
-  if (!conCuenta.length) {
-    const encabezado =
-      pct === 0
-        ? `🎉 ¡Con tu Nivel ${nivel} en Cashea te lo llevas con 0% de inicial! Todo ${cuotasSueltas()} 🙌${promo}`
-        : `💜 Con tu Nivel ${nivel} en Cashea pagas solo el ${formatoPct(pct)} de inicial y el resto ${cuotasSueltas()} 🙌`;
-    return `${encabezado}\n\n¿Qué modelo te gustó? Dime cuál y te saco la cuenta exacta 😉`;
-  }
-
   const encabezado =
     pct === 0
-      ? `🎉 ¡Con tu Nivel ${nivel} en Cashea te lo llevas con 0% de inicial!${promo}`
-      : `💜 Con tu Nivel ${nivel} en Cashea pagas solo el ${formatoPct(pct)} de inicial:`;
+      ? `🎉 ¡Con tu Nivel ${nivel} en Cashea te lo llevas con 0% de inicial!`
+      : `💜 Con tu Nivel ${nivel} en Cashea pagas solo el ${formatoPct(pct)} de inicial`;
+
+  if (!conCuenta.length) {
+    return [
+      `${encabezado} 🙌`,
+      lineaCuotas,
+      cuando,
+      "",
+      "¿Qué modelo te gustó? Dime cuál y te saco la cuenta exacta 😉",
+    ]
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n");
+  }
 
   const lineas = conCuenta.map(({ p, cuenta }) =>
     `👟 ${p.titulo} — ${cuenta.precio}\n` +
@@ -314,7 +385,9 @@ export function tarjetaCashea({ nivel = null, productos = [] } = {}) {
 
   const cierre = conCuenta.length > 1 ? "¿Con cuál te quedas? 😊" : "¿Te animas? 😊";
 
-  return `${encabezado}\n\n${lineas.join("\n\n")}\n\n${cierre}`;
+  return [pct === 0 ? encabezado : `${encabezado}:`, "", lineas.join("\n\n"), "", cuando, "", cierre]
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
 }
 
 function cuotasSueltas() {

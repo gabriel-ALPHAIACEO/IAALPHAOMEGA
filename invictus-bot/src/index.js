@@ -52,6 +52,7 @@ import {
   revisarCashea,
 } from "./cashea.js";
 import { queDatoPide, RESPUESTAS, nombraUnProducto } from "./datos.js";
+import { hayQueRescatar, FRASE_DE_RESCATE, MOTIVO_DE_RESCATE } from "./rescate.js";
 import {
   hayUbicacion,
   mensajeDeUbicacion,
@@ -104,7 +105,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-30 (32) · vuelven envíos, delivery, horarios, empleo y la ubicación con foto; métodos de pago completos y aviso solo si piden los datos";
+const VERSION = "2026-09-30 (33) · rescate: \"no es ese\" pasa a un asesor; Cashea 6 cuotas sin interés desde 100$, se anuncia antes del 1 de octubre";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1130,6 +1131,45 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const historialPrevio = contacto.historial;
   const textoCliente =
     mensaje.texto || (imagenCruda ? (esHistoria ? "(respondió a una historia)" : "(mandó una foto)") : "");
+
+  // "NO ES ESE": DEJAR DE ADIVINAR Y LLAMAR A UNA PERSONA (30-sep-2026).
+  //
+  // Caso real, cliente perdido: respondió a una historia con unas Nike
+  // Waffle, el bot le enseñó P6000, el cliente dijo "no, ninguna", el bot le
+  // mandó Nike Trail, el cliente volvió a señalar la historia, el bot repitió
+  // lo mismo, y el cliente se fue con un "¿estás ciego?". Desde el primer
+  // "no" había que pasárselo a una persona. Ver rescate.js.
+  //
+  // Se disculpa, avisa al asesor con la historia, y el bot se aparta como
+  // cuando un asesor escribe: si el asesor tarda, sale el "TE ESTÁN
+  // ESPERANDO" de siempre.
+  const motivoDeRescate = hayQueRescatar(mensaje.texto, {
+    yaLeMostre: (contacto.mostrados || []).length > 0 && minutosDesde(contacto.ultimo_envio) < 180,
+    deUnaFoto: esHistoria || Boolean(mensaje.foto) || /\b(historia|foto)\b/i.test(historialPrevio || ""),
+  });
+  if (motivoDeRescate) {
+    console.log(`Rescate: el cliente ${motivoDeRescate} → a un asesor, y el bot se aparta`);
+    await mandar(() => enviarTexto(env, mensaje.igsid, FRASE_DE_RESCATE));
+    await avisarAsesor(env, {
+      ...paraElAviso(contacto),
+      igsid: mensaje.igsid,
+      mensaje: textoCliente,
+      respuesta: FRASE_DE_RESCATE,
+      motivo: `${MOTIVO_DE_RESCATE} (${motivoDeRescate})`,
+      historial: historialPrevio,
+      historia: mensaje.historia?.url || (esHistoria ? "respuesta a una historia" : ""),
+    });
+    const horas = Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO;
+    await guardarContacto(env.DB, {
+      ...contacto,
+      nombre,
+      historial: conNota(historialPrevio, `El cliente ${motivoDeRescate}: se lo pasé a un asesor.`),
+      mids_enviados: mids,
+      ultimo_envio: enviadoEn || Date.now(),
+      pausado_hasta: Date.now() + horas * 60 * 60 * 1000,
+    });
+    return;
+  }
 
   // Quien ya escribió antes y vuelve con un "hola" suelto no necesita al
   // modelo: no hay nada que buscar. La primera vez de cada cliente NO entra

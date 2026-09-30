@@ -67,13 +67,21 @@ la tasa del BCV (Banco Central de Venezuela)
 # CUOTAS: en cuántas cuotas se paga lo que queda después de la inicial. Si
 # escribes algo después del número ("Cuotas: 6 sin interés"), sale tal cual
 # junto a "cuotas" en el mensaje al cliente.
+#
+# MÍNIMO: desde qué monto aplica el modo de cuotas ("la compra debe ser 100$
+# en adelante"). Por debajo, el bot no reparte en cuotas: lo dice.
+#
+# ANTES de la fecha de inicio el bot SÍ contesta: anuncia la promoción
+# ("¡Arranca el 1 de octubre!") con la tabla y las cuentas. DESPUÉS de la
+# fecha final, pasa Cashea a un asesor.
 
-Vigencia: 2026-09-30 al 2026-10-06
-Cuotas: 6
-Cashea 0%: Promoción por tiempo limitado
-Nivel 1: 50%
-Nivel 2: 40%
-Nivel 3: 30%
-Nivel 4: 20%
-Nivel 5: 10%
+Vigencia: 2026-10-01 al 2026-10-06
+Cuotas: 6 sin interés
+Mínimo para las cuotas: 100
+6 cuotas + 0% de inicial en Cashea 🔥
 Nivel 6: 0%
+Nivel 5: 10%
+Nivel 4: 20%
+Nivel 3: 30%
+Nivel 2: 40%
+Nivel 1: 50%
