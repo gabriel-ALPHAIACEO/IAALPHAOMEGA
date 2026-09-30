@@ -123,6 +123,24 @@ export function enviarBotonCatalogo(env, igsid, texto) {
   });
 }
 
+// Un texto con UN botón que abre un enlace. Es lo que manda la ubicación:
+// la dirección y, debajo, "MAPS/GOOGLE". Sin enlace válido, sale el texto
+// solo — un botón a un enlace roto es peor que ninguno.
+export function enviarBotonEnlace(env, igsid, texto, titulo, url) {
+  if (!/^https?:\/\//i.test(String(url || ""))) return enviarTexto(env, igsid, texto);
+
+  return enviar(env, igsid, {
+    attachment: {
+      type: "template",
+      payload: {
+        template_type: "button",
+        text: recortar(texto, 640),
+        buttons: [{ type: "web_url", url, title: recortar(titulo, 20) }],
+      },
+    },
+  });
+}
+
 /* ── El fotograma de una historia en vídeo ────────────────────────── */
 
 // LA MAYORÍA DE LAS HISTORIAS SON VÍDEO, Y ESAS NO SE PUEDEN MIRAR.

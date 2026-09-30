@@ -30,6 +30,24 @@
 
 import { responderTexto, identificarEnImagen } from "./ia.js";
 import { revisarPagos, metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
+import {
+  hayCashea,
+  preguntaPorCashea,
+  casheaVigente,
+  CASHEA_FUERA_DE_FECHA,
+  nivelDelCliente,
+  nivelEnElHistorial,
+  notaDeNivel,
+  tarjetaCashea,
+  revisarCashea,
+} from "./cashea.js";
+import {
+  hayUbicacion,
+  mensajeDeUbicacion,
+  preguntaPorUbicacion,
+  soloPreguntaUbicacion,
+  NOTA_UBICACION_ENVIADA,
+} from "./ubicacion.js";
 import { gastoDelMes } from "./gasto.js";
 import { buscarProductos } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
@@ -64,6 +82,7 @@ import {
   enviarTexto,
   enviarFichas,
   enviarBotonCatalogo,
+  enviarBotonEnlace,
   obtenerPerfil,
   fotogramaDeHistoria,
 } from "./instagram.js";
@@ -72,7 +91,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-30 (28) · sin cupo de OpenAI ya no cuenta como \"miré y no está\"; arreglado el 107% del índice";
+const VERSION = "2026-09-30 (29) · Cashea personalizado (nivel, inicial y 6 cuotas; promo del 1 al 6 de octubre) y la ubicación con botón de Maps";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1074,6 +1093,32 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     return;
   }
 
+  // "¿DÓNDE ESTÁN?": LA DIRECCIÓN TAL CUAL, CON EL BOTÓN DE GOOGLE MAPS.
+  //
+  // Sale del código, no del modelo: el texto de prompts/ubicacion.txt letra
+  // por letra, como lo mandaba la automatización de ManyChat. Si el mensaje
+  // es SOLO eso, aquí termina y no se gasta ni una llamada. Si además pide
+  // otra cosa —"¿dónde están y tienen Jordan?"— la ubicación sale primero y
+  // el resto sigue al modelo, avisado de que no la repita. Ver ubicacion.js.
+  let notaUbicacion = "";
+  if (!imagenCruda && hayUbicacion() && preguntaPorUbicacion(mensaje.texto)) {
+    const lugar = mensajeDeUbicacion();
+    console.log(`Preguntó la ubicación → la mando${lugar.enlace ? " con el botón de Maps" : " (sin botón: falta el enlace en ubicacion.txt)"}`);
+    await mandar(() => enviarBotonEnlace(env, mensaje.igsid, lugar.texto, lugar.boton, lugar.enlace));
+
+    if (soloPreguntaUbicacion(mensaje.texto)) {
+      await guardarContacto(env.DB, {
+        ...contacto,
+        nombre,
+        historial: conNota(historialPrevio, "Preguntó la ubicación y se la pasé."),
+        mids_enviados: mids,
+        ultimo_envio: enviadoEn || Date.now(),
+      });
+      return;
+    }
+    notaUbicacion = NOTA_UBICACION_ENVIADA;
+  }
+
   // El cliente PIDIÓ el catálogo por su nombre: "mándame el catálogo", "¿me
   // pasas el link de la tienda?". Eso sí es un atajo legítimo — quiere el
   // enlace, no una conversación — y se resuelve sin gastar una llamada al
@@ -1207,7 +1252,14 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // más cerca está de comprar: se le atiende por lo que escribió.
   const marca = imagenCruda ? (foto ? marcaFoto : marcarSinVer(porQueNo)) : "";
 
-  const entrada = contexto(nombre, historialPrevio, textoCliente, marca, esHistoria, minutosCallado);
+  const entrada = contexto(
+    nombre,
+    historialPrevio,
+    textoCliente,
+    [marca, notaUbicacion].filter(Boolean).join("\n"),
+    esHistoria,
+    minutosCallado
+  );
 
   const salida = await responderTexto(env, entrada);
 
@@ -1306,6 +1358,46 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     });
   }
 
+  // CASHEA: LA CUENTA DE ESTE CLIENTE, CON SU NIVEL Y SU ZAPATO.
+  //
+  // Primero la red: si el modelo escribió un porcentaje de Cashea que no es
+  // el de la tabla —o cualquiera, con la promoción fuera de fecha—, se
+  // cambia por lo de verdad. Después, si el cliente preguntó por Cashea, va
+  // la tarjeta armada por cashea.js: las cuentas las hace el código, no el
+  // modelo. Ver cashea.js.
+  const revisionDeCashea = revisarCashea(respuestaCliente);
+  if (revisionDeCashea.corregido) respuestaCliente = revisionDeCashea.respuesta;
+
+  const nivelCashea = nivelDelCliente(mensaje.texto) ?? nivelEnElHistorial(historialPrevio);
+  if (nivelDelCliente(mensaje.texto) !== null) {
+    salida.historial = conNota(salida.historial || historialPrevio, notaDeNivel(nivelCashea));
+  }
+
+  let tarjetaDeCashea = "";
+  if (!revisionDeCashea.corregido && preguntaPorCashea(mensaje.texto)) {
+    if (casheaVigente()) {
+      tarjetaDeCashea = tarjetaCashea({ nivel: nivelCashea, productos });
+      console.log(
+        `Preguntó por Cashea → tarjeta ` +
+          (nivelCashea ? `con su Nivel ${nivelCashea}` : "con la tabla") +
+          (productos.length ? ` y la cuenta de ${Math.min(productos.length, 3)} zapato(s)` : "")
+      );
+    } else if (hayCashea()) {
+      // Cargado pero fuera de fecha: al asesor, sin prometer nada.
+      console.log("Preguntó por Cashea con la promoción fuera de fecha → al asesor");
+      if (productos.length) tarjetaDeCashea = CASHEA_FUERA_DE_FECHA;
+      else respuestaCliente = CASHEA_FUERA_DE_FECHA;
+    }
+  }
+
+  // Sin zapatos que enseñar, la tarjeta va en el MISMO mensaje que la frase
+  // del modelo ("¡Claro que sí! Mira cómo te queda 👇"): un solo mensaje se
+  // lee mejor que dos seguidos. Con zapatos, va detrás del carrusel.
+  if (tarjetaDeCashea && !productos.length && !buscoSinExito && !seAcabaron && !hayMasDelCatalogo) {
+    respuestaCliente = `${respuestaCliente}\n\n${tarjetaDeCashea}`.trim();
+    tarjetaDeCashea = "";
+  }
+
   // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO (crítico).
   //
   // Antes, TODA respuesta sin productos salía con el botón del catálogo
@@ -1336,6 +1428,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   } else {
     // Conversación: preguntas, dudas, cortesías. Texto limpio, sin botón.
     await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
+  }
+
+  // La tarjeta de Cashea, cuando no fue dentro del mensaje de arriba: va
+  // DETRÁS de los zapatos, que es donde se lee "y con tu nivel, esto".
+  if (tarjetaDeCashea) {
+    await mandar(() => enviarTexto(env, mensaje.igsid, tarjetaDeCashea));
   }
 
   const escalada = hayEscalada({

@@ -17,11 +17,11 @@ const vision = prompt("vision.txt");
 
 titulo("los marcadores de texto.txt");
 
-for (const marca of ["{{CATALOGO}}", "{{PAGOS}}", "{{TASA}}"]) {
+for (const marca of ["{{CATALOGO}}", "{{PAGOS}}", "{{TASA}}", "{{CASHEA}}", "{{UBICACION}}"]) {
   const veces = (texto.match(new RegExp(marca.replace(/[{}]/g, "\\$&"), "g")) || []).length;
   ok(veces === 1, `${marca} aparece exactamente una vez`, `${veces}`);
 }
-ok(!/\{\{(?!CATALOGO|PAGOS|TASA)\w+\}\}/.test(texto), "no hay ningún otro marcador suelto que nadie rellene");
+ok(!/\{\{(?!CATALOGO|PAGOS|TASA|CASHEA|UBICACION)\w+\}\}/.test(texto), "no hay ningún otro marcador suelto que nadie rellene");
 ok((vision.match(/\{\{MODELOS\}\}/g) || []).length === 1, "vision.txt tiene un {{MODELOS}}");
 ok(!/\{\{(?!MODELOS)\w+\}\}/.test(vision), "y ningún otro");
 

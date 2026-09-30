@@ -28,6 +28,8 @@ import { urlPequena } from "./shopify.js";
 import { comoDataUri } from "./imagen.js";
 import { metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
 import { anotarGasto } from "./gasto.js";
+import { hayCashea } from "./cashea.js";
+import { hayUbicacion, mensajeDeUbicacion } from "./ubicacion.js";
 
 // EL CATÁLOGO SE PEGA AL PROMPT AL ARRANCAR, NO EN CADA MENSAJE.
 //
@@ -69,6 +71,50 @@ TODO LO QUE SIGUE EN ESTE BLOQUE NO APLICA: si preguntan por la tasa, el
 cambio o los bolívares, responde "Eso te lo confirma un asesor en un momento
 😊", "buscar" es "NADA", y no nombres ninguna tasa —ni la del BCV ni otra`;
 
+// CASHEA: el modelo NO hace las cuentas ni decide si la promoción está en
+// fecha — eso es de cashea.js, que manda su mensaje aparte, justo después
+// del del modelo. Aquí se le explica qué le toca a él: conversar, y buscar
+// el producto del que se habla para que la cuenta salga con su precio.
+const CON_CASHEA = `Esta tienda trabaja con Cashea (pagar una inicial y el resto en cuotas).
+
+Cuando el cliente pregunte por Cashea, las cuotas, la inicial o diga su nivel
+—"¿aceptan Cashea?", "soy nivel 3", "¿cuánto doy de inicial?"—, EL SISTEMA LE
+MANDA la información exacta en un mensaje aparte, justo después del tuyo: la
+promoción vigente, la tabla de niveles y, si sabe su nivel y el zapato, la
+cuenta de su inicial ya hecha.
+
+Así que tú:
+  · NO escribas porcentajes de Cashea, ni montos de inicial ni de cuotas, ni
+    fechas de la promoción. Ninguno. Los números los pone el sistema.
+  · NO digas si hay o no hay promoción: eso también lo dice el sistema.
+  · Contesta en una frase corta y con ganas —"¡Claro que sí! 🙌 Mira cómo te
+    queda 👇"— y, si preguntó algo más, contéstalo también.
+  · SI HABLA DE UN ZAPATO CONCRETO —"¿y con Cashea cuánto doy por esos?",
+    "¿las Jordan se pueden con Cashea?"— pon ESE zapato en "buscar", igual que
+    cuando te preguntan un precio. Así la cuenta sale con su precio real. Si no
+    se sabe de qué zapato habla, "buscar" es "NADA".
+  · Si dijo su nivel, escribe en el historial "Nivel Cashea: N." (con su
+    número), para no tener que volver a preguntárselo.`;
+
+const SIN_CASHEA = `(Todavía no está cargado Cashea en esta tienda. Si preguntan por Cashea,
+cuotas o financiamiento, responde "Eso te lo confirma un asesor en un momento
+😊" y "buscar" es "NADA". No digas porcentajes ni condiciones.)`;
+
+// La ubicación la manda ubicacion.js con su botón de Google Maps. Esto es la
+// red por si una forma rara de preguntar se le escapa: el modelo tiene la
+// dirección exacta y la da tal cual, sin botón.
+function conUbicacion(texto) {
+  return `Si preguntan dónde está la tienda, la dirección es exactamente esta —escríbela
+tal cual, sin cambiar ni resumir nada—:
+
+${texto}
+
+"buscar" es "NADA" si no pidió ningún producto.`;
+}
+
+const SIN_UBICACION = `(Todavía no está cargada la dirección de esta tienda. Si preguntan dónde
+están, responde "Eso te lo confirma un asesor en un momento 😊".)`;
+
 const SIN_MODELOS = `(Todavía no está cargada la lista de modelos de esta tienda.
 Identifica por lo que VES y quédate en la marca si no estás seguro.)`;
 
@@ -105,6 +151,23 @@ function textoConCatalogo() {
     } else {
       promptTextoArmado = promptTextoArmado.replaceAll("{{PAGOS}}", bloqueDeMetodos());
       console.log(`Métodos de pago pegados al prompt: ${metodos.length}`);
+    }
+
+    if (hayCashea()) {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{CASHEA}}", CON_CASHEA);
+      console.log("Cashea pegado al prompt: las cuentas las hace cashea.js");
+    } else {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{CASHEA}}", SIN_CASHEA);
+      console.log("Sin Cashea cargado: esa pregunta seguirá yendo al asesor");
+    }
+
+    const lugar = mensajeDeUbicacion();
+    if (hayUbicacion()) {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{UBICACION}}", conUbicacion(lugar.texto));
+      console.log("Ubicación pegada al prompt" + (lugar.enlace ? " (con botón de Maps)" : " (SIN enlace de Maps todavía)"));
+    } else {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{UBICACION}}", SIN_UBICACION);
+      console.log("Sin ubicación cargada: esa pregunta seguirá yendo al asesor");
     }
 
     const tasa = tasaDePago();
