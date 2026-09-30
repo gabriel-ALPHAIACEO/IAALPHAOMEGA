@@ -49,7 +49,23 @@ function igualesSinFiltrar(a, b) {
 
 /* ── Envío ───────────────────────────────────────────────────────── */
 
-async function enviar(env, igsid, mensaje) {
+// CUÁNTO SE ESPERA A INSTAGRAM (30-sep-2026).
+//
+// Cloudflare le da a cada mensaje del cliente 30 segundos EN TOTAL —leer
+// la hoja, pensar la respuesta, mandarla—, y al llegar a 30 corta sin
+// avisar. Sin un tope aquí, un envío que se cuelga se come ese tiempo y el
+// turno muere a medias: el cliente recibe "aquí lo tienes 👇" y nunca las
+// fotos. Con el tope, el envío falla a tiempo y queda margen para el plan B.
+//
+// Las fichas llevan más porque Instagram descarga las fotos ANTES de
+// contestar: diez fotos de Drive pueden tardar sus segundos.
+const ESPERA_ENVIO_MS = 8000;
+const ESPERA_FICHAS_MS = 12000;
+
+// Devuelve { mid, ventanaCerrada, tiempoAgotado, detalle }: quien manda
+// fichas necesita saber POR QUÉ falló para decidir si vale la pena
+// reintentar (ver enviarFichas). El resto usa enviar(), que da solo el mid.
+async function enviarDetallado(env, igsid, mensaje, esperaMs = ESPERA_ENVIO_MS) {
   let respuesta;
   try {
     respuesta = await fetch(`${GRAFO}/me/messages`, {
@@ -59,10 +75,17 @@ async function enviar(env, igsid, mensaje) {
         authorization: `Bearer ${env.IG_TOKEN}`,
       },
       body: JSON.stringify({ recipient: { id: igsid }, message: mensaje }),
+      signal: AbortSignal.timeout(esperaMs),
     });
   } catch (error) {
-    console.error("No se pudo enviar a Instagram:", error.message);
-    return "";
+    const tiempoAgotado = error?.name === "TimeoutError" || error?.name === "AbortError";
+    console.error(
+      tiempoAgotado
+        ? `Instagram no contestó en ${esperaMs / 1000}s (${resumirEnvio(mensaje)}). ` +
+            "Puede que haya llegado igual: no se repite, para no mandarlo dos veces."
+        : `No se pudo enviar a Instagram: ${error?.message || error}`
+    );
+    return { mid: "", ventanaCerrada: false, tiempoAgotado, detalle: String(error?.message || error) };
   }
 
   if (!respuesta.ok) {
@@ -86,14 +109,21 @@ async function enviar(env, igsid, mensaje) {
         "Instagram no acepta este mensaje: la ventana de 24 h está cerrada " +
           "(esa persona no nos ha escrito). No es un fallo del bot ni del token."
       );
-      return "";
+      return { mid: "", ventanaCerrada: true, tiempoAgotado: false, detalle };
     }
 
     console.error("Instagram rechazó el envío:", respuesta.status, detalle);
-    return "";
+    return { mid: "", ventanaCerrada: false, tiempoAgotado: false, detalle };
   }
 
-  const datos = await respuesta.json();
+  // Si Instagram dijo que sí (200) pero la respuesta llega cortada, el
+  // mensaje SALIÓ: se da por enviado, solo que sin su mid.
+  let datos = {};
+  try {
+    datos = await respuesta.json();
+  } catch (error) {
+    console.error(`Instagram aceptó el envío pero su respuesta llegó cortada: ${error?.message || error}`);
+  }
 
   // QUÉ SE LE MANDÓ AL CLIENTE, en el registro.
   //
@@ -104,7 +134,14 @@ async function enviar(env, igsid, mensaje) {
   // veía; un envío correcto, no.
   console.log(`Meta ← mandé: ${resumirEnvio(mensaje)}`);
 
-  return datos.message_id || ""; // lo guardamos para reconocer nuestro propio eco
+  // El mid se guarda para reconocer nuestro propio eco.
+  // Sin mid pero con un 200, el mensaje salió: "sin-id" lo dice, para que
+  // nadie lo reintente y el cliente no lo reciba dos veces.
+  return { mid: datos.message_id || "sin-id", ventanaCerrada: false, tiempoAgotado: false, detalle: "" };
+}
+
+async function enviar(env, igsid, mensaje) {
+  return (await enviarDetallado(env, igsid, mensaje)).mid;
 }
 
 // Lo justo para reconocerlo de un vistazo, sin volcar el JSON entero.
@@ -126,45 +163,130 @@ export function enviarTexto(env, igsid, texto) {
 
 // Las fichas con foto son lo que en Make mandaba el módulo de plantilla
 // genérica. Instagram admite 10 como máximo.
-export function enviarFichas(env, igsid, productos) {
-  const elementos = productos.slice(0, 10).map((p) => {
-    const ficha = {
-      title: recortar(p.titulo, 80),
-      subtitle: p.precio || "",
-      image_url: p.imagen || "",
-    };
-
-    // EL BOTÓN "VER PRODUCTO" ESTÁ APAGADO (24-sep-2026, decisión del dueño).
-    //
-    // Llevaba al cliente a la ficha del producto, y EPICELL no tiene tienda
-    // online: ese botón no lleva a ninguna parte. Un botón que no cumple lo
-    // que promete cuesta más que no tener botón.
-    //
-    // PARA VOLVER A PONERLO, apuntando a donde haga falta: pon esto en true
-    // y, en la línea de abajo, cambia "p.url" por la dirección que toque y
-    // "Ver producto" por su nombre nuevo. El resto del sistema no se entera.
-    const VER_PRODUCTO = false;
-
-    const botones = [];
-    if (VER_PRODUCTO && p.url) {
-      botones.push({ type: "web_url", url: p.url, title: "Ver producto" });
-    }
-
-    const comprar = enlaceWhatsapp(env.WHATSAPP, p.titulo);
-    if (comprar) botones.push({ type: "web_url", url: comprar, title: "Comprar" });
-
-    // Una lista de botones vacía es un valor inválido.
-    if (botones.length) ficha.buttons = botones;
-
-    return ficha;
-  });
-
-  return enviar(env, igsid, {
+//
+// "¡AQUÍ LO TIENES! 👇" Y NINGUNA FOTO DEBAJO (30-sep-2026).
+//
+// Las fichas van en UN solo mensaje, y Instagram lo acepta o lo rechaza
+// entero: si no puede descargar la foto de UNA ficha —un archivo de Drive
+// que no está compartido, un enlace que ya no existe—, no llega ninguna.
+// El texto de arriba ya había salido, así que el cliente leía "aquí lo
+// tienes 👇" y debajo no había nada. Y nadie se enteraba: solo quedaba
+// una línea roja en el registro.
+//
+// Ahora hay plan B y plan C:
+//   1. Si Instagram lo rechaza, se prueba cuál foto no carga y se vuelve a
+//      mandar SIN esa foto (la ficha sale igual, con su nombre y precio).
+//   2. Si aun así no sale, va la lista escrita: nombre y precio, que es lo
+//      que el cliente preguntó.
+// Y en el registro queda, con nombre, qué foto hay que arreglar en la hoja.
+export async function enviarFichas(env, igsid, productos) {
+  const lista = productos.slice(0, 10);
+  const armar = (sinFoto = new Set()) => ({
     attachment: {
       type: "template",
-      payload: { template_type: "generic", elements: elementos },
+      payload: {
+        template_type: "generic",
+        elements: lista.map((p) => ficha(env, p, sinFoto.has(p.imagen))),
+      },
     },
   });
+
+  const primero = await enviarDetallado(env, igsid, armar(), ESPERA_FICHAS_MS);
+  if (primero.mid) return primero.mid;
+
+  // La ventana cerrada no se arregla reintentando. Y si Instagram no
+  // contestó a tiempo, pudo haberlas entregado igual: repetir sería
+  // mandarlas dos veces.
+  if (primero.ventanaCerrada || primero.tiempoAgotado) return "";
+
+  const rotas = await fotosQueNoCargan(lista);
+  for (const p of lista.filter((p) => rotas.has(p.imagen))) {
+    console.error(
+      `LA FOTO DE "${p.titulo}" NO CARGA: ${p.imagen} — revisa en la hoja ese enlace ` +
+        "(si es de Drive, que esté compartido como «Cualquier persona con el enlace»)."
+    );
+  }
+
+  if (rotas.size) {
+    const segundo = await enviarDetallado(env, igsid, armar(rotas), ESPERA_FICHAS_MS);
+    if (segundo.mid) {
+      console.log(`Las fichas salieron sin ${rotas.size} foto(s) que no cargan`);
+      return segundo.mid;
+    }
+    if (segundo.tiempoAgotado) return "";
+  }
+
+  console.error("Las fichas no salieron: mando la lista escrita, con nombre y precio");
+  return enviar(env, igsid, { text: recortar(listaEscrita(lista), 1000) });
+}
+
+function ficha(env, p, sinFoto) {
+  const ficha = {
+    title: recortar(p.titulo, 80),
+    subtitle: p.precio || "",
+  };
+
+  // Sin foto, el campo NO va: un image_url vacío es un valor inválido y
+  // Instagram rechaza el carrusel entero por él.
+  if (p.imagen && !sinFoto) ficha.image_url = p.imagen;
+
+  // EL BOTÓN "VER PRODUCTO" ESTÁ APAGADO (24-sep-2026, decisión del dueño).
+  //
+  // Llevaba al cliente a la ficha del producto, y EPICELL no tiene tienda
+  // online: ese botón no lleva a ninguna parte. Un botón que no cumple lo
+  // que promete cuesta más que no tener botón.
+  //
+  // PARA VOLVER A PONERLO, apuntando a donde haga falta: pon esto en true
+  // y, en la línea de abajo, cambia "p.url" por la dirección que toque y
+  // "Ver producto" por su nombre nuevo. El resto del sistema no se entera.
+  const VER_PRODUCTO = false;
+
+  const botones = [];
+  if (VER_PRODUCTO && p.url) {
+    botones.push({ type: "web_url", url: p.url, title: "Ver producto" });
+  }
+
+  const comprar = enlaceWhatsapp(env.WHATSAPP, p.titulo);
+  if (comprar) botones.push({ type: "web_url", url: comprar, title: "Comprar" });
+
+  // Una lista de botones vacía es un valor inválido.
+  if (botones.length) ficha.buttons = botones;
+
+  return ficha;
+}
+
+// Las fotos que no se pueden descargar, probadas todas a la vez y con un
+// tope corto: esto corre dentro de los mismos 30 segundos del turno.
+const ESPERA_FOTO_MS = 4000;
+
+async function fotosQueNoCargan(lista) {
+  const enlaces = [...new Set(lista.map((p) => p.imagen).filter(Boolean))];
+  const rotas = new Set();
+
+  await Promise.all(
+    enlaces.map(async (enlace) => {
+      try {
+        const r = await fetch(enlace, { redirect: "follow", signal: AbortSignal.timeout(ESPERA_FOTO_MS) });
+        const tipo = r.headers?.get?.("content-type") || "";
+        // Solo interesa si carga y si es una imagen: el cuerpo no se lee.
+        try {
+          await r.body?.cancel?.();
+        } catch {
+          // Si no se puede cancelar, da igual: ya se sabe lo que hacía falta.
+        }
+        if (!r.ok || !/^image\//i.test(tipo)) rotas.add(enlace);
+      } catch {
+        rotas.add(enlace);
+      }
+    })
+  );
+
+  return rotas;
+}
+
+// El plan C: lo mismo que decían las fichas, escrito.
+function listaEscrita(lista) {
+  return lista.map((p) => `🔹 ${p.titulo}${p.precio ? ` — ${p.precio}` : ""}`).join("\n");
 }
 
 // UN BOTÓN A UNA DIRECCIÓN QUE NO EXISTE ES PEOR QUE NINGÚN BOTÓN.
@@ -242,7 +364,9 @@ export async function quienSoy(env) {
   if (yo) return yo;
 
   try {
-    const respuesta = await fetch(`${GRAFO}/me?fields=id,username&access_token=${env.IG_TOKEN}`);
+    const respuesta = await fetch(`${GRAFO}/me?fields=id,username&access_token=${env.IG_TOKEN}`, {
+      signal: AbortSignal.timeout(ESPERA_ENVIO_MS),
+    });
     if (!respuesta.ok) {
       console.error("No pude leer quién soy:", respuesta.status, (await respuesta.text()).slice(0, 200));
       return { id: "", usuario: "" };
@@ -264,6 +388,7 @@ export async function responderComentario(env, comentarioId, texto) {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ message: recortar(texto, 300), access_token: env.IG_TOKEN }),
+      signal: AbortSignal.timeout(ESPERA_ENVIO_MS),
     });
 
     if (!respuesta.ok) {
@@ -308,6 +433,7 @@ export async function privadoPorComentario(env, comentarioId, texto) {
         recipient: { comment_id: comentarioId },
         message: { text: recortar(texto, 1000) },
       }),
+      signal: AbortSignal.timeout(ESPERA_ENVIO_MS),
     });
   } catch (error) {
     console.error("No pude abrir el privado desde el comentario:", error?.message || error);
@@ -345,7 +471,8 @@ export async function privadoPorComentario(env, comentarioId, texto) {
 export async function obtenerPerfil(env, igsid) {
   try {
     const respuesta = await fetch(
-      `${GRAFO}/${igsid}?fields=name,username&access_token=${env.IG_TOKEN}`
+      `${GRAFO}/${igsid}?fields=name,username&access_token=${env.IG_TOKEN}`,
+      { signal: AbortSignal.timeout(ESPERA_ENVIO_MS) }
     );
     if (!respuesta.ok) {
       // Sale en `wrangler tail`. Si pasa con todos los clientes, casi

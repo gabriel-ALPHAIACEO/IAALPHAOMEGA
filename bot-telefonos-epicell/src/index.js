@@ -527,16 +527,20 @@ const SOLO_ACCESORIOS_DE_ESO = [
 //
 // Cuál de las dos se usa lo decide con qué se rescató la búsqueda: con dos
 // palabras o más ("redmi note") es la familia; con una ("poco"), la marca.
+// Sin artículo delante de lo que pidió (30-sep-2026): {pedido} puede ser
+// un teléfono ("Poco Z99 Ultra") o unos cables ("Cables Dophin"), y "El
+// Cables Dophin no lo tengo" se lee mal. "No tengo Cables Dophin" y "no
+// tengo Poco Z99 Ultra" se leen bien los dos.
 const DE_LA_MISMA_FAMILIA = [
-  "El {pedido} justo no me queda disponible 😅 Pero de esa misma familia tengo el {alternativa} — te los muestro todos 👇",
-  "{pedido} no lo tengo disponible ahora 😊 De la misma familia me queda el {alternativa}, que es lo más cercano. Míralo 👇",
-  "Ese justo no me queda 😅 Pero el {alternativa} es de la misma familia que el {pedido}, y ese sí lo tengo 👇",
+  "Ahora mismo no tengo {pedido} 😅 Pero de esa misma familia tengo el {alternativa} — te lo muestro 👇",
+  "En este momento no tengo {pedido} 😊 De la misma familia me queda el {alternativa}, que es lo más cercano. Míralo 👇",
+  "Justo ese no me queda 😅 Pero el {alternativa} es de la misma familia que el {pedido}, y ese sí lo tengo 👇",
 ];
 
 const SE_LE_PARECEN = [
-  "El {pedido} no lo tengo disponible ahora 😅 Pero mira estos {marca}, que se le parecen mucho 👇",
-  "{pedido} no me queda por ahora 😊 Lo más parecido que tengo son estos {marca}, empezando por el {alternativa} 👇",
-  "De {pedido} no tengo disponible 😅 Te muestro los {marca} que sí tengo, que van por la misma línea 👇",
+  "Ahora mismo no tengo {pedido} 😅 Pero mira estos {marca}, que se le parecen mucho 👇",
+  "En este momento no tengo {pedido} 😊 Lo más parecido son estos {marca}, empezando por el {alternativa} 👇",
+  "De momento no tengo {pedido} 😅 Te muestro los {marca} que sí tengo, que van por la misma línea 👇",
 ];
 
 const NO_ESE_PERO_MIRA = [
@@ -909,6 +913,36 @@ const ASESOR_CALLADO_MS = 15 * 60 * 1000;
 // retrasa ni un milisegundo.
 const ESPERA_POR_LA_PREGUNTA_MS = 5000;
 
+// LOS 30 SEGUNDOS DE CLOUDFLARE (30-sep-2026).
+//
+// El dueño: "los mensajes a veces tardan en verse, o dice que aquí está
+// pero no muestra la imagen". Una causa, y la más traicionera:
+// Cloudflare le da a cada mensaje 30 segundos EN TOTAL desde que llega, y
+// al cumplirse corta el trabajo sin avisar, esté donde esté. Un turno con
+// foto o publicación —esperar la pregunta (5 s), mirar la imagen con
+// gpt-4o, pensar la respuesta, mandar texto y fichas— podía pasarse. Y si
+// se pasaba entre el texto y las fichas, el cliente leía "aquí lo tienes
+// 👇" y nada más. Ni siquiera salía el aviso de error: el corte es desde
+// fuera.
+//
+// Ahora cada llamada a OpenAI recibe SOLO el tiempo que queda, menos lo
+// que hace falta para enviar. Si no le alcanza, falla a tiempo y el
+// cliente recibe el aviso de siempre (y el asesor también), en vez de
+// silencio.
+const LIMITE_DEL_TURNO_MS = 30000;
+// Lo que se guarda al final para mandar el texto y las fichas.
+const PARA_ENVIAR_MS = 8000;
+
+// Cuánto se le puede dar a una llamada a OpenAI ahora mismo. "despues" es
+// lo que aún tiene que venir detrás (la IA de texto, detrás de la de
+// visión). Nunca menos de 3 s: con menos no contesta nadie, y es mejor
+// intentarlo que rendirse sin probar.
+function tiempoParaLaIa(rastro, despues = 0) {
+  const usado = Date.now() - (rastro?.llegoEn || Date.now());
+  const queda = LIMITE_DEL_TURNO_MS - usado - PARA_ENVIAR_MS - despues;
+  return Math.max(3000, Math.min(15000, queda));
+}
+
 // CUANTO AGUANTA UNA PAUSA CON EL ASESOR CALLADO (24-sep-2026).
 //
 // EL PROBLEMA QUE ESTO RESUELVE, dicho por el dueno: "pausa a los clientes
@@ -940,6 +974,9 @@ const NOTA_VOLVI_SOLO =
 
 export default {
   async fetch(request, env, ctx) {
+    // Desde aquí corren los 30 segundos que Cloudflare le da a este mensaje
+    // (ver LIMITE_DEL_TURNO_MS).
+    const llegoEn = Date.now();
     const url = new URL(request.url);
 
     // Meta comprueba que la URL es tuya antes de mandarte nada: te pide el
@@ -1024,7 +1061,7 @@ export default {
       // A Meta se le responde 200 siempre y rápido. Si tarda o falla, lo
       // reintenta y el cliente acaba recibiendo la misma respuesta varias
       // veces; y si falla mucho, Meta desactiva el webhook.
-      for (const uno of porAtender) ctx.waitUntil(atenderConRed(env, uno));
+      for (const uno of porAtender) ctx.waitUntil(atenderConRed(env, uno, llegoEn));
       return new Response("ok", { status: 200 });
     }
 
@@ -1403,14 +1440,26 @@ function modoComentarios(env) {
 // cliente y un aviso al asesor. Y solo se le escribe al cliente si NO le
 // había llegado nada todavía, para no soltarle un "se me trabó el sistema"
 // justo debajo del carrusel que sí recibió.
-async function atenderConRed(env, mensaje) {
-  const rastro = { respondio: false };
+async function atenderConRed(env, mensaje, llegoEn = Date.now()) {
+  const rastro = { respondio: false, llegoEn };
 
   try {
     if (mensaje.tipo === "comentario") {
       await atenderComentario(env, mensaje, rastro);
     } else {
       await atenderMeta(env, mensaje, rastro);
+    }
+
+    // CUÁNTO TARDÓ. Un turno que se acerca a los 30 s es uno que otro día,
+    // con OpenAI un poco más lento, se corta a medias. Con esta línea se ve
+    // antes de que pase.
+    if (mensaje.tipo !== "eco") {
+      const segundos = (Date.now() - llegoEn) / 1000;
+      const cerca = segundos * 1000 > LIMITE_DEL_TURNO_MS * 0.7;
+      (cerca ? console.error : console.log)(
+        `Turno de ${mensaje.igsid} terminado en ${segundos.toFixed(1)}s` +
+          (cerca ? ` — CERCA DEL LÍMITE DE ${LIMITE_DEL_TURNO_MS / 1000}s de Cloudflare` : "")
+      );
     }
   } catch (error) {
     const detalle = error?.stack || error?.message || String(error);
@@ -1636,6 +1685,7 @@ async function atenderComentario(env, comentario, rastro = {}) {
       const catalogo = await listaDeTitulos(env);
       const identificacion = await identificarEnImagen(env, foto, catalogo, {
         esPublicacion: true,
+        esperaMs: tiempoParaLaIa(rastro),
       });
 
       const visto = String(identificacion?.visto || "").trim();
@@ -2704,6 +2754,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (foto && !equipoDeLaPublicacion) {
     const identificacion = await identificarEnImagen(env, foto, catalogo, {
       esPublicacion: Boolean(publicacion),
+      // Detrás viene la IA de texto: se le deja su parte.
+      esperaMs: tiempoParaLaIa(rastro, 6000),
     });
     if (identificacion) {
       console.log(
@@ -2795,7 +2847,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     conversacion.slice(0, -1)
   );
 
-  const salida = await responderTexto(env, entrada);
+  const salida = await responderTexto(env, entrada, { esperaMs: tiempoParaLaIa(rastro) });
 
   if (!salida) {
     await mandar(() => enviarTexto(env, mensaje.igsid, FALLO_TECNICO), FALLO_TECNICO);
@@ -3291,7 +3343,7 @@ function marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, esPublicaci
       "preguntando por el equipo que sale ahí, así que NO le preguntes qué " +
       "busca: ya te lo señaló. "
     : esHistoria
-      ? "[EL CLIENTE RESPONDIÓ A UNA HISTORIA — la imagen que ves ES la historia. "
+      ? "[EL CLIENTE RESPONDIÓ A UNA HISTORIA NUESTRA; esto es lo que sale en ella. "
       : "[EL CLIENTE MANDÓ UNA FOTO DE UN EQUIPO. ";
 
   if (String(buscar).toUpperCase() === "NADA") {

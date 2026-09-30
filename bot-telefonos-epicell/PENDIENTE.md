@@ -1,5 +1,35 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: revisión de "aquí está" sin foto, lentitud y confusiones (30-sep-2026)
+
+**"Aquí lo tienes 👇" y ninguna foto.** Dos causas:
+
+1. Las fichas van en UN mensaje, y Instagram lo rechaza entero si no puede
+   descargar la foto de una sola (Drive sin compartir, enlace roto). Ahora:
+   se detecta cuál foto falla, se reenvía sin ella, y si aun así no sale,
+   va la lista escrita con nombre y precio. En `wrangler tail` queda
+   `LA FOTO DE "X" NO CARGA: <enlace>` para arreglarla en la hoja.
+2. Cloudflare le da a cada mensaje **30 segundos en total** y corta sin
+   avisar. OpenAI, Google e Instagram no tenían tope de espera: un turno
+   lento moría entre el texto y las fotos. Ahora todo tiene tope, la IA
+   recibe solo el tiempo que queda, y cada turno registra cuánto tardó
+   (`Turno de X terminado en 4.2s`; en rojo si pasa de 21 s).
+
+**Confusiones.** En cada mensaje, encima del catálogo, el código le decía
+a la IA "si no está en la lista, NO lo busques y ofrece el catálogo",
+mientras el prompt dice "si se parece, BÚSCALO". Dos órdenes opuestas, y
+un catálogo online que EPICELL no tiene. Corregido para que diga lo mismo
+que el prompt.
+
+**El dueño "no ve" lo que responde el bot**: Instagram mueve a la carpeta
+**General** toda conversación que responde una app por la API. Hay que
+mirar ahí (y activar sus notificaciones).
+
+**La "burbuja" para devolverle el chat a la IA** es de Conversation
+Routing de Meta (lo que usaba ManyChat), que exige conectar el bot a la
+Página de Facebook. Este bot entra por Instagram Login, así que la pausa la
+lleva él: `#bot` o la respuesta guardada con FRASE_DESPAUSAR.
+
 ## Hecho: a quien viene de un anuncio se le manda EL equipo del anuncio (30-sep-2026)
 
 El dueño: "las personas que vienen de los anuncios no responde bien, no

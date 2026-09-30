@@ -156,7 +156,7 @@ export function baseFalsa(filaInicial = {}) {
 }
 
 // Devuelve todo lo que el bot mandó a Instagram en este turno.
-export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelModelo = {}, mensaje = {}, hoja = HOJA, env: envExtra = {}, apis = {} } = {}) {
+export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelModelo = {}, mensaje = {}, hoja = HOJA, env: envExtra = {}, apis = {}, fotosRotas = null, rechazarCarrusel = false } = {}) {
   const enviados = [];
   // Lo que se le mandó a OpenAI, para mirar qué sabía el modelo.
   const alModelo = [];
@@ -183,8 +183,29 @@ export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelMo
       if (donde.includes(trozo)) return { ok: true, status: 200, json: async () => json };
     }
 
+    // Las fotos de la hoja, cuando la prueba dice cuáles están rotas: las
+    // demás cargan como imagen.
+    if (fotosRotas && donde.startsWith("https://x/")) {
+      return fotosRotas.includes(donde)
+        ? { ok: false, status: 404, headers: new Headers({ "content-type": "text/html" }), body: null }
+        : { ok: true, status: 200, headers: new Headers({ "content-type": "image/jpeg" }), body: null };
+    }
+
     if (donde.includes("graph.instagram.com")) {
       if (donde.includes("/me/messages")) {
+        // Como el Instagram de verdad: un carrusel con UNA foto que no puede
+        // descargar se rechaza entero.
+        const pedido = JSON.parse(opciones.body).message;
+        const conFotoRota = (pedido?.attachment?.payload?.elements || []).some(
+          (e) => fotosRotas && fotosRotas.includes(e.image_url)
+        );
+        if (conFotoRota || (rechazarCarrusel && pedido?.attachment)) {
+          return {
+            ok: false,
+            status: 400,
+            text: async () => '{"error":{"message":"(#100) Failed to fetch image_url","code":100}}',
+          };
+        }
         enviados.push(JSON.parse(opciones.body).message);
         return { ok: true, status: 200, json: async () => ({ message_id: `m${enviados.length}` }) };
       }

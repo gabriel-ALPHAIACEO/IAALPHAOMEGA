@@ -724,6 +724,9 @@ async function leerHojaDeVerdad(env) {
   try {
     respuesta = await fetch(url, {
       cf: { cacheTtl: MINUTOS_DE_CACHE * 60, cacheEverything: true },
+      // Google casi siempre contesta en un segundo. Si un día no, el turno
+      // no puede quedarse esperándolo: hay 30 s para todo (ver index.js).
+      signal: AbortSignal.timeout(8000),
     });
   } catch (error) {
     const aviso = `no se pudo conectar con Google: ${error.message}`;

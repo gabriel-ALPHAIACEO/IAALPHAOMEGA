@@ -47,6 +47,7 @@ for %f in (pruebas\*.mjs) do node pruebas\%f
 | `memoria.mjs` | Que el bot guarde la conversación entera y se la dé al modelo |
 | `modelos.mjs` | Mismo modelo, pariente o solo la marca: "Redmi 17" agotado no es "¡Claro!, los Note 17" |
 | `datos.mjs` | Horario, formas de pago y demás datos de la tienda: salen tal cual de wrangler.toml, y si falta uno lo confirma un asesor (nunca se inventa) |
+| `fichas.mjs` | Que nunca quede un "aquí lo tienes 👇" sin nada debajo: foto rota → la ficha sale sin esa foto; si aun así no sale → lista escrita con nombre y precio |
 
 ## Antes de desplegar
 

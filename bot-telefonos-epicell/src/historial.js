@@ -160,9 +160,11 @@ export function contextoParaElModelo({
     // en ese.
     if (noDiceQue && (viejo || esHistoriaNueva) && !esPublicacionNueva) {
       partes.push(
+        // (Sin "ofrécele el catálogo": EPICELL no tiene tienda online, y
+        // el modelo le ofrecía un catálogo que no existe.)
         "[SU MENSAJE NO DICE DE QUÉ PRODUCTO HABLA. No lo adivines con lo de",
-        "arriba: PREGÚNTASELO con amabilidad y ofrécele el catálogo. Dar el",
-        "precio del producto equivocado es peor que preguntar]"
+        "arriba: PREGÚNTASELO con amabilidad (\"¿de cuál equipo me hablas?\").",
+        "Dar el precio del producto equivocado es peor que preguntar]"
       );
     }
 
@@ -197,10 +199,20 @@ export function contextoParaElModelo({
   if (catalogo) {
     partes.push(
       "───────── CATÁLOGO ACTUAL DE LA TIENDA ─────────",
-      "Estos son los productos que existen AHORA MISMO. Elige \"buscar\"",
-      "copiando el título más corto que sirva; si el cliente pide algo que no",
-      "está en esta lista, no lo inventes ni lo busques: dilo con naturalidad",
-      "y ofrece el catálogo.",
+      // LO MISMO QUE DICE EL PROMPT, NO LO CONTRARIO (30-sep-2026).
+      //
+      // Aquí decía "si no está en la lista, no lo busques y ofrece el
+      // catálogo", y el prompt dice "si se parece a algo, búscalo; el
+      // sistema dice si no está". Dos órdenes opuestas en cada mensaje, y
+      // el modelo elegía una al azar: de ahí buena parte de las respuestas
+      // incoherentes. Y el catálogo que ofrecía no existe: EPICELL no
+      // tiene tienda online.
+      "Esto es lo que hay disponible HOY. En \"buscar\" usa las palabras de",
+      "esta lista. Si lo que pide SE PARECE a algo de aquí (aunque lo escriba",
+      "distinto), BÚSCALO: el sistema ve el resultado y, si justo ese no está,",
+      "él mismo le dice \"ese no, pero mira estos\". Si no hay NADA parecido,",
+      "dile que ahora mismo no lo tienes disponible y que un asesor le",
+      "confirma si se puede conseguir. Nunca \"no vendemos\".",
       catalogo,
       "─────────────────────────────────────────────────"
     );

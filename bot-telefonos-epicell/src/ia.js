@@ -155,11 +155,20 @@ const ESQUEMA_IDENTIFICACION = {
   },
 };
 
+// CUÁNTO SE LE ESPERA A OPENAI (30-sep-2026).
+//
+// Cloudflare le da a cada mensaje 30 segundos en total y al llegar corta
+// sin avisar. OpenAI a veces tarda —gpt-4o con una foto, o un pico de
+// uso—, y sin tope se comía ese tiempo: el turno moría con el cliente sin
+// respuesta, o con el texto enviado y las fotos no. index.js le pasa a
+// cada llamada lo que queda del turno; esto es el máximo.
+const ESPERA_OPENAI_MS = 15000;
+
 async function llamar(
   env,
   sistema,
   contenido,
-  { maxTokens = 1024, json = true, schema = null, modelo = "" } = {}
+  { maxTokens = 1024, json = true, schema = null, modelo = "", esperaMs = ESPERA_OPENAI_MS } = {}
 ) {
   const elModelo = modelo || env.OPENAI_MODELO || MODELO_POR_DEFECTO;
 
@@ -214,9 +223,17 @@ async function llamar(
         authorization: `Bearer ${env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify(cuerpo),
+      signal: AbortSignal.timeout(esperaMs),
     });
   } catch (error) {
-    console.error("No se pudo llamar al modelo:", error.message);
+    if (error?.name === "TimeoutError" || error?.name === "AbortError") {
+      console.error(
+        `OpenAI (${cuerpo.model}) no contestó en ${Math.round(esperaMs / 1000)}s: corto aquí para ` +
+          "que el turno no pase del límite de 30 s de Cloudflare y el cliente reciba algo."
+      );
+    } else {
+      console.error("No se pudo llamar al modelo:", error.message);
+    }
     return null;
   }
 
@@ -246,12 +263,22 @@ async function llamar(
     return null;
   }
 
-  const datos = await respuesta.json();
+  // Leer la respuesta también cae dentro del tope de espera: si se corta
+  // aquí, es lo mismo que no haber contestado.
+  let datos;
+  try {
+    datos = await respuesta.json();
+  } catch (error) {
+    console.error(`La respuesta de OpenAI llegó cortada: ${error?.message || error}`);
+    return null;
+  }
   return datos.choices?.[0]?.message?.content || null;
 }
 
-export async function responderTexto(env, entrada) {
-  const salida = await llamar(env, textoConCatalogo(env), [{ type: "text", text: entrada }]);
+export async function responderTexto(env, entrada, { esperaMs } = {}) {
+  const salida = await llamar(env, textoConCatalogo(env), [{ type: "text", text: entrada }], {
+    esperaMs,
+  });
   return normalizar(salida);
 }
 
@@ -261,7 +288,12 @@ export async function responderTexto(env, entrada) {
 // "catalogo" es la misma lista de listaDeTitulos() (sheets.js) que ya
 // recibe la IA de texto: sin ella, la IA de visión no sabría qué modelos
 // existen de verdad y podría nombrar uno que la tienda no vende.
-export async function identificarEnImagen(env, urlImagen, catalogo = "", { esPublicacion = false } = {}) {
+export async function identificarEnImagen(
+  env,
+  urlImagen,
+  catalogo = "",
+  { esPublicacion = false, esperaMs } = {}
+) {
   // UNA PUBLICACIÓN NUESTRA NO ES UNA FOTO DE UN CLIENTE.
   //
   // Es un montaje de publicidad, y casi siempre trae el nombre del equipo
@@ -297,6 +329,7 @@ export async function identificarEnImagen(env, urlImagen, catalogo = "", { esPub
     {
       schema: ESQUEMA_IDENTIFICACION,
       modelo: env.OPENAI_MODELO_VISION || MODELO_VISION_POR_DEFECTO,
+      esperaMs,
     }
   );
 
