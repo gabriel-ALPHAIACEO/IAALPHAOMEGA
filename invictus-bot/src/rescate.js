@@ -41,12 +41,20 @@ const SE_FRUSTRA_O_PIDE_PERSONA =
 //
 //   yaLeMostre  se le enseñó calzado hace poco en esta conversación
 //   deUnaFoto   la conversación viene de una foto o una historia
+// "No es ese color, quiero en negro", "no es esa talla": NO es que el bot se
+// equivocara de zapato. Es un cliente pidiendo otra variante del MISMO, y
+// eso lo contesta el modelo buscando ese color. Rescatarlo sería cortarle
+// la venta a quien ya la tenía encaminada.
+const PIDE_OTRA_VARIANTE =
+  /\b(?:color|colores|talla|tallas|numero|size|negr[oa]s?|blanc[oa]s?|gris(?:es)?|azul(?:es)?|roj[oa]s?|rosad[oa]s?|rosas?|verdes?|beige|marron(?:es)?|morad[oa]s?|amarill[oa]s?|naranjas?|crema|plateado|dorado|celestes?|vinotinto)\b/;
+
 export function hayQueRescatar(texto, { yaLeMostre = false, deUnaFoto = false } = {}) {
   const dice = sinTildes(texto);
   if (!dice) return "";
 
   if (SE_FRUSTRA_O_PIDE_PERSONA.test(dice)) return "se frustró o pidió una persona";
   if (!yaLeMostre) return "";
+  if (PIDE_OTRA_VARIANTE.test(dice)) return "";
   if (RECHAZA_LO_MOSTRADO.test(dice)) return "dijo que lo que le mostré no es";
   if (deUnaFoto && INSISTE_EN_LA_FOTO.test(dice)) return "insiste en el zapato de la foto";
   return "";

@@ -17,7 +17,7 @@ import crypto from "node:crypto";
 const SECRETO = "secreto-de-prueba";
 
 // Lo que contestaría el modelo de texto. Por defecto, una frase corta.
-function fetchDeMentira({ respuestaModelo }) {
+function fetchDeMentira({ respuestaModelo, productos = [] }) {
   const enviados = [];
   const slack = [];
   const falso = async (url, opciones = {}) => {
@@ -43,7 +43,15 @@ function fetchDeMentira({ respuestaModelo }) {
       return new Response("ok", { status: 200 });
     }
     if (u.includes("/graphql.json")) {
-      return new Response(JSON.stringify({ data: { products: { edges: [], pageInfo: { hasNextPage: false } } } }), {
+      const edges = productos.map((p) => ({
+        node: {
+          title: p.titulo,
+          featuredImage: { url: p.imagen },
+          onlineStoreUrl: p.url || "https://tienda.test/p",
+          priceRangeV2: { minVariantPrice: { amount: String(p.precio), currencyCode: "USD" } },
+        },
+      }));
+      return new Response(JSON.stringify({ data: { products: { edges, pageInfo: { hasNextPage: false } } } }), {
         status: 200,
       });
     }
@@ -52,10 +60,19 @@ function fetchDeMentira({ respuestaModelo }) {
   return { falso, enviados, slack };
 }
 
-async function conversar(texto, { respuestaModelo, ahora } = {}) {
-  const src = await prepararSrc();
+// Una conversación de VARIOS mensajes comparte base (la memoria del bot):
+// conversar(texto, { sesion }) con la misma sesión sigue la charla.
+export function nuevaSesion() {
+  return { base: baseDeMentira(), src: null };
+}
+
+async function conversar(texto, { respuestaModelo, ahora, productos = [], sesion = null } = {}) {
+  const propia = !sesion;
+  sesion = sesion || nuevaSesion();
+  if (!sesion.src) sesion.src = await prepararSrc();
+  const src = sesion.src;
   const { default: worker } = await src.cargar("index.js");
-  const base = baseDeMentira();
+  const base = sesion.base;
   const env = {
     DB: base.DB,
     META_APP_SECRET: SECRETO,
@@ -90,6 +107,7 @@ async function conversar(texto, { respuestaModelo, ahora } = {}) {
   const firma = "sha256=" + crypto.createHmac("sha256", SECRETO).update(cuerpo).digest("hex");
 
   const { falso, enviados, slack } = fetchDeMentira({
+    productos,
     respuestaModelo: respuestaModelo || { respuesta: "¡Claro que sí! 🙌 Mira cómo te queda 👇", buscar: "NADA", historial: "Preguntó por Cashea." },
   });
 
@@ -116,7 +134,7 @@ async function conversar(texto, { respuestaModelo, ahora } = {}) {
     console.log = log;
     console.error = error;
     Date.now = DateNow;
-    src.limpiar();
+    if (propia) src.limpiar();
   }
 
   const textos = enviados.map((m) => m.text || m.attachment?.payload?.text || JSON.stringify(m.attachment?.payload || m));
@@ -178,6 +196,90 @@ titulo("la ubicación y los métodos, por el camino real");
     respuestaModelo: { respuesta: "Eso te lo confirma un asesor en un momento 😊", buscar: "NADA", historial: "Pidió los datos." },
   });
   ok(d.slack.some((t) => /PIDE LOS DATOS PARA PAGAR/.test(t)), "pedir los datos sí avisa al asesor", d.slack.join(" | ").slice(0, 120));
+}
+
+// ───────────────────────────────────────────────────────────────────────
+titulo("LO DE SIEMPRE SIGUE IGUAL: buscar un zapato manda las fichas");
+const JORDAN = [
+  { titulo: "Retro 4 negro caballero", precio: 120, imagen: "https://cdn.test/r4n.jpg" },
+  { titulo: "Retro 4 blanco caballero", precio: 120, imagen: "https://cdn.test/r4b.jpg" },
+];
+{
+  const r = await conversar("tienes jordan 4?", {
+    productos: JORDAN,
+    respuestaModelo: { respuesta: "¡Sí tengo! Mira 👇", buscar: "Retro 4", historial: "Pidió Retro 4. Ya busqué: Retro 4." },
+  });
+  const fichas = r.textos.find((t) => /Retro 4 negro caballero/.test(t));
+  ok(/Sí tengo/.test(r.todo) && fichas, "texto + carrusel con los Retro 4", r.todo.slice(0, 120));
+  ok(!/Cashea|mercado la isla|métodos de pago|personal completo|envíos nacionales/.test(r.todo),
+     "sin nada de Cashea, ubicación, pagos, empleo ni envíos colado");
+  ok(r.slack.length === 0, "y sin avisos a Slack");
+}
+
+titulo("frases normales que NO deben secuestrar los atajos nuevos");
+for (const [texto, buscar] of [
+  ["zapatos para el trabajo", "Nike"],
+  ["te envío la foto del que quiero", "NADA"],
+  ["los tienen abiertos?", "NADA"],
+]) {
+  const r = await conversar(texto, {
+    productos: JORDAN,
+    respuestaModelo: { respuesta: "Respuesta del modelo 👟", buscar, historial: "x" },
+  });
+  ok(/Respuesta del modelo/.test(r.todo) && !/personal completo|envíos nacionales|Nuestro horario/.test(r.todo),
+     `"${texto}" → contesta el modelo, no un atajo`, r.todo.slice(0, 80));
+}
+
+titulo("las preguntas de la tienda, por el camino real");
+for (const [texto, espera] of [
+  ["hacen envios?", /ZOOM y MRW/],
+  ["tienen delivery?", /isla de Margarita/],
+  ["a que hora abren?", /Lunes a viernes/],
+  ["estan contratando?", /personal completo/],
+]) {
+  const r = await conversar(texto);
+  ok(espera.test(r.todo), `"${texto}"`, r.todo.slice(0, 60));
+}
+
+titulo("la talla sigue yendo al asesor");
+{
+  const r = await conversar("tienen talla 42?", {
+    respuestaModelo: { respuesta: "Eso te lo confirma un asesor en un momento 😊", buscar: "NADA", historial: "Preguntó talla 42." },
+  });
+  ok(/asesor/.test(r.todo) && r.slack.some((t) => /TALLAS/.test(t)), "contesta asesor y avisa PREGUNTO POR TALLAS");
+}
+
+titulo('el rescate, en una conversación real de dos mensajes');
+{
+  const sesion = nuevaSesion();
+  await conversar("precio de estos", {
+    sesion,
+    productos: JORDAN,
+    respuestaModelo: { respuesta: "Mira los que tengo 👟", buscar: "Retro 4", historial: "Respondió a una historia. Ya busqué: Retro 4." },
+  });
+  const r = await conversar("No ninguna de las q me estás mostrando", {
+    sesion,
+    respuestaModelo: { respuesta: "Te busco otras Nike 👟", buscar: "Nike", historial: "x" },
+  });
+  ok(/le paso tu foto a un asesor/.test(r.todo) && !/otras Nike/.test(r.todo), "se disculpa y lo pasa a una persona (no busca otras Nike)", r.todo.slice(0, 80));
+  ok(r.slack.some((t) => /NO ACERTÓ EL ZAPATO/.test(t)), "y el asesor recibe el aviso");
+  const despues = await conversar("hola?", { sesion });
+  ok(!/Te busco|Mira los que tengo/.test(despues.todo), "después, el bot se queda apartado (no habla por encima del asesor)", despues.todo.slice(0, 60));
+
+  const variante = nuevaSesion();
+  await conversar("precio de estos", {
+    sesion: variante,
+    productos: JORDAN,
+    respuestaModelo: { respuesta: "Mira los que tengo 👟", buscar: "Retro 4", historial: "Respondió a una historia. Ya busqué: Retro 4." },
+  });
+  const v = await conversar("no es ese color, quiero en blanco", {
+    sesion: variante,
+    productos: JORDAN,
+    respuestaModelo: { respuesta: "¡Claro! En blanco 👇", buscar: "Retro 4 blanco", historial: "Pide Retro 4 blanco." },
+  });
+  ok(/En blanco/.test(v.todo) && !/asesor/.test(v.todo), '"no es ese color, quiero en blanco" sigue la venta (no rescata)', v.todo.slice(0, 60));
+  sesion.src.limpiar();
+  variante.src.limpiar();
 }
 
 terminar();

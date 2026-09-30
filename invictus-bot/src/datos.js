@@ -64,16 +64,25 @@ export const RESPUESTAS = {
    falló cuando algo no se reconoce, y se amplía sin tocar las demás.
    ───────────────────────────────────────────────────────────────── */
 
+// "abiertos" suelto NO: "¿los tienen abiertos?" habla de un zapato. Solo
+// "¿están abiertos?", que sí es el horario.
 const HORARIO =
-  /\b(horarios?|a\s+qu[eé]\s+hora|hasta\s+qu[eé]\s+hora|desde\s+qu[eé]\s+hora|abren|cierran|abiertos?|est[aá]n\s+abierto)\b/i;
+  /\b(horarios?|a\s+qu[eé]\s+hora|hasta\s+qu[eé]\s+hora|desde\s+qu[eé]\s+hora|abren|cierran|est[aá]n\s+abiertos?|abierto\s+hoy)\b/i;
 
 const ENVIO =
   /\b(env[ií]os?|env[ií]an|env[ií]as|enviar|zoom|mrw|encomienda|domesa|tealca)\b/i;
 
+// "Te envío la foto", "te lo envío por aquí", "ya te envié el comprobante":
+// es el CLIENTE mandando algo, no preguntando por los envíos de la tienda.
+const EL_QUE_ENVIA_ES_EL =
+  /\b(?:te|se|le|les|ya)\s+(?:lo\s+|la\s+|los\s+|las\s+)?env[ií](?:o|e)\b|\bte\s+(?:lo\s+|la\s+)?voy\s+a\s+enviar\b/i;
+
 const DELIVERY_PIDE = /\b(delivery|deliveri|domicilio|a\s+mi\s+casa|reparto|llevan\s+a)\b/i;
 
+// "trabajo" suelto NO: "zapatos para el trabajo" es un cliente comprando.
+// Solo cuando se busca EMPLEO.
 const TRABAJO_PIDE =
-  /\b(trabajo|empleo|vacantes?|curr[ií]cul[uo]m|contratan(do)?|necesitan\s+personal|solicito\s+empleo|busco\s+trabajo|est[aá]n\s+empleando)\b/i;
+  /\b(empleo|vacantes?|curr[ií]cul[uo]m|contratan(do)?|necesitan\s+personal|solicito\s+empleo|busco\s+(?:trabajo|empleo|chamba)|(?:hay|tienen|ofrecen)\s+(?:trabajo|empleo|chamba)|(?:trabajar|laborar)\s+(?:con\s+ustedes|ah[ií]|aqu[ií]|en\s+la\s+tienda)|est[aá]n\s+empleando)\b/i;
 
 // Devuelve el tema que pregunta, o "" si no es ninguno de estos.
 //
@@ -84,7 +93,7 @@ export function queDatoPide(texto) {
   if (!limpio.trim()) return "";
 
   if (DELIVERY_PIDE.test(limpio)) return "delivery";
-  if (ENVIO.test(limpio)) return "envios";
+  if (ENVIO.test(limpio) && !EL_QUE_ENVIA_ES_EL.test(limpio)) return "envios";
   if (HORARIO.test(limpio)) return "horarios";
   if (TRABAJO_PIDE.test(limpio)) return "trabajo";
 

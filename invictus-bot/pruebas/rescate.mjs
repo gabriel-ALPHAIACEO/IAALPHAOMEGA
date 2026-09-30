@@ -32,6 +32,10 @@ for (const t of ["no entiendes nada", "quiero hablar con una persona", "pásame 
 
 titulo("lo que NO es un rechazo no se toca");
 
+for (const t of ["no es ese color, quiero en negro", "no es esa talla", "esa no es la talla que busco",
+                 "no son esos, los quiero en blanco"]) {
+  ok(!R.hayQueRescatar(t, tras), `"${t}" → pide otra variante del MISMO: sigue la venta, no rescata`);
+}
 for (const t of ["precio", "me gusta el segundo", "tienen en negro?", "y en talla 42?", "cuanto cuesta ese",
                  "ese me gusta", "es ese!", "sí, ese es", "tienen otros?", "hola"]) {
   ok(!R.hayQueRescatar(t, tras), `"${t}" → sigue normal`);

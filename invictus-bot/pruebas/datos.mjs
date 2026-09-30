@@ -32,6 +32,14 @@ const casos = [
   ["tienen vacantes", "trabajo"],
   ["hola", ""],
   ["tienen jordan 4?", ""],
+  // Frases normales que NO son preguntas de la tienda (revisión del 30-sep).
+  ["zapatos para el trabajo", ""],
+  ["algo para ir al trabajo", ""],
+  ["te envío la foto", ""],
+  ["te lo envío por aquí", ""],
+  ["ya te envié el comprobante", ""],
+  ["los tienen abiertos?", ""],
+  ["están abiertos hoy?", "horarios"],
 ];
 for (const [texto, tema] of casos) ok(D.queDatoPide(texto) === tema, `"${texto}" → ${tema || "(ninguno)"}`, D.queDatoPide(texto));
 
