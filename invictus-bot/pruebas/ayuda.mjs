@@ -129,6 +129,13 @@ export function baseDeMentira() {
 
   return {
     DB: {
+      // D1 manda varias sentencias juntas con batch(). guardarIndexados
+      // lo usa para guardar una tanda entera de una vez.
+      async batch(sentencias) {
+        const salida = [];
+        for (const sentencia of sentencias) salida.push(await sentencia.run());
+        return salida;
+      },
       prepare(consulta) {
         let args = [];
         return {

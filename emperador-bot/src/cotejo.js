@@ -209,7 +209,15 @@ export async function cotejoPorImagen({
   // Y ORDENADOS POR COLOR Y RASGOS, que es lo que arregla el "me mostró
   // otro color": diez Adidas sin ordenar son diez tiros al aire, y el
   // modelo solo ve los 8 primeros.
-  const pila = ordenar(unir(porRasgos, productos), { color, rasgos, indice, visto });
+  //
+  // ORDENAR PRIMERO, COLAPSAR DESPUÉS (30-sep-2026). Estaba al revés:
+  // unir() se queda con UNO por título, el primero que encuentra, y recién
+  // después se ordenaba por color. Con diecisiete "New Balance 9060 Dama"
+  // en la lista, sobrevivía el que Shopify devolviera primero —de cualquier
+  // color— y el orden por color llegaba tarde, a una lista donde el rosado
+  // ya no estaba. Ahora se ordena la lista entera y unir() se queda con el
+  // primero de cada título, que es el del color de la foto.
+  const pila = unir(ordenar([...porRasgos, ...productos], { color, rasgos, indice, visto }));
 
   // Todo lo que ya se le puso delante al modelo. Lo que descartó no se
   // le vuelve a mostrar en el barrido: sería pagar dos veces por la
@@ -255,7 +263,7 @@ export async function cotejoPorImagen({
       const elegido = await cotejar(
         env,
         foto,
-        ordenar(unir(pila, deLaMarca), { color, rasgos, indice, visto }),
+        unir(ordenar([...pila, ...deLaMarca], { color, rasgos, indice, visto })),
         textoCliente,
         minimo,
         yaMirados
@@ -614,7 +622,7 @@ function ordenar(productos, { color, rasgos, indice, visto = "" }) {
     .map((producto, orden) => {
       const guardado = porFoto.get(producto.imagen);
       const puntos =
-        puntosDeColor(producto.titulo, color) +
+        puntosDeColor(producto.titulo, color, guardado?.color) +
         (guardado ? parecidoDeRasgos(guardado.rasgos, rasgos) : 0) +
         (guardado ? puntosDeDescripcion(guardado.visto, delaFoto, peso) : 0);
       // "orden" mantiene estable el orden original entre empatados.
