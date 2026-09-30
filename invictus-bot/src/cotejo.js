@@ -199,6 +199,7 @@ export async function cotejoPorImagen({
   // dónde apuntar que algo se quedó sin mirar.
   const cupo = { recibidoEn, informe: informe || {} };
   cupo.informe.sinCupo = false;
+  cupo.informe.mejorMedia = null;
 
   if (!foto) return null;
 
@@ -356,8 +357,25 @@ export async function cotejoPorImagen({
   if (indice.length) {
     const rondas = Number(env.COTEJO_RONDAS) || RONDAS_DEL_INDICE;
 
+    // LA PRIMERA RONDA, DENTRO DE LA MARCA (30-sep-2026).
+    //
+    // Caso real, dos veces el mismo día: una historia con unas Nike Waffle
+    // grises. La visión solo supo decir "Nike", y las rondas del índice
+    // buscaban los más parecidos de TODO el catálogo —Adidas, New Balance,
+    // lo que fuera gris—: las P6000 plateadas ganaban y las Waffle ni
+    // entraban entre los dieciséis. Si la visión ya dijo la marca, eso es lo
+    // único seguro que hay: la primera ronda busca SOLO entre los de esa
+    // marca, y la segunda vuelve al catálogo entero por si la marca no era.
+    const marca = !nombreFiable ? marcaSola(termino) : "";
+    const deLaMarca = marca ? indice.filter((p) => clave(p).includes(marca)) : [];
+    const usarMarca = deLaMarca.length >= DESDE_EL_INDICE;
+
     for (let ronda = 1; ronda <= rondas; ronda++) {
-      const candidatos = mejoresPorRasgos(indice, rasgos, DESDE_EL_INDICE + yaMirados.size, color, visto)
+      const base = ronda === 1 && usarMarca ? deLaMarca : indice;
+      if (ronda === 1 && usarMarca) {
+        console.log(`Índice: la visión dijo "${termino}", la primera ronda busca entre sus ${deLaMarca.length}`);
+      }
+      const candidatos = mejoresPorRasgos(base, rasgos, DESDE_EL_INDICE + yaMirados.size, color, visto)
         .filter((p) => !yaMirados.has(clave(p)))
         .slice(0, DESDE_EL_INDICE);
 
@@ -757,6 +775,10 @@ async function cotejar(
 
   if (informe.sinCupo) return sinMirar(candidatos, cupo);
 
+  // La mejor pista de confianza "media": se guarda la primera que aparezca
+  // (viene de la ronda con los candidatos más parecidos).
+  if (informe.media && cupo && !cupo.informe.mejorMedia) cupo.informe.mejorMedia = informe.media;
+
   // El modelo SÍ los miró: se anotan aunque no haya elegido ninguno, para
   // que el barrido no vuelva a pagar por unas fotos que ya descartó.
   if (yaMirados) candidatos.forEach((p) => yaMirados.add(clave(p)));
@@ -782,6 +804,14 @@ function sinMirar(candidatos, cupo) {
       "y no queda tiempo para esperarlo"
   );
   return null;
+}
+
+// La marca, si el término es SOLO una marca ("Nike", "Adidas", "Puma"): una
+// sola palabra, en minúsculas. Si es un modelo ("Air Force One") no aplica.
+function marcaSola(termino) {
+  const t = String(termino || "").trim().toLowerCase();
+  if (!t || t === "nada" || /\s/.test(t)) return "";
+  return t;
 }
 
 function primeraPalabra(termino) {

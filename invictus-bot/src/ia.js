@@ -737,8 +737,12 @@ async function unCotejo(env, foto, candidatos, textoCliente, informe = null) {
   // ficha con precio y botón de compra; con una corazonada no se manda.
   if (confianza !== "alta") {
     console.log(
-      `Cotejo visual: "${elegido.titulo}" con confianza ${confianza} — no lo uso (${porque})`
+      `Cotejo visual: "${elegido.titulo}" con confianza ${confianza} — no lo afirmo (${porque})`
     );
+    // PERO LA PISTA NO SE TIRA (30-sep-2026). Con "media" el modelo apunta
+    // a uno sin atreverse a jurarlo. No se le dice al cliente "es este",
+    // pero sí va PRIMERO en el "¿es alguna de estas?" (ver decidir()).
+    if (confianza === "media" && informe) informe.media = elegido;
     return null;
   }
 

@@ -26,7 +26,7 @@
 import { RASGOS_CLAVE } from "./identificar.js";
 import { modeloDeIndice, rasgosDeProducto, esperarCupo } from "./ia.js";
 import { traerCatalogoCompleto } from "./shopify.js";
-import { tituloEsDelColor, tituloNombraColor } from "./color.js";
+import { tituloEsDelColor, tituloNombraColor, lugarDelColorEnTitulo } from "./color.js";
 
 // LA CLAVE ES LA FOTO, NO EL TÍTULO (24-sep-2026 — esto tenía parada la
 // indexación en seco).
@@ -289,6 +289,9 @@ const PUNTOS_DIFIERE = -2;
 // dice nada, y no por eso es peor candidato.
 const PUNTOS_MISMO_COLOR = 60;
 const PUNTOS_OTRO_COLOR = -25;
+// El color de la foto aparece en el título, pero no es el primero: está en
+// la suela o en un detalle. Suma, pero menos que el que lo tiene de cuerpo.
+const PUNTOS_COLOR_SECUNDARIO = 20;
 
 // LA DESCRIPCIÓN DESEMPATA LOS ZAPATOS SIN LOGO (24-sep-2026).
 //
@@ -439,7 +442,15 @@ export function puntosDeColor(titulo, color, colorVisto = "") {
 
   // Sin color guardado (una tienda que todavía no reindexó, o una foto que
   // la IA no se atrevió a nombrar), lo de siempre.
-  if (tituloEsDelColor(titulo, color)) return PUNTOS_MISMO_COLOR;
+  //
+  // Y del título, el PRIMER color es el del zapato; los demás son suela y
+  // detalles (ver lugarDelColorEnTitulo). "Negro blanco" gana a "blanco
+  // negro" cuando la foto es negra — antes empataban.
+  if (tituloEsDelColor(titulo, color)) {
+    return lugarDelColorEnTitulo(titulo, color) === "secundario"
+      ? PUNTOS_COLOR_SECUNDARIO
+      : PUNTOS_MISMO_COLOR;
+  }
   return tituloNombraColor(titulo) ? PUNTOS_OTRO_COLOR : 0;
 }
 

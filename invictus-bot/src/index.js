@@ -111,7 +111,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-30 (38) · la IA redacta delivery, envios, horario y empleo personalizados, con red contra inventos";
+const VERSION = "2026-09-30 (39) · reconocimiento: primera ronda dentro de la marca, pista media primero, Waffle vs P6000, color principal del titulo";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -2168,6 +2168,24 @@ async function decidir({
       rasgos,
       visto: vistoFoto,
     });
+  }
+
+  // LA PISTA DEL COTEJO VA PRIMERO (30-sep-2026). Si el cotejo no se atrevió
+  // a afirmar ninguno pero apuntó a uno con confianza "media", ese va el
+  // PRIMERO del "¿es alguna de estas?" —sin decirle al cliente "es este"—.
+  // Caso real: unas Nike Waffle respondidas con P6000; si el cotejo llegó a
+  // sospechar de las Waffle, tenían que ir delante.
+  if (foto && !cotejoAcerto && informeCotejo.mejorMedia) {
+    const pista = informeCotejo.mejorMedia;
+    console.log(`Cotejo: "${pista.titulo}" (confianza media) va primero en lo que le enseño`);
+    const habiaOtros = productos.length > 0;
+    productos = [pista, ...productos.filter((p) => p.titulo !== pista.titulo)].slice(0, 10);
+    // Si es lo único que hay, la frase tiene que ser una pregunta honesta:
+    // el modelo pudo haber escrito cualquier cosa pensando que no había nada.
+    if (!habiaOtros) {
+      salida.respuesta = "¿Es este? 👟 Si no es, dime y te paso con un asesor para encontrarlo 😊";
+      salida.historial = conNota(salida.historial, `Le pregunté si era ${pista.titulo} (sin confirmar).`);
+    }
   }
 
   // NO SE RECONOCIÓ LA FOTO: EL CATÁLOGO COMPLETO (26-sep-2026).

@@ -296,4 +296,66 @@ titulo("/indexar-catalogo: completar el color no pasa del 100% ni da falsa alarm
   ok(/se están pisando/i.test(e.registro.join("\n")), "la alarma de verdad sigue sonando");
 }
 
+// ───────────────────────────────────────────────────────────────────────
+titulo("la visión solo dijo 'Nike': la primera ronda busca SOLO entre los Nike");
+{
+  // Caso real (30-sep): unas Nike Waffle grises, y el bot enseñó P6000. En
+  // el catálogo hay de todo lo gris; la Waffle, contra el catálogo entero,
+  // quedaba fuera de los 16 más parecidos.
+  const grises = Array.from({ length: 40 }, (_, i) => ({
+    titulo: `Adidas gris ${i}`, imagen: `https://cdn.test/a${i}.jpg`, precio: "$60", url: "",
+    visto: "zapatilla gris suela blanca", rasgos: { ...SIN, suelaRedondeadaSinAire: true }, color: "gris",
+  }));
+  const nikes = Array.from({ length: 12 }, (_, i) => ({
+    titulo: i === 11 ? "Nike waffle trainer 2 caballero" : `Nike modelo ${i}`,
+    imagen: `https://cdn.test/n${i}.jpg`, precio: "$75", url: "",
+    // La Waffle de verdad: gris, gamuza, swoosh negro. Los demás Nike, negros.
+    visto: i === 11 ? "zapatilla gris gamuza swoosh negro suela blanca" : "zapatilla",
+    rasgos: i === 11 ? { ...SIN, suelaRedondeadaSinAire: true } : { ...SIN },
+    color: i === 11 ? "gris" : "negro",
+  }));
+  const src = await prepararSrc();
+  const I = await src.cargar("indice.js");
+  const C = await src.cargar("cotejo.js");
+  const base = baseDeMentira();
+  await I.guardarIndexados(base.DB, [...grises, ...nikes]);
+  const { falso, llamadas } = fetchDeMentira({ openai: [NINGUNO, NINGUNO] });
+  const fetchReal = globalThis.fetch;
+  const log = console.log;
+  globalThis.fetch = falso;
+  console.log = () => {};
+  try {
+    await C.cotejoPorImagen({
+      env: { ...ENV_BASE, DB: base.DB }, foto: FOTO, textoCliente: "Precio", productos: [], termino: "Nike",
+      rasgos: { ...SIN, suelaRedondeadaSinAire: true }, color: "gris", visto: "zapatilla gris suela blanca",
+      informe: {},
+    });
+  } finally {
+    globalThis.fetch = fetchReal;
+    console.log = log;
+    src.limpiar();
+  }
+  const primera = titulosDe(llamadas[0]);
+  ok(primera.length > 0 && primera.every((t) => /nike/i.test(t)), "la ronda 1 compara SOLO Nike", primera.join(" · ").slice(0, 90));
+  ok(primera.some((t) => /waffle/i.test(t)), "y la Waffle está entre ellos (contra el catálogo entero no entraba)");
+  const segunda = titulosDe(llamadas[1]);
+  ok(segunda.some((t) => /adidas/i.test(t)), "la ronda 2 vuelve al catálogo entero, por si la marca no era");
+}
+
+titulo("confianza 'media': no se afirma, pero la pista se guarda");
+{
+  const e = await escenario({ openai: [{ eleccion: 2, confianza: "media", porque: "se parece" }, NINGUNO] });
+  const informe = {};
+  const r = await e.correr(() =>
+    e.C.cotejoPorImagen({
+      env: e.env, foto: FOTO, textoCliente: "", productos: [], termino: "NADA",
+      rasgos: { ...SIN, tresFranjas: true }, color: "blanco", visto: "zapato", informe,
+    })
+  );
+  const segundoDeLaRonda = titulosDe(e.llamadas[0])[1];
+  ok(r === null, "no la da por encontrada (no se le dice 'es este')");
+  ok(informe.mejorMedia && informe.mejorMedia.titulo === segundoDeLaRonda,
+     "pero queda la pista para enseñarla PRIMERO", informe.mejorMedia?.titulo);
+}
+
 terminar();
