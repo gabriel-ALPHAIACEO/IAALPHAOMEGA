@@ -1189,8 +1189,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   // "¿DÓNDE ESTÁN?": LA DIRECCIÓN TAL CUAL, CON EL BOTÓN DE GOOGLE MAPS.
   //
-  // Sale del código, no del modelo: el texto de prompts/ubicacion.txt letra
-  // por letra, como lo mandaba la automatización de ManyChat. Si el mensaje
+  // Sale del código, no del modelo: DIRECCION de wrangler.toml letra por
+  // letra, como lo mandaba la automatización de ManyChat. Si el mensaje
   // es SOLO eso, aquí termina y no se gasta ni una llamada. Si además pide
   // otra cosa —"¿dónde están y tienen Jordan?"— la ubicación sale primero y
   // el resto sigue al modelo, avisado de que no la repita. Ver ubicacion.js.
