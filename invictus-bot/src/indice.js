@@ -518,6 +518,14 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
 
   const pendientes = indexables.filter((p) => rehacer || !guardados.has(p.imagen));
 
+  // Los que YA TIENEN FILA en la tabla, con color o sin él. Hace falta
+  // aparte porque re-mirar uno de estos (para ponerle el color, o con
+  // ?rehacer=si) reescribe su fila: no suma una nueva. Contarlo como nueva
+  // es lo que daba el "107% hecho" y el falso "se están pisando" del
+  // 30-sep-2026.
+  const conFila = new Set(indice.map((p) => p.imagen));
+  const sinColor = rehacer ? 0 : pendientes.filter((p) => conFila.has(p.imagen)).length;
+
   // EL PRECIO SE REFRESCA SIN GASTAR MODELO.
   //
   // Las fichas que se le mandan al cliente pueden salir del índice (el
@@ -577,12 +585,16 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
   // Si se guardaron productos y las filas no subieron lo que debían, algo
   // los está pisando. Eso fue exactamente lo que pasó con la clave por
   // título, y lo peor no fue el fallo: fue que no dijo nada. Aquí grita.
-  if (indexados.length) {
+  //
+  // Solo cuentan los que NO tenían fila: completarle el color a uno que ya
+  // estaba reescribe su fila y no suma ninguna, y eso no es un pisotón.
+  const debianSerNuevas = indexados.filter((p) => !conFila.has(p.imagen)).length;
+  if (debianSerNuevas) {
     const hayAhora = await contarFilas(env.DB);
     const nuevas = hayAhora - indice.length;
-    if (nuevas < indexados.length) {
+    if (nuevas < debianSerNuevas) {
       console.error(
-        `ÍNDICE: guardé ${indexados.length} producto(s) pero solo quedaron ${nuevas} ` +
+        `ÍNDICE: guardé ${debianSerNuevas} producto(s) nuevos pero solo quedaron ${nuevas} ` +
           "fila(s) nuevas. Se están pisando entre ellos y la indexación no va a " +
           "terminar nunca. Mira la clave primaria de la tabla en indice.js."
       );
@@ -603,7 +615,13 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
     catalogo: productos.length,
     indexables: indexables.length,
     sinFoto,
-    yaEstaban: indice.length,
+    // Los que no hacía falta mirar. NO es indice.length: ahí entran los
+    // que están guardados sin color (que siguen pendientes) y los de fotos
+    // que ya no están en Shopify, y con eso el porcentaje pasaba del 100.
+    yaEstaban: indexables.length - pendientes.length,
+    // De los pendientes, cuántos ya estaban indexados y solo les falta el
+    // color. El cotejo los usa igual mientras tanto (ver puntosDeColor).
+    sinColor,
     intentados: tanda.length,
     indexados: indexados.length,
     fallados,

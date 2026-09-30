@@ -72,7 +72,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-30 (27) · el índice guarda el color de cada foto: llega el zapato del color correcto";
+const VERSION = "2026-09-30 (28) · sin cupo de OpenAI ya no cuenta como \"miré y no está\"; arreglado el 107% del índice";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -456,7 +456,14 @@ export default {
       // A Meta se le responde 200 siempre y rápido. Si tarda o falla, lo
       // reintenta y el cliente acaba recibiendo la misma respuesta varias
       // veces; y si falla mucho, Meta desactiva el webhook.
-      if (mensaje) ctx.waitUntil(atenderConRed(env, mensaje));
+      //
+      // La hora de llegada viaja con el mensaje: Cloudflare da 30 segundos
+      // de trabajo desde esta respuesta, y el cotejo la usa para saber si
+      // le da el tiempo de esperar el cupo de OpenAI (ver cotejo.js).
+      if (mensaje) {
+        mensaje.recibidoEn = Date.now();
+        ctx.waitUntil(atenderConRed(env, mensaje));
+      }
       return new Response("ok", { status: 200 });
     }
 
@@ -643,6 +650,10 @@ export default {
               `  (el cotejo compara imágenes). Quedan ${r.indexables} indexables.\n`
             : "") +
           `Ya estaban indexados: ${r.yaEstaban}\n` +
+          (r.sinColor
+            ? `Indexados de antes, a los que solo les falta el color: ${r.sinColor}\n` +
+              "  (se completan solos, de a una tanda; el cotejo ya los usa)\n"
+            : "") +
           `Indexados en esta tanda: ${r.indexados} (con ${r.modelo})\n` +
           (r.fallados
             ? `No se pudieron catalogar: ${r.fallados} — el motivo exacto sale\n` +
@@ -1243,6 +1254,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     seAcabaron,
     hayMasDelCatalogo,
     noReconociLaFoto,
+    sinCupo,
     alternativa,
   } = await decidir({
     env,
@@ -1260,6 +1272,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     modeloNombrado,
     eraLaVitrina,
     porConfirmar,
+    recibidoEn: mensaje.recibidoEn,
   });
 
   // LOS DATOS PARA PAGAR NO SALEN DE ACÁ (crítico).
@@ -1342,7 +1355,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       igsid: mensaje.igsid,
       mensaje: textoCliente,
       respuesta: respuestaCliente,
-      motivo: motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto }),
+      motivo: motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo }),
       historial: salida.historial,
       busco: termino,
       productos,
@@ -1639,6 +1652,9 @@ async function decidir({
   // El modelo se identificó pero sin confirmar del todo: el cotejo pasa a
   // verificar, no solo a desempatar.
   porConfirmar = false,
+  // Cuándo llegó el mensaje. El cotejo lo usa para saber si le da el
+  // tiempo de esperar el cupo de OpenAI.
+  recibidoEn = 0,
 }) {
   const preguntoTalla = PREGUNTA_TALLA.test(texto);
 
@@ -1754,6 +1770,9 @@ async function decidir({
   // catálogo y saca el par que es. Ver ./cotejo.js: no corre siempre, y
   // cuando no está seguro devuelve null y todo sigue igual que sin él.
   let cotejoAcerto = false;
+  // Lo rellena el cotejo: sinCupo = true si algo se quedó sin mirar porque
+  // OpenAI no tenía cupo.
+  const informeCotejo = {};
   if (foto) {
     const cotejo = await cotejoPorImagen({
       env,
@@ -1769,6 +1788,8 @@ async function decidir({
       // El barrido del catálogo completo es el último recurso y el único
       // paso caro de todo esto. Se apaga con COTEJO_BARRIDO = "no".
       barrer: env.COTEJO_BARRIDO !== "no",
+      recibidoEn,
+      informe: informeCotejo,
     });
 
     if (cotejo) {
@@ -1850,6 +1871,10 @@ async function decidir({
       // mano que el bot no supo leer, y ese es de los que más cerca están
       // de comprar. Ver hayEscalada().
       noReconociLaFoto: true,
+      // No es lo mismo "miré y no está" que "no pude mirar": con OpenAI
+      // sin cupo, el par puede estar en la tienda. El asesor lo tiene que
+      // saber antes de contestar "no lo tenemos".
+      sinCupo: Boolean(informeCotejo.sinCupo),
       alternativa: "",
       respuestaCliente: salida.respuesta,
     };
@@ -1998,8 +2023,11 @@ function hayEscalada({ respuesta, productos, preguntoTalla, buscoSinExito, noRec
 
 // Primera línea de la notificación: le dice al asesor qué tiene que
 // contestar antes de abrir la conversación.
-function motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto }) {
+function motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo = false }) {
   if (preguntoTalla) return "PREGUNTO POR TALLAS";
+  if (noReconociLaFoto && sinCupo) {
+    return "MANDO UNA FOTO Y NO LA PUDE COMPARAR CON EL CATALOGO (OPENAI SIN CUPO) — PUEDE QUE SI LO TENGAMOS";
+  }
   if (noReconociLaFoto) return "MANDO UNA FOTO Y NO SUPE QUE CALZADO ES";
   return "QUIERE CERRAR LA COMPRA";
 }

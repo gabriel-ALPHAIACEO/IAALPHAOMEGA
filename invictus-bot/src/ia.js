@@ -536,8 +536,13 @@ export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) 
 //
 // Solo un reintento, y solo partiendo por la mitad: buscar cuál de los
 // diez es la mala costaría más llamadas de las que vale la pena.
-export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
-  const elegido = await unCotejo(env, foto, candidatos, textoCliente);
+//
+// "informe" es opcional: si se pasa, sale con sinCupo = true cuando OpenAI
+// rechazó la llamada por falta de cupo (429). Hace falta para no confundir
+// "el modelo miró y dijo que ninguno es" con "el modelo no llegó a mirar"
+// — las dos cosas devuelven null. Ver cotejar() en cotejo.js.
+export async function cotejarConCatalogo(env, foto, candidatos, textoCliente, informe = null) {
+  const elegido = await unCotejo(env, foto, candidatos, textoCliente, informe);
   if (elegido !== FALLO_DE_IMAGEN) return elegido;
 
   if (candidatos.length < 2) {
@@ -551,7 +556,7 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
       `reintento con los ${mitad.length} más parecidos`
   );
 
-  const segundo = await unCotejo(env, foto, mitad, textoCliente);
+  const segundo = await unCotejo(env, foto, mitad, textoCliente, informe);
   return segundo === FALLO_DE_IMAGEN ? null : segundo;
 }
 
@@ -559,7 +564,7 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
 // por una foto que no se pudo bajar", que sí merece reintento.
 const FALLO_DE_IMAGEN = Symbol("fallo de imagen");
 
-async function unCotejo(env, foto, candidatos, textoCliente) {
+async function unCotejo(env, foto, candidatos, textoCliente, informe = null) {
   if (!foto || !candidatos?.length) return null;
 
   const contenido = [
@@ -627,8 +632,9 @@ async function unCotejo(env, foto, candidatos, textoCliente) {
     maxTokens: 300,
     schema: ESQUEMA_COTEJO,
     modelo: modeloDeVision(env),
-    alFallar: ({ deImagen }) => {
+    alFallar: ({ estado, deImagen }) => {
       falloDeImagen = deImagen;
+      if (estado === 429 && informe) informe.sinCupo = true;
     },
   });
 
