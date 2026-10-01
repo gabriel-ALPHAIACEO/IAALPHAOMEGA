@@ -138,4 +138,38 @@ titulo("/estado dice la verdad: con todo en Gemini, texto Y fotos van a Gemini")
   srcE.limpiar();
 }
 
+// ───────────────────────────────────────────────────────────────────────
+titulo("/probar-texto: probar el bot desde el navegador, sin Instagram");
+{
+  const { baseDeMentira } = await import("./ayuda.mjs");
+  const srcT = await prepararSrc();
+  const { default: worker } = await srcT.cargar("index.js");
+  const llamadas = [];
+  const fetchReal = globalThis.fetch;
+  globalThis.fetch = async (url, op = {}) => {
+    const u = String(url);
+    if (u.includes("generativelanguage.googleapis.com")) {
+      llamadas.push(u);
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: JSON.stringify({ respuesta: "¡Hola! ¿Qué estás buscando? 👟", buscar: "NADA", historial: "Saludó." }) }] } }],
+        usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 10 },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response("", { status: 404 });
+  };
+  const log = console.log, error = console.error;
+  console.log = () => {}; console.error = () => {};
+  const env = { DB: baseDeMentira().DB, GEMINI_API_KEY: "x", GEMINI_MODELO: "gemini-3.1-flash-lite", GEMINI_MODELO_VISION: "gemini-3-flash" };
+  let pagina = "";
+  try {
+    pagina = await (await worker.fetch(new Request("https://bot.test/probar-texto?mensaje=hola"), env, { waitUntil() {} })).text();
+  } finally {
+    globalThis.fetch = fetchReal; console.log = log; console.error = error; srcT.limpiar();
+  }
+  ok(/El bot contestaría:\s+¡Hola! ¿Qué estás buscando\?/.test(pagina), "enseña lo que contestaría el bot", pagina.split("\n")[2]);
+  ok(/Modelo de texto: Gemini, gemini-3\.1-flash-lite/.test(pagina), "y con qué modelo (el de texto)");
+  ok(llamadas.length === 1 && /gemini-3\.1-flash-lite:generateContent/.test(llamadas[0]),
+     "la llamada fue al modelo de TEXTO, no al de imágenes", llamadas[0]);
+}
+
 terminar();
