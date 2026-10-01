@@ -91,7 +91,8 @@ CATALOGO = "drive"
 # sirve para buscar.
 #
 # La carpeta tiene que estar compartida como "Cualquier persona con el
-# enlace — Lector". Necesita el secreto DRIVE_API_KEY (ver abajo).
+# enlace — Lector". NO hace falta ninguna clave de Google: el bot la lee
+# como la ve cualquiera con el enlace.
 # Para ver como la lee el bot ANTES de que la vea un cliente:
 #   https://emperador-bot.elemperadorca1992.workers.dev/probar-drive
 DRIVE_CARPETA = "https://drive.google.com/drive/folders/14lvw1gxxkZSMEdtZbvJ_fIuaCcCcZykA"
@@ -151,9 +152,8 @@ FRASE_DESPAUSAR = "te dejo con la asistente"
 # DENTRO DE LA CARPETA DE EL EMPERADOR (si no, se le cargan a Invictus):
 #
 #   npx.cmd wrangler secret put GEMINI_API_KEY     <- la de Google AI Studio
-#   npx.cmd wrangler secret put DRIVE_API_KEY      <- para leer la carpeta de
-#        Drive: clave de Google con la "Google Drive API" activada
-#        (console.cloud.google.com → APIs y servicios)
+#   (DRIVE_API_KEY ya NO hace falta: la carpeta se lee sin clave. La de
+#    Gemini no sirve para Drive; si la cargaste, puedes dejarla o quitarla.)
 #   npx.cmd wrangler secret put SHOPIFY_TOKEN      <- el dia que se active
 #                                                     Shopify (no antes)
 #   npx.cmd wrangler secret put META_APP_SECRET    <- PROPIO de esta tienda

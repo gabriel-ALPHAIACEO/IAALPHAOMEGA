@@ -109,13 +109,89 @@ titulo("se recuerda unos minutos: no se relee la carpeta en cada mensaje");
 titulo("los errores, en palabras que se puedan arreglar");
 {
   const r = await conDrive(() => D.catalogoDeDrive(env), JSON.stringify({ error: { message: "Google Drive API has not been used in project 123 before or it is disabled.", status: "PERMISSION_DENIED" } }));
-  ok(r.productos.length === 0 && /no está activada/.test(r.error) && /Habilitar/.test(r.error), "API de Drive apagada → dice dónde activarla", r.error.slice(0, 80));
+  ok(r.productos.length === 0 && /no está activada/.test(r.error) && /Habilitar/.test(r.error), "API de Drive apagada (y sin página pública) → dice dónde activarla", r.error.slice(0, 80));
   const sinCarpeta = await conDrive(() => D.catalogoDeDrive({ ...env, DRIVE_CARPETA: "PENDIENTE" }));
   ok(/falta DRIVE_CARPETA/.test(sinCarpeta.error), "sin carpeta → lo dice");
-  const sinClave = await conDrive(() => D.catalogoDeDrive({ CATALOGO: "drive", DRIVE_CARPETA: RAIZ }));
-  ok(/falta la clave/.test(sinClave.error), "sin clave → lo dice");
   const busca = await conDrive(() => S.buscarProductos(env, "air", 10), "boom");
   ok(busca.productos.length === 0, "y si Drive falla, la búsqueda devuelve vacío en vez de romper el bot");
+}
+
+// ── SIN CLAVE: la carpeta pública (embeddedfolderview) ──────────────
+// Así es la página que Google enseña a cualquiera con el enlace.
+function entrada(id, nombre, carpeta = false) {
+  const href = carpeta ? `https://drive.google.com/drive/folders/${id}` : `https://drive.google.com/file/d/${id}/view?usp=drive_web`;
+  return `<div class="flip-entry" id="entry-${id}" tabindex="0" role="link"><div class="flip-entry-info"><a href="${href}" target="_blank"><div class="flip-entry-thumb"><img src="https://lh3.google.com/u/0/d/${id}=w200-h190-p-k-nu-iv1" alt=""></div><div class="flip-entry-title">${nombre}</div></a></div><div class="flip-entry-last-modified"><div>1 oct</div></div></div>`;
+}
+const PUB_RAIZ = "14lvw1gxxkZSMEdtZbvJ_fIuaCcCcZykA", PUB_SUB = "1SubCarpetaNikeXXXXXXXX";
+const PAGINAS = {
+  [PUB_RAIZ]: `<html><head><title>CATALOGO</title></head><body><div class="flip-view"><div class="flip-entries">` +
+    entrada("1FotoAirForceXXXXXX", "Air Force One blanco COD 125 45$.jpg") +
+    entrada("1FotoSambaXXXXXXXXX", "Samba &amp; Gazelle &quot;negra&quot; 38$.jpeg") +
+    entrada("1ListaPreciosXXXXXX", "lista de precios.pdf") +
+    entrada(PUB_SUB, "Nike", true) +
+    `</div></div></body></html>`,
+  [PUB_SUB]: `<html><body><div class="flip-entries">` + entrada("1FotoDunkXXXXXXXXXX", "Dunk Low panda 50$") + `</div></body></html>`,
+};
+let paginasPedidas = [];
+function publicaDeMentira({ api = "", privada = false } = {}) {
+  return async (url) => {
+    const u = new URL(String(url));
+    if (u.hostname === "www.googleapis.com") return new Response(api || "{}", { status: api ? 401 : 200 });
+    if (u.hostname !== "drive.google.com" || u.pathname !== "/embeddedfolderview") return new Response("", { status: 404 });
+    paginasPedidas.push(u.searchParams.get("id"));
+    if (privada) return new Response(`<html><head><title>Google Drive: inicia sesión</title></head><body><a href="https://accounts.google.com/ServiceLogin">Acceder</a></body></html>`, { status: 200 });
+    return new Response(PAGINAS[u.searchParams.get("id")] || "", { status: PAGINAS[u.searchParams.get("id")] ? 200 : 404 });
+  };
+}
+async function conPublica(fn, opciones) {
+  const real = globalThis.fetch, log = console.log, err = console.error;
+  globalThis.fetch = publicaDeMentira(opciones);
+  console.log = () => {}; console.error = () => {};
+  D.olvidarCatalogoDeDrive();
+  paginasPedidas = [];
+  try { return await fn(); } finally { globalThis.fetch = real; console.log = log; console.error = err; }
+}
+const envSinClave = { CATALOGO: "drive", DRIVE_CARPETA: `https://drive.google.com/drive/folders/${PUB_RAIZ}?usp=sharing` };
+
+titulo("SIN CLAVE: lee la carpeta pública, como cualquiera con el enlace");
+{
+  const lista = D.leerPaginaDeCarpeta(PAGINAS[PUB_RAIZ]);
+  ok(lista.length === 3, "de la página saca 2 fotos y 1 subcarpeta (el PDF no)", lista.map((a) => a.name).join(" · "));
+  ok(lista.some((a) => a.name === 'Samba & Gazelle "negra" 38$.jpeg'), "los &amp; y &quot; de la página salen como letras");
+
+  const r = await conPublica(() => D.catalogoDeDrive(envSinClave));
+  ok(!r.error && r.productos.length === 3, "sin DRIVE_API_KEY: 3 productos, también el de la subcarpeta", r.error || r.productos.map((p) => p.titulo).join(" · "));
+  ok(/pública/.test(r.via), "y dice que la leyó como carpeta pública", r.via);
+  ok(paginasPedidas.includes(PUB_SUB), "entró en la subcarpeta Nike");
+  const af = r.productos.find((p) => /Air Force/.test(p.titulo));
+  ok(af.titulo === "Air Force One blanco · Cód. 125" && af.precio === "45 USD", "con su código y su precio", `${af.titulo} — ${af.precio}`);
+  ok(af.imagen === "https://lh3.googleusercontent.com/d/1FotoAirForceXXXXXX=w1000", "la foto directa de Google", af.imagen);
+  ok(af.nombre === "Air Force One blanco COD 125 45$.jpg", "guarda el nombre del archivo tal cual (para /probar-drive)");
+  const b = await conPublica(() => S.buscarProductos(envSinClave, "nike", 10));
+  ok(b.productos.length === 1 && /Dunk/.test(b.productos[0].titulo), '"nike" encuentra lo de la subcarpeta Nike');
+  ok(Object.keys(b.productos[0]).sort().join() === "imagen,precio,titulo,url", "la ficha sigue con la forma de Shopify (sin el nombre interno)");
+}
+
+titulo("la clave de Gemini NO se usa para Drive (Google la rechaza)");
+{
+  const r = await conPublica(() => D.catalogoDeDrive({ ...envSinClave, GEMINI_API_KEY: "clave-de-gemini" }));
+  ok(!r.error && /pública/.test(r.via), "con solo GEMINI_API_KEY lee la carpeta pública, sin pedirle nada a la API", r.via);
+}
+
+titulo("con una DRIVE_API_KEY que falla, se vuelve a la carpeta pública");
+{
+  const r = await conPublica(
+    () => D.catalogoDeDrive({ ...envSinClave, DRIVE_API_KEY: "mala" }),
+    { api: JSON.stringify({ error: { code: 401, message: "API keys are not supported by this API. Expected OAuth2 access token", status: "UNAUTHENTICATED" } }) }
+  );
+  ok(!r.error && r.productos.length === 3, "igual salen los 3 productos", r.error);
+  ok(/DRIVE_API_KEY falló/.test(r.aviso) && /no sirve para Google Drive/.test(r.aviso), "y avisa en palabras claras qué pasó con la clave", r.aviso);
+}
+
+titulo("carpeta privada: dice exactamente cómo compartirla");
+{
+  const r = await conPublica(() => D.catalogoDeDrive(envSinClave), { privada: true });
+  ok(r.productos.length === 0 && /Cualquier persona con el enlace/.test(r.error), "explica el paso de Compartir", r.error.slice(0, 90));
 }
 
 titulo("sin CATALOGO = drive, sigue siendo Shopify");

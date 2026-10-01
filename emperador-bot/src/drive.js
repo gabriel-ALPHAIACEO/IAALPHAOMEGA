@@ -15,8 +15,15 @@
 // LO QUE HAY QUE TENER:
 //   · DRIVE_CARPETA   el enlace (o el id) de la carpeta, compartida como
 //                     "Cualquier persona con el enlace — Lector".
-//   · una clave de Google con la API de Drive activada: DRIVE_API_KEY, o
-//     la misma GEMINI_API_KEY si en su proyecto de Google se activa Drive.
+//   · NADA MÁS. Sin clave, el bot lee la carpeta pública tal como la ve
+//     cualquiera con el enlace (la vista "embebida" de Drive).
+//   · DRIVE_API_KEY es OPCIONAL: si algún día se carga una clave con la API
+//     de Drive activada, se usa primero (trae además la descripción de cada
+//     foto), y si falla se vuelve a la carpeta pública.
+//
+// POR QUÉ NO LA GEMINI_API_KEY (1-oct-2026). Se probó: Google la rechaza
+// para Drive ("API keys are not supported by this API", 401). Las claves de
+// AI Studio no sirven para Drive, así que ya no se intenta.
 //
 // DE DÓNDE SALEN EL NOMBRE, EL CÓDIGO Y EL PRECIO. De lo que se ve debajo
 // de cada foto en Drive: el NOMBRE DEL ARCHIVO. Si el archivo tiene además
@@ -56,7 +63,7 @@ export function idDeCarpeta(valor) {
 }
 
 function claveDeDrive(env) {
-  return env.DRIVE_API_KEY || env.GEMINI_API_KEY || "";
+  return env.DRIVE_API_KEY || "";
 }
 
 /* ── Leer el nombre: título, código y precio ─────────────────────── */
@@ -155,6 +162,9 @@ function explicarError(estado, detalle) {
       "Google Drive API → Habilitar."
     );
   }
+  if (/API keys are not supported|UNAUTHENTICATED/i.test(detalle)) {
+    return "esa clave no sirve para Google Drive (las de Gemini/AI Studio no valen).";
+  }
   if (/API key not valid|API_KEY_INVALID/i.test(detalle)) return "la clave de Google no es válida (DRIVE_API_KEY).";
   if (/API_KEY_SERVICE_BLOCKED|blocked/i.test(detalle)) {
     return "esa clave está restringida a otras APIs. Usa una clave con Google Drive API permitida (DRIVE_API_KEY).";
@@ -181,43 +191,135 @@ function aProducto(archivo, carpetas) {
     imagen: `https://lh3.googleusercontent.com/d/${archivo.id}=w1000`,
     url: `https://drive.google.com/file/d/${archivo.id}/view`,
     codigo: datos.codigo,
+    // El nombre del archivo tal cual, para /probar-drive.
+    nombre: archivo.name,
     // Las carpetas ("Nike", "Dama") también se buscan, aunque no salgan en
     // el título: "Nike" encuentra lo que está en la carpeta Nike.
     carpetas: carpetas.join(" "),
   };
 }
 
+/* ── Sin clave: la carpeta pública, como la ve cualquiera ─────────── */
+
+const PAGINA = "https://drive.google.com/embeddedfolderview";
+
+// Lo que no es una foto, por la extensión del nombre. Un nombre SIN
+// extensión se toma como foto: en una carpeta de catálogo casi todo lo es.
+const NO_ES_FOTO = /\.(pdf|docx?|xlsx?|pptx?|txt|csv|zip|rar|mp4|mov|avi|mkv|mp3|wav|apk|exe)$/i;
+
+function sinEntidades(texto) {
+  return String(texto || "")
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
+}
+
+// La página trae una "flip-entry" por archivo:
+//   <div class="flip-entry" id="entry-ID"> … <a href=".../file/d/ID/view">
+//   … <div class="flip-entry-title">Nombre.jpg</div>
+// Las subcarpetas enlazan a /folders/ID.
+export function leerPaginaDeCarpeta(html) {
+  const texto = String(html || "");
+  const marcas = [...texto.matchAll(/id="entry-([\w-]{10,})"/g)];
+  const archivos = [];
+  marcas.forEach((m, i) => {
+    const trozo = texto.slice(m.index, i + 1 < marcas.length ? marcas[i + 1].index : undefined);
+    const nombre = sinEntidades((trozo.match(/class="flip-entry-title"[^>]*>([^<]*)</) || [])[1] || "").trim();
+    const enlace = (trozo.match(/href="([^"]+)"/) || [])[1] || "";
+    const esCarpeta = /\/folders\//.test(enlace) || /flip-entry-folder|folder-icon/.test(trozo);
+    if (!nombre) return;
+    if (esCarpeta) archivos.push({ id: m[1], name: nombre, mimeType: CARPETA_MIME });
+    else if (!NO_ES_FOTO.test(nombre)) archivos.push({ id: m[1], name: nombre, mimeType: "image/*" });
+  });
+  return archivos;
+}
+
+async function listarPublica(carpeta) {
+  let respuesta;
+  try {
+    respuesta = await fetch(`${PAGINA}?id=${encodeURIComponent(carpeta)}`, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; emperador-bot)", "Accept-Language": "es" },
+    });
+  } catch (error) {
+    throw new Error(`no se pudo conectar con Google Drive: ${error?.message || error}`);
+  }
+  const html = await respuesta.text();
+  const archivos = leerPaginaDeCarpeta(html);
+  if (archivos.length) return archivos;
+
+  // Vacía de verdad, o Google no la enseña (privada, o pide iniciar sesión).
+  if (respuesta.ok && /flip-entries|flip-view/.test(html)) return [];
+  if (respuesta.status === 404 || /accounts\.google\.com|ServiceLogin|signin/i.test(html)) {
+    throw new Error(
+      "Google no deja ver la carpeta sin iniciar sesión. En Drive: clic derecho en la carpeta → " +
+        "Compartir → Acceso general → \"Cualquier persona con el enlace\" → Lector."
+    );
+  }
+  const tituloDePagina = sinEntidades((html.match(/<title>([^<]*)<\/title>/i) || [])[1] || "").trim();
+  throw new Error(
+    `no entendí la página de la carpeta (Google respondió ${respuesta.status}` +
+      (tituloDePagina ? `, "${tituloDePagina.slice(0, 80)}"` : "") +
+      `). Mándale a Claude una captura de esto.`
+  );
+}
+
+async function recorrer(carpeta, listarUna) {
+  const productos = [];
+  const pendientes = [{ id: carpeta, ruta: [], nivel: 0 }];
+  while (pendientes.length) {
+    const { id, ruta, nivel } = pendientes.shift();
+    for (const archivo of await listarUna(id)) {
+      if (archivo.mimeType === CARPETA_MIME) {
+        if (nivel < PROFUNDIDAD) pendientes.push({ id: archivo.id, ruta: [...ruta, archivo.name], nivel: nivel + 1 });
+        continue;
+      }
+      if (!/^image\//.test(archivo.mimeType || "")) continue;
+      const producto = aProducto(archivo, ruta);
+      if (producto.titulo) productos.push(producto);
+    }
+  }
+  return productos;
+}
+
 export async function catalogoDeDrive(env) {
   const carpeta = idDeCarpeta(env.DRIVE_CARPETA);
-  if (!carpeta) return { productos: [], error: "falta DRIVE_CARPETA en wrangler.toml (el enlace de la carpeta)." };
-  const clave = claveDeDrive(env);
-  if (!clave) return { productos: [], error: "falta la clave de Google: carga DRIVE_API_KEY con wrangler secret put." };
+  if (!carpeta) return { productos: [], error: "falta DRIVE_CARPETA en wrangler.toml (el enlace de la carpeta).", via: "" };
 
   if (cache && cache.carpeta === carpeta && cache.vence > Date.now()) return cache.datos;
 
-  const productos = [];
-  try {
-    const pendientes = [{ id: carpeta, ruta: [], nivel: 0 }];
-    while (pendientes.length) {
-      const { id, ruta, nivel } = pendientes.shift();
-      for (const archivo of await listar(env, id, clave)) {
-        if (archivo.mimeType === CARPETA_MIME) {
-          if (nivel < PROFUNDIDAD) pendientes.push({ id: archivo.id, ruta: [...ruta, archivo.name], nivel: nivel + 1 });
-          continue;
-        }
-        if (!/^image\//.test(archivo.mimeType || "")) continue;
-        const producto = aProducto(archivo, ruta);
-        if (producto.titulo) productos.push(producto);
-      }
+  const clave = claveDeDrive(env);
+  let productos = null;
+  let via = "";
+  let aviso = "";
+
+  if (clave) {
+    try {
+      productos = await recorrer(carpeta, (id) => listar(env, id, clave));
+      via = "API de Google Drive (DRIVE_API_KEY)";
+    } catch (error) {
+      aviso = `la DRIVE_API_KEY falló (${error.message}); se leyó la carpeta pública.`;
+      console.error("Catálogo de Drive, con clave:", error.message);
     }
-  } catch (error) {
-    console.error("Catálogo de Drive:", error.message);
-    return { productos: [], error: error.message };
   }
 
-  const datos = { productos, error: "" };
+  if (!productos) {
+    try {
+      productos = await recorrer(carpeta, listarPublica);
+      via = "carpeta pública (sin clave)";
+    } catch (error) {
+      console.error("Catálogo de Drive:", error.message);
+      return { productos: [], error: aviso ? `${error.message} (Antes: ${aviso})` : error.message, via: "" };
+    }
+  }
+
+  const datos = { productos, error: "", via, aviso };
   cache = { carpeta, vence: Date.now() + MINUTOS_DE_CACHE * 60 * 1000, datos };
-  console.log(`Catálogo de Drive: ${productos.length} productos`);
+  console.log(`Catálogo de Drive: ${productos.length} productos (${via})`);
   return datos;
 }
 

@@ -73,7 +73,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-01 (17) · catalogo: Drive hoy, Shopify preparado (un solo interruptor en wrangler.toml)";
+const VERSION = "2026-10-01 (18) · drive: se lee la carpeta publica, sin clave de Google";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -527,7 +527,7 @@ export default {
           `  SHOPIFY_TIENDA      ${env.SHOPIFY_TIENDA || "FALTA"}`,
           `  URL_CATALOGO        ${env.URL_CATALOGO || "FALTA"}`,
           `  CATALOGO            ${usaDrive(env) ? `Google Drive (${idDeCarpeta(env.DRIVE_CARPETA) ? "carpeta puesta" : "FALTA DRIVE_CARPETA"}) — míralo en /probar-drive` : "Shopify"}`,
-          ...(usaDrive(env) ? [`  DRIVE_API_KEY       ${env.DRIVE_API_KEY ? secreto("DRIVE_API_KEY") : "no cargada: se usa GEMINI_API_KEY (necesita la API de Drive activada)"}`] : []),
+          ...(usaDrive(env) ? [`  DRIVE_API_KEY       ${env.DRIVE_API_KEY ? secreto("DRIVE_API_KEY") : "no hace falta: se lee la carpeta pública"}`] : []),
           `  WHATSAPP            ${String(env.WHATSAPP || "").replace(/\D/g, "") ? "puesto" : "sin poner (no sale el botón Comprar)"}`,
           `  PAUSA_HORAS         ${env.PAUSA_HORAS || `${PAUSA_HORAS_POR_DEFECTO} (por defecto)`}   (se cuenta desde el ULTIMO mensaje del asesor)`,
           `  FRASE_DESPAUSAR     "${fraseDespausar(env)}"   (el asesor la manda en el chat y el bot vuelve)`,
@@ -763,7 +763,7 @@ export default {
           "El catálogo NO está en Drive: en wrangler.toml falta CATALOGO = \"drive\".\n"
         );
       }
-      const { productos, error } = await catalogoDeDrive(env);
+      const { productos, error, via, aviso } = await catalogoDeDrive(env);
       if (error) return texto200(`No pude leer la carpeta de Drive: ${error}\n`);
 
       const sinPrecio = productos.filter((p) => !p.precio);
@@ -771,13 +771,17 @@ export default {
       return texto200(
         [
           `CARPETA  ${idDeCarpeta(env.DRIVE_CARPETA)}`,
+          `LEÍDA    ${via}`,
+          ...(aviso ? [`AVISO    ${aviso}`] : []),
           `${productos.length} productos leídos` +
             (sinPrecio.length ? ` · ${sinPrecio.length} SIN PRECIO` : "") +
             (sinCodigo.length ? ` · ${sinCodigo.length} sin código` : ""),
           "",
           "NOMBRE (lo que verá el cliente)                               PRECIO",
           ...productos.map(
-            (p) => `  ${p.titulo.slice(0, 60).padEnd(60)} ${p.precio || "— SIN PRECIO"}${p.carpetas ? `   [${p.carpetas}]` : ""}`
+            (p) =>
+              `  ${p.titulo.slice(0, 60).padEnd(60)} ${p.precio || "— SIN PRECIO"}${p.carpetas ? `   [${p.carpetas}]` : ""}\n` +
+              `      archivo: ${p.nombre}`
           ),
           "",
           sinPrecio.length
