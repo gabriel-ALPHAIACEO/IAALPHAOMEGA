@@ -122,6 +122,56 @@ titulo("el índice: 40 fotos de Drive, repartidas en pasadas, sin pasarse nunca"
   src.limpiar();
 }
 
+titulo("una carpeta de Drive con 60 subcarpetas: se lee por partes, sin pasarse nunca");
+{
+  const src = await prepararSrc();
+  const { default: worker } = await src.cargar("index.js");
+  const D = await src.cargar("drive.js");
+  D.olvidarCatalogoDeDrive();
+  const RAIZ = "1RaizGrandeXXXXXXXXXXX", LOTE = "1LoteGrandeXXXXXXXXXXX";
+  const e = (id, nombre, carpeta) =>
+    `<div class="flip-entry" id="entry-${id}"><a href="https://drive.google.com/${carpeta ? "drive/folders" : "file/d"}/${id}"><div class="flip-entry-title">${nombre}</div></a></div>`;
+  const marcas = Array.from({ length: 60 }, (_, i) => `1Marca${String(i).padStart(16, "0")}`);
+  const paginas = {
+    [RAIZ]: `<div class="flip-entries">${e(LOTE, "CNTND 1 (30/6/26)", true)}</div>`,
+    [LOTE]: `<div class="flip-entries">${marcas.map((m, i) => e(m, `MARCA ${i}`, true)).join("")}</div>`,
+  };
+  marcas.forEach((m, i) => (paginas[m] = `<div class="flip-entries">${e(`1Foto${String(i).padStart(15, "0")}`, `Zapato ${i} 40$.jpg`)}</div>`));
+  const cf = cloudflare((u) => {
+    if (u.startsWith("https://drive.google.com/embeddedfolderview")) return new Response(paginas[new URL(u).searchParams.get("id")] || "", { status: 200 });
+    return jpeg();
+  });
+  const base = baseDeMentira();
+  const env = { DB: base.DB, CATALOGO: "drive", DRIVE_CARPETA: RAIZ, DEEPSEEK_API_KEY: "x" };
+  const real = globalThis.fetch, log = console.log, err = console.error;
+  console.log = () => {}; console.error = () => {};
+  const vistas = [];
+  try {
+    for (let vez = 1; vez <= 4; vez++) {
+      globalThis.fetch = cf.fetchFalso;
+      cf.nuevaPasada();
+      D.olvidarCatalogoDeDrive();
+      vistas.push(await (await worker.fetch(new Request("https://bot.test/probar-drive"), env, { waitUntil() {} })).text());
+    }
+  } finally {
+    globalThis.fetch = real; console.log = log; console.error = err;
+  }
+  ok(cf.estado.revento === 0, "Cloudflare NUNCA dijo 'Too many subrequests' (antes reventaba aquí)", `máximo ${cf.estado.maximo}`);
+  ok(/CARPETAS \d+ de 62 leídas/.test(vistas[0]) && /recarga esta página/.test(vistas[0]), "la primera vez lee un trozo y dice cuánto falta", (vistas[0].match(/CARPETAS.*/) || [""])[0]);
+  ok(/CARPETAS 62 de 62 leídas/.test(vistas[vistas.length - 1]) && /60 productos leídos/.test(vistas[vistas.length - 1]), "recargando, termina: 62 carpetas y los 60 productos", (vistas[vistas.length - 1].match(/CARPETAS.*/) || [""])[0]);
+
+  // Y lo que lee un cliente sale de D1, sin tocar Drive.
+  const antes = cf.estado.conexiones;
+  globalThis.fetch = cf.fetchFalso;
+  cf.nuevaPasada();
+  D.olvidarCatalogoDeDrive();
+  const S = await src.cargar("shopify.js");
+  const r = await S.buscarProductos(env, "zapato 7", 10);
+  globalThis.fetch = real;
+  ok(r.productos.length === 1 && cf.estado.conexiones === 0, "una búsqueda del cliente sale de la base: CERO conexiones a Drive", `${cf.estado.conexiones} conexiones (antes ${antes})`);
+  src.limpiar();
+}
+
 titulo("un cliente manda una foto con poco margen: el cotejo se recorta, la respuesta SALE");
 {
   const SECRETO = "secreto-de-prueba";

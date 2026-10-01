@@ -69,7 +69,7 @@ import {
 } from "./ubicacion.js";
 import { gastoDelMes } from "./gasto.js";
 import { buscarProductos } from "./shopify.js";
-import { usaDrive, catalogoDeDrive, idDeCarpeta } from "./drive.js";
+import { usaDrive, catalogoDeDrive, idDeCarpeta, leerUnTrozoDeDrive } from "./drive.js";
 import { avisarAsesor } from "./aviso.js";
 import { anotar, leerRastro, hace } from "./rastro.js";
 import { conPresupuesto, limiteDeSubpeticiones } from "./presupuesto.js";
@@ -119,7 +119,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-01 (22) · lo de Invictus adaptado a El Emperador (Cashea, horario, sin envios, rescate, botas, categorias de Drive) + limite de 50 conexiones";
+const VERSION = "2026-10-01 (23) · drive: la carpeta se lee por partes y se guarda en D1 (sin Too many subrequests)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -846,7 +846,10 @@ async function atenderPeticion(request, env, ctx) {
           "El catálogo NO está en Drive: en wrangler.toml falta CATALOGO = \"drive\".\n"
         );
       }
-      const { productos, error, via, aviso } = await catalogoDeDrive(env);
+      // Cada vez que se abre, lee otro trozo de la carpeta (lo que quepa en
+      // las conexiones de esta pasada) y enseña cómo va.
+      const trozo = env.DB ? await leerUnTrozoDeDrive(env, { maximo: 35 }) : null;
+      const { productos, error, via, aviso, carpetasLeidas, carpetasTotal } = await catalogoDeDrive(env);
       if (error) return texto200(`No pude leer la carpeta de Drive: ${error}\n`);
 
       const sinPrecio = productos.filter((p) => !p.precio);
@@ -855,6 +858,14 @@ async function atenderPeticion(request, env, ctx) {
         [
           `CARPETA  ${idDeCarpeta(env.DRIVE_CARPETA)}`,
           `LEÍDA    ${via}`,
+          ...(carpetasTotal
+            ? [
+                `CARPETAS ${carpetasLeidas} de ${carpetasTotal} leídas` +
+                  (trozo?.leidas ? ` (${trozo.leidas} ahora mismo)` : "") +
+                  (carpetasLeidas < carpetasTotal ? " — recarga esta página para leer más, o espera al cron (cada 15 min)" : " — completa"),
+                ...(trozo?.error ? [`ERROR    ${trozo.error}`] : []),
+              ]
+            : []),
           ...(aviso ? [`AVISO    ${aviso}`] : []),
           `CATEGORÍAS ${[...new Set(productos.map((p) => p.categoria).filter(Boolean))].join(", ") || "(ninguna: las fotos están sueltas)"}`,
           `${productos.length} productos leídos` +
@@ -1042,6 +1053,13 @@ async function indexarLoQueFalte(env) {
   }
 
   const hasta = Date.now() + PRESUPUESTO_CRON_MS;
+
+  // La carpeta de Drive se lee por partes: primero un trozo (lo que quepa),
+  // y con lo que sobre de conexiones, el índice.
+  if (usaDrive(env)) {
+    const t = await leerUnTrozoDeDrive(env);
+    if (t.error) console.error("Drive:", t.error);
+  }
 
   for (let tanda = 1; tanda <= MAXIMO_TANDAS; tanda++) {
     const r = await indexarTanda(env, { cuantos: POR_TANDA_CRON });

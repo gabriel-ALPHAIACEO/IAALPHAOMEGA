@@ -38,6 +38,8 @@
 // Lo que no se pueda leer no se inventa: sin precio, la ficha sale sin
 // precio (y el bot lo manda al asesor si se lo preguntan).
 
+import { quedan as quedanConexiones } from "./presupuesto.js";
+
 const API = "https://www.googleapis.com/drive/v3/files";
 const CARPETA_MIME = "application/vnd.google-apps.folder";
 
@@ -314,12 +316,204 @@ async function recorrer(carpeta, listarUna) {
   return productos;
 }
 
+/* ── La carpeta, leída POR PARTES y guardada en D1 (1-oct-2026) ──────
+
+   QUÉ PASÓ. "/probar-drive: no se pudo conectar con Google Drive: Too many
+   subrequests". Leer la carpeta pública cuesta UNA conexión por subcarpeta,
+   y la de El Emperador (CATALOGO › CNTND › CALZADOS › marcas…) tiene más
+   subcarpetas que las 50 conexiones que Cloudflare deja por pasada. Leerla
+   entera de una vez ya no era posible, y con eso el bot se quedaba sin
+   catálogo — y cada mensaje de un cliente lo volvía a intentar.
+
+   AHORA:
+     · La carpeta se lee POR PARTES: unas pocas subcarpetas por pasada,
+       las que quepan en las conexiones libres (ver presupuesto.js). Lo
+       leído se guarda en D1, en UNA sola fila (un JSON con el árbol), así
+       que guardar cuesta una consulta, no una por foto.
+     · El cron sigue leyendo en cada pasada hasta tenerla entera, y después
+       la va refrescando de a poco (cada carpeta, cada REFRESCO_HORAS).
+     · Los mensajes de los clientes leen el catálogo DE D1: cero conexiones
+       a Drive. Solo si todavía no hay nada guardado se lee un trozo.
+     · /probar-drive enseña cuánto lleva leído y, cada vez que se abre, lee
+       otro trozo.
+   ─────────────────────────────────────────────────────────────────────── */
+
+const REFRESCO_HORAS = 2;
+// Subcarpetas que se leen como mucho en una pasada (si caben).
+const CARPETAS_POR_PASADA = 30;
+// Lo que se deja libre para el resto de la pasada (contestar, indexar…).
+const RESERVA_DRIVE = 10;
+
+const TABLA_DRIVE = `
+  CREATE TABLE IF NOT EXISTS drive_estado (
+    raiz TEXT PRIMARY KEY,
+    arbol TEXT NOT NULL,
+    actualizado INTEGER NOT NULL
+  )`;
+let tablaDriveLista = false;
+
+async function leerArbol(db, raiz) {
+  if (!tablaDriveLista) {
+    await db.prepare(TABLA_DRIVE).run();
+    tablaDriveLista = true;
+  }
+  const fila = await db.prepare("SELECT arbol FROM drive_estado WHERE raiz = ?").bind(raiz).first();
+  if (fila?.arbol) {
+    try {
+      return JSON.parse(fila.arbol);
+    } catch {}
+  }
+  return { carpetas: { [raiz]: { ruta: [], nivel: 0, leida: 0, fotos: [], hijas: [] } } };
+}
+
+async function guardarArbol(db, raiz, arbol) {
+  await db
+    .prepare(
+      "INSERT INTO drive_estado (raiz, arbol, actualizado) VALUES (?, ?, ?) " +
+        "ON CONFLICT(raiz) DO UPDATE SET arbol = excluded.arbol, actualizado = excluded.actualizado"
+    )
+    .bind(raiz, JSON.stringify(arbol), Date.now())
+    .run();
+}
+
+// Quita una carpeta que ya no está en Drive, con todo lo que tenía dentro.
+function quitarRama(arbol, id) {
+  const c = arbol.carpetas[id];
+  if (!c) return;
+  for (const h of c.hijas || []) quitarRama(arbol, h);
+  delete arbol.carpetas[id];
+}
+
+function progreso(arbol) {
+  const todas = Object.values(arbol.carpetas);
+  return { leidas: todas.filter((c) => c.leida).length, total: todas.length };
+}
+
+function productosDelArbol(arbol) {
+  const productos = [];
+  for (const c of Object.values(arbol.carpetas)) {
+    for (const f of c.fotos || []) {
+      const p = aProducto({ id: f.id, name: f.n, description: f.d || "" }, c.ruta || []);
+      if (p.titulo) productos.push(p);
+    }
+  }
+  return productos;
+}
+
+// Lee un trozo de la carpeta (lo que quepa) y lo guarda. Devuelve cuántas
+// subcarpetas leyó y cómo va.
+export async function leerUnTrozoDeDrive(env, { maximo = CARPETAS_POR_PASADA, soloNuevas = false } = {}) {
+  const raiz = idDeCarpeta(env.DRIVE_CARPETA);
+  if (!raiz || !env.DB) return { leidas: 0, error: raiz ? "" : "falta DRIVE_CARPETA" };
+
+  const arbol = await leerArbol(env.DB, raiz);
+  const vieja = Date.now() - REFRESCO_HORAS * 3600 * 1000;
+  const porLeer = () =>
+    Object.entries(arbol.carpetas)
+      .filter(([, c]) => !c.leida || (!soloNuevas && c.leida < vieja))
+      .sort(([, a], [, b]) => (a.leida ? 1 : 0) - (b.leida ? 1 : 0) || a.nivel - b.nivel || (a.leida || 0) - (b.leida || 0));
+
+  const clave = claveDeDrive(env);
+  const listarUna = async (id) => {
+    if (clave) {
+      try {
+        return { lista: await listar(env, id, clave), via: "API de Google Drive (DRIVE_API_KEY)" };
+      } catch (error) {
+        console.error("Drive con clave falló, sigo con la carpeta pública:", error.message);
+      }
+    }
+    return { lista: await listarPublica(id), via: "carpeta pública (sin clave)" };
+  };
+
+  let leidas = 0;
+  let error = "";
+  let via = "";
+  const intentadas = new Set();
+  // Se repite: al leer una carpeta aparecen sus subcarpetas, y si quedan
+  // conexiones se leen en la misma pasada.
+  for (;;) {
+    const libres = Math.max(0, quedanConexiones() - RESERVA_DRIVE);
+    const cupo = Math.min(maximo - intentadas.size, libres, A_LA_VEZ);
+    const grupo = porLeer().filter(([id]) => !intentadas.has(id)).slice(0, cupo);
+    if (!grupo.length) break;
+    grupo.forEach(([id]) => intentadas.add(id));
+    const resultados = await Promise.allSettled(grupo.map(([id]) => listarUna(id)));
+    resultados.forEach((r, j) => {
+      const [id, c] = grupo[j];
+      if (r.status !== "fulfilled") {
+        error = r.reason?.message || String(r.reason);
+        return;
+      }
+      via = r.value.via;
+      const lista = r.value.lista;
+      const hijasAhora = [];
+      c.fotos = [];
+      for (const a of lista) {
+        if (a.mimeType === CARPETA_MIME) {
+          if (c.nivel >= PROFUNDIDAD) continue;
+          hijasAhora.push(a.id);
+          const ruta = [...(c.ruta || []), a.name];
+          const ya = arbol.carpetas[a.id];
+          arbol.carpetas[a.id] = ya ? { ...ya, ruta, nivel: c.nivel + 1 } : { ruta, nivel: c.nivel + 1, leida: 0, fotos: [], hijas: [] };
+          continue;
+        }
+        if (!/^image\//.test(a.mimeType || "")) continue;
+        c.fotos.push({ id: a.id, n: a.name, ...(a.description ? { d: a.description } : {}) });
+      }
+      for (const vieja of c.hijas || []) if (!hijasAhora.includes(vieja)) quitarRama(arbol, vieja);
+      c.hijas = hijasAhora;
+      c.leida = Date.now();
+      arbol.carpetas[id] = c;
+      leidas++;
+    });
+  }
+
+  if (!intentadas.size) {
+    const p = progreso(arbol);
+    return { leidas: 0, carpetasLeidas: p.leidas, total: p.total, error: "" };
+  }
+
+  if (via) arbol.via = via;
+  if (error) arbol.error = error;
+  else delete arbol.error;
+  await guardarArbol(env.DB, raiz, arbol);
+  cache = null;
+  const p = progreso(arbol);
+  console.log(`Drive: leí ${leidas} carpeta(s); van ${p.leidas} de ${p.total}`);
+  return { leidas, carpetasLeidas: p.leidas, total: p.total, error };
+}
+
 export async function catalogoDeDrive(env) {
   const carpeta = idDeCarpeta(env.DRIVE_CARPETA);
   if (!carpeta) return { productos: [], error: "falta DRIVE_CARPETA en wrangler.toml (el enlace de la carpeta).", via: "" };
 
   if (cache && cache.carpeta === carpeta && cache.vence > Date.now()) return cache.datos;
 
+  // CON BASE DE DATOS (lo normal): el catálogo sale de D1, ya leído por
+  // partes. Solo si todavía no hay NADA leído, se lee un trozo ahora.
+  if (env.DB) {
+    let arbol = await leerArbol(env.DB, carpeta);
+    if (!progreso(arbol).leidas) {
+      await leerUnTrozoDeDrive(env, { soloNuevas: true });
+      arbol = await leerArbol(env.DB, carpeta);
+    }
+    const p = progreso(arbol);
+    const productos = productosDelArbol(arbol);
+    const datos = {
+      productos,
+      error: !p.leidas && arbol.error ? arbol.error : "",
+      via: arbol.via || "",
+      aviso: p.leidas < p.total ? `todavía leyendo la carpeta: ${p.leidas} de ${p.total} subcarpetas (el cron sigue solo)` : "",
+      carpetasLeidas: p.leidas,
+      carpetasTotal: p.total,
+    };
+    // Un minuto en memoria: suficiente para que una conversación no lea D1
+    // en cada paso, y corto para que lo nuevo del cron aparezca enseguida.
+    cache = { carpeta, vence: Date.now() + 60 * 1000, datos };
+    return datos;
+  }
+
+  // SIN BASE DE DATOS (pruebas sueltas): la carpeta entera, de una vez.
   const clave = claveDeDrive(env);
   let productos = null;
   let via = "";
@@ -342,9 +536,6 @@ export async function catalogoDeDrive(env) {
     } catch (error) {
       console.error("Catálogo de Drive:", error.message);
       const fallo = { productos: [], error: aviso ? `${error.message} (Antes: ${aviso})` : error.message, via: "" };
-      // Un fallo se recuerda UN minuto: si no, cada mensaje volvería a
-      // recorrer todas las carpetas para fallar otra vez, y el cliente
-      // esperaría por nada.
       cache = { carpeta, vence: Date.now() + 60 * 1000, datos: fallo };
       return fallo;
     }
@@ -466,4 +657,5 @@ function sinInternos({ titulo, precio, imagen, url }) {
 // Solo para las pruebas: olvidar lo leído.
 export function olvidarCatalogoDeDrive() {
   cache = null;
+  tablaDriveLista = false;
 }
