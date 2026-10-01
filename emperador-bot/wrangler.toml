@@ -1,87 +1,63 @@
-# ═══════════════════════════════════════════════════════════════════════
-#  EL EMPERADOR — calzado. Bot de Instagram.
+# ---------------------------------------------------------------------
+# EL EMPERADOR — wrangler.toml
 #
-#  CINCO COSAS QUE TIENES QUE CAMBIAR ANTES DE QUE ESTO FUNCIONE.
-#  Todas estan marcadas abajo con MAYUSCULAS, asi no se pasan por alto.
+# Lo que hace que este Worker sea de El Emperador y no de otra tienda: su
+# nombre, su base de datos, su IA (Gemini) y sus datos. Este archivo NO se
+# copia de Invictus ni a Invictus: cada tienda tiene el suyo.
 #
-#   1. database_id     <- SIN ESTO EL DEPLOY NI ARRANCA. Se saca creando
-#                         la base:
-#                           npx.cmd wrangler d1 create emperador-bot-db
-#                         Ese comando imprime el id. Si ya existe, sacalo
-#                         con:  npx.cmd wrangler d1 list
-#                         Si falla por red, creala en dash.cloudflare.com
-#                         -> Storage & Databases -> D1.
-#                         (La tabla se crea sola en el primer mensaje: la
-#                         migracion ya no hace falta correrla a mano.)
-#   2. SHOPIFY_TIENDA  <- el dominio .myshopify.com de EL EMPERADOR.
-#                         NO el de Invictus: son dos tiendas distintas.
-#   3. URL_CATALOGO    <- el enlace de la tienda, para el boton "Ver
-#                         catalogo".
-#   4. WHATSAPP        <- el numero de EL EMPERADOR, para el boton
-#                         "Comprar" de cada ficha.
-#   5. META_VERIFY_TOKEN <- te lo inventas tu y lo escribes IGUAL en el
-#                         panel de Meta. Abajo hay uno puesto de ejemplo.
+# src/ es casi igual al de Invictus, con una diferencia a propósito: El
+# Emperador habla con GEMINI (gemini.js), no con OpenAI.
 #
-#  Y aparte los secretos, que NO van en este archivo: estan al final.
-# ═══════════════════════════════════════════════════════════════════════
+# Las lineas marcadas con PENDIENTE hay que rellenarlas. Para comprobar
+# que el archivo esta completo antes de desplegar:
+#   node pruebas/correr.mjs      (incluye config.mjs, que revisa ESTE archivo)
+# ---------------------------------------------------------------------
 
+# El nombre del Worker. Tiene que ser DISTINTO al de Invictus, o el
+# despliegue pisaria el bot que ya funciona.
 name = "emperador-bot"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 
-# Permite importar los prompts como texto. No lo toques.
+# Permite importar los prompts como texto
 [[rules]]
 type = "Text"
 globs = ["**/*.txt"]
 fallthrough = true
 
-# --- Base de datos (D1) - la memoria del bot entre mensajes -------------
-# Sin esto el bot no recuerda nada de un mensaje al siguiente (vuelve a
-# saludar siempre, pierde el hilo de "y en negro?") y tampoco funciona la
-# pausa cuando un asesor contesta a mano.
+# --- Base de datos (D1) - la memoria del bot entre mensajes -----------
+# Es una base PROPIA de El Emperador: compartirla con Invictus mezclaria
+# las conversaciones y las pausas de asesor de las dos tiendas.
 #
-# TIENE QUE SER UNA BASE PROPIA. Compartir la de Invictus mezclaria las
-# conversaciones de las dos tiendas en la misma tabla.
+# La tabla y las columnas se crean solas con el primer mensaje que atienda
+# el bot. No hace falta correr migraciones.
 [[d1_databases]]
 binding = "DB"
 database_name = "emperador-bot-db"
-database_id = "PEGA_AQUI_EL_DATABASE_ID"   # <-- (1) SIN ESTO EL DEPLOY FALLA
+database_id = "8dae7a41-4c7a-490c-97af-461dcd2350f7"
+
+# --- El indice del catalogo se llena solo ------------------------------
+# Cloudflare llama al Worker cada 15 minutos y este cataloga los productos
+# que le falten (con el modelo de IMAGENES de Gemini, ver abajo). Es lo
+# que deja al cotejo comparar la foto del cliente contra TODO el catalogo.
+#
+# Mientras SHOPIFY_TIENDA siga en PENDIENTE no hay nada que catalogar: la
+# pasada no hace nada y no gasta. En cuanto conectes Shopify, se llena
+# solo en un par de horas. Para ver como va: /estado o /indexar-catalogo
+[triggers]
+crons = ["*/15 * * * *"]
 
 [vars]
-# Solo para que /estado imprima el comando correcto cuando algo falla.
+# Solo para que /estado imprima los comandos ya escritos. Tiene que ser
+# el mismo database_name de arriba.
 D1_NOMBRE = "emperador-bot-db"
 
-# Enlace que se le manda al cliente cuando no hay productos que mostrar.
-URL_CATALOGO = "https://CAMBIA-ESTO.myshopify.com/"   # <-- (3)
-
-# Numero de WhatsApp de la tienda, para el boton "Comprar" de cada ficha.
-# En formato internacional, SIN el +, sin espacios y sin guiones:
-#   Venezuela  0412-123 45 67  ->  "584121234567"
-# Si lo dejas vacio, las fichas salen solo con "Ver producto".
-WHATSAPP = "PON_AQUI_TU_NUMERO"   # <-- (4)
-
-# Dominio de la tienda, el que termina en .myshopify.com (sin https://)
-SHOPIFY_TIENDA = "CAMBIA-ESTO.myshopify.com"   # <-- (2)
-
-# --- Meta es el unico canal --------------------------------------------
-# El webhook atiende texto, fotos, respuestas a historias y ecos (para la
-# pausa automatica). Todo lo demas -los "visto", las reacciones, los
-# comentarios- se descarta sin gastar nada.
-#
-#   "todo"   atiende todo tipo de mensaje  <- por defecto
-#   "off"    nada; el webhook queda desactivado
-META_MODO = "todo"
-
-# El que TU te inventas y escribes IGUAL en el panel de Meta, en la
-# casilla "Identificador de verificacion" al dar de alta el webhook.
-META_VERIFY_TOKEN = "emperador2026"   # <-- (5)
-
-# --- La IA: TODO con Gemini, con DOS modelos -------------------------
+# --- La IA: TODO con Gemini, con DOS modelos ---------------------------
 # Como Invictus con OpenAI (uno redacta, otro mira las fotos), pero aqui
 # todo es Gemini. OpenAI no se usa: no hace falta su clave.
 PROVEEDOR = "gemini"
 
-# El que REDACTA las respuestas de texto. Barato y rapido.
+# El que hace SOLO el TEXTO: redacta las respuestas. Barato y rapido.
 GEMINI_MODELO = "gemini-3.1-flash-lite"
 
 # El que hace SOLO las IMAGENES: identifica el zapato de la foto del
@@ -89,49 +65,63 @@ GEMINI_MODELO = "gemini-3.1-flash-lite"
 # si se reconoce, asi que va uno mas capaz que el de texto.
 #   "gemini-3-flash"    el doble que el de texto, el mejor por lo que cuesta
 #   "gemini-3.5-flash"  mas potente, pero cada foto saldria mas cara que en
-#                       gpt-4o (Gemini cobra un fijo alto por imagen)
+#                       gpt-4o (Gemini cobra un fijo alto por cada imagen)
 GEMINI_MODELO_VISION = "gemini-3-flash"
 
-# --- El cotejo visual ---------------------------------------------------
-# Cuando el cliente responde a una historia o manda una foto y el zapato
+# --- La tienda ----------------------------------------------------------
+# PENDIENTE: el dominio .myshopify.com de El Emperador, sin https://
+SHOPIFY_TIENDA = "PENDIENTE.myshopify.com"
+
+# PENDIENTE: enlace de la tienda online. Es el que se le manda al cliente
+# cuando pide el catalogo o no hay nada que mostrarle.
+URL_CATALOGO = "https://PENDIENTE.myshopify.com/"
+
+# WhatsApp de El Emperador, para el boton "Comprar" de cada ficha. El "+"
+# no molesta: el bot deja solo los numeros.
+WHATSAPP = "+584224848573"
+
+# --- Meta (Instagram) ----------------------------------------------------
+#   "todo"   atiende todo tipo de mensaje  <- por defecto
+#   "off"    nada; el webhook queda desactivado
+META_MODO = "todo"
+
+# El que TU te inventas y escribes igual en el panel de Meta al dar de alta
+# el webhook.
+META_VERIFY_TOKEN = "emperador2026"
+
+# --- El cotejo visual ----------------------------------------------------
+# Cuando el cliente manda una foto o responde a una historia y el zapato
 # no aparece buscando por su nombre, el bot compara la foto contra las
-# fotos del catalogo hasta encontrarlo.
-#
-# EL LIMITE NO ES EL CATALOGO, ES EL CUPO DE LA IA. Por eso el barrido
-# mira unos POCOS productos por mensaje. Lo que hace que igual se pueda
-# mirar TODO el catalogo es el indice: abrir /indexar-catalogo una vez y
-# repetir hasta que diga LISTO.
+# fotos del catalogo. Con el indice lleno mira el catalogo entero; sin
+# indice, unos pocos productos por mensaje.
+#   "si"  activado   <- por defecto        "no"  apagado
 COTEJO_BARRIDO = "si"
 COTEJO_LOTES = "2"
 COTEJO_MAXIMO = "600"
 
-# Cuantas horas se calla el bot despues de que un asesor le escribe a un
-# cliente a mano desde la app de Instagram (para no hablar por encima).
-#
-# SE CUENTA DESDE EL ULTIMO MENSAJE DEL ASESOR: cada vez que el asesor
-# escribe, el reloj vuelve a empezar. Admite decimales: 0.5 = 30 minutos.
-PAUSA_HORAS = "4"
+# --- El asesor ----------------------------------------------------------
+# Horas que se calla el bot despues de que un asesor le escribe a mano a un
+# cliente. Se cuenta desde el ULTIMO mensaje del asesor. Admite decimales:
+#   0.5 = 30 minutos    0.25 = 15 minutos
+PAUSA_HORAS = "1"
 
-# La frase con la que el asesor le DEVUELVE la conversacion al bot, desde
-# el mismo chat de Instagram. Basta con que aparezca dentro del mensaje.
-# El cliente la lee, asi que tiene que sonar a despedida normal. Lo comodo
-# es guardarla como Respuesta guardada de Instagram.
+# La frase con la que el asesor le DEVUELVE la conversacion al bot desde
+# el mismo chat. Basta con que aparezca dentro del mensaje. El cliente la
+# lee, asi que tiene que sonar a despedida normal, por ejemplo:
+#   "Te dejo con la asistente virtual, ella te sigue ayudando 😊"
 FRASE_DESPAUSAR = "te dejo con la asistente"
 
 # ------------------------------------------------------------------------
-# Los secretos NO van aqui. Se cargan uno por uno con:
+# SECRETOS - NUNCA van en este archivo. Se cargan uno por uno, ESTANDO
+# DENTRO DE LA CARPETA DE EL EMPERADOR (si no, se le cargan a Invictus):
 #
-#   npx.cmd wrangler secret put GEMINI_API_KEY
-#   npx.cmd wrangler secret put SHOPIFY_TOKEN
-#   npx.cmd wrangler secret put SLACK_WEBHOOK
-#   npx.cmd wrangler secret put META_APP_SECRET_IG
-#   npx.cmd wrangler secret put IG_TOKEN
+#   npx.cmd wrangler secret put GEMINI_API_KEY     <- la de Google AI Studio
+#   npx.cmd wrangler secret put SHOPIFY_TOKEN      <- PROPIO de esta tienda
+#   npx.cmd wrangler secret put META_APP_SECRET    <- PROPIO de esta tienda
+#   npx.cmd wrangler secret put META_APP_SECRET_IG <- el del producto Instagram
+#   npx.cmd wrangler secret put IG_TOKEN           <- PROPIO de esta tienda
+#   npx.cmd wrangler secret put SLACK_WEBHOOK      (puede ser el mismo)
 #
-# OJO CON META_APP_SECRET_IG: Meta tiene DOS claves y las dos miden 32
-# caracteres, asi que no se distinguen a ojo. La que sirve es la del
-# producto Instagram, NO la de Configuracion -> Basica.
-#
-# Y OJO CON EL SHOPIFY_TOKEN: tiene que ser el de la Shopify de EL
-# EMPERADOR. Con el de Invictus el bot mostraria el catalogo de la otra
-# tienda sin dar ningun error.
+# OpenAI no se usa. Si tienes su clave cargada aqui, puedes quitarla:
+#   npx.cmd wrangler secret delete OPENAI_API_KEY
 # ------------------------------------------------------------------------

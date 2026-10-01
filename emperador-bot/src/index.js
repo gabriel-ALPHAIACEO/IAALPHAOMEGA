@@ -72,7 +72,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-01 (14) · /probar-texto y /probar-imagen dicen qué modelo atendió y cuánto tardó";
+const VERSION = "2026-10-01 (15) · wrangler.toml con Gemini (dos modelos) y el cron; el cron no molesta sin Shopify";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -868,6 +868,13 @@ const POR_TANDA_CRON = 40;
 const MAXIMO_TANDAS = 5;
 
 async function indexarLoQueFalte(env) {
+  // Sin tienda conectada no hay nada que catalogar. Antes de esto, el cron
+  // probaba Shopify cada 15 minutos y llenaba el registro de errores.
+  if (!env.SHOPIFY_TIENDA || /PENDIENTE|CAMBIA-ESTO/i.test(String(env.SHOPIFY_TIENDA))) {
+    console.log("Indexación automática: SHOPIFY_TIENDA sigue en PENDIENTE, no hay catálogo que mirar");
+    return;
+  }
+
   const hasta = Date.now() + PRESUPUESTO_CRON_MS;
 
   for (let tanda = 1; tanda <= MAXIMO_TANDAS; tanda++) {

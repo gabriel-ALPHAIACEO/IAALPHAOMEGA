@@ -23,6 +23,7 @@ const SUITES = [
   ["corpus.mjs", "que los guardianes no alteren respuestas buenas"],
   ["gemini.mjs", "el adaptador de Gemini y que no se active solo"],
   ["cotejo.mjs", "que llegue al modelo el zapato del color correcto"],
+  ["config.mjs", "que el wrangler.toml esté completo: cron, Gemini con dos modelos, sin OpenAI"],
 ];
 
 let roto = false;
