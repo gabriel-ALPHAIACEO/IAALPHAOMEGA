@@ -25,6 +25,7 @@ const SUITES = [
   ["cotejo.mjs", "que llegue al modelo el zapato del color correcto"],
   ["config.mjs", "que el wrangler.toml esté completo: cron, Gemini con dos modelos, sin OpenAI"],
   ["drive.mjs", "el catálogo desde Google Drive: nombres, códigos, precios y búsqueda"],
+  ["instagram.mjs", "/probar-instagram: en qué paso se corta la respuesta y qué hacer"],
 ];
 
 let roto = false;

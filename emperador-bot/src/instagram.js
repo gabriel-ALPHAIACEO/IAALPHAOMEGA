@@ -3,6 +3,8 @@
 // ver README — el problema de fondo era que dos apps atendían el mismo
 // webhook de Meta por separado; con una sola app ese problema no existe).
 
+import { anotar } from "./rastro.js";
+
 const GRAFO = "https://graph.instagram.com/v23.0";
 
 /* ── Firma ───────────────────────────────────────────────────────── */
@@ -60,16 +62,57 @@ async function enviar(env, igsid, mensaje) {
     });
   } catch (error) {
     console.error("No se pudo enviar a Instagram:", error.message);
+    await anotar(env, "envio_fallido", `sin conexión: ${error.message}`);
     return "";
   }
 
   if (!respuesta.ok) {
-    console.error("Instagram rechazó el envío:", respuesta.status, await respuesta.text());
+    const detalle = await respuesta.text();
+    console.error("Instagram rechazó el envío:", respuesta.status, detalle);
+    await anotar(env, "envio_fallido", `Instagram respondió ${respuesta.status}: ${detalle}`);
     return "";
   }
 
   const datos = await respuesta.json();
+  await anotar(env, "envio_ok", igsid);
   return datos.message_id || ""; // lo guardamos para reconocer nuestro propio eco
+}
+
+/* ── Diagnóstico: de quién es el token y si la cuenta está suscrita ── */
+
+async function preguntar(env, ruta, metodo = "GET") {
+  try {
+    const respuesta = await fetch(`${GRAFO}${ruta}`, {
+      method: metodo,
+      headers: { authorization: `Bearer ${env.IG_TOKEN}` },
+    });
+    const texto = await respuesta.text();
+    let datos = null;
+    try {
+      datos = JSON.parse(texto);
+    } catch {}
+    return { ok: respuesta.ok, estado: respuesta.status, datos, texto: texto.slice(0, 300) };
+  } catch (error) {
+    return { ok: false, estado: 0, datos: null, texto: error.message };
+  }
+}
+
+// La cuenta a la que pertenece IG_TOKEN. Si sale la de OTRA tienda, el bot
+// contesta desde esa cuenta (o no contesta): el token es el de otra.
+export function cuentaDelToken(env) {
+  return preguntar(env, "/me?fields=user_id,username,name,account_type");
+}
+
+// Sin esta suscripción Meta NO manda los mensajes de esta cuenta al webhook,
+// aunque el webhook esté verificado en el panel. Es el paso que más se olvida.
+export function suscripcionDeLaCuenta(env) {
+  return preguntar(env, "/me/subscribed_apps");
+}
+
+export const CAMPOS_DEL_WEBHOOK = "messages,messaging_postbacks";
+
+export function suscribirLaCuenta(env) {
+  return preguntar(env, `/me/subscribed_apps?subscribed_fields=${CAMPOS_DEL_WEBHOOK}`, "POST");
 }
 
 export function enviarTexto(env, igsid, texto) {
