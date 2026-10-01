@@ -12,6 +12,7 @@
 // OpenAI devuelve en cada respuesta cuántos tokens gastó de verdad (el
 // campo "usage"). Hasta ahora se tiraba a la basura. Acá se guarda, se
 // convierte a dólares con la tarifa de cada modelo, y se suma por mes.
+// (Vale igual para DeepSeek, que también informa su "usage".)
 //
 // LO QUE SE VE EN /estado: los tokens y los dólares del mes en curso,
 // partidos por modelo, y a qué ritmo va — "llevas $4,10 en 9 días, el mes
@@ -35,24 +36,13 @@ const TARIFAS = {
   "gpt-4o": { entrada: 2.5, cacheada: 1.25, salida: 10 },
   "gpt-4o-mini": { entrada: 0.15, cacheada: 0.075, salida: 0.6 },
 
-  // GEMINI (precios consultados el 29-sep-2026).
-  //
-  // "cacheada" va igual que "entrada" a propósito: Gemini sí tiene caché de
-  // contexto con descuento, pero no se confirmó cuánto. Cobrarlo entero es
-  // la suposición prudente — el gasto real será igual o MENOR que el que
-  // enseña /estado, nunca mayor. Es preferible a que la cuenta se quede
-  // corta y el presupuesto se pase sin avisar.
-  //
-  // OJO: en Gemini, un modelo más caro NO es solo "un poco más caro". Cada
-  // imagen cuesta ~1.120 tokens pase lo que pase, así que el salto de
-  // precio se multiplica por todas las fotos del cotejo. Con 3.5 Flash una
-  // foto sale MÁS cara que en gpt-4o. Ver gemini.js.
-  "gemini-3.1-flash-lite": { entrada: 0.25, cacheada: 0.25, salida: 1.5 },
-  "gemini-3.5-flash": { entrada: 1.5, cacheada: 1.5, salida: 9 },
-  "gemini-3-flash": { entrada: 0.5, cacheada: 0.5, salida: 3 },
-  // Google lo retira el 16-oct-2026. Está por si alguna tienda lo tenía
-  // puesto, no para empezar a usarlo.
-  "gemini-2.5-flash-lite": { entrada: 0.1, cacheada: 0.1, salida: 0.4 },
+  // DEEPSEEK (1-oct-2026). Cobra distinto según la hora de China: en hora
+  // pico el doble que fuera de ella. Aquí va el precio de HORA PICO a
+  // propósito, por la misma razón que arriba: que /estado nunca enseñe menos
+  // de lo que de verdad se gasta. La entrada "cacheada" (lo que DeepSeek ya
+  // vio hace poco, como los prompts fijos) es casi gratis.
+  "deepseek-flash": { entrada: 0.3, cacheada: 0.006, salida: 1.2 },
+  "deepseek-v4-pro": { entrada: 1.32, cacheada: 1.32, salida: 3.96 },
 };
 
 // Un modelo que no esté en la tabla se cobra como el grande. Es la

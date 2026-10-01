@@ -1,4 +1,4 @@
-// EL wrangler.toml DE EL EMPERADOR: completo, con Gemini, sin OpenAI.
+// EL wrangler.toml DE EL EMPERADOR: completo, todo con DeepSeek.
 //
 // Lee el wrangler.toml de AL LADO de pruebas/: en la carpeta del dueño,
 // revisa SU archivo, el que de verdad va a Cloudflare. Pasado de Invictus
@@ -44,21 +44,24 @@ ok(/binding\s*=\s*"DB"/.test(toml) && /database_id\s*=\s*"[0-9a-f-]{36}"/.test(t
 const bloque = toml.split(/^\[vars\]\s*$/m)[1]?.split(/^\[/m)[0] || "";
 const vars = new Map([...bloque.matchAll(/^([A-Z0-9_]+)\s*=\s*"([^"]*)"/gm)].map((m) => [m[1], m[2]]));
 
-titulo("la IA: todo con Gemini, dos modelos, nada de OpenAI");
-ok((vars.get("PROVEEDOR") || "gemini") === "gemini", "PROVEEDOR es gemini");
-ok(vars.get("GEMINI_MODELO"), "GEMINI_MODELO (el de texto) está puesto", vars.get("GEMINI_MODELO"));
-ok(vars.get("GEMINI_MODELO_VISION"), "GEMINI_MODELO_VISION (el de imágenes) está puesto", vars.get("GEMINI_MODELO_VISION"));
-ok(vars.get("GEMINI_MODELO") !== vars.get("GEMINI_MODELO_VISION"), "son DOS modelos distintos");
+titulo("la IA: todo con DeepSeek, un modelo para texto y otro para imágenes");
+ok((vars.get("PROVEEDOR") || "deepseek") === "deepseek", "PROVEEDOR es deepseek");
+ok(vars.get("DEEPSEEK_MODELO"), "DEEPSEEK_MODELO (el de texto) está puesto", vars.get("DEEPSEEK_MODELO"));
+ok(vars.get("DEEPSEEK_MODELO_VISION"), "DEEPSEEK_MODELO_VISION (el de imágenes) está puesto", vars.get("DEEPSEEK_MODELO_VISION"));
+ok(vars.get("DEEPSEEK_MODELO") !== vars.get("DEEPSEEK_MODELO_VISION"), "son DOS modelos distintos");
+ok(vars.get("DEEPSEEK_MODELO_VISION") === "deepseek-flash", "el de imágenes es deepseek-flash (el que ve fotos)", vars.get("DEEPSEEK_MODELO_VISION"));
+const deGemini = [...vars.keys()].filter((v) => /^GEMINI_/.test(v));
+ok(deGemini.length === 0, "ninguna variable de Gemini", deGemini.join(", "));
 const deOpenAI = [...vars.keys()].filter((v) => /^OPENAI_/.test(v));
 ok(deOpenAI.length === 0, "ninguna variable de OpenAI", deOpenAI.join(", "));
-ok(!/secret put OPENAI_API_KEY/.test(toml) && /secret put GEMINI_API_KEY/.test(toml), "la clave que se pide cargar es la de Gemini");
+ok(!/secret put (OPENAI|GEMINI)_API_KEY/.test(toml) && /secret put DEEPSEEK_API_KEY/.test(toml), "la clave que se pide cargar es la de DeepSeek");
 
 titulo("ninguna variable de más");
 const leidas = new Set();
 for (const f of listaDeFuentes()) for (const m of fuente(f).matchAll(/env\.([A-Z][A-Z0-9_]+)/g)) leidas.add(m[1]);
 const sobran = [...vars.keys()].filter((v) => !leidas.has(v));
 ok(sobran.length === 0, "no hay variables que el código no lee (TIENDA, por ejemplo)", sobran.join(", "));
-const SECRETOS = ["GEMINI_API_KEY", "OPENAI_API_KEY", "SHOPIFY_TOKEN", "SLACK_WEBHOOK", "META_APP_SECRET", "META_APP_SECRET_IG", "IG_TOKEN"];
+const SECRETOS = ["DEEPSEEK_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "SHOPIFY_TOKEN", "SLACK_WEBHOOK", "META_APP_SECRET", "META_APP_SECRET_IG", "IG_TOKEN"];
 const secretosAqui = [...vars.keys()].filter((v) => SECRETOS.includes(v));
 ok(secretosAqui.length === 0, "ningún secreto escrito en el archivo", secretosAqui.join(", "));
 

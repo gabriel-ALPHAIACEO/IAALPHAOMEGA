@@ -172,10 +172,10 @@ titulo("SIN CLAVE: lee la carpeta pública, como cualquiera con el enlace");
   ok(Object.keys(b.productos[0]).sort().join() === "imagen,precio,titulo,url", "la ficha sigue con la forma de Shopify (sin el nombre interno)");
 }
 
-titulo("la clave de Gemini NO se usa para Drive (Google la rechaza)");
+titulo("una clave de IA cargada NO se usa para Drive (Google la rechaza)");
 {
-  const r = await conPublica(() => D.catalogoDeDrive({ ...envSinClave, GEMINI_API_KEY: "clave-de-gemini" }));
-  ok(!r.error && /pública/.test(r.via), "con solo GEMINI_API_KEY lee la carpeta pública, sin pedirle nada a la API", r.via);
+  const r = await conPublica(() => D.catalogoDeDrive({ ...envSinClave, DEEPSEEK_API_KEY: "clave-de-ia" }));
+  ok(!r.error && /pública/.test(r.via), "con solo la clave de la IA lee la carpeta pública, sin pedirle nada a la API", r.via);
 }
 
 titulo("con una DRIVE_API_KEY que falla, se vuelve a la carpeta pública");

@@ -28,7 +28,7 @@
 // vivía en KV. Si ves un memoria.js o un nombre.js sueltos, son de esa otra
 // versión y NO van con este código — mezclarlos rompe el arranque.
 
-import { responderTexto, identificarEnImagen, quienAtiende } from "./ia.js";
+import { responderTexto, identificarEnImagen, quienAtiende, claveDe } from "./ia.js";
 import { revisarPagos, metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
 import { gastoDelMes } from "./gasto.js";
 import { buscarProductos } from "./shopify.js";
@@ -78,7 +78,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-01 (19) · instagram: /probar-instagram dice en que paso se corta la respuesta";
+const VERSION = "2026-10-01 (20) · deepseek: un modelo para texto y otro para imagenes, todo con DeepSeek";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -504,11 +504,13 @@ export default {
         indexados = -1;
       }
 
-      // Un bot que corre entero con Gemini no tiene por qué enseñar la
-      // configuración de OpenAI: sobra, y una alarma que no aplica es
-      // ruido que tapa las que sí.
-      // En El Emperador, Gemini es lo normal aunque PROVEEDOR no esté puesto.
-      const todoGemini = String(env.PROVEEDOR || "gemini").toLowerCase() === "gemini";
+      // LA CLAVE Y LOS MODELOS DEL QUE DE VERDAD ATIENDE. Enseñar
+      // "OPENAI_API_KEY FALTA" en un bot que no usa OpenAI es una alarma
+      // falsa: da un susto y esconde lo que sí importa mirar.
+      const tareas = ["texto", "vision", "indice"];
+      const clavesIA = [...new Set(tareas.map((t) => claveDe(env, t)))];
+      const deTexto = quienAtiende(env, "texto").proveedor;
+      const deFotos = quienAtiende(env, "vision").proveedor;
 
       const gasto = await gastoDelMes(env);
 
@@ -520,16 +522,9 @@ export default {
           "",
           "SECRETOS",
           // LA CLAVE DEL QUE DE VERDAD ATIENDE. Enseñar "OPENAI_API_KEY
-          // FALTA" en un bot que corre entero con Gemini es una alarma
+          // FALTA" en un bot que corre entero con DeepSeek es una alarma
           // falsa: da un susto y esconde lo que sí importa mirar.
-          ...(todoGemini
-            ? [`  GEMINI_API_KEY      ${secreto("GEMINI_API_KEY")}`]
-            : [
-                `  OPENAI_API_KEY      ${secreto("OPENAI_API_KEY")}`,
-                ...(env.PROVEEDOR_VISION === "gemini"
-                  ? [`  GEMINI_API_KEY      ${secreto("GEMINI_API_KEY")}   (para las fotos)`]
-                  : []),
-              ]),
+          ...clavesIA.map((c) => `  ${c.padEnd(19)} ${secreto(c)}`),
           `  SHOPIFY_TOKEN       ${secreto("SHOPIFY_TOKEN")}`,
           `  SLACK_WEBHOOK       ${secreto("SLACK_WEBHOOK")}`,
           `  META_APP_SECRET     ${secreto("META_APP_SECRET")}   (la de Facebook)`,
@@ -547,33 +542,15 @@ export default {
           `  WHATSAPP            ${String(env.WHATSAPP || "").replace(/\D/g, "") ? "puesto" : "sin poner (no sale el botón Comprar)"}`,
           `  PAUSA_HORAS         ${env.PAUSA_HORAS || `${PAUSA_HORAS_POR_DEFECTO} (por defecto)`}   (se cuenta desde el ULTIMO mensaje del asesor)`,
           `  FRASE_DESPAUSAR     "${fraseDespausar(env)}"   (el asesor la manda en el chat y el bot vuelve)`,
-          ...(todoGemini
-            ? []
-            : [
-                `  OPENAI_MODELO       ${env.OPENAI_MODELO || "gpt-4o-mini (por defecto)"}   (el que redacta las respuestas)`,
-                ...(env.PROVEEDOR_VISION === "gemini"
-                  ? []
-                  : [`  OPENAI_MODELO_VISION ${env.OPENAI_MODELO_VISION || "gpt-4o (por defecto)"}   (el que identifica las fotos)`]),
-              ]),
-          `  PROVEEDOR           ${todoGemini ? "gemini  ← TODO va a Gemini (OpenAI no se usa)" : env.PROVEEDOR_VISION === "gemini" ? "openai, pero las FOTOS van a Gemini" : "openai"}`,
-          ...(todoGemini || env.PROVEEDOR_VISION === "gemini"
-            ? [
-                `  GEMINI_MODELO        ${env.GEMINI_MODELO || "gemini-3.1-flash-lite (por defecto)"}   (redacta el texto)`,
-                `  GEMINI_MODELO_VISION ${env.GEMINI_MODELO_VISION || "gemini-3-flash (por defecto)"}   (mira las fotos)`,
-                `  GEMINI_API_KEY       ${secreto("GEMINI_API_KEY")}`,
-                "    Quién hace cada cosa:",
-                `      Texto (redactar las respuestas)    → ${quienAtiende(env, "texto").proveedor}, ${quienAtiende(env, "texto").modelo}`,
-                `      Fotos (mirar, cotejar)             → ${quienAtiende(env, "vision").proveedor}, ${quienAtiende(env, "vision").modelo}`,
-                `      Índice (catalogar el estante)      → ${quienAtiende(env, "indice").proveedor}, ${quienAtiende(env, "indice").modelo}`,
-                todoGemini
-                  ? "    Un modelo SOLO para el texto y otro SOLO para las imágenes\n" +
-                    "    (la foto del cliente, el cotejo y el índice). Una sola clave."
-                  : "    Solo las fotos van a Gemini; el texto sigue en OpenAI.",
-              ]
-            : []),
+          `  PROVEEDOR           ${deTexto === deFotos ? `${deTexto}  ← TODO (texto y fotos) va a ${deTexto}` : `${deTexto} el texto, pero las FOTOS van a ${deFotos}`}`,
+          "    Quién hace cada cosa:",
+          `      Texto (redactar las respuestas)    → ${deTexto}, ${quienAtiende(env, "texto").modelo}`,
+          `      Fotos (mirar, cotejar)             → ${deFotos}, ${quienAtiende(env, "vision").modelo}`,
+          `      Índice (catalogar el estante)      → ${quienAtiende(env, "indice").proveedor}, ${quienAtiende(env, "indice").modelo}`,
+          "    Los modelos se cambian en wrangler.toml, sin tocar el código.",
           `  COTEJO_BARRIDO      ${env.COTEJO_BARRIDO === "no" ? "no (apagado)" : "si"}   (mirar el catálogo cuando el nombre no acierta)`,
           "",
-          `GASTO DE ${todoGemini ? "GEMINI" : "IA"} ESTE MES — medido, no estimado`,
+          `GASTO DE IA ESTE MES (${[...new Set([deTexto, deFotos])].join(" + ")}) — medido, no estimado`,
           ...(gasto
             ? [
                 ...gasto.filas.map(
@@ -742,7 +719,7 @@ export default {
       if (!salida) {
         return texto200(
           `La IA de texto (${quienAtiende(env, "texto").proveedor}, ${quienAtiende(env, "texto").modelo}) no respondió.\n\n` +
-            "Casi siempre es la clave (GEMINI_API_KEY), el saldo, o un nombre de\n" +
+            `Casi siempre es la clave (${claveDe(env, "texto")}), el saldo, o un nombre de\n` +
             "modelo que tu cuenta no tiene. En `wrangler tail` sale el motivo exacto.\n"
         );
       }

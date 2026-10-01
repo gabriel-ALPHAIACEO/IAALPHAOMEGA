@@ -2,11 +2,11 @@
 # EL EMPERADOR — wrangler.toml
 #
 # Lo que hace que este Worker sea de El Emperador y no de otra tienda: su
-# nombre, su base de datos, su IA (Gemini) y sus datos. Este archivo NO se
+# nombre, su base de datos, su IA (DeepSeek) y sus datos. Este archivo NO se
 # copia de Invictus ni a Invictus: cada tienda tiene el suyo.
 #
 # src/ es casi igual al de Invictus, con una diferencia a propósito: El
-# Emperador habla con GEMINI (gemini.js), no con OpenAI.
+# Emperador habla con DEEPSEEK (deepseek.js), no con OpenAI.
 #
 # Las lineas marcadas con PENDIENTE hay que rellenarlas. Para comprobar
 # que el archivo esta completo antes de desplegar:
@@ -38,7 +38,7 @@ database_id = "8dae7a41-4c7a-490c-97af-461dcd2350f7"
 
 # --- El indice del catalogo se llena solo ------------------------------
 # Cloudflare llama al Worker cada 15 minutos y este cataloga los productos
-# que le falten (con el modelo de IMAGENES de Gemini, ver abajo). Es lo
+# que le falten (con el modelo de IMAGENES de DeepSeek, ver abajo). Es lo
 # que deja al cotejo comparar la foto del cliente contra TODO el catalogo.
 #
 # Mientras SHOPIFY_TIENDA siga en PENDIENTE no hay nada que catalogar: la
@@ -52,21 +52,19 @@ crons = ["*/15 * * * *"]
 # el mismo database_name de arriba.
 D1_NOMBRE = "emperador-bot-db"
 
-# --- La IA: TODO con Gemini, con DOS modelos ---------------------------
-# Como Invictus con OpenAI (uno redacta, otro mira las fotos), pero aqui
-# todo es Gemini. OpenAI no se usa: no hace falta su clave.
-PROVEEDOR = "gemini"
+# --- La IA: TODO con DeepSeek, con DOS modelos ---------------------------
+# Uno redacta y otro mira las fotos. Todo con DeepSeek, que es el que
+# acepto la tarjeta: una sola clave (DEEPSEEK_API_KEY), una sola factura.
+PROVEEDOR = "deepseek"
 
-# El que hace SOLO el TEXTO: redacta las respuestas. Barato y rapido.
-GEMINI_MODELO = "gemini-3.1-flash-lite"
+# El que hace SOLO el TEXTO: redacta las respuestas. El mas capaz de
+# DeepSeek para escribir.
+DEEPSEEK_MODELO = "deepseek-v4-pro"
 
 # El que hace SOLO las IMAGENES: identifica el zapato de la foto del
-# cliente, lo coteja con el catalogo y cataloga el indice. Es el que decide
-# si se reconoce, asi que va uno mas capaz que el de texto.
-#   "gemini-3-flash"    el doble que el de texto, el mejor por lo que cuesta
-#   "gemini-3.5-flash"  mas potente, pero cada foto saldria mas cara que en
-#                       gpt-4o (Gemini cobra un fijo alto por cada imagen)
-GEMINI_MODELO_VISION = "gemini-3-flash"
+# cliente, lo coteja con el catalogo y cataloga el indice. Es el unico de
+# DeepSeek que ve fotos (deepseek-v4-pro no ve imagenes: no lo pongas aqui).
+DEEPSEEK_MODELO_VISION = "deepseek-flash"
 
 # =======================================================================
 # EL CATALOGO: HOY GOOGLE DRIVE, MAÑANA SHOPIFY
@@ -151,9 +149,9 @@ FRASE_DESPAUSAR = "te dejo con la asistente"
 # SECRETOS - NUNCA van en este archivo. Se cargan uno por uno, ESTANDO
 # DENTRO DE LA CARPETA DE EL EMPERADOR (si no, se le cargan a Invictus):
 #
-#   npx.cmd wrangler secret put GEMINI_API_KEY     <- la de Google AI Studio
-#   (DRIVE_API_KEY ya NO hace falta: la carpeta se lee sin clave. La de
-#    Gemini no sirve para Drive; si la cargaste, puedes dejarla o quitarla.)
+#   npx.cmd wrangler secret put DEEPSEEK_API_KEY   <- platform.deepseek.com →
+#                                                     API keys (con saldo)
+#   (DRIVE_API_KEY ya NO hace falta: la carpeta se lee sin clave.)
 #   npx.cmd wrangler secret put SHOPIFY_TOKEN      <- el dia que se active
 #                                                     Shopify (no antes)
 #   npx.cmd wrangler secret put META_APP_SECRET    <- PROPIO de esta tienda
@@ -161,6 +159,7 @@ FRASE_DESPAUSAR = "te dejo con la asistente"
 #   npx.cmd wrangler secret put IG_TOKEN           <- PROPIO de esta tienda
 #   npx.cmd wrangler secret put SLACK_WEBHOOK      (puede ser el mismo)
 #
-# OpenAI no se usa. Si tienes su clave cargada aqui, puedes quitarla:
+# Si te quedaron cargadas claves de antes que ya no se usan, quitalas:
+#   npx.cmd wrangler secret delete GEMINI_API_KEY
 #   npx.cmd wrangler secret delete OPENAI_API_KEY
 # ------------------------------------------------------------------------

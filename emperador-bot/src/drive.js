@@ -21,9 +21,9 @@
 //     de Drive activada, se usa primero (trae además la descripción de cada
 //     foto), y si falla se vuelve a la carpeta pública.
 //
-// POR QUÉ NO LA GEMINI_API_KEY (1-oct-2026). Se probó: Google la rechaza
-// para Drive ("API keys are not supported by this API", 401). Las claves de
-// AI Studio no sirven para Drive, así que ya no se intenta.
+// SOLO DRIVE_API_KEY (1-oct-2026). Se probó con una clave de IA y Google la
+// rechazó para Drive ("API keys are not supported by this API", 401), así
+// que ninguna otra clave se intenta.
 //
 // DE DÓNDE SALEN EL NOMBRE, EL CÓDIGO Y EL PRECIO. De lo que se ve debajo
 // de cada foto en Drive: el NOMBRE DEL ARCHIVO. Si el archivo tiene además
@@ -163,7 +163,7 @@ function explicarError(estado, detalle) {
     );
   }
   if (/API keys are not supported|UNAUTHENTICATED/i.test(detalle)) {
-    return "esa clave no sirve para Google Drive (las de Gemini/AI Studio no valen).";
+    return "esa clave no sirve para Google Drive (tiene que ser una clave con la Google Drive API).";
   }
   if (/API key not valid|API_KEY_INVALID/i.test(detalle)) return "la clave de Google no es válida (DRIVE_API_KEY).";
   if (/API_KEY_SERVICE_BLOCKED|blocked/i.test(detalle)) {

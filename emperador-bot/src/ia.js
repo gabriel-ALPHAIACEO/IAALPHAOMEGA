@@ -28,7 +28,7 @@ import { urlPequena } from "./shopify.js";
 import { comoDataUri } from "./imagen.js";
 import { metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
 import { anotarGasto } from "./gasto.js";
-import { llamarGemini, modeloDeGemini } from "./gemini.js";
+import { llamarDeepSeek, modeloDeDeepSeek } from "./deepseek.js";
 import { usaDrive, titulosDeDrive } from "./drive.js";
 
 // EL CATÁLOGO SE PEGA AL PROMPT AL ARRANCAR, NO EN CADA MENSAJE.
@@ -229,13 +229,20 @@ export async function esperarCupo(modelo, maximoMs = 25000) {
 // Los nombres de modelo en un solo lugar, para que quien pregunta por el
 // límite pregunte por el mismo modelo con el que después va a llamar.
 export function modeloDeVision(env) {
-  if (porGemini(env, "vision")) return modeloDeGemini(env, "vision");
-  return env.OPENAI_MODELO_VISION || MODELO_VISION_POR_DEFECTO;
+  return modeloDe(env, "vision");
 }
 
 export function modeloDeIndice(env) {
-  if (porGemini(env, "indice")) return modeloDeGemini(env, "indice");
-  return env.OPENAI_MODELO_INDICE || MODELO_INDICE_POR_DEFECTO;
+  return modeloDe(env, "indice");
+}
+
+// El modelo que de verdad atiende esa tarea, sea del proveedor que sea.
+function modeloDe(env, tarea) {
+  const proveedor = proveedorDe(env, tarea);
+  if (proveedor === "deepseek") return modeloDeDeepSeek(env, tarea);
+  if (tarea === "vision") return env.OPENAI_MODELO_VISION || MODELO_VISION_POR_DEFECTO;
+  if (tarea === "indice") return env.OPENAI_MODELO_INDICE || MODELO_INDICE_POR_DEFECTO;
+  return env.OPENAI_MODELO || MODELO_POR_DEFECTO;
 }
 
 
@@ -252,7 +259,7 @@ function anotarLimite(modelo, texto) {
   // que se comía el cupo era el tamaño de la imagen.
   const cupo = /Limit \d+[^.]*/i.exec(texto || "")?.[0] || "";
   console.error(
-    `OpenAI puso límite de tokens por minuto en ${modelo}: ` +
+    `Límite de llamadas por minuto en ${modelo}: ` +
       `no insisto por ${Math.round(espera / 1000)}s` +
       (cupo ? ` · ${cupo}` : "")
   );
@@ -368,54 +375,36 @@ const ESQUEMA_RESPUESTA = {
   },
 };
 
-// QUIÉN ATIENDE: OPENAI O GEMINI.
+// QUIÉN ATIENDE: DEEPSEEK U OPENAI (1-oct-2026).
 //
-// Dos interruptores, los dos desde wrangler.toml. Sin ninguno puesto, todo
-// sigue en OpenAI igual que siempre.
+// En El Emperador TODO va a DeepSeek: es el que aceptó la tarjeta. Sin
+// PROVEEDOR puesto, también DeepSeek. Dos modelos, uno para cada cosa:
 //
-//   PROVEEDOR = "gemini"           TODO va a Gemini. Es lo que usa El
-//                                  Emperador: un solo proveedor, una sola
-//                                  clave, una sola factura.
-//   PROVEEDOR_VISION = "gemini"    Solo las fotos; el texto se queda en
-//                                  gpt-4o-mini.
+//   DEEPSEEK_MODELO          redacta el texto        (ver deepseek.js)
+//   DEEPSEEK_MODELO_VISION   mira las fotos y cataloga el índice
 //
-// LA CUENTA, medida con los precios del 29-sep-2026 y los prompts de esta
-// tienda, por conversación de una foto y cinco mensajes:
-//
-//   Todo OpenAI (como estaba)      $0,0790     189 conversaciones con $15
-//   Solo fotos en Gemini           $0,0332     451
-//   TODO en Gemini                 $0,0490     305
-//
-// O sea: todo en Gemini es un 38% más barato que antes, pero un 48% MÁS
-// CARO que mover solo las fotos. El motivo es el texto: redactar cuesta
-// $0,15 el millón en gpt-4o-mini y $0,25 en Gemini Flash-Lite.
-//
-// Se eligió "todo" a propósito, y no es un descuido: un solo proveedor es
-// una clave que vigilar, una factura que leer y una cosa menos que se
-// pueda caer. Si algún día el ahorro pesa más que la simpleza, se cambia
-// PROVEEDOR por PROVEEDOR_VISION y se recupera esa diferencia.
-//
-// Y ojo con subir de modelo dentro de Gemini: cada imagen cuesta ~1.120
-// tokens pase lo que pase, así que con 3.5 Flash una foto sale MÁS cara
-// que en gpt-4o. Más grande no es más barato acá.
-// EN EL EMPERADOR, GEMINI ES LO NORMAL (1-oct-2026): sin PROVEEDOR puesto,
-// todo va a Gemini. OpenAI solo se usaría si alguien escribe a propósito
-// PROVEEDOR = "openai" — y no hay clave de OpenAI cargada.
-export function porGemini(env, tarea) {
-  const proveedor = String(env.PROVEEDOR || "gemini").toLowerCase();
-  if (proveedor === "gemini") return true;
-  return (tarea === "vision" || tarea === "indice") && String(env.PROVEEDOR_VISION || "").toLowerCase() === "gemini";
+// OpenAI queda solo porque src/ es el mismo archivo que en Invictus: no se
+// usa aquí salvo que alguien escriba a propósito PROVEEDOR = "openai".
+//   PROVEEDOR_VISION = "openai" | "deepseek"   cambia SOLO las fotos.
+const PROVEEDORES = ["deepseek", "openai"];
+const NOMBRES = { deepseek: "DeepSeek", openai: "OpenAI" };
+
+export function proveedorDe(env, tarea = "texto") {
+  const deFotos = String(env.PROVEEDOR_VISION || "").toLowerCase();
+  if ((tarea === "vision" || tarea === "indice") && PROVEEDORES.includes(deFotos)) return deFotos;
+  const general = String(env.PROVEEDOR || "deepseek").toLowerCase();
+  return PROVEEDORES.includes(general) ? general : "deepseek";
+}
+
+// La clave que tiene que estar cargada para esa tarea.
+export function claveDe(env, tarea = "texto") {
+  return { deepseek: "DEEPSEEK_API_KEY", openai: "OPENAI_API_KEY" }[proveedorDe(env, tarea)];
 }
 
 // El nombre del proveedor y del modelo que de verdad atienden esa tarea.
-// Para enseñarlo en /estado y en /indexar-catalogo sin mentir: con
-// PROVEEDOR = "gemini", el índice NO lo mira gpt-4o-mini aunque la variable
-// del índice lo diga.
+// Para enseñarlo en /estado y en /indexar-catalogo sin mentir.
 export function quienAtiende(env, tarea = "texto") {
-  if (porGemini(env, tarea)) return { proveedor: "Gemini", modelo: modeloDeGemini(env, tarea) };
-  const modelo =
-    tarea === "vision" ? modeloDeVision(env) : env.OPENAI_MODELO || MODELO_POR_DEFECTO;
-  return { proveedor: "OpenAI", modelo };
+  return { proveedor: NOMBRES[proveedorDe(env, tarea)], modelo: modeloDe(env, tarea) };
 }
 
 async function llamar(
@@ -424,20 +413,20 @@ async function llamar(
   contenido,
   { maxTokens = 1024, json = true, schema = null, modelo = "", alFallar = null, tarea = "texto" } = {}
 ) {
-  // La llamada se desvía a Gemini si la tienda lo pidió. El que llama no se
-  // entera: recibe el mismo texto de vuelta y el gasto se anota igual.
-  if (porGemini(env, tarea)) {
-    return llamarGemini(env, sistema, contenido, {
-      // El modelo de ESA tarea: texto, fotos o índice (ver gemini.js).
-      modelo: modeloDeGemini(env, tarea),
+  // La llamada se desvía a DeepSeek (lo normal en El Emperador). El que
+  // llama no se entera: recibe el mismo texto de vuelta y el gasto se anota
+  // igual.
+  if (proveedorDe(env, tarea) === "deepseek") {
+    return llamarDeepSeek(env, sistema, contenido, {
+      modelo: modeloDeDeepSeek(env, tarea),
       maxTokens,
       schema,
       json,
       alFallar,
       anotar: (datos) => anotarGasto(env, datos),
+      alLimite: (cual, detalle) => anotarLimite(cual, detalle),
     });
   }
-
   const cuerpo = {
     model: modelo || env.OPENAI_MODELO || MODELO_POR_DEFECTO,
     max_completion_tokens: maxTokens,

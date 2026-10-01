@@ -21,9 +21,9 @@ const SUITES = [
   ["gasto.mjs", "la medición del gasto de OpenAI"],
   ["prompt.mjs", "que los prompts se armen y las reglas sigan escritas"],
   ["corpus.mjs", "que los guardianes no alteren respuestas buenas"],
-  ["gemini.mjs", "el adaptador de Gemini y que no se active solo"],
+  ["deepseek.mjs", "DeepSeek: dos modelos (texto e imágenes), sin pensar de más, JSON, fotos, errores y /estado"],
   ["cotejo.mjs", "que llegue al modelo el zapato del color correcto"],
-  ["config.mjs", "que el wrangler.toml esté completo: cron, Gemini con dos modelos, sin OpenAI"],
+  ["config.mjs", "que el wrangler.toml esté completo: cron, DeepSeek con dos modelos"],
   ["drive.mjs", "el catálogo desde Google Drive: nombres, códigos, precios y búsqueda"],
   ["instagram.mjs", "/probar-instagram: en qué paso se corta la respuesta y qué hacer"],
 ];

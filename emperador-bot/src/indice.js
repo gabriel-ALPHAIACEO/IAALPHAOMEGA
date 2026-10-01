@@ -612,7 +612,7 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
     quitados,
     refrescados,
     corto,
-    // El que DE VERDAD miró las fotos: con todo en Gemini, Gemini.
+    // El que DE VERDAD miró las fotos (el modelo de imágenes).
     modelo: quienAtiende(env, "vision").modelo,
     ningunoSalio,
   };
