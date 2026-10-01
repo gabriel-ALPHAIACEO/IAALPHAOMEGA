@@ -37,6 +37,11 @@ for (const [frase, tema] of [
   ["tienen delivery", "delivery"],
   ["a como tienen el dolar", "tasa"],
   ["estan contratando?", "trabajo"],
+  ["hola, hay trabajo?", "trabajo"],
+  ["quiero trabajar con ustedes", "trabajo"],
+  ["necesitan vendedores?", "trabajo"],
+  ["busco empleo", "trabajo"],
+  ["un telefono bueno para el trabajo", ""],
 ]) {
   comprobar(`"${frase}" → ${tema}`, queDatoPide(frase), tema);
 }
@@ -71,6 +76,18 @@ comprobar(
   respuestaDeDato("horarios", { HORARIOS: "De 9am a 7pm" }).texto,
   "De 9am a 7pm"
 );
+
+// Quien busca trabajo: la respuesta de Invictus, sin molestar al asesor.
+comprobar("trabajo sin cargar: contesta igual, sin asesor", respuestaDeDato("trabajo", {}).alAsesor, false);
+comprobar("con la de Invictus (personal completo, historias)", /personal completo[\s\S]*historias/.test(respuestaDeDato("trabajo", {}).texto), true);
+comprobar("y si se carga TRABAJO, manda eso", respuestaDeDato("trabajo", { TRABAJO: "Deja tu CV" }).texto, "Deja tu CV");
+
+// La dirección con su mapa.
+const conMapa = respuestaDeDato("ubicacion", { DIRECCION: "C.C. Tal, local 12", MAPS_URL: "https://maps.app.goo.gl/xyz" });
+comprobar("la dirección sale escrita", /C\.C\. Tal, local 12/.test(conMapa.texto), true);
+comprobar("con el botón Cómo llegar", conMapa.boton?.url, "https://maps.app.goo.gl/xyz");
+comprobar("solo el mapa: sale el botón igual", respuestaDeDato("ubicacion", { MAPS_URL: "https://maps.app.goo.gl/xyz" }).boton?.url, "https://maps.app.goo.gl/xyz");
+comprobar("sin dirección ni mapa: asesor", respuestaDeDato("ubicacion", {}).alAsesor, true);
 
 // ── El turno entero ───────────────────────────────────────────
 {
@@ -107,6 +124,30 @@ comprobar(
   const { alModelo } = await turno({ texto: "el Samsung A57 lo puedo pagar con zelle?" });
   const sistema = alModelo[0]?.messages?.find((m) => m.role === "system")?.content || "";
   comprobar("sin cargar, el modelo sabe que no las sabe", /NO SABES las formas de pago/.test(sistema), true);
+}
+
+{
+  // El turno: "¿dónde están?" → texto con el botón que abre Google Maps.
+  const { enviados, alModelo } = await turno({
+    texto: "donde estan ubicados?",
+    env: { DIRECCION: "C.C. Tal, local 12", MAPS_URL: "https://maps.app.goo.gl/xyz" },
+  });
+  const plantilla = enviados[0]?.attachment?.payload;
+  comprobar("\"¿dónde están?\" → un mensaje con botón", plantilla?.template_type, "button");
+  comprobar("que abre Google Maps", plantilla?.buttons?.[0]?.url, "https://maps.app.goo.gl/xyz");
+  comprobar("con la dirección en el texto", /local 12/.test(plantilla?.text || ""), true);
+  comprobar("sin gastar una llamada a la IA", alModelo.length, 0);
+}
+
+{
+  // Mezclado con un equipo contesta la IA: tiene que saber la dirección.
+  const { alModelo } = await turno({
+    texto: "el Samsung A57 lo tienen? y donde quedan?",
+    env: { DIRECCION: "C.C. Tal, local 12", MAPS_URL: "https://maps.app.goo.gl/xyz" },
+  });
+  const sistema = alModelo[0]?.messages?.find((m) => m.role === "system")?.content || "";
+  comprobar("mezclado con un equipo, la IA conoce la dirección", /Dirección: C\.C\. Tal, local 12/.test(sistema), true);
+  comprobar("y el mapa", /maps\.app\.goo\.gl\/xyz/.test(sistema), true);
 }
 
 console.log(fallos ? `\n${fallos} fallo(s)` : "\nTodo bien");

@@ -22,7 +22,7 @@ shutil.copytree(origen, destino)
 ia = os.path.join(destino, "ia.js")
 s = open(ia, encoding="utf-8").read()
 for linea, valor in [
-    ('import promptTexto from "./prompts/texto.txt";', 'const promptTexto = "PROMPT {{CATALOGO}}\\nHorarios: {{TUS HORARIOS}}\\nPagos: {{METODOS DE PAGO}}";'),
+    ('import promptTexto from "./prompts/texto.txt";', 'const promptTexto = "PROMPT {{CATALOGO}}\\nHorarios: {{TUS HORARIOS}}\\nPagos: {{METODOS DE PAGO}}\\n{{OTROS DATOS}}";'),
     ('import listaCatalogo from "./prompts/catalogo.txt";', 'const listaCatalogo = "CATALOGO";'),
     ('import promptVision from "./prompts/vision.txt";', 'const promptVision = "VISION";'),
 ]:

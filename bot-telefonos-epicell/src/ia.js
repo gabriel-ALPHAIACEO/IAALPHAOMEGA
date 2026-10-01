@@ -68,6 +68,30 @@ const SIN_METODOS_PAGO =
   "NO SABES las formas de pago (no están cargadas). Si las preguntan, " +
   "dile que se las confirma un asesor. NUNCA digas que aceptas una";
 
+// DIRECCIÓN, ENVÍOS, DELIVERY Y TASA, cuando estén cargados (30-sep-2026).
+// Si preguntan SOLO eso, contesta el código (datos.js). Esto es para cuando
+// viene mezclado con un equipo —"¿tienen el A57 y dónde quedan?"—: la IA
+// tiene que saberlo, o lo manda al asesor teniendo el dato.
+const SIN_OTROS_DATOS =
+  "(Dirección, envíos, delivery y tasa: no están cargados. Si los preguntan, " +
+  "los confirma un asesor. NUNCA los inventes)";
+
+function otrosDatosDeLaTienda(env) {
+  const limpio = (v) => {
+    const t = String(v || "").replace(/\\n/g, " ").replace(/\s+/g, " ").trim();
+    return /^$|CAMBIA-ESTO|PENDIENTE|PON_AQUI|ejemplo\.com/i.test(t) ? "" : t;
+  };
+  return [
+    limpio(env?.DIRECCION) && `Dirección: ${limpio(env.DIRECCION)}`,
+    limpio(env?.MAPS_URL) && `Google Maps: ${limpio(env.MAPS_URL)}`,
+    limpio(env?.ENVIOS) && `Envíos: ${limpio(env.ENVIOS)}`,
+    limpio(env?.DELIVERY) && `Delivery: ${limpio(env.DELIVERY)}`,
+    limpio(env?.TASA) && `Tasa: ${limpio(env.TASA)}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 // El prompt armado y los datos con los que se armó: si cambian (un
 // despliegue nuevo), hay que volver a armarlo.
 let horariosArmados = null;
@@ -75,7 +99,8 @@ let horariosArmados = null;
 function textoConCatalogo(env) {
   const horarios = String(env?.HORARIOS || "").trim();
   const metodosPago = String(env?.METODOS_PAGO || "").replace(/\\n/g, "\n").trim();
-  const llave = `${horarios}\u0000${metodosPago}`;
+  const otrosDatos = otrosDatosDeLaTienda(env);
+  const llave = `${horarios}\u0000${metodosPago}\u0000${otrosDatos}`;
 
   if (promptTextoArmado && horariosArmados === llave) return promptTextoArmado;
 
@@ -105,7 +130,8 @@ function textoConCatalogo(env) {
   promptTextoArmado = promptTexto
     .replace("{{CATALOGO}}", LA_LISTA_ES_LA_DEL_MENSAJE)
     .replaceAll("{{TUS HORARIOS}}", horarios || SIN_HORARIOS)
-    .replaceAll("{{METODOS DE PAGO}}", metodosPago || SIN_METODOS_PAGO);
+    .replaceAll("{{METODOS DE PAGO}}", metodosPago || SIN_METODOS_PAGO)
+    .replaceAll("{{OTROS DATOS}}", otrosDatos || SIN_OTROS_DATOS);
 
   horariosArmados = llave;
 

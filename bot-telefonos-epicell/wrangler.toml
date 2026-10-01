@@ -85,7 +85,7 @@ SHEET_NOMBRE = "INVENTARIO AL 050926"
 # asesor. Antes de esto el prompt llevaba escrito "{{TUS HORARIOS}}" sin
 # rellenar, y el modelo contestaba con esas llaves o con una hora inventada
 # — que es un cliente en la puerta de un local cerrado.
-HORARIOS = "Estamos abiertos de 9am a 7pm 🕘 Domingos y feriados, de 10am a 5pm"
+HORARIOS = "🕘 Nuestro horario:\n\n🔹 Lunes a sábado — 9:00am a 7:00pm\n🔹 Domingos y feriados — 10:00am a 5:00pm\n\n¡Te esperamos! 😊"
 
 # --- LAS FORMAS DE PAGO ------------------------------------------------
 #
@@ -103,21 +103,33 @@ METODOS_PAGO = "Aceptamos los siguientes métodos de pago:\n• Pago Móvil\n•
 # --- LOS DEMÁS DATOS DE LA TIENDA -------------------------------------
 #
 # Igual que el horario y las formas de pago: el bot contesta con lo que
-# esté escrito aquí, tal cual. VACÍO = el bot NO se lo inventa: dice que un
-# asesor lo confirma y le avisa al asesor. Se rellenan cuando quieras, sin
-# tocar código (solo volver a desplegar).
-#
-#   DIRECCION = "Av. Tal, C.C. Tal, local 12, Caracas"
-#   MAPS_URL  = "https://maps.app.goo.gl/..."
-#   ENVIOS    = "Sí, enviamos a todo el país por MRW y Zoom 📦"
-#   DELIVERY  = "Tenemos delivery en la ciudad 🛵"
-#   TASA      = "Trabajamos a tasa BCV del día"
-#   TRABAJO   = "Deja tu CV en la tienda y te contactamos 😊"
+# esté escrito aquí, tal cual, sin pasar por la IA. VACÍO = el bot NO se lo
+# inventa: dice que un asesor lo confirma y le avisa al asesor. Se rellenan
+# cuando quieras, sin tocar código (solo volver a desplegar). Cada \n es un
+# salto de línea.
+
+# LA DIRECCIÓN Y EL MAPA. Con MAPS_URL puesto, la dirección sale con un
+# botón "Cómo llegar 📍" que abre Google Maps (como en Invictus).
+#   DIRECCION: tal como quieres que la lea el cliente, en una línea.
+#   MAPS_URL:  en Google Maps busca la tienda → Compartir → Copiar
+#              vínculo. Vale el corto (https://maps.app.goo.gl/...).
 DIRECCION = ""
 MAPS_URL = ""
+
+# ENVÍOS NACIONALES y DELIVERY en la ciudad. Ejemplos:
+#   ENVIOS   = "📦 ¡Sí hacemos envíos nacionales!\n\nTrabajamos con ZOOM y MRW a todo el país 🇻🇪\n\n¿Para qué ciudad sería? 😊"
+#   DELIVERY = "🛵 ¡Sí hacemos delivery!\n\n¿Para qué zona sería? Así te confirmo 😊"
 ENVIOS = ""
 DELIVERY = ""
+
+# LA TASA a la que se cobra en bolívares. Ejemplo:
+#   TASA = "💱 Recibimos a la tasa del Banco Central de Venezuela (BCV) 😊"
 TASA = ""
+
+# QUIEN BUSCA TRABAJO. Vacío = la respuesta de Invictus: "¡Gracias por tu
+# interés! Por ahora tenemos el personal completo. Cuando necesitemos gente
+# lo publicamos en nuestras historias 👀" (no se molesta al asesor). Si un
+# día hay vacantes, se escribe aquí lo que hay que decir.
 TRABAJO = ""
 
 # --- LA TIENDA ---------------------------------------------------------

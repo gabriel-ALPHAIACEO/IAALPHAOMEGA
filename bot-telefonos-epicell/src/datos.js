@@ -33,8 +33,10 @@ const DELIVERY = /\b(delivery|domicilio|a\s+mi\s+casa|reparto|llevan\s+a)\b/i;
 const TASA =
   /\b(tasa|bcv|banco\s+central|a\s+c[oó]mo\s+(est[aá]|tienen|toman)\s+el\s+d[oó]lar|cambio\s+del\s+d[oó]lar)\b/i;
 
+// Frases, no la palabra "trabajo" suelta: "un teléfono para el trabajo"
+// es un cliente, no alguien buscando empleo.
 const TRABAJO =
-  /\b(empleo|vacantes?|curr[ií]cul[uo]m|contratan(do)?|necesitan\s+personal|solicito\s+empleo|busco\s+trabajo|est[aá]n\s+empleando)\b/i;
+  /\b(empleos?|vacantes?|curr[ií]cul[uo]m|contratan(do)?|necesitan\s+(personal|gente|vendedor[ae]s?)|solicito\s+empleo|(busco|buscando|necesito)\s+(trabajo|empleo)|est[aá]n\s+empleando|(hay|tienen|habr[aá])\s+trabajo|(quiero|quisiera|me\s+gustar[ií]a)\s+trabajar|trabajar\s+(con|para)\s+(ustedes|uds|epic+ell)|oportunidad(es)?\s+de\s+(trabajo|empleo))\b/i;
 
 const PAGOS =
   /\b(m[eé]todos?\s+de\s+pago|formas?\s+de\s+pago|c[oó]mo\s+(puedo\s+)?pag(o|ar)|qu[eé]\s+pagos?\s+aceptan|aceptan\s+(zelle|paypal|binance|zinli|pago\s+m[oó]vil|punto)|zelle|paypal|zinli|binance|usdt|pago\s+m[oó]vil|punto\s+de\s+venta|transferencia)\b/i;
@@ -91,19 +93,44 @@ const LO_CONFIRMA_UN_ASESOR = {
   pagos: "Las formas de pago te las confirma un asesor en un momento 😊 Y si quieres a cuotas, tenemos Cashea y Krece 🙌",
 };
 
-// Devuelve { texto, alAsesor }. alAsesor dice si hay que avisar a una
-// persona: lo hay cuando el dato no está cargado y se le prometió que
-// alguien se lo confirma.
+// Lo que se contesta aunque el dato no esté cargado en wrangler.toml,
+// porque no hay nada que confirmar. Es la respuesta de Invictus para quien
+// busca trabajo (30-sep-2026, pedido del dueño): agradecer, decir que hoy
+// no hay vacantes y dónde se avisa. Sin mandarlo al asesor, que no tiene
+// nada que añadir. Si un día hay vacantes, se escribe TRABAJO en
+// wrangler.toml y manda eso.
+const POR_DEFECTO = {
+  trabajo:
+    "¡Gracias por tu interés en trabajar con nosotros! 😊\n" +
+    "\n" +
+    "Por ahora tenemos el personal completo. Cuando necesitemos gente lo " +
+    "publicamos en nuestras historias, así que mantente pendiente 👀",
+};
+
+// Devuelve { texto, alAsesor, boton }. alAsesor dice si hay que avisar a
+// una persona: lo hay cuando el dato no está cargado y se le prometió que
+// alguien se lo confirma. boton, si lo hay, va debajo del texto (el
+// "Cómo llegar" de la dirección).
 export function respuestaDeDato(tema, env = {}) {
   if (tema === "ubicacion") {
     const direccion = puesto(env.DIRECCION);
     const mapa = puesto(env.MAPS_URL);
 
-    if (!direccion) return { texto: LO_CONFIRMA_UN_ASESOR.ubicacion, alAsesor: true };
+    if (!direccion && !mapa) return { texto: LO_CONFIRMA_UN_ASESOR.ubicacion, alAsesor: true };
+
+    // EL MAPA EN UN BOTÓN, COMO EN INVICTUS (30-sep-2026). Con el enlace
+    // de Google Maps cargado, la dirección sale con un botón "Cómo llegar"
+    // que abre el mapa. Sin dirección escrita pero con el mapa, sale el
+    // botón igual: es lo que de verdad lleva al cliente a la tienda.
+    const texto = direccion
+      ? `📍 Estamos en ${direccion.replace(/\\n/g, "\n")}` +
+        (mapa ? "\n\nToca el botón para abrir la ubicación en Google Maps 👇" : "\n\n¡Te esperamos! 😊")
+      : "📍 Aquí tienes nuestra ubicación. Toca el botón para abrirla en Google Maps 👇";
 
     return {
-      texto: `📍 Estamos en ${direccion}` + (mapa ? `\n\nAquí te dejo cómo llegar 👇\n${mapa}` : ""),
+      texto,
       alAsesor: false,
+      boton: mapa ? { titulo: "Cómo llegar 📍", url: mapa } : null,
     };
   }
 
@@ -116,7 +143,7 @@ export function respuestaDeDato(tema, env = {}) {
     pagos: "METODOS_PAGO",
   }[tema];
 
-  const dato = variable ? puesto(env[variable]) : "";
+  const dato = (variable ? puesto(env[variable]) : "") || (POR_DEFECTO[tema] || "");
 
   // En wrangler.toml no se pueden escribir saltos de línea dentro de un
   // valor, así que se escribe "\n" y aquí se convierte.

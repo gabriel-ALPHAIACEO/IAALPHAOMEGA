@@ -122,6 +122,7 @@ import {
   enviarTexto,
   enviarFichas,
   enviarBotonCatalogo,
+  enviarConBoton,
   enviarConOpciones,
   hayCatalogo,
   quienSoy,
@@ -2334,7 +2335,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     : false;
 
   if (datoQuePide && !nombraEquipo) {
-    const { texto: frase, alAsesor } = respuestaDeDato(datoQuePide, env);
+    const { texto: frase, alAsesor, boton } = respuestaDeDato(datoQuePide, env);
 
     if (frase) {
       console.log(
@@ -2342,7 +2343,10 @@ async function atenderMeta(env, mensaje, rastro = {}) {
           (alAsesor ? "ese dato no está cargado, se lo confirma un asesor" : "contesto con el dato de la tienda")
       );
 
-      await mandar(() => enviarTexto(env, mensaje.igsid, frase), frase);
+      await mandar(
+        () => (boton ? enviarConBoton(env, mensaje.igsid, frase, boton) : enviarTexto(env, mensaje.igsid, frase)),
+        frase
+      );
 
       await guardarContacto(env.DB, {
         ...contacto,

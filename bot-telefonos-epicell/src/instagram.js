@@ -324,6 +324,27 @@ export function enviarBotonCatalogo(env, igsid, texto) {
   });
 }
 
+// UN TEXTO CON UN BOTÓN QUE ABRE UNA DIRECCIÓN: "Cómo llegar" → Google
+// Maps (30-sep-2026, igual que en Invictus). Un enlace pegado en el texto
+// también sirve, pero un botón se toca sin pensar y no se ve como spam.
+// Si la dirección no es un enlace de verdad, sale el texto solo.
+export function enviarConBoton(env, igsid, texto, { titulo, url } = {}) {
+  if (!/^https?:\/\//i.test(String(url || "")) || SIN_PONER.test(url)) {
+    return enviarTexto(env, igsid, texto);
+  }
+
+  return enviar(env, igsid, {
+    attachment: {
+      type: "template",
+      payload: {
+        template_type: "button",
+        text: recortar(texto, 640),
+        buttons: [{ type: "web_url", url, title: recortar(titulo || "Abrir", 20) }],
+      },
+    },
+  });
+}
+
 // UN MENSAJE CON SUS BOTONES DE RESPUESTA (quick replies).
 //
 // Son los botones que Instagram pinta DEBAJO del mensaje y que el cliente

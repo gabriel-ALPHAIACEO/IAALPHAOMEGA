@@ -26,7 +26,7 @@ CATALOGO = os.path.join(AQUI, "src", "prompts", "catalogo.txt")
 
 # Los marcadores que SÍ se rellenan al arrancar (ia.js). Cualquier otro
 # {{...}} es un hueco de la plantilla que el modelo lee como si fuera texto.
-MARCADORES_QUE_SE_RELLENAN = {"{{CATALOGO}}", "{{TUS HORARIOS}}", "{{METODOS DE PAGO}}"}
+MARCADORES_QUE_SE_RELLENAN = {"{{CATALOGO}}", "{{TUS HORARIOS}}", "{{METODOS DE PAGO}}", "{{OTROS DATOS}}"}
 
 # Marcas que la plantilla traía de otra tienda. Si el prompt las nombra
 # FUERA del bloque que explica qué hacer cuando algo no está disponible, es
