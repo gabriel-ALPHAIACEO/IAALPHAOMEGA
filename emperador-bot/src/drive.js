@@ -46,7 +46,21 @@ const CARPETA_MIME = "application/vnd.google-apps.folder";
 const MINUTOS_DE_CACHE = 10;
 
 // Hasta cuántos niveles de subcarpetas se entra ("Nike" → "Air Force").
-const PROFUNDIDAD = 3;
+// La carpeta de El Emperador va así (1-oct-2026):
+//   CATALOGO › CNTND 1 (30/6/26) › CALZADOS › (marca…) › fotos
+// Cinco niveles dejan sitio a una subcarpeta más por si acaso.
+const PROFUNDIDAD = 5;
+
+// LAS CATEGORÍAS. Cada foto pertenece a la primera carpeta de su ruta que no
+// sea un "contenedor" (las de lote, como "CNTND 1 (30/6/26)": un envío de
+// mercancía, no una categoría). Así "CALZADOS", "GORRAS", "BOLSOS" quedan
+// como categoría aunque el día de mañana haya un "CNTND 2".
+const ES_CONTENEDOR = /\bcntnd\b|\bcontenedor|\blote\b|\(\s*\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\s*\)|^\d+$/i;
+
+export function categoriaDeLaRuta(ruta = []) {
+  const nombre = ruta.find((c) => !ES_CONTENEDOR.test(String(c).trim()));
+  return nombre ? String(nombre).trim() : "";
+}
 
 let cache = null;
 
@@ -196,6 +210,7 @@ function aProducto(archivo, carpetas) {
     // Las carpetas ("Nike", "Dama") también se buscan, aunque no salgan en
     // el título: "Nike" encuentra lo que está en la carpeta Nike.
     carpetas: carpetas.join(" "),
+    categoria: categoriaDeLaRuta(carpetas),
   };
 }
 
@@ -326,7 +341,12 @@ export async function catalogoDeDrive(env) {
       via = "carpeta pública (sin clave)";
     } catch (error) {
       console.error("Catálogo de Drive:", error.message);
-      return { productos: [], error: aviso ? `${error.message} (Antes: ${aviso})` : error.message, via: "" };
+      const fallo = { productos: [], error: aviso ? `${error.message} (Antes: ${aviso})` : error.message, via: "" };
+      // Un fallo se recuerda UN minuto: si no, cada mensaje volvería a
+      // recorrer todas las carpetas para fallar otra vez, y el cliente
+      // esperaría por nada.
+      cache = { carpeta, vence: Date.now() + 60 * 1000, datos: fallo };
+      return fallo;
     }
   }
 
@@ -349,10 +369,44 @@ function despejar(texto) {
 // donde Shopify las llama "Retro") busca "Retro 4" cuando el cliente pide
 // "jordan 4"; en la carpeta de Drive pueden llamarse "Jordan 4". Pasó el
 // 1-oct: "tienes jordan?" → buscó "Retro" → 0. Ahora una vale por la otra.
+//
+// Y las CATEGORÍAS con las palabras de la gente: "zapatos" o "tenis" son lo
+// que en la carpeta se llama CALZADOS; "camisas", FRANELAS.
 const SINONIMOS = {
   retro: ["retro", "jordan"],
   jordan: ["jordan", "retro"],
+  zapato: ["zapato", "calzado"],
+  zapatos: ["zapato", "calzado"],
+  tenis: ["tenis", "calzado"],
+  zapatilla: ["zapatilla", "calzado"],
+  zapatillas: ["zapatilla", "calzado"],
+  calzado: ["calzado"],
+  camisa: ["camisa", "franela"],
+  camisas: ["camisa", "franela"],
+  camiseta: ["camiseta", "franela"],
+  camisetas: ["camiseta", "franela"],
+  franela: ["franela"],
+  cartera: ["cartera", "bolso"],
+  carteras: ["cartera", "bolso"],
+  morral: ["morral", "bolso"],
+  morrales: ["morral", "bolso"],
+  gorro: ["gorro", "gorra"],
+  gorros: ["gorro", "gorra"],
+  pantalon: ["pantalon"],
+  jean: ["jean", "pantalon"],
+  jeans: ["jean", "pantalon"],
+  bermuda: ["bermuda", "short"],
+  bermudas: ["bermuda", "short"],
 };
+
+// La palabra, sus sinónimos, y su singular ("shorts" → "short", "bolsos" →
+// "bolso"): el cliente escribe en plural y la carpeta puede estar en singular.
+function alternativas(p) {
+  const todas = new Set([p, ...(SINONIMOS[p] || [])]);
+  if (/[^s]s$/.test(p) && p.length > 4) todas.add(p.slice(0, -1));
+  if (/[^aeiou]es$/.test(p) && p.length > 5) todas.add(p.slice(0, -2));
+  return [...todas];
+}
 
 function estaLaPalabra(donde, p) {
   return p.length <= 3 || /^\d+$/.test(p)
@@ -364,7 +418,7 @@ function estaLaPalabra(donde, p) {
 // números, como palabra completa: "4" no puede encontrar "40".
 function coincide(producto, palabras) {
   const donde = despejar(`${producto.titulo} ${producto.codigo} ${producto.carpetas}`);
-  return palabras.every((p) => (SINONIMOS[p] || [p]).some((alt) => estaLaPalabra(donde, alt)));
+  return palabras.every((p) => alternativas(p).some((alt) => estaLaPalabra(donde, alt)));
 }
 
 export async function buscarEnDrive(env, termino, cuantos = 10) {
@@ -383,9 +437,26 @@ export async function catalogoCompletoDeDrive(env, maximo = 1000) {
 
 // Los títulos, uno por línea, para el prompt (lo que en Shopify es
 // prompts/catalogo.txt). Sin repetir.
+// Agrupados por categoría, para que la IA sepa qué es cada cosa: no es lo
+// mismo "Nike blanco" en CALZADOS que en GORRAS.
 export async function titulosDeDrive(env) {
   const { productos } = await catalogoDeDrive(env);
-  return [...new Set(productos.map((p) => p.titulo))].join("\n");
+  const grupos = new Map();
+  for (const p of productos) {
+    const cat = p.categoria || "OTROS";
+    if (!grupos.has(cat)) grupos.set(cat, new Set());
+    grupos.get(cat).add(p.titulo);
+  }
+  if (grupos.size === 1 && grupos.has("OTROS")) return [...grupos.get("OTROS")].join("\n");
+  return [...grupos.entries()].map(([cat, titulos]) => `${cat}:\n${[...titulos].join("\n")}`).join("\n\n");
+}
+
+// Las categorías que hay, con cuántos productos cada una.
+export async function categoriasDeDrive(env) {
+  const { productos } = await catalogoDeDrive(env);
+  const cuenta = new Map();
+  for (const p of productos) if (p.categoria) cuenta.set(p.categoria, (cuenta.get(p.categoria) || 0) + 1);
+  return [...cuenta.entries()].map(([nombre, cuantos]) => ({ nombre, cuantos }));
 }
 
 function sinInternos({ titulo, precio, imagen, url }) {

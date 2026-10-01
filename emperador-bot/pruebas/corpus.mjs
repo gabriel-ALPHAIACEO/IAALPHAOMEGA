@@ -77,7 +77,22 @@ const src = await prepararSrc();
 const { revisarPagos } = await src.cargar("pagos.js");
 
 // Cada guardián que revise lo que se le manda al cliente se añade acá.
-const GUARDIANES = [["pagos.js", revisarPagos]];
+const { revisarCashea } = await src.cargar("cashea.js");
+
+// Cashea se prueba en las dos situaciones que tiene: con la promoción en
+// fecha y fuera de ella. Fuera de fecha es más estricto, y justo por eso
+// tiene que seguir sin tocar nada que no hable de Cashea.
+const EN_FECHA = Date.parse("2026-10-03T12:00:00-04:00");
+const FUERA_DE_FECHA = Date.parse("2026-10-10T12:00:00-04:00");
+
+const { revisarDatoDeLaTienda } = await src.cargar("datos.js");
+
+const GUARDIANES = [
+  ["pagos.js", revisarPagos],
+  ["datos.js (envíos, delivery, horario, empleo)", (t) => revisarDatoDeLaTienda(t)],
+  ["cashea.js (promoción en fecha)", (t) => revisarCashea(t, EN_FECHA)],
+  ["cashea.js (promoción fuera de fecha)", (t) => revisarCashea(t, FUERA_DE_FECHA)],
+];
 
 titulo("hay corpus de dónde sacar");
 

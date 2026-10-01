@@ -160,6 +160,21 @@ ok(/const pila = unir\(ordenar\(\[\.\.\.porRasgos, \.\.\.productos\]/.test(cot),
 ok(!/ordenar\(unir\(/.test(cot),
    "y no queda ningún sitio donde se colapse antes de ordenar");
 
+// ───────────────────────────────────────────────────────────────────────
+titulo("el PRIMER color del título es el del zapato (caso Uplift, 30-sep)");
+
+const UPLIFT = ["Nike uplift azul dama", "Nike uplift blanco dama", "Nike uplift blanco negro caballero",
+  "Nike uplift blanco negro det morado dama", "Nike uplift negro blanco caballero", "Nike uplift negro gris caballero",
+  "Nike uplift negro rosado dama", "Nike uplift todo blanco caballero/dama"];
+const porColor = (color) => [...UPLIFT].sort((a, b) => I.puntosDeColor(b, color) - I.puntosDeColor(a, color));
+const negros = porColor("negro");
+ok(negros.slice(0, 3).every((t) => /uplift negro/.test(t)), "foto negra: primero los que son NEGROS de cuerpo", negros.slice(0, 3).join(" · "));
+ok(negros.indexOf("Nike uplift blanco negro det morado dama") > 2, "el 'blanco negro det morado' (blanco con detalles) ya no va primero");
+ok(/uplift blanco/.test(porColor("blanco")[0]), "foto blanca: primero uno blanco");
+ok(I.puntosDeColor("Nike uplift blanco negro caballero", "negro") > 0, "el color de detalle sigue sumando algo (mejor que otro color)");
+ok(I.puntosDeColor("Nike uplift blanco negro caballero", "negro", "blanco") < 0,
+   "y cuando el índice YA guardó el color de la foto, manda ese (blanco ≠ negro)");
+
 src.limpiar();
 src2.limpiar();
 terminar();

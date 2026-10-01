@@ -172,3 +172,75 @@ function despejar(texto) {
       palabra.replace(/(.)\1{2,}/g, "$1").replace(/(.)\1+$/, "$1")
     );
 }
+
+// BOTAS: TÁCTICAS O DE BÁSQUET (30-sep-2026).
+//
+// EL FALLO. En este catálogo "bota" solo aparece en "Bota táctica" (y en
+// dos On Cloud). Lo que la gente llama "botas de básquet" son zapatillas de
+// básquet —Lebron, Kyrie, Giannis, Curry, Jordan 40— y ninguna lleva
+// "básquet" en el título. Así que "botas de básquet" terminaba buscando
+// "bota táctica", y el cliente tuvo que escribir "botas de basquet no de
+// policía".
+//
+// El prompt ya lo explica; esto es la red por debajo, por si el modelo
+// igual se equivoca: si el cliente habla de BÁSQUET, la búsqueda no puede
+// ser la de las tácticas. Y si habla de tácticas / militares / de policía
+// SIN nombrar el básquet, la búsqueda es "táctica". Cuando dice las dos
+// cosas ("de básquet, no de policía") gana el básquet: la otra va negada.
+const HABLA_DE_BASQUET = /\b(?:basquet\w*|basket\w*|baloncesto|basquetbol|nba)\b/;
+const HABLA_DE_TACTICAS = /\b(?:tactic\w*|militar\w*|polic\w*|seguridad|combate|swat|guardia)\b/;
+
+// Las líneas de básquet del catálogo, en el orden en que se ofrecen. Se
+// busca la primera que no se haya buscado ya en esta conversación.
+const LINEAS_DE_BASQUET = ["Lebron", "Irving", "Giannis", "Curry", "Jordan 40"];
+
+export function corregirBusquedaDeBotas(texto, buscar, historial = "") {
+  const dice = despejarConNumeros(texto);
+  const busca = despejarConNumeros(buscar);
+  const nada = !busca || busca === "nada";
+
+  if (HABLA_DE_BASQUET.test(dice)) {
+    // La búsqueda ya es un modelo de básquet: está bien.
+    if (LINEAS_DE_BASQUET.some((l) => busca.includes(despejarConNumeros(l)))) {
+      return { corregido: false, buscar };
+    }
+    // Solo se corrige lo que seguro está mal: las tácticas, "bota" suelta,
+    // o la palabra "básquet" (ningún título la tiene: daría cero).
+    if (nada || !/\b(?:tactic\w*|botas?|basquet\w*|basket\w*|baloncesto|zapat\w*|deportiv\w*)\b/.test(busca)) {
+      return { corregido: false, buscar };
+    }
+    const yaBuscado = despejarConNumeros(historial);
+    const linea =
+      LINEAS_DE_BASQUET.find((l) => !yaBuscado.includes(`ya busque ${despejarConNumeros(l)}`)) ||
+      LINEAS_DE_BASQUET[0];
+    return {
+      corregido: true,
+      buscar: linea,
+      respuesta: "¡Entendido! Te muestro unas de básquet 🏀👇",
+      nota: `Busca calzado de básquet (no botas tácticas). Ya busqué: ${linea}.`,
+    };
+  }
+
+  if (HABLA_DE_TACTICAS.test(dice) && /\bbotas?\b/.test(dice)) {
+    if (busca.includes("tactic")) return { corregido: false, buscar };
+    if (!nada && !/^botas?$/.test(busca)) return { corregido: false, buscar };
+    return {
+      corregido: true,
+      buscar: "táctica",
+      respuesta: "¡Claro! Te muestro las botas tácticas 👇",
+      nota: "Busca botas tácticas. Ya busqué: táctica.",
+    };
+  }
+
+  return { corregido: false, buscar };
+}
+
+function despejarConNumeros(texto) {
+  return String(texto || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}

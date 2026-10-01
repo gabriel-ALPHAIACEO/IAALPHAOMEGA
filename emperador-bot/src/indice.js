@@ -23,10 +23,11 @@
 // Hay que volver a correrla cuando se agregan productos nuevos; los que
 // ya están no se vuelven a mirar, así que reindexar es barato.
 
+import { caben, quedan as quedanAhora } from "./presupuesto.js";
 import { RASGOS_CLAVE } from "./identificar.js";
 import { modeloDeIndice, rasgosDeProducto, esperarCupo, quienAtiende } from "./ia.js";
 import { traerCatalogoCompleto } from "./shopify.js";
-import { tituloEsDelColor, tituloNombraColor } from "./color.js";
+import { tituloEsDelColor, tituloNombraColor, lugarDelColorEnTitulo } from "./color.js";
 
 // LA CLAVE ES LA FOTO, NO EL TÍTULO (24-sep-2026 — esto tenía parada la
 // indexación en seco).
@@ -289,6 +290,9 @@ const PUNTOS_DIFIERE = -2;
 // dice nada, y no por eso es peor candidato.
 const PUNTOS_MISMO_COLOR = 60;
 const PUNTOS_OTRO_COLOR = -25;
+// El color de la foto aparece en el título, pero no es el primero: está en
+// la suela o en un detalle. Suma, pero menos que el que lo tiene de cuerpo.
+const PUNTOS_COLOR_SECUNDARIO = 20;
 
 // LA DESCRIPCIÓN DESEMPATA LOS ZAPATOS SIN LOGO (24-sep-2026).
 //
@@ -439,7 +443,15 @@ export function puntosDeColor(titulo, color, colorVisto = "") {
 
   // Sin color guardado (una tienda que todavía no reindexó, o una foto que
   // la IA no se atrevió a nombrar), lo de siempre.
-  if (tituloEsDelColor(titulo, color)) return PUNTOS_MISMO_COLOR;
+  //
+  // Y del título, el PRIMER color es el del zapato; los demás son suela y
+  // detalles (ver lugarDelColorEnTitulo). "Negro blanco" gana a "blanco
+  // negro" cuando la foto es negra — antes empataban.
+  if (tituloEsDelColor(titulo, color)) {
+    return lugarDelColorEnTitulo(titulo, color) === "secundario"
+      ? PUNTOS_COLOR_SECUNDARIO
+      : PUNTOS_MISMO_COLOR;
+  }
   return tituloNombraColor(titulo) ? PUNTOS_OTRO_COLOR : 0;
 }
 
@@ -494,6 +506,9 @@ function leerRasgos(texto) {
 // OpenAI; pasarse solo hace que la tanda falle entera.
 const DE_A_LA_VEZ = 4;
 
+// Bajar la foto del producto + la llamada al modelo que la mira.
+const CONEXIONES_POR_PRODUCTO = 2;
+
 export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) {
   if (!env.DB) return { ok: false, error: "No hay base de datos conectada, y el índice vive ahí." };
 
@@ -518,6 +533,14 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
 
   const pendientes = indexables.filter((p) => rehacer || !guardados.has(p.imagen));
 
+  // Los que YA TIENEN FILA en la tabla, con color o sin él. Hace falta
+  // aparte porque re-mirar uno de estos (para ponerle el color, o con
+  // ?rehacer=si) reescribe su fila: no suma una nueva. Contarlo como nueva
+  // es lo que daba el "107% hecho" y el falso "se están pisando" del
+  // 30-sep-2026.
+  const conFila = new Set(indice.map((p) => p.imagen));
+  const sinColor = rehacer ? 0 : pendientes.filter((p) => conFila.has(p.imagen)).length;
+
   // EL PRECIO SE REFRESCA SIN GASTAR MODELO.
   //
   // Las fichas que se le mandan al cliente pueden salir del índice (el
@@ -540,9 +563,23 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
   // Si se acaba el cupo NO se abandona: aquí no hay ningún cliente
   // esperando, así que se espera a que vuelva y se sigue. Solo se corta
   // si la espera es tan larga que no vale la pena seguir en esta pasada.
+  let sinConexiones = false;
   for (let i = 0; i < tanda.length; i += DE_A_LA_VEZ) {
+    // LAS CONEXIONES DE ESTA PASADA (ver presupuesto.js). Cada producto
+    // cuesta dos: bajar su foto y la llamada al modelo. Si el grupo no cabe
+    // —dejando un par libres para guardar—, se corta aquí y la próxima
+    // pasada del cron sigue donde quedó. Antes se seguía y Cloudflare
+    // tumbaba todas las llamadas con "Too many subrequests".
+    const grupo = Math.min(DE_A_LA_VEZ, tanda.length - i);
+    if (!caben(grupo * CONEXIONES_POR_PRODUCTO, 2)) {
+      sinConexiones = true;
+      corto = `Se acabaron las conexiones de esta pasada de Cloudflare (${quedanAhora()} libres). Sigo en la próxima.`;
+      console.log(`Indexación: ${corto}`);
+      break;
+    }
+
     if (!(await esperarCupo(modelo))) {
-      corto = "Me quedé sin cupo de OpenAI a mitad de la tanda.";
+      corto = "Me quedé sin cupo de la IA a mitad de la tanda.";
       console.log("Indexación: sin cupo y la espera es larga, corto la tanda");
       break;
     }
@@ -577,12 +614,16 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
   // Si se guardaron productos y las filas no subieron lo que debían, algo
   // los está pisando. Eso fue exactamente lo que pasó con la clave por
   // título, y lo peor no fue el fallo: fue que no dijo nada. Aquí grita.
-  if (indexados.length) {
+  //
+  // Solo cuentan los que NO tenían fila: completarle el color a uno que ya
+  // estaba reescribe su fila y no suma ninguna, y eso no es un pisotón.
+  const debianSerNuevas = indexados.filter((p) => !conFila.has(p.imagen)).length;
+  if (debianSerNuevas) {
     const hayAhora = await contarFilas(env.DB);
     const nuevas = hayAhora - indice.length;
-    if (nuevas < indexados.length) {
+    if (nuevas < debianSerNuevas) {
       console.error(
-        `ÍNDICE: guardé ${indexados.length} producto(s) pero solo quedaron ${nuevas} ` +
+        `ÍNDICE: guardé ${debianSerNuevas} producto(s) nuevos pero solo quedaron ${nuevas} ` +
           "fila(s) nuevas. Se están pisando entre ellos y la indexación no va a " +
           "terminar nunca. Mira la clave primaria de la tabla en indice.js."
       );
@@ -603,8 +644,15 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
     catalogo: productos.length,
     indexables: indexables.length,
     sinFoto,
-    yaEstaban: indice.length,
+    // Los que no hacía falta mirar. NO es indice.length: ahí entran los
+    // que están guardados sin color (que siguen pendientes) y los de fotos
+    // que ya no están en Shopify, y con eso el porcentaje pasaba del 100.
+    yaEstaban: indexables.length - pendientes.length,
+    // De los pendientes, cuántos ya estaban indexados y solo les falta el
+    // color. El cotejo los usa igual mientras tanto (ver puntosDeColor).
+    sinColor,
     intentados: tanda.length,
+    sinConexiones,
     indexados: indexados.length,
     fallados,
     pendientes: pendientes.length,

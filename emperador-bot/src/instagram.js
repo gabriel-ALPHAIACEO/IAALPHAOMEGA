@@ -166,6 +166,91 @@ export function enviarBotonCatalogo(env, igsid, texto) {
   });
 }
 
+// UNA TARJETA CON FOTO, TÍTULO Y UN BOTÓN (25-sep-2026). Es la de la
+// ubicación cuando hay foto del local: la foto, "📍 ..." y "MAPS/GOOGLE".
+// Sin enlace válido sale el texto solo; sin foto, texto y botón.
+export function enviarTarjeta(env, igsid, { titulo, texto, resumen, imagen, boton }) {
+  const enlace = String(boton?.url || "").trim();
+  const tieneEnlace = /^https?:\/\//i.test(enlace);
+  const tieneImagen = /^https?:\/\//i.test(String(imagen || "").trim());
+
+  if (!tieneEnlace) return enviarTexto(env, igsid, texto);
+  if (!tieneImagen) return enviarBotonEnlace(env, igsid, texto, boton.title, enlace);
+
+  return enviar(env, igsid, {
+    attachment: {
+      type: "template",
+      payload: {
+        template_type: "generic",
+        elements: [
+          {
+            title: recortar(titulo || "", 80),
+            subtitle: recortar(resumen || texto, 80),
+            image_url: imagen,
+            buttons: [{ type: "web_url", url: enlace, title: recortar(boton.title || "Abrir", 20) }],
+          },
+        ],
+      },
+    },
+  });
+}
+
+// ¿Ese enlace devuelve una IMAGEN que Instagram pueda bajarse? Lo usa
+// /probar-ubicacion para decirlo ANTES de que un cliente vea un cuadro roto.
+export async function revisarImagen(url) {
+  const enlace = String(url || "").trim();
+  if (!/^https?:\/\//i.test(enlace)) return { ok: false, detalle: "no es una direccion http" };
+
+  let respuesta;
+  try {
+    respuesta = await fetch(enlace, { redirect: "follow" });
+  } catch (error) {
+    return { ok: false, detalle: `no se pudo abrir: ${error?.message || error}` };
+  }
+
+  if (!respuesta.ok) {
+    return {
+      ok: false,
+      detalle:
+        `respondio ${respuesta.status}` +
+        (respuesta.status === 403 || respuesta.status === 401
+          ? " (pide permiso: la foto no es publica)"
+          : respuesta.status === 404
+            ? " (no existe)"
+            : ""),
+    };
+  }
+
+  const tipo = (respuesta.headers.get("content-type") || "").split(";")[0].trim();
+  if (!tipo.startsWith("image/")) {
+    return {
+      ok: false,
+      detalle: `lo que devuelve no es una imagen, es ${tipo || "algo sin tipo"} (suele ser una pagina)`,
+    };
+  }
+
+  const largo = Number(respuesta.headers.get("content-length")) || 0;
+  return { ok: true, detalle: `${tipo}${largo ? `, ${Math.round(largo / 1024)} KB` : ""}` };
+}
+
+// Un texto con UN botón que abre un enlace. Es lo que manda la ubicación:
+// la dirección y, debajo, "MAPS/GOOGLE". Sin enlace válido, sale el texto
+// solo — un botón a un enlace roto es peor que ninguno.
+export function enviarBotonEnlace(env, igsid, texto, titulo, url) {
+  if (!/^https?:\/\//i.test(String(url || ""))) return enviarTexto(env, igsid, texto);
+
+  return enviar(env, igsid, {
+    attachment: {
+      type: "template",
+      payload: {
+        template_type: "button",
+        text: recortar(texto, 640),
+        buttons: [{ type: "web_url", url, title: recortar(titulo, 20) }],
+      },
+    },
+  });
+}
+
 /* ── El fotograma de una historia en vídeo ────────────────────────── */
 
 // LA MAYORÍA DE LAS HISTORIAS SON VÍDEO, Y ESAS NO SE PUEDEN MIRAR.

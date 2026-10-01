@@ -128,6 +128,33 @@ export function tituloEsDelColor(titulo, color) {
   return c ? c.titulo.test(String(titulo || "")) : false;
 }
 
+// ¿Es el color PRINCIPAL del título, o uno de acompañamiento? (30-sep-2026)
+//
+// Caso real: una historia con unas Uplift negras. Había cinco Uplift con
+// "negro" en el título —"blanco negro det morado", "negro blanco", "negro
+// gris"...— y los cinco empataban, así que salía primero el que Shopify
+// devolviera: "blanco negro det morado", que es BLANCO con detalles.
+//
+// En estos títulos el primer color que se nombra es el del cuerpo del
+// zapato; los siguientes son la suela y los detalles. Devuelve "principal"
+// si es el primero, "secundario" si aparece después, o "" si no aparece.
+export function lugarDelColorEnTitulo(titulo, color) {
+  const texto = String(titulo || "");
+  const nombre = String(color || "").trim().toLowerCase();
+  if (!nombre) return "";
+
+  const nombrados = COLORES.map((c) => {
+    const m = c.titulo.exec(texto);
+    return m ? { nombre: c.nombre, donde: m.index } : null;
+  })
+    .filter(Boolean)
+    .sort((a, b) => a.donde - b.donde);
+
+  if (!nombrados.length) return "";
+  if (nombrados[0].nombre === nombre) return "principal";
+  return nombrados.some((x) => x.nombre === nombre) ? "secundario" : "";
+}
+
 // ¿El título nombra algún color, el que sea? Un título que no dice color
 // no contradice a la foto; uno que dice otro color, sí.
 export function tituloNombraColor(titulo) {

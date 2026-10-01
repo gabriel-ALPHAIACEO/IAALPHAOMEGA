@@ -19,6 +19,11 @@ name = "emperador-bot"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 
+# Lo necesita src/presupuesto.js para llevar la cuenta de las conexiones de
+# cada pasada (Cloudflare corta a las 50 en el plan gratis). NO lo quites:
+# sin esto el despliegue falla con "Could not resolve node:async_hooks".
+compatibility_flags = ["nodejs_als"]
+
 # Permite importar los prompts como texto
 [[rules]]
 type = "Text"
@@ -113,6 +118,22 @@ URL_CATALOGO = "https://drive.google.com/drive/folders/14lvw1gxxkZSMEdtZbvJ_fIua
 # WhatsApp de El Emperador, para el boton "Comprar" de cada ficha. El "+"
 # no molesta: el bot deja solo los numeros.
 WHATSAPP = "+584224848573"
+
+# --- La ubicacion de la tienda -------------------------------------------
+# Cuando preguntan "¿donde estan?", el bot manda DIRECCION tal cual, con un
+# boton "MAPS/GOOGLE" que abre MAPS_URL, y si hay FOTO_LOCAL, la foto.
+# Vacio = el bot no la sabe y esa pregunta va a un asesor (no se inventa).
+# Para ver como queda antes de que la vea un cliente: /probar-ubicacion
+DIRECCION = ""
+MAPS_URL = ""
+FOTO_LOCAL = ""
+
+# --- El limite de Cloudflare ---------------------------------------------
+# Conexiones que Cloudflare deja abrir en cada pasada del Worker: 50 en el
+# plan GRATIS (lo de ahora), 1000 en el de pago. El bot reparte el indice y el
+# cotejo para no pasarse nunca. Si algun dia pasas al plan de pago, cambialo
+# a "1000" y el indice se llena mucho mas rapido.
+SUBPETICIONES_MAXIMAS = "50"
 
 # --- Meta (Instagram) ----------------------------------------------------
 #   "todo"   atiende todo tipo de mensaje  <- por defecto

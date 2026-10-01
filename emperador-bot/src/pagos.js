@@ -142,6 +142,28 @@ export function fraseDeLaTasa() {
   );
 }
 
+// ¿PREGUNTA CON QUÉ SE PUEDE PAGAR? (30-sep-2026, pedido del dueño: "cuando
+// preguntan métodos de pago envía TODOS los métodos disponibles"). Entonces
+// se le manda la lista entera, desde el código —siempre completa, sin que
+// el modelo se deje uno— y NO se avisa a nadie: es una pregunta, no un
+// cierre.
+const PREGUNTA_METODOS =
+  /\b(m[eé]todos?\s+de\s+pagos?|formas?\s+de\s+pagos?|medios\s+de\s+pagos?|c[oó]mo\s+(?:puedo\s+|se\s+puede\s+)?pag(?:o|ar|a)|con\s+qu[eé]\s+(?:puedo\s+)?pag(?:o|ar)|qu[eé]\s+pagos?\s+(?:aceptan|reciben|tienen)|aceptan\s+(?:zelle|paypal|binance|zinli|pago\s+m[oó]vil|punto|transferencia|efectivo|d[oó]lares)|reciben\s+(?:zelle|paypal|binance|zinli|pago\s+m[oó]vil|transferencia|efectivo|d[oó]lares))\b/i;
+
+export function preguntaPorMetodos(texto) {
+  return PREGUNTA_METODOS.test(String(texto || ""));
+}
+
+// ¿PIDE LOS DATOS PARA PAGAR? Eso SÍ va al asesor, y es lo ÚNICO de pagos
+// que avisa (pedido del dueño, 30-sep-2026): el bot no tiene ni un número
+// de cuenta, y el cliente está a punto de mandar el dinero.
+const PIDE_DATOS_DE_PAGO =
+  /\b(?:(?:p[aá]same|m[aá]ndame|env[ií]ame|dame|p[aá]sa(?:me)?|manda(?:me)?|regálame|reg[aá]lame|comp[aá]rteme)\s+(?:los\s+|el\s+|la\s+|tus\s+|sus\s+)?(?:datos|n[uú]mero\s+de\s+cuenta|cuenta|pago\s+m[oó]vil|zelle|correo)|datos\s+(?:para|de)\s+(?:pag\w*|transferir|la\s+transferencia|pago\s+m[oó]vil|zelle|binance)|n[uú]mero\s+de\s+cuenta|a\s+d[oó]nde\s+(?:te\s+)?(?:transfiero|pago|deposito|env[ií]o\s+el\s+pago)|a\s+qu[eé]\s+(?:cuenta|n[uú]mero|correo)|cu[aá]l\s+es\s+(?:el|tu|su)\s+(?:zelle|correo|n[uú]mero|pago\s+m[oó]vil|binance)|correo\s+(?:de|del)\s+zelle)\b/i;
+
+export function pideDatosDePago(texto) {
+  return PIDE_DATOS_DE_PAGO.test(String(texto || ""));
+}
+
 // Cuando no hay nada cargado, lo de siempre: a un asesor. Es la misma frase
 // que usa el prompt para todo lo que el bot no sabe.
 const MEJOR_UN_ASESOR = "Eso te lo confirma un asesor en un momento 😊";

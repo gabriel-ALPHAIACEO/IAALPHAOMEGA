@@ -1,0 +1,48 @@
+# LO QUE EL EMPERADOR SABE DE SÍ MISMA: horario, envíos, delivery y empleo.
+#
+# De aquí sale lo que el bot contesta cuando le preguntan "¿a qué hora
+# abren?", "¿hacen envíos?", "¿tienen delivery?" o "¿están contratando?".
+# La IA lo redacta a la medida del cliente, pero NO puede inventar nada que
+# no esté escrito aquí: si inventa algo, el sistema lo descarta y manda este
+# texto tal cual (ver src/datos.js).
+#
+# UNA SECCIÓN VACÍA ES UN TEMA QUE EL BOT NO SABE: esa pregunta la contesta
+# un asesor ("Eso te lo confirma un asesor en un momento 😊"). Mejor vacío
+# que inventado.
+#
+# CÓMO SE LLENA. Escribe debajo de cada [SECCIÓN] el mensaje tal como lo
+# mandarías tú, con sus emojis y sus saltos de línea. Las líneas que
+# empiezan con # son notas y no se le mandan a nadie.
+#
+# LO QUE EL SISTEMA LEE DE ESOS TEXTOS PARA QUE LA IA NO INVENTE:
+#   · si [ENVIOS] o [DELIVERY] dicen que NO, la IA no puede decir que sí;
+#   · las horas que aparecen en [HORARIOS] son las únicas que puede decir,
+#     y un día que no se nombre no tiene horario;
+#   · si [TRABAJO] dice "completo", no puede decir que están contratando.
+#
+# OJO: algunos ejemplos de prompts/texto.txt repiten estos datos (el
+# horario, que no hay envíos). Si cambias algo aquí, cámbialo también allá
+# o pídele a Claude que lo haga.
+#
+# DATOS DE EL EMPERADOR (dueño, 1-oct-2026): NO hay envíos ni delivery.
+# Horario: 8:30am a 5:30pm; domingos y feriados de 8:30am a 1:30pm. El
+# empleo todavía no se ha dado: queda vacío.
+
+[HORARIOS]
+🕘 Nuestro horario:
+
+🔹 Lunes a sábado — 8:30am a 5:30pm
+🔹 Domingos y feriados — 8:30am a 1:30pm
+
+¡Te esperamos! 😊
+
+[ENVIOS]
+Por ahora no hacemos envíos 😊
+
+
+[DELIVERY]
+Por ahora no hacemos delivery 😊
+
+
+[TRABAJO]
+

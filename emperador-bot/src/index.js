@@ -29,14 +29,52 @@
 // versión y NO van con este código — mezclarlos rompe el arranque.
 
 import { responderTexto, identificarEnImagen, quienAtiende, claveDe } from "./ia.js";
-import { revisarPagos, metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
+import {
+  revisarPagos,
+  metodosDePago,
+  bloqueDeMetodos,
+  tasaDePago,
+  hayMetodosDePago,
+  listaDeMetodos,
+  preguntaPorMetodos,
+  pideDatosDePago,
+} from "./pagos.js";
+import {
+  hayCashea,
+  preguntaPorCashea,
+  casheaVigente,
+  CASHEA_FUERA_DE_FECHA,
+  fechasDeLaPromocion,
+  nivelDelCliente,
+  nivelEnElHistorial,
+  notaDeNivel,
+  tarjetaCashea,
+  revisarCashea,
+  hayTablaCashea,
+} from "./cashea.js";
+import {
+  queDatoPide,
+  RESPUESTAS,
+  nombraUnProducto,
+  revisarDatoDeLaTienda,
+  notaDeDatoDeLaTienda,
+} from "./datos.js";
+import { hayQueRescatar, FRASE_DE_RESCATE, MOTIVO_DE_RESCATE } from "./rescate.js";
+import {
+  hayUbicacion,
+  mensajeDeUbicacion,
+  preguntaPorUbicacion,
+  soloPreguntaUbicacion,
+  NOTA_UBICACION_ENVIADA,
+} from "./ubicacion.js";
 import { gastoDelMes } from "./gasto.js";
 import { buscarProductos } from "./shopify.js";
 import { usaDrive, catalogoDeDrive, idDeCarpeta } from "./drive.js";
 import { avisarAsesor } from "./aviso.js";
 import { anotar, leerRastro, hace } from "./rastro.js";
+import { conPresupuesto, limiteDeSubpeticiones } from "./presupuesto.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
-import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo } from "./catalogo.js";
+import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo, corregirBusquedaDeBotas } from "./catalogo.js";
 import { alternativasPara } from "./parecidos.js";
 import { separarColor, filtrarPorColor, terminoDeColor, nombreDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
@@ -66,6 +104,9 @@ import {
   enviarTexto,
   enviarFichas,
   enviarBotonCatalogo,
+  enviarBotonEnlace,
+  enviarTarjeta,
+  revisarImagen,
   obtenerPerfil,
   fotogramaDeHistoria,
   cuentaDelToken,
@@ -78,7 +119,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-01 (21) · drive: Jordan = Retro al buscar, subcarpetas a la vez, /probar-texto separa Drive y la IA";
+const VERSION = "2026-10-01 (22) · lo de Invictus adaptado a El Emperador (Cashea, horario, sin envios, rescate, botas, categorias de Drive) + limite de 50 conexiones";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -353,8 +394,20 @@ function sinTalla(termino) {
     .trim();
 }
 
+// CADA PASADA CON SU CUENTA DE CONEXIONES (ver presupuesto.js): Cloudflare
+// corta a las 50 por pasada en el plan gratis, y con DeepSeek se llegaba.
 export default {
-  async fetch(request, env, ctx) {
+  fetch(request, env, ctx) {
+    return conPresupuesto(env, () => atenderPeticion(request, env, ctx));
+  },
+
+  scheduled(evento, env, ctx) {
+    ctx.waitUntil(conPresupuesto(env, () => indexarLoQueFalte(env)));
+  },
+};
+
+async function atenderPeticion(request, env, ctx) {
+  {
     const url = new URL(request.url);
 
     // Dispara un aviso de prueba y enseña lo que respondió Slack. Sirve para
@@ -472,7 +525,14 @@ export default {
       // A Meta se le responde 200 siempre y rápido. Si tarda o falla, lo
       // reintenta y el cliente acaba recibiendo la misma respuesta varias
       // veces; y si falla mucho, Meta desactiva el webhook.
-      if (mensaje) ctx.waitUntil(atenderConRed(env, mensaje));
+      //
+      // La hora de llegada viaja con el mensaje: Cloudflare da 30 segundos
+      // de trabajo desde esta respuesta, y el cotejo la usa para saber si
+      // le da el tiempo de esperar el cupo de OpenAI (ver cotejo.js).
+      if (mensaje) {
+        mensaje.recibidoEn = Date.now();
+        ctx.waitUntil(atenderConRed(env, mensaje));
+      }
       return new Response("ok", { status: 200 });
     }
 
@@ -549,6 +609,7 @@ export default {
           `      Índice (catalogar el estante)      → ${quienAtiende(env, "indice").proveedor}, ${quienAtiende(env, "indice").modelo}`,
           "    Los modelos se cambian en wrangler.toml, sin tocar el código.",
           `  COTEJO_BARRIDO      ${env.COTEJO_BARRIDO === "no" ? "no (apagado)" : "si"}   (mirar el catálogo cuando el nombre no acierta)`,
+          `  CONEXIONES          ${limiteDeSubpeticiones(env)} por pasada (${limiteDeSubpeticiones(env) > 50 ? "plan de pago" : "plan básico de Cloudflare"}); el bot las reparte y guarda siempre para contestar`,
           "",
           `GASTO DE IA ESTE MES (${[...new Set([deTexto, deFotos])].join(" + ")}) — medido, no estimado`,
           ...(gasto
@@ -651,7 +712,11 @@ export default {
         );
       }
 
-      if (r.ningunoSalio) {
+      if (r.sinConexiones && !r.indexados) {
+      console.log(`Indexación automática: ${r.corto}`);
+      return;
+    }
+    if (r.ningunoSalio) {
         return texto200(
           `No pude indexar NINGUNO de los ${r.intentados} que intenté, con ${r.modelo}.\n\n` +
             (r.corto ? `${r.corto}\n\n` : "") +
@@ -677,6 +742,10 @@ export default {
               `  (el cotejo compara imágenes). Quedan ${r.indexables} indexables.\n`
             : "") +
           `Ya estaban indexados: ${r.yaEstaban}\n` +
+          (r.sinColor
+            ? `Indexados de antes, a los que solo les falta el color: ${r.sinColor}\n` +
+              "  (se completan solos, de a una tanda; el cotejo ya los usa)\n"
+            : "") +
           `Indexados en esta tanda: ${r.indexados} (con ${r.modelo})\n` +
           (r.fallados
             ? `No se pudieron catalogar: ${r.fallados} — el motivo exacto sale\n` +
@@ -787,6 +856,7 @@ export default {
           `CARPETA  ${idDeCarpeta(env.DRIVE_CARPETA)}`,
           `LEÍDA    ${via}`,
           ...(aviso ? [`AVISO    ${aviso}`] : []),
+          `CATEGORÍAS ${[...new Set(productos.map((p) => p.categoria).filter(Boolean))].join(", ") || "(ninguna: las fotos están sueltas)"}`,
           `${productos.length} productos leídos` +
             (sinPrecio.length ? ` · ${sinPrecio.length} SIN PRECIO` : "") +
             (sinCodigo.length ? ` · ${sinCodigo.length} sin código` : ""),
@@ -794,7 +864,7 @@ export default {
           "NOMBRE (lo que verá el cliente)                               PRECIO",
           ...productos.map(
             (p) =>
-              `  ${p.titulo.slice(0, 60).padEnd(60)} ${p.precio || "— SIN PRECIO"}${p.carpetas ? `   [${p.carpetas}]` : ""}\n` +
+              `  ${p.titulo.slice(0, 60).padEnd(60)} ${p.precio || "— SIN PRECIO"}${p.categoria ? `   [${p.categoria}]` : ""}\n` +
               `      archivo: ${p.nombre}`
           ),
           "",
@@ -805,6 +875,47 @@ export default {
           `Para ver una foto: /probar-imagen?url=${productos[0]?.imagen || ""}`,
           "",
         ].join("\n")
+      );
+    }
+
+    // Cómo queda la ubicación ANTES de que la vea un cliente, y por qué sale
+    // rota la foto si sale rota (25-sep-2026).
+    if (url.pathname === "/probar-ubicacion") {
+      const u = mensajeDeUbicacion(env);
+      const original = String(env.FOTO_LOCAL || "").trim();
+      const foto = u.foto ? await revisarImagen(u.foto) : null;
+
+      return texto200(
+        [
+          "UBICACION (sale de wrangler.toml: DIRECCION, MAPS_URL, FOTO_LOCAL)",
+          "",
+          `  Texto   ${u.texto || "SIN PONER: el bot no manda la ubicacion (DIRECCION vacia)"}`,
+          `  Boton   ${u.enlace ? `${u.boton} -> ${u.enlace}` : "NO SALE (falta MAPS_URL)"}`,
+          "",
+          "FOTO",
+          `  En wrangler  ${original || "(vacio)"}`,
+          `  Se usa       ${u.foto || "NINGUNA"}`,
+          u.foto && u.foto !== original ? "               ^ se arreglo sola (enlace de Drive)" : "",
+          `  Se descarga  ${foto ? (foto.ok ? "SI - " + foto.detalle : "NO - " + foto.detalle) : "no hay foto que probar"}`,
+          original && !u.foto
+            ? "  ^ ese enlace NO es una imagen (un mapa, Google Fotos, Instagram...).\n" +
+              "    Tiene que ser la direccion de LA FOTO, la que termina en .jpg o .png."
+            : "",
+          "",
+          "COMO LE LLEGA AL CLIENTE",
+          !u.texto
+            ? "  No le llega: sin DIRECCION, la pregunta la contesta la IA o un asesor."
+            : u.foto && u.enlace
+              ? [...u.texto].length <= 78
+                ? "  UN mensaje: foto + direccion + boton"
+                : "  DOS mensajes: la direccion en texto, y la foto con el boton"
+              : u.enlace
+                ? "  UN mensaje: la direccion con el boton debajo"
+                : "  UN mensaje: la direccion, sin boton",
+          "",
+        ]
+          .filter((linea) => linea !== "")
+          .join("\n") + "\n"
       );
     }
 
@@ -886,7 +997,7 @@ export default {
     }
 
     return new Response("emperador-bot", { status: 200 });
-  },
+  }
 
   // EL ÍNDICE SE LLENA SOLO.
   //
@@ -907,10 +1018,7 @@ export default {
   // mira lo que falte dentro de un presupuesto de tiempo, y cuando ya no
   // falta nada no gasta ni una llamada al modelo: solo comprueba si
   // entraron productos nuevos, y esos los recoge sola.
-  async scheduled(evento, env, ctx) {
-    ctx.waitUntil(indexarLoQueFalte(env));
-  },
-};
+}
 
 // Cuánto se le permite tardar a una pasada. Cloudflare corta las tareas
 // largas, y no hace falta terminar en una sola: lo que quede lo agarra la
@@ -1340,6 +1448,45 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const textoCliente =
     mensaje.texto || (imagenCruda ? (esHistoria ? "(respondió a una historia)" : "(mandó una foto)") : "");
 
+  // "NO ES ESE": DEJAR DE ADIVINAR Y LLAMAR A UNA PERSONA (30-sep-2026).
+  //
+  // Caso real, cliente perdido: respondió a una historia con unas Nike
+  // Waffle, el bot le enseñó P6000, el cliente dijo "no, ninguna", el bot le
+  // mandó Nike Trail, el cliente volvió a señalar la historia, el bot repitió
+  // lo mismo, y el cliente se fue con un "¿estás ciego?". Desde el primer
+  // "no" había que pasárselo a una persona. Ver rescate.js.
+  //
+  // Se disculpa, avisa al asesor con la historia, y el bot se aparta como
+  // cuando un asesor escribe: si el asesor tarda, sale el "TE ESTÁN
+  // ESPERANDO" de siempre.
+  const motivoDeRescate = hayQueRescatar(mensaje.texto, {
+    yaLeMostre: (contacto.mostrados || []).length > 0 && minutosDesde(contacto.ultimo_envio) < 180,
+    deUnaFoto: esHistoria || Boolean(mensaje.foto) || /\b(historia|foto)\b/i.test(historialPrevio || ""),
+  });
+  if (motivoDeRescate) {
+    console.log(`Rescate: el cliente ${motivoDeRescate} → a un asesor, y el bot se aparta`);
+    await mandar(() => enviarTexto(env, mensaje.igsid, FRASE_DE_RESCATE));
+    await avisarAsesor(env, {
+      ...paraElAviso(contacto),
+      igsid: mensaje.igsid,
+      mensaje: textoCliente,
+      respuesta: FRASE_DE_RESCATE,
+      motivo: `${MOTIVO_DE_RESCATE} (${motivoDeRescate})`,
+      historial: historialPrevio,
+      historia: mensaje.historia?.url || (esHistoria ? "respuesta a una historia" : ""),
+    });
+    const horas = Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO;
+    await guardarContacto(env.DB, {
+      ...contacto,
+      nombre,
+      historial: conNota(historialPrevio, `El cliente ${motivoDeRescate}: se lo pasé a un asesor.`),
+      mids_enviados: mids,
+      ultimo_envio: enviadoEn || Date.now(),
+      pausado_hasta: Date.now() + horas * 60 * 60 * 1000,
+    });
+    return;
+  }
+
   // Quien ya escribió antes y vuelve con un "hola" suelto no necesita al
   // modelo: no hay nada que buscar. La primera vez de cada cliente NO entra
   // aquí: esa bienvenida la escribe el modelo con el tono del prompt.
@@ -1350,6 +1497,114 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
+      mids_enviados: mids,
+      ultimo_envio: enviadoEn || Date.now(),
+    });
+    return;
+  }
+
+  // "¿DÓNDE ESTÁN?": LA DIRECCIÓN TAL CUAL, CON EL BOTÓN DE GOOGLE MAPS.
+  //
+  // Sale del código, no del modelo: DIRECCION de wrangler.toml letra por
+  // letra, como lo mandaba la automatización de ManyChat. Si el mensaje
+  // es SOLO eso, aquí termina y no se gasta ni una llamada. Si además pide
+  // otra cosa —"¿dónde están y tienen Jordan?"— la ubicación sale primero y
+  // el resto sigue al modelo, avisado de que no la repita. Ver ubicacion.js.
+  let notaUbicacion = "";
+  if (!imagenCruda && hayUbicacion(env) && preguntaPorUbicacion(mensaje.texto)) {
+    const lugar = mensajeDeUbicacion(env);
+    console.log(
+      "Preguntó la ubicación → la mando" +
+        (lugar.enlace ? " con el botón de Maps" : " (sin botón: falta MAPS_URL en wrangler.toml)") +
+        (lugar.foto ? " y la foto del local" : "")
+    );
+
+    if (lugar.foto && lugar.enlace) {
+      // CON FOTO. La dirección entra en el título de la tarjeta si cabe (80
+      // letras); si no, va entera en un mensaje y la tarjeta —foto y botón—
+      // detrás. Cortarla sería peor: el cliente leería media calle.
+      const cabe = [...lugar.texto].length <= 78;
+      if (!cabe) await mandar(() => enviarTexto(env, mensaje.igsid, lugar.texto));
+      await mandar(() =>
+        enviarTarjeta(env, mensaje.igsid, {
+          titulo: cabe ? `📍 ${lugar.texto}` : "📍 INVICTUS SHOES",
+          texto: lugar.texto,
+          resumen: "Toca el botón y te abre el mapa 👇",
+          imagen: lugar.foto,
+          boton: { url: lugar.enlace, title: lugar.boton },
+        })
+      );
+    } else {
+      await mandar(() => enviarBotonEnlace(env, mensaje.igsid, lugar.texto, lugar.boton, lugar.enlace));
+    }
+
+    if (soloPreguntaUbicacion(mensaje.texto)) {
+      await guardarContacto(env.DB, {
+        ...contacto,
+        nombre,
+        historial: conNota(historialPrevio, "Preguntó la ubicación y se la pasé."),
+        mids_enviados: mids,
+        ultimo_envio: enviadoEn || Date.now(),
+      });
+      return;
+    }
+    notaUbicacion = NOTA_UBICACION_ENVIADA;
+  }
+
+  // HORARIOS, ENVÍOS, DELIVERY, EMPLEO: EL TEXTO EXACTO DE LA TIENDA.
+  //
+  // Hecho el 25-sep en otra rama y traído el 30-sep (ver datos.js). Solo
+  // salta cuando la pregunta VA SOLA: si nombra un calzado, o habla de
+  // Cashea, sigue el camino normal y el modelo contesta las dos cosas con
+  // las fichas debajo. Ni una llamada a OpenAI cuando va sola.
+  //
+  // AHORA LO REDACTA EL MODELO, PERSONALIZADO (30-sep-2026, pedido del
+  // dueño: "más libertad para personalizar, pero con la información clara y
+  // sin que alucine"). "¿Tienes delivery para Macanao?" recibía el texto
+  // fijo sin nombrar Macanao. El modelo contesta con los DATOS DE LA TIENDA
+  // del prompt, y revisarDatoDeLaTienda() comprueba que no se haya
+  // inventado nada; si se inventó algo, sale el texto fijo de siempre.
+  const datoQuePide = !imagenCruda ? queDatoPide(mensaje.texto) : "";
+
+  // Con el catálogo en Drive, catalogo.txt está vacío: los nombres de los
+  // productos son los de la carpeta (ya en memoria, no cuesta otra lectura).
+  const titulosDeLaTienda =
+    usaDrive(env) && !imagenCruda && (datoQuePide || preguntaPorMetodos(mensaje.texto))
+      ? (await catalogoDeDrive(env)).productos.map((p) => p.titulo)
+      : [];
+
+  const datoDeLaTienda =
+    datoQuePide &&
+    !nombraUnProducto(mensaje.texto, titulosDeLaTienda) &&
+    !preguntaPorCashea(mensaje.texto) &&
+    !preguntaPorMetodos(mensaje.texto) &&
+    !pideDatosDePago(mensaje.texto)
+      ? datoQuePide
+      : "";
+  if (datoDeLaTienda) console.log(`Preguntó por ${datoDeLaTienda}: lo redacta el modelo con los datos de la tienda`);
+
+  // "¿QUÉ MÉTODOS DE PAGO TIENEN?": TODOS, DESDE EL CÓDIGO (30-sep-2026).
+  //
+  // Pedido del dueño: "cuando preguntan métodos de pago envía todos los
+  // métodos disponibles". La lista sale de prompts/pagos.txt, entera, y no
+  // se avisa a nadie. Solo cuando va sola: si nombra un calzado o habla de
+  // Cashea, contesta el modelo las dos cosas. Si PIDE LOS DATOS, tampoco
+  // entra aquí: eso lo contesta el modelo con el asesor, y avisa.
+  if (
+    !imagenCruda &&
+    hayMetodosDePago() &&
+    preguntaPorMetodos(mensaje.texto) &&
+    !pideDatosDePago(mensaje.texto) &&
+    !nombraUnProducto(mensaje.texto, titulosDeLaTienda) &&
+    !preguntaPorCashea(mensaje.texto) &&
+    !queDatoPide(mensaje.texto)
+  ) {
+    console.log("Preguntó los métodos de pago: le mando la lista completa");
+    await mandar(() => enviarTexto(env, mensaje.igsid, listaDeMetodos()));
+    await guardarContacto(env.DB, {
+      ...contacto,
+      nombre,
+      historial: conNota(historialPrevio, "Preguntó los métodos de pago y se los mandé todos."),
       mids_enviados: mids,
       ultimo_envio: enviadoEn || Date.now(),
     });
@@ -1489,9 +1744,35 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // más cerca está de comprar: se le atiende por lo que escribió.
   const marca = imagenCruda ? (foto ? marcaFoto : marcarSinVer(porQueNo)) : "";
 
-  const entrada = contexto(nombre, historialPrevio, textoCliente, marca, esHistoria, minutosCallado);
+  const entrada = contexto(
+    nombre,
+    historialPrevio,
+    textoCliente,
+    [marca, notaUbicacion, datoDeLaTienda ? notaDeDatoDeLaTienda(datoDeLaTienda) : ""].filter(Boolean).join("\n"),
+    esHistoria,
+    minutosCallado
+  );
 
-  const salida = await responderTexto(env, entrada);
+  let salida = await responderTexto(env, entrada);
+
+  // LA RED DE LOS DATOS DE LA TIENDA. Si el modelo no respondió, o se
+  // inventó algo (un precio de envío, una zona gratis, una hora), sale el
+  // texto fijo: exactamente lo que salía antes de darle libertad.
+  if (datoDeLaTienda) {
+    const revision = revisarDatoDeLaTienda(salida?.respuesta, datoDeLaTienda);
+    if (!salida || revision.corregido) {
+      console.log(
+        `Datos de la tienda (${datoDeLaTienda}): ` +
+          (salida ? `el modelo ${revision.motivos.join(" y ")}` : "el modelo no respondió") +
+          " → mando el texto fijo"
+      );
+      salida = {
+        respuesta: RESPUESTAS[datoDeLaTienda],
+        buscar: "NADA",
+        historial: conNota(historialPrevio, `Preguntó por ${datoDeLaTienda} y se lo respondí.`),
+      };
+    }
+  }
 
   // Y si además el modelo falla, la pregunta se la hacemos nosotros, que es
   // infinitamente mejor que decirle que el sistema se trabó.
@@ -1536,6 +1817,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     seAcabaron,
     hayMasDelCatalogo,
     noReconociLaFoto,
+    sinCupo,
     alternativa,
   } = await decidir({
     env,
@@ -1553,6 +1835,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     modeloNombrado,
     eraLaVitrina,
     porConfirmar,
+    recibidoEn: mensaje.recibidoEn,
   });
 
   // LOS DATOS PARA PAGAR NO SALEN DE ACÁ (crítico).
@@ -1584,6 +1867,73 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       productos,
       historia: esHistoria ? "respuesta a una historia" : "",
     });
+  }
+
+  // CASHEA: LA CUENTA DE ESTE CLIENTE, CON SU NIVEL Y SU ZAPATO.
+  //
+  // Primero la red: si el modelo escribió un porcentaje de Cashea que no es
+  // el de la tabla —o cualquiera, con la promoción fuera de fecha—, se
+  // cambia por lo de verdad. Después, si el cliente preguntó por Cashea, va
+  // la tarjeta armada por cashea.js: las cuentas las hace el código, no el
+  // modelo. Ver cashea.js.
+  const revisionDeCashea = revisarCashea(respuestaCliente);
+  if (revisionDeCashea.corregido) respuestaCliente = revisionDeCashea.respuesta;
+
+  const nivelCashea = nivelDelCliente(mensaje.texto) ?? nivelEnElHistorial(historialPrevio);
+  if (nivelDelCliente(mensaje.texto) !== null) {
+    salida.historial = conNota(salida.historial || historialPrevio, notaDeNivel(nivelCashea));
+  }
+
+  let tarjetaDeCashea = "";
+  let casheaFueraDeFecha = false;
+  // Cashea sin tabla de niveles (El Emperador): la inicial la da un asesor,
+  // así que se le avisa aunque la tarjeta vaya detrás de los zapatos.
+  let casheaSinTabla = false;
+  if (!revisionDeCashea.corregido && preguntaPorCashea(mensaje.texto)) {
+    if (casheaVigente()) {
+      tarjetaDeCashea = tarjetaCashea({ nivel: nivelCashea, productos });
+      casheaSinTabla = !hayTablaCashea();
+      console.log(
+        `Preguntó por Cashea → tarjeta ` +
+          (nivelCashea ? `con su Nivel ${nivelCashea}` : "con la tabla") +
+          (productos.length ? ` y la cuenta de ${Math.min(productos.length, 3)} zapato(s)` : "")
+      );
+    } else if (hayCashea()) {
+      // Cargado pero fuera de fecha: al asesor, sin prometer nada.
+      console.log("Preguntó por Cashea con la promoción fuera de fecha → al asesor");
+      casheaFueraDeFecha = true;
+      if (productos.length) tarjetaDeCashea = CASHEA_FUERA_DE_FECHA;
+      else respuestaCliente = CASHEA_FUERA_DE_FECHA;
+    }
+  }
+
+  // LA TARJETA NO VA DETRÁS DE UN "TE LO CONFIRMA UN ASESOR" (30-sep-2026).
+  //
+  // El dueño lo vio en producción: el cliente preguntaba "¿tienes Cashea?",
+  // el modelo —por su regla general de mandar al asesor lo que no sabe—
+  // escribía "Eso te lo confirma un asesor en un momento 😊", y la tabla
+  // salía DEBAJO. El cliente leía "asesor" primero, y encima esa frase
+  // disparaba un aviso a Slack. Si va la tarjeta, lo del asesor sobra: se
+  // quita, y si no queda nada, la tarjeta va sola.
+  if (tarjetaDeCashea && tarjetaDeCashea !== CASHEA_FUERA_DE_FECHA) {
+    const sinAsesor = respuestaCliente
+      .split(/(?<=[.!?😊🙌])\s+/)
+      .filter((frase) => !/\basesor/i.test(frase))
+      .join(" ")
+      .trim();
+    if (sinAsesor !== respuestaCliente.trim()) {
+      console.log("Cashea: quito el 'te lo confirma un asesor' del modelo, va la tarjeta");
+    }
+    // Con zapatos, el texto va solo antes del carrusel: nunca vacío.
+    respuestaCliente = sinAsesor || (productos.length ? "¡Claro que sí! 🙌 Mira 👇" : "");
+  }
+
+  // Sin zapatos que enseñar, la tarjeta va en el MISMO mensaje que la frase
+  // del modelo ("¡Claro que sí! Mira cómo te queda 👇"): un solo mensaje se
+  // lee mejor que dos seguidos. Con zapatos, va detrás del carrusel.
+  if (tarjetaDeCashea && !productos.length && !buscoSinExito && !seAcabaron && !hayMasDelCatalogo) {
+    respuestaCliente = respuestaCliente ? `${respuestaCliente}\n\n${tarjetaDeCashea}` : tarjetaDeCashea;
+    tarjetaDeCashea = "";
   }
 
   // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO (crítico).
@@ -1618,13 +1968,30 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
   }
 
-  const escalada = hayEscalada({
-    respuesta: respuestaCliente,
-    productos,
-    preguntoTalla,
-    buscoSinExito,
-    noReconociLaFoto,
-  });
+  // La tarjeta de Cashea, cuando no fue dentro del mensaje de arriba: va
+  // DETRÁS de los zapatos, que es donde se lee "y con tu nivel, esto".
+  if (tarjetaDeCashea) {
+    await mandar(() => enviarTexto(env, mensaje.igsid, tarjetaDeCashea));
+  }
+
+  // Cashea fuera de fecha avisa SIEMPRE, aunque se le hayan enseñado
+  // zapatos: el cliente quiere pagar así y alguien le tiene que contestar.
+  //
+  // Y quien PIDE LOS DATOS para pagar —número de cuenta, "¿a dónde
+  // transfiero?"—, también, aunque se le estén enseñando zapatos: es lo
+  // único de pagos que va al asesor (pedido del dueño, 30-sep-2026).
+  const pidioDatos = pideDatosDePago(mensaje.texto);
+  const escalada =
+    casheaFueraDeFecha ||
+    casheaSinTabla ||
+    pidioDatos ||
+    hayEscalada({
+      respuesta: respuestaCliente,
+      productos,
+      preguntoTalla,
+      buscoSinExito,
+      noReconociLaFoto,
+    });
 
   // Si ya se avisó por los datos de pago, no se avisa otra vez: la frase
   // con la que se corrigió lleva "en un momento" y hayEscalada la leería
@@ -1635,7 +2002,13 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       igsid: mensaje.igsid,
       mensaje: textoCliente,
       respuesta: respuestaCliente,
-      motivo: motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto }),
+      motivo: casheaFueraDeFecha
+        ? `PREGUNTO POR CASHEA FUERA DE LA PROMOCION${fechasDeLaPromocion() ? ` (${fechasDeLaPromocion().toUpperCase()})` : ""}`
+        : casheaSinTabla
+          ? `QUIERE PAGAR CON CASHEA${nivelCashea ? ` (NIVEL ${nivelCashea})` : ""}: CONFIRMARLE LA INICIAL`
+        : pidioDatos && !preguntoTalla
+          ? "PIDE LOS DATOS PARA PAGAR"
+          : motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo }),
       historial: salida.historial,
       busco: termino,
       productos,
@@ -1932,6 +2305,9 @@ async function decidir({
   // El modelo se identificó pero sin confirmar del todo: el cotejo pasa a
   // verificar, no solo a desempatar.
   porConfirmar = false,
+  // Cuándo llegó el mensaje. El cotejo lo usa para saber si le da el
+  // tiempo de esperar el cupo de OpenAI.
+  recibidoEn = 0,
 }) {
   const preguntoTalla = PREGUNTA_TALLA.test(texto);
 
@@ -1965,6 +2341,16 @@ async function decidir({
 
   // El modelo cuela la talla en el término cuando el cliente la nombra, y eso
   // devuelve cero productos siempre. Se le quita antes de buscar.
+  // BOTAS TÁCTICAS vs. BÁSQUET: si el cliente habla de básquet, la búsqueda
+  // no puede ser la de las tácticas (y al revés). Ver catalogo.js.
+  const botas = corregirBusquedaDeBotas(texto, salida.buscar, historialPrevio);
+  if (botas.corregido) {
+    console.log(`Botas: "${salida.buscar}" no es lo que pidió → busco "${botas.buscar}"`);
+    salida.buscar = botas.buscar;
+    salida.respuesta = botas.respuesta;
+    salida.historial = conNota(salida.historial || historialPrevio, botas.nota);
+  }
+
   const termino = salida.buscar.toUpperCase() === "NADA" ? "" : sinTalla(salida.buscar);
   if (salida.buscar !== termino && termino) {
     console.log(`Quité la talla del término: "${salida.buscar}" -> "${termino}"`);
@@ -2047,6 +2433,9 @@ async function decidir({
   // catálogo y saca el par que es. Ver ./cotejo.js: no corre siempre, y
   // cuando no está seguro devuelve null y todo sigue igual que sin él.
   let cotejoAcerto = false;
+  // Lo rellena el cotejo: sinCupo = true si algo se quedó sin mirar porque
+  // OpenAI no tenía cupo.
+  const informeCotejo = {};
   if (foto) {
     const cotejo = await cotejoPorImagen({
       env,
@@ -2062,6 +2451,8 @@ async function decidir({
       // El barrido del catálogo completo es el último recurso y el único
       // paso caro de todo esto. Se apaga con COTEJO_BARRIDO = "no".
       barrer: env.COTEJO_BARRIDO !== "no",
+      recibidoEn,
+      informe: informeCotejo,
     });
 
     if (cotejo) {
@@ -2104,6 +2495,24 @@ async function decidir({
     });
   }
 
+  // LA PISTA DEL COTEJO VA PRIMERO (30-sep-2026). Si el cotejo no se atrevió
+  // a afirmar ninguno pero apuntó a uno con confianza "media", ese va el
+  // PRIMERO del "¿es alguna de estas?" —sin decirle al cliente "es este"—.
+  // Caso real: unas Nike Waffle respondidas con P6000; si el cotejo llegó a
+  // sospechar de las Waffle, tenían que ir delante.
+  if (foto && !cotejoAcerto && informeCotejo.mejorMedia) {
+    const pista = informeCotejo.mejorMedia;
+    console.log(`Cotejo: "${pista.titulo}" (confianza media) va primero en lo que le enseño`);
+    const habiaOtros = productos.length > 0;
+    productos = [pista, ...productos.filter((p) => p.titulo !== pista.titulo)].slice(0, 10);
+    // Si es lo único que hay, la frase tiene que ser una pregunta honesta:
+    // el modelo pudo haber escrito cualquier cosa pensando que no había nada.
+    if (!habiaOtros) {
+      salida.respuesta = "¿Es este? 👟 Si no es, dime y te paso con un asesor para encontrarlo 😊";
+      salida.historial = conNota(salida.historial, `Le pregunté si era ${pista.titulo} (sin confirmar).`);
+    }
+  }
+
   // NO SE RECONOCIÓ LA FOTO: EL CATÁLOGO COMPLETO (26-sep-2026).
   //
   // LO QUE HABÍA AQUÍ Y POR QUÉ SE QUITÓ. Cuando el cotejo se abstenía, se
@@ -2143,6 +2552,10 @@ async function decidir({
       // mano que el bot no supo leer, y ese es de los que más cerca están
       // de comprar. Ver hayEscalada().
       noReconociLaFoto: true,
+      // No es lo mismo "miré y no está" que "no pude mirar": con OpenAI
+      // sin cupo, el par puede estar en la tienda. El asesor lo tiene que
+      // saber antes de contestar "no lo tenemos".
+      sinCupo: Boolean(informeCotejo.sinCupo),
       alternativa: "",
       respuestaCliente: salida.respuesta,
     };
@@ -2291,8 +2704,11 @@ function hayEscalada({ respuesta, productos, preguntoTalla, buscoSinExito, noRec
 
 // Primera línea de la notificación: le dice al asesor qué tiene que
 // contestar antes de abrir la conversación.
-function motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto }) {
+function motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo = false }) {
   if (preguntoTalla) return "PREGUNTO POR TALLAS";
+  if (noReconociLaFoto && sinCupo) {
+    return "MANDO UNA FOTO Y NO LA PUDE COMPARAR CON TODO EL CATALOGO (SIN CUPO O SIN CONEXIONES) — PUEDE QUE SI LO TENGAMOS";
+  }
   if (noReconociLaFoto) return "MANDO UNA FOTO Y NO SUPE QUE CALZADO ES";
   return "QUIERE CERRAR LA COMPRA";
 }

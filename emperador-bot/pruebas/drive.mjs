@@ -198,6 +198,60 @@ titulo("carpeta privada: dice exactamente cómo compartirla");
   ok(r.productos.length === 0 && /Cualquier persona con el enlace/.test(r.error), "explica el paso de Compartir", r.error.slice(0, 90));
 }
 
+titulo("las CATEGORÍAS de la carpeta (CATALOGO › CNTND 1 (30/6/26) › CALZADOS…)");
+{
+  ok(D.categoriaDeLaRuta(["CNTND 1 (30/6/26)", "CALZADOS", "NIKE"]) === "CALZADOS", "la carpeta de lote no es categoría: CALZADOS sí");
+  ok(D.categoriaDeLaRuta(["GORRAS"]) === "GORRAS" && D.categoriaDeLaRuta([]) === "", "sin lote, la primera carpeta; sin carpetas, ninguna");
+
+  const R = "1RaizCategoriasXXXXXXX", L = "1LoteCategoriasXXXXXXX", C = "1CalzadosCategoriasXXX", G = "1GorrasCategoriasXXXXX";
+  const e = (id, nombre, carpeta) =>
+    `<div class="flip-entry" id="entry-${id}"><a href="https://drive.google.com/${carpeta ? "drive/folders" : "file/d"}/${id}"><div class="flip-entry-title">${nombre}</div></a></div>`;
+  const pags = {
+    [R]: `<div class="flip-entries">${e(L, "CNTND 1 (30/6/26)", true)}</div>`,
+    [L]: `<div class="flip-entries">${e(C, "CALZADOS", true)}${e(G, "GORRAS", true)}</div>`,
+    [C]: `<div class="flip-entries">${e("1ZapatoUnoXXXXXXXX", "Air Force One blanco 45$.jpg")}${e("1ZapatoDosXXXXXXXX", "Jordan 4 negro 60$.jpg")}</div>`,
+    [G]: `<div class="flip-entries">${e("1GorraUnoXXXXXXXXX", "New Era negra 20$.jpg")}</div>`,
+  };
+  const real = globalThis.fetch, log = console.log, err = console.error;
+  const sistemas = [];
+  globalThis.fetch = async (url, op = {}) => {
+    const u = String(url);
+    if (u.startsWith("https://drive.google.com/embeddedfolderview")) return new Response(pags[new URL(u).searchParams.get("id")] || "", { status: 200 });
+    if (u.startsWith("https://api.deepseek.com/")) {
+      sistemas.push(JSON.parse(op.body).messages[0].content);
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"respuesta":"¡Hola! ¿Qué estás buscando? 😊","buscar":"NADA","historial":"Saludó."}' } }] }), { status: 200 });
+    }
+    return new Response("", { status: 404 });
+  };
+  console.log = () => {}; console.error = () => {};
+  D.olvidarCatalogoDeDrive();
+  const envC = { CATALOGO: "drive", DRIVE_CARPETA: R, DEEPSEEK_API_KEY: "x" };
+  try {
+    const gorras = await S.buscarProductos(envC, "gorras", 10);
+    ok(gorras.productos.length === 1 && /New Era/.test(gorras.productos[0].titulo), '"gorras" → lo de la carpeta GORRAS');
+    const zapatos = await S.buscarProductos(envC, "zapatos", 10);
+    ok(zapatos.productos.length === 2, '"zapatos" → lo de CALZADOS (sinónimo)', `${zapatos.productos.length}`);
+    const tenis = await S.buscarProductos(envC, "tenis negros", 10);
+    ok(tenis.productos.length === 1 && /Jordan/.test(tenis.productos[0].titulo), '"tenis negros" → el Jordan negro (calzado + plural)');
+    const lista = await D.titulosDeDrive(envC);
+    ok(/^CALZADOS:\n/m.test(lista) && /^GORRAS:\n/m.test(lista), "los títulos van al prompt agrupados por categoría", lista.replace(/\n/g, " | "));
+    const cats = await D.categoriasDeDrive(envC);
+    ok(cats.map((c) => c.nombre).sort().join() === "CALZADOS,GORRAS", "las categorías: CALZADOS y GORRAS");
+
+    // EL PROMPT ARMADO DE VERDAD: con lo de Drive, el horario, Cashea y sin marcadores sueltos.
+    const ia = await src.cargar("ia.js");
+    await ia.responderTexto(envC, "Cliente: hola");
+    const sistema = sistemas[0] || "";
+    ok(sistema && !/\{\{\w+\}\}/.test(sistema), "el prompt que le llega a DeepSeek no tiene ningún {{MARCADOR}} sin rellenar", (sistema.match(/\{\{\w+\}\}/g) || []).join(" "));
+    ok(/🔹 Calzados/.test(sistema) && /🔹 Gorras/.test(sistema), "sabe qué vende: Calzados y Gorras");
+    ok(/8:30am a 5:30pm/.test(sistema) && /no hacemos envíos/.test(sistema) && /no hacemos delivery/.test(sistema), "sabe el horario de El Emperador y que no hay envíos ni delivery");
+    ok(/trabaja con Cashea/.test(sistema), "y que trabaja con Cashea (las cuentas las pone el sistema)");
+    ok(/Air Force One blanco/.test(sistema) && /New Era negra/.test(sistema), "y los nombres reales de la carpeta");
+  } finally {
+    globalThis.fetch = real; console.log = log; console.error = err;
+  }
+}
+
 titulo("sin CATALOGO = drive, sigue siendo Shopify");
 ok(!D.usaDrive({}) && D.usaDrive({ CATALOGO: "drive" }), "solo con CATALOGO = \"drive\"");
 

@@ -29,7 +29,10 @@ import { comoDataUri } from "./imagen.js";
 import { metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
 import { anotarGasto } from "./gasto.js";
 import { llamarDeepSeek, modeloDeDeepSeek } from "./deepseek.js";
-import { usaDrive, titulosDeDrive } from "./drive.js";
+import { usaDrive, titulosDeDrive, categoriasDeDrive } from "./drive.js";
+import { datosParaElPrompt } from "./datos.js";
+import { hayCashea, hayTablaCashea } from "./cashea.js";
+import { hayUbicacion, mensajeDeUbicacion } from "./ubicacion.js";
 
 // EL CATÁLOGO SE PEGA AL PROMPT AL ARRANCAR, NO EN CADA MENSAJE.
 //
@@ -47,6 +50,7 @@ let promptTextoArmado = "";
 // prompts/catalogo.txt) y el prompt se rearma cada tanto para recoger los
 // productos nuevos.
 let listaDeDrive = "";
+let categoriasDeLaTienda = "";
 let promptVence = 0;
 const MINUTOS_PROMPT_DRIVE = 30;
 
@@ -78,10 +82,76 @@ TODO LO QUE SIGUE EN ESTE BLOQUE NO APLICA: si preguntan por la tasa, el
 cambio o los bolívares, responde "Eso te lo confirma un asesor en un momento
 😊", "buscar" es "NADA", y no nombres ninguna tasa —ni la del BCV ni otra`;
 
+// CASHEA: el modelo NO hace las cuentas ni decide si la promoción está en
+// fecha — eso es de cashea.js, que manda su mensaje aparte, justo después
+// del del modelo. Aquí se le explica qué le toca a él: conversar, y buscar
+// el producto del que se habla para que la cuenta salga con su precio.
+const CON_CASHEA = `Esta tienda trabaja con Cashea (pagar una inicial y el resto en cuotas).
+
+Cuando el cliente pregunte por Cashea, las cuotas, la inicial o diga su nivel
+—"¿aceptan Cashea?", "soy nivel 3", "¿cuánto doy de inicial?"—, EL SISTEMA LE
+MANDA la información exacta en un mensaje aparte, justo después del tuyo: la
+promoción vigente, la tabla de niveles y, si sabe su nivel y el zapato, la
+cuenta de su inicial ya hecha.
+
+Así que tú:
+  · NUNCA contestes "Eso te lo confirma un asesor" a una pregunta de Cashea:
+    Cashea SÍ lo sabe la tienda y el sistema lo manda. Mandarlo al asesor
+    aquí es contestar mal.
+  · NO escribas porcentajes de Cashea, ni montos de inicial ni de cuotas, ni
+    fechas de la promoción. Ninguno. Los números los pone el sistema.
+  · NO digas si hay o no hay promoción: eso también lo dice el sistema.
+  · Contesta en una frase corta y con ganas —"¡Claro que sí! 🙌 Mira cómo te
+    queda 👇"— y, si preguntó algo más, contéstalo también.
+  · SI HABLA DE UN ZAPATO CONCRETO —"¿y con Cashea cuánto doy por esos?",
+    "¿las Jordan se pueden con Cashea?"— pon ESE zapato en "buscar", igual que
+    cuando te preguntan un precio. Así la cuenta sale con su precio real. Si no
+    se sabe de qué zapato habla, "buscar" es "NADA".
+  · Si dijo su nivel, escribe en el historial "Nivel Cashea: N." (con su
+    número), para no tener que volver a preguntárselo.`;
+
+// Cashea aceptado pero SIN tabla de niveles (El Emperador: sin 0%).
+const CASHEA_SIN_TABLA = `Esta tienda ACEPTA Cashea (pagar una inicial y el resto en cuotas). NO hay
+0% de inicial ni ninguna promoción de Cashea, y tú NO sabes los porcentajes
+de inicial de cada nivel.
+
+Cuando el cliente pregunte por Cashea, las cuotas, la inicial o diga su nivel,
+EL SISTEMA LE MANDA un mensaje aparte, justo después del tuyo: que sí se
+acepta, cómo funciona, y que la inicial exacta se la confirma un asesor.
+
+Así que tú:
+  · Di que SÍ aceptamos Cashea, en una frase corta y con ganas —"¡Claro que
+    sí! 🙌"— y, si preguntó algo más, contéstalo también.
+  · NUNCA escribas un porcentaje de inicial, ni "0%", ni "sin inicial", ni
+    montos de cuotas. No los sabes. Si los inventas, el sistema los borra.
+  · SI HABLA DE UN PRODUCTO CONCRETO, pon ESE producto en "buscar", como
+    cuando preguntan un precio.
+  · Si dijo su nivel, escribe en el historial "Nivel Cashea: N." (con su
+    número).`;
+
+const SIN_CASHEA = `(Todavía no está cargado Cashea en esta tienda. Si preguntan por Cashea,
+cuotas o financiamiento, responde "Eso te lo confirma un asesor en un momento
+😊" y "buscar" es "NADA". No digas porcentajes ni condiciones.)`;
+
+// La ubicación la manda ubicacion.js con su botón de Google Maps. Esto es la
+// red por si una forma rara de preguntar se le escapa: el modelo tiene la
+// dirección exacta y la da tal cual, sin botón.
+function conUbicacion(texto) {
+  return `Si preguntan dónde está la tienda, la dirección es exactamente esta —escríbela
+tal cual, sin cambiar ni resumir nada—:
+
+${texto}
+
+"buscar" es "NADA" si no pidió ningún producto.`;
+}
+
+const SIN_UBICACION = `(Todavía no está cargada la dirección de esta tienda. Si preguntan dónde
+están, responde "Eso te lo confirma un asesor en un momento 😊".)`;
+
 const SIN_MODELOS = `(Todavía no está cargada la lista de modelos de esta tienda.
 Identifica por lo que VES y quédate en la marca si no estás seguro.)`;
 
-function textoConCatalogo() {
+function textoConCatalogo(env = {}) {
   if (!promptTextoArmado) {
     // Las líneas que empiezan con # son notas para quien mantiene el
     // archivo, no para el modelo. Con el catálogo en Drive, manda Drive.
@@ -117,6 +187,35 @@ function textoConCatalogo() {
       promptTextoArmado = promptTextoArmado.replaceAll("{{PAGOS}}", bloqueDeMetodos());
       console.log(`Métodos de pago pegados al prompt: ${metodos.length}`);
     }
+
+    if (hayCashea() && !hayTablaCashea()) {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{CASHEA}}", CASHEA_SIN_TABLA);
+      console.log("Cashea aceptado sin tabla de niveles: la inicial la confirma un asesor");
+    } else if (hayCashea()) {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{CASHEA}}", CON_CASHEA);
+      console.log("Cashea pegado al prompt: las cuentas las hace cashea.js");
+    } else {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{CASHEA}}", SIN_CASHEA);
+      console.log("Sin Cashea cargado: esa pregunta seguirá yendo al asesor");
+    }
+
+    const lugar = mensajeDeUbicacion(env);
+    if (hayUbicacion(env)) {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{UBICACION}}", conUbicacion(lugar.texto));
+      console.log("Ubicación pegada al prompt" + (lugar.enlace ? " (con botón de Maps)" : " (SIN enlace de Maps todavía)"));
+    } else {
+      promptTextoArmado = promptTextoArmado.replaceAll("{{UBICACION}}", SIN_UBICACION);
+      console.log("Sin ubicación cargada: esa pregunta seguirá yendo al asesor");
+    }
+
+    // LO QUE VENDE (las carpetas de Drive) y LOS DATOS DE LA TIENDA (tienda.txt).
+    promptTextoArmado = promptTextoArmado.replaceAll(
+      "{{CATEGORIAS}}",
+      categoriasDeLaTienda
+        ? `Esta tienda vende de todo esto (son las categorías de su catálogo):\n\n${categoriasDeLaTienda}`
+        : "Esta tienda vende calzado."
+    );
+    promptTextoArmado = promptTextoArmado.replaceAll("{{DATOS_TIENDA}}", datosParaElPrompt());
 
     const tasa = tasaDePago();
     if (!tasa) {
@@ -517,6 +616,10 @@ export async function responderTexto(env, entrada) {
     const titulos = await titulosDeDrive(env);
     if (titulos) {
       listaDeDrive = titulos;
+      const categorias = await categoriasDeDrive(env);
+      categoriasDeLaTienda = categorias.length
+        ? categorias.map((c) => `🔹 ${mayusculaInicial(c.nombre)}`).join("\n")
+        : "";
       promptTextoArmado = "";
       promptVence = Date.now() + MINUTOS_PROMPT_DRIVE * 60 * 1000;
     }
@@ -524,7 +627,7 @@ export async function responderTexto(env, entrada) {
 
   const salida = await llamar(
     env,
-    textoConCatalogo(),
+    textoConCatalogo(env),
     [{ type: "text", text: entrada }],
     { schema: ESQUEMA_RESPUESTA }
   );
@@ -614,8 +717,13 @@ export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) 
 //
 // Solo un reintento, y solo partiendo por la mitad: buscar cuál de los
 // diez es la mala costaría más llamadas de las que vale la pena.
-export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
-  const elegido = await unCotejo(env, foto, candidatos, textoCliente);
+//
+// "informe" es opcional: si se pasa, sale con sinCupo = true cuando OpenAI
+// rechazó la llamada por falta de cupo (429). Hace falta para no confundir
+// "el modelo miró y dijo que ninguno es" con "el modelo no llegó a mirar"
+// — las dos cosas devuelven null. Ver cotejar() en cotejo.js.
+export async function cotejarConCatalogo(env, foto, candidatos, textoCliente, informe = null) {
+  const elegido = await unCotejo(env, foto, candidatos, textoCliente, informe);
   if (elegido !== FALLO_DE_IMAGEN) return elegido;
 
   if (candidatos.length < 2) {
@@ -629,7 +737,7 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
       `reintento con los ${mitad.length} más parecidos`
   );
 
-  const segundo = await unCotejo(env, foto, mitad, textoCliente);
+  const segundo = await unCotejo(env, foto, mitad, textoCliente, informe);
   return segundo === FALLO_DE_IMAGEN ? null : segundo;
 }
 
@@ -637,7 +745,7 @@ export async function cotejarConCatalogo(env, foto, candidatos, textoCliente) {
 // por una foto que no se pudo bajar", que sí merece reintento.
 const FALLO_DE_IMAGEN = Symbol("fallo de imagen");
 
-async function unCotejo(env, foto, candidatos, textoCliente) {
+async function unCotejo(env, foto, candidatos, textoCliente, informe = null) {
   if (!foto || !candidatos?.length) return null;
 
   const contenido = [
@@ -706,8 +814,9 @@ async function unCotejo(env, foto, candidatos, textoCliente) {
     schema: ESQUEMA_COTEJO,
     modelo: modeloDeVision(env),
     tarea: "vision",
-    alFallar: ({ deImagen }) => {
+    alFallar: ({ estado, deImagen }) => {
       falloDeImagen = deImagen;
+      if (estado === 429 && informe) informe.sinCupo = true;
     },
   });
 
@@ -744,8 +853,12 @@ async function unCotejo(env, foto, candidatos, textoCliente) {
   // ficha con precio y botón de compra; con una corazonada no se manda.
   if (confianza !== "alta") {
     console.log(
-      `Cotejo visual: "${elegido.titulo}" con confianza ${confianza} — no lo uso (${porque})`
+      `Cotejo visual: "${elegido.titulo}" con confianza ${confianza} — no lo afirmo (${porque})`
     );
+    // PERO LA PISTA NO SE TIRA (30-sep-2026). Con "media" el modelo apunta
+    // a uno sin atreverse a jurarlo. No se le dice al cliente "es este",
+    // pero sí va PRIMERO en el "¿es alguna de estas?" (ver decidir()).
+    if (confianza === "media" && informe) informe.media = elegido;
     return null;
   }
 
@@ -912,4 +1025,10 @@ export function familiaDelTitulo(titulo) {
   }
 
   return familiasOrdenadas.find((f) => texto.includes(f.toLowerCase())) || "";
+}
+
+// "CALZADOS" → "Calzados": las carpetas vienen en mayúsculas.
+function mayusculaInicial(texto) {
+  const t = String(texto || "").toLowerCase();
+  return t ? t[0].toUpperCase() + t.slice(1) : "";
 }

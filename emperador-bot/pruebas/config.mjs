@@ -38,6 +38,7 @@ toml.split("\n").forEach((cruda, i) => {
 ok(repetidas.length === 0, "nada repetido (el error de pegar el nuevo debajo del viejo)", repetidas.join(" · "));
 
 titulo("lo que no puede faltar");
+ok(/^compatibility_flags\s*=\s*\[[^\]]*"nodejs_als"/m.test(toml), 'compatibility_flags con "nodejs_als" (lo necesita la cuenta de conexiones)');
 ok(/^\[triggers\]\s*$/m.test(toml) && /^crons\s*=\s*\[.*\*\/15/m.test(toml), "el cron [triggers] que llena el índice cada 15 minutos");
 ok(/binding\s*=\s*"DB"/.test(toml) && /database_id\s*=\s*"[0-9a-f-]{36}"/.test(toml), "la base D1 con su database_id");
 
@@ -58,7 +59,7 @@ ok(!/secret put (OPENAI|GEMINI)_API_KEY/.test(toml) && /secret put DEEPSEEK_API_
 
 titulo("ninguna variable de más");
 const leidas = new Set();
-for (const f of listaDeFuentes()) for (const m of fuente(f).matchAll(/env\.([A-Z][A-Z0-9_]+)/g)) leidas.add(m[1]);
+for (const f of listaDeFuentes()) for (const m of fuente(f).matchAll(/env\??\.([A-Z][A-Z0-9_]+)/g)) leidas.add(m[1]);
 const sobran = [...vars.keys()].filter((v) => !leidas.has(v));
 ok(sobran.length === 0, "no hay variables que el código no lee (TIENDA, por ejemplo)", sobran.join(", "));
 const SECRETOS = ["DEEPSEEK_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "SHOPIFY_TOKEN", "SLACK_WEBHOOK", "META_APP_SECRET", "META_APP_SECRET_IG", "IG_TOKEN"];
