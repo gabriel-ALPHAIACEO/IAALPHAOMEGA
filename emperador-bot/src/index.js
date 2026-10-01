@@ -78,7 +78,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-01 (20) · deepseek: un modelo para texto y otro para imagenes, todo con DeepSeek";
+const VERSION = "2026-10-01 (21) · drive: Jordan = Retro al buscar, subcarpetas a la vez, /probar-texto separa Drive y la IA";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -713,6 +713,19 @@ export default {
         );
       }
 
+      // El catálogo de Drive se lee ANTES y aparte, para que el tiempo de la
+      // IA no incluya el de Drive: si algo tarda, se ve cuál de los dos.
+      let lineaDrive = "";
+      if (usaDrive(env)) {
+        const t0 = Date.now();
+        const drive = await catalogoDeDrive(env);
+        const tardoDrive = Date.now() - t0;
+        lineaDrive = drive.error
+          ? `Catálogo de Drive: NO SE PUDO LEER — ${drive.error}\n   (míralo en /probar-drive)\n`
+          : `Catálogo de Drive: ${drive.productos.length} productos (tardó ${(tardoDrive / 1000).toFixed(1)} s` +
+            `${tardoDrive < 50 ? ", ya estaba en memoria" : ""})\n`;
+      }
+
       const empezo = Date.now();
       const salida = await responderTexto(env, contexto("", "", mensaje, ""));
       const tardoTexto = Date.now() - empezo;
@@ -732,14 +745,15 @@ export default {
       });
 
       return texto200(
-        `Modelo de texto: ${quienAtiende(env, "texto").proveedor}, ${quienAtiende(env, "texto").modelo} ` +
+        lineaDrive +
+          `Modelo de texto: ${quienAtiende(env, "texto").proveedor}, ${quienAtiende(env, "texto").modelo} ` +
           `(tardó ${(tardoTexto / 1000).toFixed(1)} s)\n\n` +
           `El cliente escribe:  ${mensaje}\n` +
           `El bot contestaría:  ${revisarPagos(respuestaCliente).respuesta}\n\n` +
           `Buscó: ${termino || "(nada)"}\n` +
           `Encontró: ${productos.length}` +
           (productos.length ? "\n" + productos.map((p) => `   ${p.titulo}  —  ${p.precio}`).join("\n") : "") +
-          (!productos.length && termino && /PENDIENTE|CAMBIA-ESTO/i.test(String(env.SHOPIFY_TIENDA || ""))
+          (!productos.length && termino && !usaDrive(env) && /PENDIENTE|CAMBIA-ESTO/i.test(String(env.SHOPIFY_TIENDA || ""))
             ? "\n   (no hay catálogo conectado: SHOPIFY_TIENDA sigue en PENDIENTE)"
             : "") +
           "\n"

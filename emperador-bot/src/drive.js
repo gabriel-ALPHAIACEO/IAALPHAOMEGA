@@ -268,20 +268,33 @@ async function listarPublica(carpeta) {
   );
 }
 
+// Las subcarpetas de un mismo nivel se leen A LA VEZ, de 6 en 6 (lo que
+// Cloudflare deja abrir junto). Una por una, una carpeta con muchas marcas
+// tardaba tanto que el primer mensaje del día se iba a 20 segundos.
+const A_LA_VEZ = 6;
+
 async function recorrer(carpeta, listarUna) {
   const productos = [];
-  const pendientes = [{ id: carpeta, ruta: [], nivel: 0 }];
-  while (pendientes.length) {
-    const { id, ruta, nivel } = pendientes.shift();
-    for (const archivo of await listarUna(id)) {
-      if (archivo.mimeType === CARPETA_MIME) {
-        if (nivel < PROFUNDIDAD) pendientes.push({ id: archivo.id, ruta: [...ruta, archivo.name], nivel: nivel + 1 });
-        continue;
-      }
-      if (!/^image\//.test(archivo.mimeType || "")) continue;
-      const producto = aProducto(archivo, ruta);
-      if (producto.titulo) productos.push(producto);
+  let nivelActual = [{ id: carpeta, ruta: [], nivel: 0 }];
+  while (nivelActual.length) {
+    const siguiente = [];
+    for (let i = 0; i < nivelActual.length; i += A_LA_VEZ) {
+      const tanda = nivelActual.slice(i, i + A_LA_VEZ);
+      const listas = await Promise.all(tanda.map((c) => listarUna(c.id)));
+      listas.forEach((lista, j) => {
+        const { ruta, nivel } = tanda[j];
+        for (const archivo of lista) {
+          if (archivo.mimeType === CARPETA_MIME) {
+            if (nivel < PROFUNDIDAD) siguiente.push({ id: archivo.id, ruta: [...ruta, archivo.name], nivel: nivel + 1 });
+            continue;
+          }
+          if (!/^image\//.test(archivo.mimeType || "")) continue;
+          const producto = aProducto(archivo, ruta);
+          if (producto.titulo) productos.push(producto);
+        }
+      });
     }
+    nivelActual = siguiente;
   }
   return productos;
 }
@@ -332,15 +345,26 @@ function despejar(texto) {
     .toLowerCase();
 }
 
+// LAS MISMAS ZAPATILLAS CON OTRO NOMBRE. El prompt (heredado de Invictus,
+// donde Shopify las llama "Retro") busca "Retro 4" cuando el cliente pide
+// "jordan 4"; en la carpeta de Drive pueden llamarse "Jordan 4". Pasó el
+// 1-oct: "tienes jordan?" → buscó "Retro" → 0. Ahora una vale por la otra.
+const SINONIMOS = {
+  retro: ["retro", "jordan"],
+  jordan: ["jordan", "retro"],
+};
+
+function estaLaPalabra(donde, p) {
+  return p.length <= 3 || /^\d+$/.test(p)
+    ? new RegExp(`(^|[^a-z0-9])${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`).test(donde)
+    : donde.includes(p);
+}
+
 // Todas las palabras tienen que estar (como en Shopify). Las cortas y los
 // números, como palabra completa: "4" no puede encontrar "40".
 function coincide(producto, palabras) {
   const donde = despejar(`${producto.titulo} ${producto.codigo} ${producto.carpetas}`);
-  return palabras.every((p) =>
-    p.length <= 3 || /^\d+$/.test(p)
-      ? new RegExp(`(^|[^a-z0-9])${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`).test(donde)
-      : donde.includes(p)
-  );
+  return palabras.every((p) => (SINONIMOS[p] || [p]).some((alt) => estaLaPalabra(donde, alt)));
 }
 
 export async function buscarEnDrive(env, termino, cuantos = 10) {

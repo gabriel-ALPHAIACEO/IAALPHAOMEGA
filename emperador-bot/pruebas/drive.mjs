@@ -90,6 +90,8 @@ titulo("buscar, igual que en Shopify");
   const r4 = await conDrive(() => S.buscarProductos(env, "retro 40", 10));
   ok(r4.productos.length === 0, '"retro 40" no encuentra el Retro 4 (el número es palabra completa)');
   ok(Object.keys(r1.productos[0]).sort().join() === "imagen,precio,titulo,url", "la ficha tiene la misma forma que la de Shopify");
+  const r5 = await conDrive(() => S.buscarProductos(env, "jordan 4", 10));
+  ok(r5.productos.length === 1 && /Retro 4/.test(r5.productos[0].titulo), '"jordan 4" encuentra el "Retro 4" (son la misma zapatilla)');
 }
 
 titulo("se recuerda unos minutos: no se relee la carpeta en cada mensaje");
@@ -167,6 +169,8 @@ titulo("SIN CLAVE: lee la carpeta pública, como cualquiera con el enlace");
   ok(af.titulo === "Air Force One blanco · Cód. 125" && af.precio === "45 USD", "con su código y su precio", `${af.titulo} — ${af.precio}`);
   ok(af.imagen === "https://lh3.googleusercontent.com/d/1FotoAirForceXXXXXX=w1000", "la foto directa de Google", af.imagen);
   ok(af.nombre === "Air Force One blanco COD 125 45$.jpg", "guarda el nombre del archivo tal cual (para /probar-drive)");
+  const rj = await conPublica(() => S.buscarProductos(envSinClave, "retro", 10));
+  ok(rj.productos.length === 0, '"retro" no inventa: aquí no hay ninguna Jordan');
   const b = await conPublica(() => S.buscarProductos(envSinClave, "nike", 10));
   ok(b.productos.length === 1 && /Dunk/.test(b.productos[0].titulo), '"nike" encuentra lo de la subcarpeta Nike');
   ok(Object.keys(b.productos[0]).sort().join() === "imagen,precio,titulo,url", "la ficha sigue con la forma de Shopify (sin el nombre interno)");

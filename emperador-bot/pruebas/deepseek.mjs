@@ -92,6 +92,22 @@ titulo('si DeepSeek no conoce "thinking", prueba la otra forma y la recuerda');
   ok(m.llamadas.length === 3 && !m.llamadas[2].cuerpo.thinking, "y la siguiente llamada ya va directo con la que funcionó", `${m.llamadas.length} llamadas`);
 }
 
+titulo("si DeepSeek piensa aunque se le pidió que no, la próxima vez prueba la otra forma");
+{
+  const m = deepseekDeMentira();
+  const base = m.f;
+  let vez = 0;
+  m.f = async (url, op) => {
+    const r = await base(url, op);
+    if (!String(url).startsWith("https://api.deepseek.com/") || vez++ > 0) return r;
+    const d = await r.json();
+    d.choices[0].message.reasoning_content = "pensando...";
+    return Response.json(d);
+  };
+  await con(m, async () => { await ia.responderTexto(ENV, "Cliente: hola"); await ia.responderTexto(ENV, "Cliente: hola"); });
+  ok(m.llamadas[0].cuerpo.thinking && m.llamadas[1].cuerpo.reasoning_effort === "none", "la segunda llamada ya va con la otra forma");
+}
+
 titulo("los errores, en palabras que se puedan arreglar");
 ok(/no tiene saldo/.test(DS.explicarFalloDeDeepSeek(402, '{"error":{"message":"Insufficient Balance"}}')), "402 → sin saldo, dónde recargar");
 ok(/secret put DEEPSEEK_API_KEY/.test(DS.explicarFalloDeDeepSeek(401, "Authentication Fails")), "401 → la clave, con el comando");

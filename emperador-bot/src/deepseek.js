@@ -161,6 +161,14 @@ export async function llamarDeepSeek(
   }
 
   const eleccion = datos.choices?.[0];
+
+  // Si a pesar de todo PENSÓ (trae "reasoning_content"), esa forma de
+  // apagarlo no le llegó: la próxima llamada prueba la siguiente. Pensar es
+  // lo que hace que una respuesta tarde 20 segundos en vez de 3.
+  if (eleccion?.message?.reasoning_content && comoNoPensar + 1 < SIN_PENSAR.length - 1) {
+    comoNoPensar++;
+    console.error("DeepSeek pensó aunque se le pidió que no: pruebo la otra forma de apagarlo");
+  }
   if (eleccion?.finish_reason === "length") {
     console.error(`DeepSeek cortó la respuesta por el límite de ${maxTokens} tokens`);
   }
