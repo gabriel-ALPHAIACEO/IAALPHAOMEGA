@@ -105,4 +105,26 @@ ok(/\} else if \(json\) \{/.test(gem),
    "una llamada que pida JSON sin esquema igual recibe JSON, no prosa");
 
 src.limpiar();
+// ───────────────────────────────────────────────────────────────────────
+titulo("/estado dice la verdad: con todo en Gemini, texto Y fotos van a Gemini");
+{
+  const { baseDeMentira } = await import("./ayuda.mjs");
+  const srcE = await prepararSrc();
+  const { default: worker } = await srcE.cargar("index.js");
+  const ia = await srcE.cargar("ia.js");
+  const env = { DB: baseDeMentira().DB, PROVEEDOR: "gemini", GEMINI_MODELO: "gemini-3.1-flash-lite", GEMINI_API_KEY: "x" };
+  ok(ia.quienAtiende(env, "texto").proveedor === "Gemini" && ia.quienAtiende(env, "vision").proveedor === "Gemini",
+     "el texto y las fotos los atiende Gemini");
+  const log = console.log, error = console.error;
+  console.log = () => {}; console.error = () => {};
+  const pagina = await (await worker.fetch(new Request("https://bot.test/estado"), env, { waitUntil() {} })).text();
+  console.log = log; console.error = error;
+  ok(/Texto \(redactar las respuestas\)\s+→ Gemini, gemini-3\.1-flash-lite/.test(pagina), "dice: Texto → Gemini");
+  ok(/Fotos \(mirar, cotejar, indexar\)\s+→ Gemini, gemini-3\.1-flash-lite/.test(pagina), "dice: Fotos → Gemini");
+  ok(!/48%/.test(pagina), "ya no sale lo del '48% más barato' con dos proveedores");
+  const openai = pagina.split("\n").filter((l) => /OpenAI/.test(l) && !/OpenAI no se usa/.test(l));
+  ok(openai.length === 0, "y no nombra OpenAI en ningún otro sitio", openai.join(" | "));
+  srcE.limpiar();
+}
+
 terminar();

@@ -386,9 +386,20 @@ const ESQUEMA_RESPUESTA = {
 // Y ojo con subir de modelo dentro de Gemini: cada imagen cuesta ~1.120
 // tokens pase lo que pase, así que con 3.5 Flash una foto sale MÁS cara
 // que en gpt-4o. Más grande no es más barato acá.
-function porGemini(env, tarea) {
+export function porGemini(env, tarea) {
   if (String(env.PROVEEDOR || "").toLowerCase() === "gemini") return true;
   return tarea === "vision" && String(env.PROVEEDOR_VISION || "").toLowerCase() === "gemini";
+}
+
+// El nombre del proveedor y del modelo que de verdad atienden esa tarea.
+// Para enseñarlo en /estado y en /indexar-catalogo sin mentir: con
+// PROVEEDOR = "gemini", el índice NO lo mira gpt-4o-mini aunque la variable
+// del índice lo diga.
+export function quienAtiende(env, tarea = "texto") {
+  if (porGemini(env, tarea)) return { proveedor: "Gemini", modelo: modeloDeGemini(env) };
+  const modelo =
+    tarea === "vision" ? modeloDeVision(env) : env.OPENAI_MODELO || MODELO_POR_DEFECTO;
+  return { proveedor: "OpenAI", modelo };
 }
 
 async function llamar(

@@ -24,7 +24,7 @@
 // ya están no se vuelven a mirar, así que reindexar es barato.
 
 import { RASGOS_CLAVE } from "./identificar.js";
-import { modeloDeIndice, rasgosDeProducto, esperarCupo } from "./ia.js";
+import { modeloDeIndice, rasgosDeProducto, esperarCupo, quienAtiende } from "./ia.js";
 import { traerCatalogoCompleto } from "./shopify.js";
 import { tituloEsDelColor, tituloNombraColor } from "./color.js";
 
@@ -612,7 +612,8 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
     quitados,
     refrescados,
     corto,
-    modelo,
+    // El que DE VERDAD miró las fotos: con todo en Gemini, Gemini.
+    modelo: quienAtiende(env, "vision").modelo,
     ningunoSalio,
   };
 }

@@ -28,7 +28,7 @@
 // vivía en KV. Si ves un memoria.js o un nombre.js sueltos, son de esa otra
 // versión y NO van con este código — mezclarlos rompe el arranque.
 
-import { responderTexto, identificarEnImagen } from "./ia.js";
+import { responderTexto, identificarEnImagen, quienAtiende } from "./ia.js";
 import { revisarPagos, metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
 import { gastoDelMes } from "./gasto.js";
 import { buscarProductos } from "./shopify.js";
@@ -72,7 +72,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-30 (11) · el índice guarda el color de cada foto: llega el zapato del color correcto";
+const VERSION = "2026-10-01 (12) · /estado dice la verdad: texto y fotos, todo con Gemini";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -540,11 +540,13 @@ export default {
             ? [
                 `  GEMINI_MODELO       ${env.GEMINI_MODELO || "gemini-3.1-flash-lite (por defecto)"}`,
                 `  GEMINI_API_KEY      ${secreto("GEMINI_API_KEY")}`,
+                "    Quién hace cada cosa:",
+                `      Texto (redactar las respuestas)    → ${quienAtiende(env, "texto").proveedor}, ${quienAtiende(env, "texto").modelo}`,
+                `      Fotos (mirar, cotejar, indexar)    → ${quienAtiende(env, "vision").proveedor}, ${quienAtiende(env, "vision").modelo}`,
                 env.PROVEEDOR === "gemini"
-                  ? "    Todo en Gemini: una sola clave y una sola factura. Mover solo\n" +
-                    "    las FOTOS sería un 48% más barato, pero con dos proveedores."
-                  : "    Solo las fotos. El texto sigue en gpt-4o-mini, que es más barato\n" +
-                    "    para redactar ($0,15 el millón contra $0,25).",
+                  ? "    El mismo modelo hace las dos cosas. Una sola clave y una sola\n" +
+                    "    factura: OpenAI no se usa para nada."
+                  : "    Solo las fotos van a Gemini; el texto sigue en OpenAI.",
               ]
             : []),
           `  COTEJO_BARRIDO      ${env.COTEJO_BARRIDO === "no" ? "no (apagado)" : "si"}   (mirar el catálogo cuando el nombre no acierta)`,
@@ -591,7 +593,7 @@ export default {
             ? `  ${indexados} productos indexados.`
             : indexados === 0
               ? "  VACÍO TODAVÍA. Mientras tanto el cotejo visual solo puede\n" +
-                "  mirar unos pocos productos por mensaje (el cupo de OpenAI\n" +
+                `  mirar unos pocos productos por mensaje (el cupo de ${quienAtiende(env, "vision").proveedor}\n` +
                 "  no da para más a ciegas).\n" +
                 "  NO HACE FALTA QUE HAGAS NADA: el cron lo llena solo, en\n" +
                 "  un par de horas desde cero. Si tienes prisa, abre\n" +
@@ -601,7 +603,7 @@ export default {
             ? "  Se mantiene solo: los productos nuevos los recoge el cron\n" +
               "  (cada 15 min, ver [triggers] en wrangler.toml). Si aquí\n" +
               "  el número lleva horas sin subir y sabes que faltan, mira\n" +
-              "  `wrangler tail`: casi siempre es saldo o cupo de OpenAI."
+              `  \`wrangler tail\`: casi siempre es saldo o cupo de ${quienAtiende(env, "vision").proveedor}.`
             : "",
           "",
           "BASE DE DATOS (D1) — la memoria del bot entre mensajes",
@@ -610,8 +612,8 @@ export default {
           "ManyChat está retirado. Este Worker es el único canal: habla",
           "directo con la API de Instagram y guarda su propia memoria en D1.",
           "",
-          "Las fotos se identifican en dos pasos: primero una IA de visión",
-          "dedicada (OPENAI_MODELO_VISION) que solo describe y verifica",
+          "Las fotos se identifican en dos pasos: primero la IA de visión",
+          `(${quienAtiende(env, "vision").proveedor}, ${quienAtiende(env, "vision").modelo}) describe y verifica`,
           "rasgos, y luego la IA de texto redacta la respuesta al cliente",
           "con ese dato ya corregido (ver identificar.js).",
           "",
@@ -655,7 +657,7 @@ export default {
           `No pude indexar NINGUNO de los ${r.intentados} que intenté, con ${r.modelo}.\n\n` +
             (r.corto ? `${r.corto}\n\n` : "") +
             "El motivo exacto sale en `wrangler tail`. Los dos habituales:\n" +
-            "  · la cuenta de OpenAI se quedó sin saldo\n" +
+            `  · la cuenta de ${quienAtiende(env, "vision").proveedor} se quedó sin saldo\n` +
             `  · la clave no tiene permiso para "${r.modelo}"\n\n` +
             "Si en el registro ves 429 con \"tokens per min\", es solo cupo:\n" +
             "espera un minuto y vuelve a abrir esta dirección.\n"
@@ -723,8 +725,8 @@ export default {
         return texto200(
           "La IA de visión no pudo con esa imagen.\n\n" +
             "Casi siempre es una de estas:\n" +
-            "  · no queda saldo en OpenAI\n" +
-            "  · OPENAI_MODELO_VISION no existe o no admite imágenes\n\n" +
+            `  · no queda saldo en ${quienAtiende(env, "vision").proveedor}\n` +
+            `  · el modelo ${quienAtiende(env, "vision").modelo} no existe o no admite imágenes\n\n` +
             "En `wrangler tail` sale el motivo exacto.\n"
         );
       }
@@ -838,7 +840,7 @@ async function indexarLoQueFalte(env) {
     if (r.ningunoSalio) {
       console.error(
         `Indexación automática: no salió ninguno de ${r.intentados} con ${r.modelo}. ` +
-          (r.corto || "Revisa saldo y permisos de OpenAI en `wrangler tail`.")
+          (r.corto || `Revisa saldo y permisos de ${quienAtiende(env, "vision").proveedor} en \`wrangler tail\`.`)
       );
       return;
     }
