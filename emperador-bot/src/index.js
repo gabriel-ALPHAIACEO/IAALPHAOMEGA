@@ -72,7 +72,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-01 (13) · dos modelos de Gemini: uno redacta y otro mira las fotos; OpenAI fuera";
+const VERSION = "2026-10-01 (13) · dos modelos de Gemini: uno solo para texto y otro solo para imagenes";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -544,11 +544,11 @@ export default {
                 `  GEMINI_API_KEY       ${secreto("GEMINI_API_KEY")}`,
                 "    Quién hace cada cosa:",
                 `      Texto (redactar las respuestas)    → ${quienAtiende(env, "texto").proveedor}, ${quienAtiende(env, "texto").modelo}`,
-                `      Índice (catalogar el estante)      → ${quienAtiende(env, "indice").proveedor}, ${quienAtiende(env, "indice").modelo}`,
                 `      Fotos (mirar, cotejar)             → ${quienAtiende(env, "vision").proveedor}, ${quienAtiende(env, "vision").modelo}`,
+                `      Índice (catalogar el estante)      → ${quienAtiende(env, "indice").proveedor}, ${quienAtiende(env, "indice").modelo}`,
                 todoGemini
-                  ? "    Un modelo para redactar y otro para mirar, como Invictus con\n" +
-                    "    OpenAI. Una sola clave: OpenAI no se usa para nada."
+                  ? "    Un modelo SOLO para el texto y otro SOLO para las imágenes\n" +
+                    "    (la foto del cliente, el cotejo y el índice). Una sola clave."
                   : "    Solo las fotos van a Gemini; el texto sigue en OpenAI.",
               ]
             : []),

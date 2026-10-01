@@ -84,9 +84,12 @@ PROVEEDOR = "gemini"
 # El que REDACTA las respuestas de texto. Barato y rapido.
 GEMINI_MODELO = "gemini-3.1-flash-lite"
 
-# El que MIRA las fotos: identifica el zapato del cliente y lo coteja con
-# el catalogo. Es el que decide si se reconoce, asi que va uno mas capaz.
-# (El catalogo se indexa con el de texto: son fotos de producto limpias.)
+# El que hace SOLO las IMAGENES: identifica el zapato de la foto del
+# cliente, lo coteja con el catalogo y cataloga el indice. Es el que decide
+# si se reconoce, asi que va uno mas capaz que el de texto.
+#   "gemini-3-flash"    el doble que el de texto, el mejor por lo que cuesta
+#   "gemini-3.5-flash"  mas potente, pero cada foto saldria mas cara que en
+#                       gpt-4o (Gemini cobra un fijo alto por imagen)
 GEMINI_MODELO_VISION = "gemini-3-flash"
 
 # --- El cotejo visual ---------------------------------------------------

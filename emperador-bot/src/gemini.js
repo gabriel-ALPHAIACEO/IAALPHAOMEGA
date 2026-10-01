@@ -45,9 +45,11 @@ const MODELO_POR_DEFECTO = "gemini-3.1-flash-lite";
 //
 //   GEMINI_MODELO          el que REDACTA     (por defecto 3.1 Flash-Lite)
 //   GEMINI_MODELO_VISION   el que MIRA FOTOS  (por defecto 3 Flash)
-//   GEMINI_MODELO_INDICE   el que INDEXA el catálogo (por defecto el de
-//                          texto: son cientos de fotos de producto limpias,
-//                          como en Invictus, que indexa con el mini)
+//   GEMINI_MODELO_INDICE   el que INDEXA el catálogo. Por defecto el de
+//                          las FOTOS (dueño, 1-oct: "un modelo bueno para
+//                          el cotejo y las imágenes, solo para imágenes"):
+//                          el índice es lo que ordena a quién mira el
+//                          cotejo, así que lo cataloga el mismo que mira.
 //
 // 3 Flash cuesta el doble que Flash-Lite ($0,50 contra $0,25 el millón de
 // entrada) y es el que decide si se reconoce el zapato; 3.5 Flash NO: con
@@ -56,7 +58,7 @@ const MODELO_VISION_POR_DEFECTO = "gemini-3-flash";
 
 export function modeloDeGemini(env, tarea = "texto") {
   if (tarea === "vision") return env.GEMINI_MODELO_VISION || MODELO_VISION_POR_DEFECTO;
-  if (tarea === "indice") return env.GEMINI_MODELO_INDICE || env.GEMINI_MODELO || MODELO_POR_DEFECTO;
+  if (tarea === "indice") return env.GEMINI_MODELO_INDICE || env.GEMINI_MODELO_VISION || MODELO_VISION_POR_DEFECTO;
   return env.GEMINI_MODELO || MODELO_POR_DEFECTO;
 }
 

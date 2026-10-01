@@ -129,7 +129,9 @@ titulo("/estado dice la verdad: con todo en Gemini, texto Y fotos van a Gemini")
   console.log = log; console.error = error;
   ok(/Texto \(redactar las respuestas\)\s+→ Gemini, gemini-3\.1-flash-lite/.test(pagina), "dice: Texto → Gemini 3.1 Flash-Lite");
   ok(/Fotos \(mirar, cotejar\)\s+→ Gemini, gemini-3-flash/.test(pagina), "dice: Fotos → Gemini 3 Flash (otro modelo)");
-  ok(/Índice \(catalogar el estante\)\s+→ Gemini, gemini-3\.1-flash-lite/.test(pagina), "dice: Índice → el barato");
+  ok(/Índice \(catalogar el estante\)\s+→ Gemini, gemini-3-flash/.test(pagina), "dice: Índice → el de las imágenes");
+  ok(ia.quienAtiende(env, "indice").modelo === ia.quienAtiende(env, "vision").modelo,
+     "el índice y la foto del cliente, con el MISMO modelo de imágenes");
   ok(!/48%/.test(pagina), "ya no sale lo del '48% más barato' con dos proveedores");
   const openai = pagina.split("\n").filter((l) => /OpenAI/.test(l) && !/OpenAI no se usa/.test(l));
   ok(openai.length === 0, "y no nombra OpenAI en ningún otro sitio", openai.join(" | "));
