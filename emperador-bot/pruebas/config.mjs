@@ -62,8 +62,15 @@ const SECRETOS = ["GEMINI_API_KEY", "OPENAI_API_KEY", "SHOPIFY_TOKEN", "SLACK_WE
 const secretosAqui = [...vars.keys()].filter((v) => SECRETOS.includes(v));
 ok(secretosAqui.length === 0, "ningún secreto escrito en el archivo", secretosAqui.join(", "));
 
+titulo("el catálogo");
+if ((vars.get("CATALOGO") || "") === "drive") {
+  ok(vars.has("DRIVE_CARPETA"), "con CATALOGO = drive, está la línea DRIVE_CARPETA");
+} else {
+  ok(true, "catálogo en Shopify");
+}
+
 titulo("lo que todavía falta rellenar (no es un fallo: es un aviso)");
-for (const v of ["SHOPIFY_TIENDA", "URL_CATALOGO"]) {
+for (const v of ["DRIVE_CARPETA", "SHOPIFY_TIENDA", "URL_CATALOGO"]) {
   const pendiente = /PENDIENTE|CAMBIA-ESTO/i.test(vars.get(v) || "");
   console.log(`  ${pendiente ? "PENDIENTE" : "listo    "}  ${v} = ${vars.get(v) || "(vacío)"}`);
 }

@@ -4,6 +4,8 @@
 // tienen que aparecer en el título. Por eso se unen con AND y cada una va
 // entre asteriscos, que es el comodín de la búsqueda de Shopify.
 
+import { usaDrive, buscarEnDrive, catalogoCompletoDeDrive } from "./drive.js";
+
 const VERSION_API = "2026-01";
 
 const CONSULTA = `
@@ -57,6 +59,10 @@ const CONSULTA_TODO = `
 `;
 
 export async function traerCatalogoCompleto(env, maximo = 1000) {
+  // CATALOGO = "drive": el catálogo es la carpeta de Google Drive (ver
+  // drive.js). Misma forma de productos: el resto del bot no se entera.
+  if (usaDrive(env)) return catalogoCompletoDeDrive(env, maximo);
+
   const productos = [];
   let cursor = null;
   let completo = false;
@@ -92,6 +98,8 @@ export async function traerCatalogoCompleto(env, maximo = 1000) {
 }
 
 export async function buscarProductos(env, termino, cuantos = 10) {
+  if (usaDrive(env)) return buscarEnDrive(env, termino, cuantos);
+
   const palabras = String(termino || "")
     .trim()
     .split(/\s+/)
@@ -273,6 +281,9 @@ const ANCHO_PARA_EL_MODELO = 512;
 export function urlPequena(url) {
   const limpia = String(url || "");
   if (!limpia) return "";
+
+  // Las de Drive (drive.js) se piden a 512 con el "=w" de Google.
+  if (/lh3\.googleusercontent\.com\/d\//i.test(limpia)) return limpia.replace(/=w\d+$/, "") + `=w${ANCHO_PARA_EL_MODELO}`;
 
   // Solo el CDN de Shopify entiende este parámetro. Cualquier otra cosa
   // se devuelve tal cual: mejor una foto grande que una URL rota.

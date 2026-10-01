@@ -24,6 +24,7 @@ const SUITES = [
   ["gemini.mjs", "el adaptador de Gemini y que no se active solo"],
   ["cotejo.mjs", "que llegue al modelo el zapato del color correcto"],
   ["config.mjs", "que el wrangler.toml esté completo: cron, Gemini con dos modelos, sin OpenAI"],
+  ["drive.mjs", "el catálogo desde Google Drive: nombres, códigos, precios y búsqueda"],
 ];
 
 let roto = false;

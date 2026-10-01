@@ -68,13 +68,31 @@ GEMINI_MODELO = "gemini-3.1-flash-lite"
 #                       gpt-4o (Gemini cobra un fijo alto por cada imagen)
 GEMINI_MODELO_VISION = "gemini-3-flash"
 
-# --- La tienda ----------------------------------------------------------
+# --- El catalogo: por ahora, la carpeta de GOOGLE DRIVE ------------------
+# Mientras no haya Shopify, el bot vende con la carpeta de Drive: cada foto
+# es un producto, y del NOMBRE del archivo (o de su descripcion) saca el
+# nombre, el codigo y el precio. Ejemplos que entiende:
+#   "Nike Air Force One blanco COD 125 45$.jpg"
+#   "AIR MAX 90 - Cod: AM90 - $55"
+# Para ver como lo lee ANTES de que lo vea un cliente:
+#   https://emperador-bot.elemperadorca1992.workers.dev/probar-drive
+#
+#   "drive"    la carpeta de Drive (lo de ahora)
+#   (borrar la linea)   Shopify, cuando este listo
+CATALOGO = "drive"
+
+# PENDIENTE: el enlace de la carpeta de Drive. Tiene que estar compartida
+# como "Cualquier persona con el enlace — Lector" (si no, Google no deja
+# leerla). Puede tener subcarpetas ("Nike", "Adidas"...): se leen todas.
+DRIVE_CARPETA = "https://drive.google.com/drive/folders/14lvw1gxxkZSMEdtZbvJ_fIuaCcCcZykA"
+
+# --- La tienda (Shopify, para cuando este listo) -------------------------
 # PENDIENTE: el dominio .myshopify.com de El Emperador, sin https://
 SHOPIFY_TIENDA = "PENDIENTE.myshopify.com"
 
-# PENDIENTE: enlace de la tienda online. Es el que se le manda al cliente
-# cuando pide el catalogo o no hay nada que mostrarle.
-URL_CATALOGO = "https://PENDIENTE.myshopify.com/"
+# PENDIENTE: enlace del catalogo para el cliente (el boton "Ver catalogo").
+# Mientras sea Drive, puede ser el MISMO enlace de la carpeta de arriba.
+URL_CATALOGO = "https://drive.google.com/drive/folders/14lvw1gxxkZSMEdtZbvJ_fIuaCcCcZykA"
 
 # WhatsApp de El Emperador, para el boton "Comprar" de cada ficha. El "+"
 # no molesta: el bot deja solo los numeros.
@@ -116,6 +134,9 @@ FRASE_DESPAUSAR = "te dejo con la asistente"
 # DENTRO DE LA CARPETA DE EL EMPERADOR (si no, se le cargan a Invictus):
 #
 #   npx.cmd wrangler secret put GEMINI_API_KEY     <- la de Google AI Studio
+#   npx.cmd wrangler secret put DRIVE_API_KEY      <- clave de Google con la
+#        "Google Drive API" activada (si la de Gemini la tiene activada,
+#        no hace falta: se usa esa)
 #   npx.cmd wrangler secret put SHOPIFY_TOKEN      <- PROPIO de esta tienda
 #   npx.cmd wrangler secret put META_APP_SECRET    <- PROPIO de esta tienda
 #   npx.cmd wrangler secret put META_APP_SECRET_IG <- el del producto Instagram

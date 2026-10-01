@@ -32,6 +32,7 @@ import { responderTexto, identificarEnImagen, quienAtiende } from "./ia.js";
 import { revisarPagos, metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
 import { gastoDelMes } from "./gasto.js";
 import { buscarProductos } from "./shopify.js";
+import { usaDrive, catalogoDeDrive, idDeCarpeta } from "./drive.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo } from "./catalogo.js";
@@ -72,7 +73,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-01 (15) · wrangler.toml con Gemini (dos modelos) y el cron; el cron no molesta sin Shopify";
+const VERSION = "2026-10-01 (16) · el catalogo sale de Google Drive (nombre, codigo y precio de cada foto)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -525,6 +526,8 @@ export default {
           `  META_VERIFY_TOKEN   ${env.META_VERIFY_TOKEN ? "puesto" : "FALTA"}`,
           `  SHOPIFY_TIENDA      ${env.SHOPIFY_TIENDA || "FALTA"}`,
           `  URL_CATALOGO        ${env.URL_CATALOGO || "FALTA"}`,
+          `  CATALOGO            ${usaDrive(env) ? `Google Drive (${idDeCarpeta(env.DRIVE_CARPETA) ? "carpeta puesta" : "FALTA DRIVE_CARPETA"}) — míralo en /probar-drive` : "Shopify"}`,
+          ...(usaDrive(env) ? [`  DRIVE_API_KEY       ${env.DRIVE_API_KEY ? secreto("DRIVE_API_KEY") : "no cargada: se usa GEMINI_API_KEY (necesita la API de Drive activada)"}`] : []),
           `  WHATSAPP            ${String(env.WHATSAPP || "").replace(/\D/g, "") ? "puesto" : "sin poner (no sale el botón Comprar)"}`,
           `  PAUSA_HORAS         ${env.PAUSA_HORAS || `${PAUSA_HORAS_POR_DEFECTO} (por defecto)`}   (se cuenta desde el ULTIMO mensaje del asesor)`,
           `  FRASE_DESPAUSAR     "${fraseDespausar(env)}"   (el asesor la manda en el chat y el bot vuelve)`,
@@ -750,6 +753,43 @@ export default {
       );
     }
 
+    // EL CATÁLOGO DE DRIVE, TAL COMO LO LEE EL BOT (1-oct-2026).
+    //   /probar-drive
+    // Para ver ANTES de que lo vea un cliente qué nombre, código y precio
+    // sacó de cada foto, y arreglar en Drive lo que salga mal.
+    if (url.pathname === "/probar-drive") {
+      if (!usaDrive(env)) {
+        return texto200(
+          "El catálogo NO está en Drive: en wrangler.toml falta CATALOGO = \"drive\".\n"
+        );
+      }
+      const { productos, error } = await catalogoDeDrive(env);
+      if (error) return texto200(`No pude leer la carpeta de Drive: ${error}\n`);
+
+      const sinPrecio = productos.filter((p) => !p.precio);
+      const sinCodigo = productos.filter((p) => !p.codigo);
+      return texto200(
+        [
+          `CARPETA  ${idDeCarpeta(env.DRIVE_CARPETA)}`,
+          `${productos.length} productos leídos` +
+            (sinPrecio.length ? ` · ${sinPrecio.length} SIN PRECIO` : "") +
+            (sinCodigo.length ? ` · ${sinCodigo.length} sin código` : ""),
+          "",
+          "NOMBRE (lo que verá el cliente)                               PRECIO",
+          ...productos.map(
+            (p) => `  ${p.titulo.slice(0, 60).padEnd(60)} ${p.precio || "— SIN PRECIO"}${p.carpetas ? `   [${p.carpetas}]` : ""}`
+          ),
+          "",
+          sinPrecio.length
+            ? "Los que dicen SIN PRECIO: el nombre (o la descripción) de esa foto en\n" +
+              "Drive no trae un precio que se entienda. Escríbelo como \"45$\" o \"$45\"."
+            : "",
+          `Para ver una foto: /probar-imagen?url=${productos[0]?.imagen || ""}`,
+          "",
+        ].join("\n")
+      );
+    }
+
     if (url.pathname === "/probar-imagen") {
       const imagen = url.searchParams.get("url") || "";
       if (!urlValida(imagen)) {
@@ -870,7 +910,7 @@ const MAXIMO_TANDAS = 5;
 async function indexarLoQueFalte(env) {
   // Sin tienda conectada no hay nada que catalogar. Antes de esto, el cron
   // probaba Shopify cada 15 minutos y llenaba el registro de errores.
-  if (!env.SHOPIFY_TIENDA || /PENDIENTE|CAMBIA-ESTO/i.test(String(env.SHOPIFY_TIENDA))) {
+  if (!usaDrive(env) && (!env.SHOPIFY_TIENDA || /PENDIENTE|CAMBIA-ESTO/i.test(String(env.SHOPIFY_TIENDA)))) {
     console.log("Indexación automática: SHOPIFY_TIENDA sigue en PENDIENTE, no hay catálogo que mirar");
     return;
   }

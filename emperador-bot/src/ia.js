@@ -29,6 +29,7 @@ import { comoDataUri } from "./imagen.js";
 import { metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
 import { anotarGasto } from "./gasto.js";
 import { llamarGemini, modeloDeGemini } from "./gemini.js";
+import { usaDrive, titulosDeDrive } from "./drive.js";
 
 // EL CATÁLOGO SE PEGA AL PROMPT AL ARRANCAR, NO EN CADA MENSAJE.
 //
@@ -41,6 +42,13 @@ import { llamarGemini, modeloDeGemini } from "./gemini.js";
 // idéntico en cada mensaje, porque el catálogo no cambia mientras el
 // Worker viva.
 let promptTextoArmado = "";
+
+// Con el catálogo en Drive, la lista de títulos sale de la carpeta (no de
+// prompts/catalogo.txt) y el prompt se rearma cada tanto para recoger los
+// productos nuevos.
+let listaDeDrive = "";
+let promptVence = 0;
+const MINUTOS_PROMPT_DRIVE = 30;
 
 // Lo que se le dice al modelo cuando catalogo.txt está vacío.
 const SIN_CATALOGO = `(Todavía no está cargada la lista de productos de esta tienda.
@@ -76,12 +84,14 @@ Identifica por lo que VES y quédate en la marca si no estás seguro.)`;
 function textoConCatalogo() {
   if (!promptTextoArmado) {
     // Las líneas que empiezan con # son notas para quien mantiene el
-    // archivo, no para el modelo.
-    const lista = listaCatalogo
-      .split("\n")
-      .filter((linea) => !linea.trimStart().startsWith("#"))
-      .join("\n")
-      .trim();
+    // archivo, no para el modelo. Con el catálogo en Drive, manda Drive.
+    const lista =
+      listaDeDrive ||
+      listaCatalogo
+        .split("\n")
+        .filter((linea) => !linea.trimStart().startsWith("#"))
+        .join("\n")
+        .trim();
 
     // UNA TIENDA SIN CATÁLOGO TODAVÍA NO SE ROMPE. Es el caso de una
     // tienda recién montada: el bot conversa y vende igual, solo busca
@@ -512,6 +522,17 @@ async function llamar(
 }
 
 export async function responderTexto(env, entrada) {
+  // CATÁLOGO EN DRIVE: los títulos de la carpeta van al prompt, igual que
+  // los de catalogo.txt con Shopify. Se releen cada media hora.
+  if (usaDrive(env) && (!promptTextoArmado || Date.now() > promptVence)) {
+    const titulos = await titulosDeDrive(env);
+    if (titulos) {
+      listaDeDrive = titulos;
+      promptTextoArmado = "";
+      promptVence = Date.now() + MINUTOS_PROMPT_DRIVE * 60 * 1000;
+    }
+  }
+
   const salida = await llamar(
     env,
     textoConCatalogo(),
