@@ -68,30 +68,47 @@ GEMINI_MODELO = "gemini-3.1-flash-lite"
 #                       gpt-4o (Gemini cobra un fijo alto por cada imagen)
 GEMINI_MODELO_VISION = "gemini-3-flash"
 
-# --- El catalogo: por ahora, la carpeta de GOOGLE DRIVE ------------------
-# Mientras no haya Shopify, el bot vende con la carpeta de Drive: cada foto
-# es un producto, y del NOMBRE del archivo (o de su descripcion) saca el
-# nombre, el codigo y el precio. Ejemplos que entiende:
-#   "Nike Air Force One blanco COD 125 45$.jpg"
-#   "AIR MAX 90 - Cod: AM90 - $55"
-# Para ver como lo lee ANTES de que lo vea un cliente:
-#   https://emperador-bot.elemperadorca1992.workers.dev/probar-drive
+# =======================================================================
+# EL CATALOGO: HOY GOOGLE DRIVE, MAÑANA SHOPIFY
 #
-#   "drive"    la carpeta de Drive (lo de ahora)
-#   (borrar la linea)   Shopify, cuando este listo
+# El bot saca los productos (nombre, precio, foto) de UNO de los dos, y se
+# elige con una sola linea:
+#
+#   CATALOGO = "drive"      la carpeta de Google Drive   <- LO DE AHORA
+#   CATALOGO = "shopify"    la tienda de Shopify         <- cuando este lista
+#
+# Todo lo demas (buscar, las fichas, el cotejo de fotos, el indice) funciona
+# igual con los dos: el bot no nota la diferencia.
+# =======================================================================
 CATALOGO = "drive"
 
-# PENDIENTE: el enlace de la carpeta de Drive. Tiene que estar compartida
-# como "Cualquier persona con el enlace — Lector" (si no, Google no deja
-# leerla). Puede tener subcarpetas ("Nike", "Adidas"...): se leen todas.
+# --- DRIVE (activo) -----------------------------------------------------
+# Cada foto de la carpeta es un producto. Del NOMBRE del archivo (o de su
+# descripcion, si trae el precio) se sacan el nombre, el codigo y el precio:
+#   "Nike Air Force One blanco COD 125 45$.jpg"
+#   "AIR MAX 90 - Cod: AM90 - $55"
+# Las subcarpetas ("Nike", "Adidas"...) se leen todas, y su nombre tambien
+# sirve para buscar.
+#
+# La carpeta tiene que estar compartida como "Cualquier persona con el
+# enlace — Lector". Necesita el secreto DRIVE_API_KEY (ver abajo).
+# Para ver como la lee el bot ANTES de que la vea un cliente:
+#   https://emperador-bot.elemperadorca1992.workers.dev/probar-drive
 DRIVE_CARPETA = "https://drive.google.com/drive/folders/14lvw1gxxkZSMEdtZbvJ_fIuaCcCcZykA"
 
-# --- La tienda (Shopify, para cuando este listo) -------------------------
-# PENDIENTE: el dominio .myshopify.com de El Emperador, sin https://
+# --- SHOPIFY (preparado, todavia no) --------------------------------------
+# Mientras CATALOGO sea "drive", esto no se usa. EL DIA QUE ACTIVES SHOPIFY:
+#   1. Aqui abajo, el dominio de la tienda (el que termina en .myshopify.com)
+#   2. npx.cmd wrangler secret put SHOPIFY_TOKEN
+#   3. Arriba, CATALOGO = "shopify"
+#   4. En URL_CATALOGO, el enlace de la tienda online
+#   5. npx.cmd wrangler deploy
+# El indice del catalogo se rehace solo con las fotos de Shopify (el cron).
 SHOPIFY_TIENDA = "PENDIENTE.myshopify.com"
 
-# PENDIENTE: enlace del catalogo para el cliente (el boton "Ver catalogo").
-# Mientras sea Drive, puede ser el MISMO enlace de la carpeta de arriba.
+# --- Lo que ve el cliente, con cualquiera de los dos ----------------------
+# El boton "Ver catalogo". Hoy, la carpeta de Drive; el dia del cambio, el
+# enlace de la tienda de Shopify.
 URL_CATALOGO = "https://drive.google.com/drive/folders/14lvw1gxxkZSMEdtZbvJ_fIuaCcCcZykA"
 
 # WhatsApp de El Emperador, para el boton "Comprar" de cada ficha. El "+"
@@ -134,10 +151,11 @@ FRASE_DESPAUSAR = "te dejo con la asistente"
 # DENTRO DE LA CARPETA DE EL EMPERADOR (si no, se le cargan a Invictus):
 #
 #   npx.cmd wrangler secret put GEMINI_API_KEY     <- la de Google AI Studio
-#   npx.cmd wrangler secret put DRIVE_API_KEY      <- clave de Google con la
-#        "Google Drive API" activada (si la de Gemini la tiene activada,
-#        no hace falta: se usa esa)
-#   npx.cmd wrangler secret put SHOPIFY_TOKEN      <- PROPIO de esta tienda
+#   npx.cmd wrangler secret put DRIVE_API_KEY      <- para leer la carpeta de
+#        Drive: clave de Google con la "Google Drive API" activada
+#        (console.cloud.google.com → APIs y servicios)
+#   npx.cmd wrangler secret put SHOPIFY_TOKEN      <- el dia que se active
+#                                                     Shopify (no antes)
 #   npx.cmd wrangler secret put META_APP_SECRET    <- PROPIO de esta tienda
 #   npx.cmd wrangler secret put META_APP_SECRET_IG <- el del producto Instagram
 #   npx.cmd wrangler secret put IG_TOKEN           <- PROPIO de esta tienda

@@ -62,12 +62,15 @@ const SECRETOS = ["GEMINI_API_KEY", "OPENAI_API_KEY", "SHOPIFY_TOKEN", "SLACK_WE
 const secretosAqui = [...vars.keys()].filter((v) => SECRETOS.includes(v));
 ok(secretosAqui.length === 0, "ningún secreto escrito en el archivo", secretosAqui.join(", "));
 
-titulo("el catálogo");
-if ((vars.get("CATALOGO") || "") === "drive") {
-  ok(vars.has("DRIVE_CARPETA"), "con CATALOGO = drive, está la línea DRIVE_CARPETA");
+titulo("el catálogo: drive (hoy) o shopify (cuando esté)");
+const catalogo = (vars.get("CATALOGO") || "shopify").toLowerCase();
+ok(["drive", "shopify"].includes(catalogo), 'CATALOGO es "drive" o "shopify" (un error de escritura dejaría al bot sin catálogo)', catalogo);
+if (catalogo === "drive") {
+  ok(/folders\/[\w-]{10,}/.test(vars.get("DRIVE_CARPETA") || ""), "con drive: DRIVE_CARPETA es el enlace de una carpeta", vars.get("DRIVE_CARPETA"));
 } else {
-  ok(true, "catálogo en Shopify");
+  ok(!/PENDIENTE|CAMBIA-ESTO/i.test(vars.get("SHOPIFY_TIENDA") || "PENDIENTE"), "con shopify: SHOPIFY_TIENDA ya está puesta", vars.get("SHOPIFY_TIENDA"));
 }
+ok(vars.has("SHOPIFY_TIENDA"), "la línea de Shopify queda preparada para el día del cambio");
 
 titulo("lo que todavía falta rellenar (no es un fallo: es un aviso)");
 for (const v of ["DRIVE_CARPETA", "SHOPIFY_TIENDA", "URL_CATALOGO"]) {

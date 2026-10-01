@@ -73,7 +73,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-01 (16) · el catalogo sale de Google Drive (nombre, codigo y precio de cada foto)";
+const VERSION = "2026-10-01 (17) · catalogo: Drive hoy, Shopify preparado (un solo interruptor en wrangler.toml)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
