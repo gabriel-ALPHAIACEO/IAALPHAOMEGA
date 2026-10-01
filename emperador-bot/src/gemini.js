@@ -39,7 +39,24 @@ const API = "https://generativelanguage.googleapis.com/v1beta/models";
 // 16-oct-2026 y dejaría al bot mudo de un día para otro.
 const MODELO_POR_DEFECTO = "gemini-3.1-flash-lite";
 
-export function modeloDeGemini(env) {
+// DOS MODELOS, COMO INVICTUS CON OPENAI (1-oct-2026, pedido del dueño: "no
+// usemos un solo modelo para todo, sería sobrecargarlo"). Igual que allá
+// gpt-4o-mini redacta y gpt-4o mira las fotos:
+//
+//   GEMINI_MODELO          el que REDACTA     (por defecto 3.1 Flash-Lite)
+//   GEMINI_MODELO_VISION   el que MIRA FOTOS  (por defecto 3 Flash)
+//   GEMINI_MODELO_INDICE   el que INDEXA el catálogo (por defecto el de
+//                          texto: son cientos de fotos de producto limpias,
+//                          como en Invictus, que indexa con el mini)
+//
+// 3 Flash cuesta el doble que Flash-Lite ($0,50 contra $0,25 el millón de
+// entrada) y es el que decide si se reconoce el zapato; 3.5 Flash NO: con
+// el cargo fijo por imagen, una foto saldría más cara que en gpt-4o.
+const MODELO_VISION_POR_DEFECTO = "gemini-3-flash";
+
+export function modeloDeGemini(env, tarea = "texto") {
+  if (tarea === "vision") return env.GEMINI_MODELO_VISION || MODELO_VISION_POR_DEFECTO;
+  if (tarea === "indice") return env.GEMINI_MODELO_INDICE || env.GEMINI_MODELO || MODELO_POR_DEFECTO;
   return env.GEMINI_MODELO || MODELO_POR_DEFECTO;
 }
 

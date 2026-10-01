@@ -72,7 +72,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-01 (12) · /estado dice la verdad: texto y fotos, todo con Gemini";
+const VERSION = "2026-10-01 (13) · dos modelos de Gemini: uno redacta y otro mira las fotos; OpenAI fuera";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -491,7 +491,8 @@ export default {
       // Un bot que corre entero con Gemini no tiene por qué enseñar la
       // configuración de OpenAI: sobra, y una alarma que no aplica es
       // ruido que tapa las que sí.
-      const todoGemini = String(env.PROVEEDOR || "").toLowerCase() === "gemini";
+      // En El Emperador, Gemini es lo normal aunque PROVEEDOR no esté puesto.
+      const todoGemini = String(env.PROVEEDOR || "gemini").toLowerCase() === "gemini";
 
       const gasto = await gastoDelMes(env);
 
@@ -535,17 +536,19 @@ export default {
                   ? []
                   : [`  OPENAI_MODELO_VISION ${env.OPENAI_MODELO_VISION || "gpt-4o (por defecto)"}   (el que identifica las fotos)`]),
               ]),
-          `  PROVEEDOR           ${env.PROVEEDOR === "gemini" ? "gemini  ← TODO va a Gemini" : env.PROVEEDOR_VISION === "gemini" ? "openai, pero las FOTOS van a Gemini" : "openai (por defecto)"}`,
-          ...(env.PROVEEDOR === "gemini" || env.PROVEEDOR_VISION === "gemini"
+          `  PROVEEDOR           ${todoGemini ? "gemini  ← TODO va a Gemini (OpenAI no se usa)" : env.PROVEEDOR_VISION === "gemini" ? "openai, pero las FOTOS van a Gemini" : "openai"}`,
+          ...(todoGemini || env.PROVEEDOR_VISION === "gemini"
             ? [
-                `  GEMINI_MODELO       ${env.GEMINI_MODELO || "gemini-3.1-flash-lite (por defecto)"}`,
-                `  GEMINI_API_KEY      ${secreto("GEMINI_API_KEY")}`,
+                `  GEMINI_MODELO        ${env.GEMINI_MODELO || "gemini-3.1-flash-lite (por defecto)"}   (redacta el texto)`,
+                `  GEMINI_MODELO_VISION ${env.GEMINI_MODELO_VISION || "gemini-3-flash (por defecto)"}   (mira las fotos)`,
+                `  GEMINI_API_KEY       ${secreto("GEMINI_API_KEY")}`,
                 "    Quién hace cada cosa:",
                 `      Texto (redactar las respuestas)    → ${quienAtiende(env, "texto").proveedor}, ${quienAtiende(env, "texto").modelo}`,
-                `      Fotos (mirar, cotejar, indexar)    → ${quienAtiende(env, "vision").proveedor}, ${quienAtiende(env, "vision").modelo}`,
-                env.PROVEEDOR === "gemini"
-                  ? "    El mismo modelo hace las dos cosas. Una sola clave y una sola\n" +
-                    "    factura: OpenAI no se usa para nada."
+                `      Índice (catalogar el estante)      → ${quienAtiende(env, "indice").proveedor}, ${quienAtiende(env, "indice").modelo}`,
+                `      Fotos (mirar, cotejar)             → ${quienAtiende(env, "vision").proveedor}, ${quienAtiende(env, "vision").modelo}`,
+                todoGemini
+                  ? "    Un modelo para redactar y otro para mirar, como Invictus con\n" +
+                    "    OpenAI. Una sola clave: OpenAI no se usa para nada."
                   : "    Solo las fotos van a Gemini; el texto sigue en OpenAI.",
               ]
             : []),

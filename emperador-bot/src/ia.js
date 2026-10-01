@@ -219,10 +219,12 @@ export async function esperarCupo(modelo, maximoMs = 25000) {
 // Los nombres de modelo en un solo lugar, para que quien pregunta por el
 // límite pregunte por el mismo modelo con el que después va a llamar.
 export function modeloDeVision(env) {
+  if (porGemini(env, "vision")) return modeloDeGemini(env, "vision");
   return env.OPENAI_MODELO_VISION || MODELO_VISION_POR_DEFECTO;
 }
 
 export function modeloDeIndice(env) {
+  if (porGemini(env, "indice")) return modeloDeGemini(env, "indice");
   return env.OPENAI_MODELO_INDICE || MODELO_INDICE_POR_DEFECTO;
 }
 
@@ -386,9 +388,13 @@ const ESQUEMA_RESPUESTA = {
 // Y ojo con subir de modelo dentro de Gemini: cada imagen cuesta ~1.120
 // tokens pase lo que pase, así que con 3.5 Flash una foto sale MÁS cara
 // que en gpt-4o. Más grande no es más barato acá.
+// EN EL EMPERADOR, GEMINI ES LO NORMAL (1-oct-2026): sin PROVEEDOR puesto,
+// todo va a Gemini. OpenAI solo se usaría si alguien escribe a propósito
+// PROVEEDOR = "openai" — y no hay clave de OpenAI cargada.
 export function porGemini(env, tarea) {
-  if (String(env.PROVEEDOR || "").toLowerCase() === "gemini") return true;
-  return tarea === "vision" && String(env.PROVEEDOR_VISION || "").toLowerCase() === "gemini";
+  const proveedor = String(env.PROVEEDOR || "gemini").toLowerCase();
+  if (proveedor === "gemini") return true;
+  return (tarea === "vision" || tarea === "indice") && String(env.PROVEEDOR_VISION || "").toLowerCase() === "gemini";
 }
 
 // El nombre del proveedor y del modelo que de verdad atienden esa tarea.
@@ -396,7 +402,7 @@ export function porGemini(env, tarea) {
 // PROVEEDOR = "gemini", el índice NO lo mira gpt-4o-mini aunque la variable
 // del índice lo diga.
 export function quienAtiende(env, tarea = "texto") {
-  if (porGemini(env, tarea)) return { proveedor: "Gemini", modelo: modeloDeGemini(env) };
+  if (porGemini(env, tarea)) return { proveedor: "Gemini", modelo: modeloDeGemini(env, tarea) };
   const modelo =
     tarea === "vision" ? modeloDeVision(env) : env.OPENAI_MODELO || MODELO_POR_DEFECTO;
   return { proveedor: "OpenAI", modelo };
@@ -412,6 +418,8 @@ async function llamar(
   // entera: recibe el mismo texto de vuelta y el gasto se anota igual.
   if (porGemini(env, tarea)) {
     return llamarGemini(env, sistema, contenido, {
+      // El modelo de ESA tarea: texto, fotos o índice (ver gemini.js).
+      modelo: modeloDeGemini(env, tarea),
       maxTokens,
       schema,
       json,
@@ -771,7 +779,7 @@ export async function rasgosDeProducto(env, urlImagen, { modelo = "" } = {}) {
     ],
     {
       schema: ESQUEMA_IDENTIFICACION,
-      tarea: "vision",
+      tarea: "indice",
       modelo: modelo || modeloDeIndice(env),
       maxTokens: 400,
     }
