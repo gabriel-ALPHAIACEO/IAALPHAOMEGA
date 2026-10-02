@@ -425,6 +425,11 @@ const ESQUEMA_RESPUESTA = {
       // un texto corto. Lo decide pensando: si ya vio esos zapatos y pregunta
       // algo de ellos (Cashea, talla), no se le mandan las fotos otra vez.
       mostrar: { type: "string", enum: ["texto", "texto_e_imagenes", "imagenes"] },
+      // NOTA DE VOZ POR SU CUENTA (2-oct-2026): la IA puede elegir contestar
+      // con voz aunque le escribieran, pero con tope por cliente (lo cuenta
+      // el código, ver voz.js). Si el cliente habló con voz, se le contesta
+      // con voz siempre, diga lo que diga este campo.
+      voz: { type: "boolean" },
       // Lo que ve el cliente.
       respuesta: { type: "string" },
       // El término de búsqueda, o "NADA" si no hay que buscar.
@@ -432,7 +437,7 @@ const ESQUEMA_RESPUESTA = {
       // La memoria para el mensaje siguiente.
       historial: { type: "string" },
     },
-    required: ["pienso", "mostrar", "respuesta", "buscar", "historial"],
+    required: ["pienso", "mostrar", "voz", "respuesta", "buscar", "historial"],
     additionalProperties: false,
   },
 };
@@ -861,6 +866,7 @@ function normalizar(salida) {
   return {
     respuesta,
     mostrar,
+    voz: datos.voz === true,
     buscar: String(datos.buscar || "NADA").trim(),
     historial: String(datos.historial || "").trim(),
   };

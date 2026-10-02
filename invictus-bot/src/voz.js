@@ -35,11 +35,52 @@ export const PEDIR_QUE_ESCRIBA =
 
 // La nota que le dice a la IA de texto que esto vino por voz: la
 // transcripción puede traer alguna palabra mal entendida.
+// CON VOZ O POR ESCRITO (2-oct-2026, pedido del dueño): "si es nota de
+// voz, nota de voz; si es texto, texto; y si la IA quiere responder en nota
+// de voz también puede, pero no todo el tiempo: unas 2 o 3 veces por
+// cliente".
+//
+//   · el cliente habló con voz  → se le contesta con voz, EN LUGAR del texto
+//                                 (las fichas y la tarjeta de Cashea siguen
+//                                 por escrito: son precios y números);
+//   · el cliente escribió        → se le contesta por escrito, salvo que la
+//                                 IA marque "voz": true y le queden notas a
+//                                 ese cliente (VOZ_POR_CLIENTE, por defecto 3).
+//
+// Si la voz no sale (OpenAI o Instagram fallan), va el texto: el cliente
+// nunca se queda sin respuesta.
+const VOZ_POR_CLIENTE_POR_DEFECTO = 3;
+
+export function notasDeVozPorCliente(env) {
+  const n = Number(env?.VOZ_POR_CLIENTE);
+  return Number.isFinite(n) && n >= 0 ? n : VOZ_POR_CLIENTE_POR_DEFECTO;
+}
+
+export function leQuedanNotasDeVoz(env, contacto) {
+  return Math.max(0, notasDeVozPorCliente(env) - (Number(contacto?.notas_de_voz) || 0));
+}
+
+// Lo que se le dice a la IA cuando el cliente ESCRIBIÓ: si puede elegir voz.
+export function notaDeVozDeLaIA(quedan) {
+  return quedan > 0
+    ? `[NOTAS DE VOZ: con este cliente te quedan ${quedan}. Pon "voz": true SOLO si una nota de voz de verdad ayuda (ver CON VOZ O POR ESCRITO); si no, "voz": false]`
+    : `[NOTAS DE VOZ: ya usaste todas las de este cliente. "voz": false]`;
+}
+
+// ¿Esta frase se puede decir en voz sin perder nada? Un enlace no se puede
+// "decir", y una frase larga se cortaría.
+export function cabeEnLaVoz(texto) {
+  const t = String(texto || "");
+  if (!t.trim() || /https?:\/\//i.test(t)) return false;
+  return textoParaVoz(t).length >= limpiarParaVoz(t).length;
+}
+
 export function notaDeVoz() {
   return (
     "[EL CLIENTE MANDÓ UNA NOTA DE VOZ: su mensaje es la transcripción. Si una " +
     "palabra no cuadra, es un error al transcribir: entiende lo que quiso decir " +
-    "(como con quien escribe mal) y NO le digas que no se entiende]"
+    "(como con quien escribe mal) y NO le digas que no se entiende. Tu respuesta " +
+    "le llega como NOTA DE VOZ: escríbela como se dice en voz alta, corta y sin enlaces]"
   );
 }
 
@@ -205,13 +246,17 @@ const INSTRUCCIONES_VOZ =
 // 20 segundos como mucho).
 const MAXIMO_LETRAS_VOZ = 350;
 
-export function textoParaVoz(texto) {
-  const limpio = String(texto || "")
+function limpiarParaVoz(texto) {
+  return String(texto || "")
     .replace(/https?:\/\/\S+/g, "")
     .replace(/\p{Extended_Pictographic}|️|‍/gu, "")
     .replace(/[*_#•🔹]/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+export function textoParaVoz(texto) {
+  const limpio = limpiarParaVoz(texto);
   if (limpio.length <= MAXIMO_LETRAS_VOZ) return limpio;
   // Se corta en la última frase completa que quepa.
   const corte = limpio.slice(0, MAXIMO_LETRAS_VOZ);

@@ -61,6 +61,7 @@ import {
 } from "./datos.js";
 import { hayQueRescatar, FRASE_DE_RESCATE, MOTIVO_DE_RESCATE } from "./rescate.js";
 import { revisarTono } from "./tono.js";
+import { revisarPrecio } from "./precio.js";
 import {
   transcribirAudio,
   notaDeVoz,
@@ -68,6 +69,9 @@ import {
   sintetizarVoz,
   guardarNotaDeVoz,
   leerNotaDeVoz,
+  leQuedanNotasDeVoz,
+  notaDeVozDeLaIA,
+  cabeEnLaVoz,
 } from "./voz.js";
 import { anotarGasto } from "./gasto.js";
 import {
@@ -131,7 +135,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (47) · voz en AAC (liviana, sin pasar el limite de CPU) y las fotos nuevas siempre se mandan";
+const VERSION = "2026-10-02 (48) · voz si le hablan con voz (la IA puede elegirla 3 veces por cliente) y el precio esta en cada foto";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1498,7 +1502,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     nombre,
     historialPrevio,
     textoCliente,
-    [notaVoz, marca, notaUbicacion, datoDeLaTienda ? notaDeDatoDeLaTienda(datoDeLaTienda) : ""].filter(Boolean).join("\n"),
+    [notaVoz || notaDeVozDeLaIA(leQuedanNotasDeVoz(env, contacto)), marca, notaUbicacion, datoDeLaTienda ? notaDeDatoDeLaTienda(datoDeLaTienda) : ""].filter(Boolean).join("\n"),
     esHistoria,
     minutosCallado
   );
@@ -1720,11 +1724,49 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   }
   const fichas = soloTexto ? [] : productos;
 
+  // EL PRECIO YA ESTÁ EN LA FOTO (2-oct-2026, ver precio.js): con las
+  // fichas a la vista, nada de "¿quieres saber el precio?". Se le dice dónde
+  // está.
+  const revisionDePrecio = revisarPrecio(respuestaCliente, { hayFichas: fichas.length > 0, yaLasVio: soloTexto });
+  if (revisionDePrecio.corregido) respuestaCliente = revisionDePrecio.respuesta;
+
+  // EL CATÁLOGO EXISTE (2-oct-2026, ver catalogo.js). Si el cliente lo
+  // nombró —"¿tienen catálogo de dama?"— y no se le enseña ningún zapato,
+  // va el botón debajo de lo que dijo la IA. Y si la IA escribió que no hay
+  // catálogo, esa frase se quita (o se cambia por una que lo ofrece). Va
+  // ANTES de decidir la voz: la nota de voz tampoco puede negar el catálogo.
+  let mandarCatalogo = false;
+  if (niegaElCatalogo(respuestaCliente)) {
+    const limpia = sinNegarElCatalogo(respuestaCliente);
+    console.log(`La IA dijo que no hay catálogo ("${respuestaCliente.slice(0, 80)}"): lo corrijo`);
+    respuestaCliente = limpia || (productos.length ? "¡Claro! Mira 👇" : fraseDeCatalogo(nombre));
+    if (!productos.length) mandarCatalogo = true;
+  }
+  if (!imagenCruda && !productos.length && nombraElCatalogo(mensaje.texto)) {
+    mandarCatalogo = true;
+    console.log("El cliente nombró el catálogo: va el botón debajo de la respuesta");
+  }
+
   // Lo que dijo la IA, antes de pegarle la tarjeta de Cashea: es lo único
   // que se lee en la nota de voz (los números de Cashea van por escrito).
   const fraseDeLaIA = respuestaCliente;
 
-  if (tarjetaDeCashea && !fichas.length && !buscoSinExito && !seAcabaron && !hayMasDelCatalogo) {
+  // CON VOZ O POR ESCRITO (2-oct-2026, ver voz.js). Si habló con voz, se le
+  // contesta con voz; si escribió, por escrito, salvo que la IA quiera voz y
+  // le queden notas a este cliente. Nunca con el botón del catálogo (el
+  // botón lleva el texto) ni si la frase no se puede decir entera.
+  const vaConBoton = !fichas.length && !soloTexto && (buscoSinExito || seAcabaron || hayMasDelCatalogo || mandarCatalogo);
+  const vozPorElCliente = Boolean(mensaje.audio);
+  const vozPorLaIA = !vozPorElCliente && salida?.voz === true && leQuedanNotasDeVoz(env, contacto) > 0;
+  if (salida?.voz === true && !vozPorElCliente && !vozPorLaIA) {
+    console.log("La IA quería contestar con voz, pero ya usó las notas de voz de este cliente: va por escrito");
+  }
+  const porVoz = (vozPorElCliente || vozPorLaIA) && Boolean(mensaje.origen) && !vaConBoton && cabeEnLaVoz(fraseDeLaIA);
+  if ((vozPorElCliente || vozPorLaIA) && !porVoz) {
+    console.log("Voz: esta respuesta va por escrito (lleva el botón del catálogo, un enlace, o es larga para una nota)");
+  }
+
+  if (tarjetaDeCashea && !porVoz && !fichas.length && !buscoSinExito && !seAcabaron && !hayMasDelCatalogo) {
     respuestaCliente = respuestaCliente ? `${respuestaCliente}\n\n${tarjetaDeCashea}` : tarjetaDeCashea;
     tarjetaDeCashea = "";
   }
@@ -1747,53 +1789,41 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // se pausaba solo. Por eso pasaba con "¿me recomiendas algún calzado?" y
   // no con un "hola": solo estas respuestas mandan dos cosas. mandar()
   // guarda cada envío en el momento y cierra esa ventana.
-  // EL CATÁLOGO EXISTE (2-oct-2026, ver catalogo.js). Si el cliente lo
-  // nombró —"¿tienen catálogo de dama?"— y no se le enseña ningún zapato,
-  // va el botón debajo de lo que dijo la IA. Y si la IA escribió que no hay
-  // catálogo, esa frase se quita (o se cambia por una que lo ofrece).
-  let mandarCatalogo = false;
-  if (niegaElCatalogo(respuestaCliente)) {
-    const limpia = sinNegarElCatalogo(respuestaCliente);
-    console.log(`La IA dijo que no hay catálogo ("${respuestaCliente.slice(0, 80)}"): lo corrijo`);
-    respuestaCliente = limpia || (productos.length ? "¡Claro! Mira 👇" : fraseDeCatalogo(nombre));
-    if (!productos.length) mandarCatalogo = true;
+  //
+  // La nota de voz va PRIMERO, en lugar del texto, y detrás las fichas. Si
+  // no sale, se manda el texto: nunca se queda sin respuesta.
+  let hablado = false;
+  if (porVoz) {
+    const voz = await sintetizarVoz(env, fraseDeLaIA);
+    if (voz) {
+      const id = await guardarNotaDeVoz(env.DB, voz);
+      hablado = await mandar(() => enviarAudio(env, mensaje.igsid, `${mensaje.origen}/voz/${id}.${voz.extension}`));
+      console.log(
+        hablado
+          ? `Voz: le contesté con una nota de voz (${vozPorLaIA ? "la eligió la IA" : "él habló con voz"}; ${voz.texto.length} letras, ${Math.round(voz.datos.byteLength / 1024)} KB)`
+          : "Voz: Instagram no aceptó la nota de voz: le mando el texto. Mira el error de arriba."
+      );
+    } else {
+      console.log("Voz: no se pudo hacer la nota de voz: le mando el texto");
+    }
   }
-  if (!imagenCruda && !productos.length && nombraElCatalogo(mensaje.texto)) {
-    mandarCatalogo = true;
-    console.log("El cliente nombró el catálogo: va el botón debajo de la respuesta");
-  }
+  const notasDeVozDeLaIA = (Number(contacto.notas_de_voz) || 0) + (hablado && vozPorLaIA ? 1 : 0);
 
   if (fichas.length) {
-    await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
+    if (!hablado) await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
     await mandar(() => enviarFichas(env, mensaje.igsid, fichas));
   } else if (soloTexto) {
     // Habló de algo que ya está en la conversación: solo texto.
-    await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
-  } else if (buscoSinExito || seAcabaron || hayMasDelCatalogo || mandarCatalogo) {
+    if (!hablado) await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
+  } else if (vaConBoton) {
     // Tres motivos distintos, misma salida: el cliente quería ver algo y no
     // hay nada (más) que enseñarle en una ficha. Ahí el enlace de la tienda
     // sí es una ayuda — incluido cuando SÍ hay más, pero no caben en un
     // carrusel de 10 (hayMasDelCatalogo, ver decidir()).
     await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente));
-  } else {
+  } else if (!hablado) {
     // Conversación: preguntas, dudas, cortesías. Texto limpio, sin botón.
     await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
-  }
-
-  // LE HABLÓ CON VOZ, SE LE CONTESTA CON VOZ (2-oct-2026, ver voz.js).
-  // Además del texto, nunca en su lugar. Solo la frase de la IA: la tarjeta
-  // de Cashea, los precios y los métodos de pago siguen por escrito.
-  if (notaVoz && respuestaCliente && mensaje.origen) {
-    const voz = await sintetizarVoz(env, fraseDeLaIA || respuestaCliente);
-    if (voz) {
-      const id = await guardarNotaDeVoz(env.DB, voz);
-      const enviado = await mandar(() => enviarAudio(env, mensaje.igsid, `${mensaje.origen}/voz/${id}.${voz.extension}`));
-      console.log(
-        enviado
-          ? `Voz: le contesté también con una nota de voz (${voz.texto.length} letras, ${Math.round(voz.datos.byteLength / 1024)} KB)`
-          : "Voz: Instagram no aceptó la nota de voz (el texto sí le llegó). Mira el error de arriba."
-      );
-    }
   }
 
   // La tarjeta de Cashea, cuando no fue dentro del mensaje de arriba: va
@@ -1863,6 +1893,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     // Lo que acaba de ver queda anotado para no volver a mandárselo cuando
     // pida más. Es lo que evita el "son los mismos".
     mostrados: conProductosMostrados(contacto.mostrados, fichas),
+    notas_de_voz: notasDeVozDeLaIA,
   });
 }
 

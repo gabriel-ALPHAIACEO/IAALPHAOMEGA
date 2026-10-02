@@ -20,7 +20,7 @@ titulo("Instagram: una nota de voz se reconoce como audio");
   src.limpiar();
 }
 
-async function mandarNota({ transcripcion = "hola tienes las jordan 4 en negro", falla = false, comoTexto = false } = {}) {
+async function mandarNota({ transcripcion = "hola tienes las jordan 4 en negro", falla = false, comoTexto = false, vozIA = false, db = null, fallaVoz = false, rechazaAudio = false } = {}) {
   const src = await prepararSrc();
   const { default: worker } = await src.cargar("index.js");
   const enviados = [], llamadasIA = [], transcripciones = [], habladas = [];
@@ -29,6 +29,7 @@ async function mandarNota({ transcripcion = "hola tienes las jordan 4 en negro",
     if (u === "https://cdn.test/nota.mp4") return new Response(new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112]), { status: 200, headers: { "content-type": "audio/mp4" } });
     if (u.includes("/audio/speech")) {
       habladas.push(JSON.parse(op.body));
+      if (fallaVoz) return new Response('{"error":{"message":"boom"}}', { status: 500 });
       return new Response(new Uint8Array([0xff, 0xf1, 0x50, 0x80, 1, 2, 3, 4]), { status: 200, headers: { "content-type": "audio/aac" } });
     }
     if (u.includes("/audio/transcriptions")) {
@@ -39,17 +40,21 @@ async function mandarNota({ transcripcion = "hola tienes las jordan 4 en negro",
     if (u.includes("api.openai.com")) {
       const cuerpo = JSON.parse(op.body);
       llamadasIA.push(cuerpo.messages.map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content))).join("\n"));
-      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ pienso: "Pide Jordan 4 negro.", mostrar: "texto", respuesta: "¡Sí tengo las Jordan 4! 😊", buscar: "NADA", historial: "Pidió Jordan 4 por audio." }) } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }), { status: 200 });
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ pienso: "Pide Jordan 4 negro.", mostrar: "texto", voz: vozIA, respuesta: "¡Sí tengo las Jordan 4! 😊", buscar: "NADA", historial: "Pidió Jordan 4 por audio." }) } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }), { status: 200 });
     }
     if (u.includes("graph.instagram.com") && u.includes("/messages")) {
-      enviados.push(JSON.parse(op.body).message);
+      const mensaje = JSON.parse(op.body).message;
+      if (rechazaAudio && mensaje.attachment?.type === "audio") {
+        return new Response('{"error":{"message":"Upload attachment failure","code":100,"error_subcode":2018047}}', { status: 400 });
+      }
+      enviados.push(mensaje);
       return new Response(JSON.stringify({ message_id: `mid-${enviados.length}` }), { status: 200 });
     }
     if (u.includes("graph.instagram.com")) return new Response(JSON.stringify({ name: "Ana", username: "ana" }), { status: 200 });
     if (u.includes("/graphql.json")) return new Response(JSON.stringify({ data: { products: { edges: [], pageInfo: { hasNextPage: false } } } }), { status: 200 });
     return new Response("ok", { status: 200 });
   };
-  const env = { DB: baseDeMentira().DB, META_APP_SECRET: SECRETO, META_MODO: "todo", IG_TOKEN: "x", OPENAI_API_KEY: "x",
+  const env = { DB: db || baseDeMentira().DB, META_APP_SECRET: SECRETO, META_MODO: "todo", IG_TOKEN: "x", OPENAI_API_KEY: "x",
     SHOPIFY_TIENDA: "tienda.test", SHOPIFY_TOKEN: "x", SLACK_WEBHOOK: "https://hooks.slack.com/x", URL_CATALOGO: "https://tienda.test" };
   const cuerpo = JSON.stringify({ object: "instagram", entry: [{ id: "999", time: Date.now(), messaging: [{ sender: { id: "123" }, recipient: { id: "999" }, timestamp: Date.now(),
     message: comoTexto ? { mid: `m-${Math.random()}`, text: "hola tienes las jordan 4 en negro" } : { mid: `m-${Math.random()}`, attachments: [{ type: "audio", payload: { url: "https://cdn.test/nota.mp4" } }] } }] }] });
@@ -85,14 +90,14 @@ titulo("el cliente manda un audio: se escucha y se contesta");
   ok(/Jordan/.test(String(form?.get("prompt"))), "con las marcas de la tienda como pista");
   ok(r.llamadasIA.some((t) => /hola tienes las jordan 4 en negro/.test(t)), "lo que dijo le llega a la IA como si lo hubiera escrito");
   ok(r.llamadasIA.some((t) => /NOTA DE VOZ/.test(t)), "y la IA sabe que vino por voz (por si alguna palabra salió mal)");
-  ok(r.enviados.some((m) => /Sí tengo las Jordan 4/.test(m.text || "")), "el cliente recibe la respuesta", JSON.stringify(r.enviados).slice(0, 120));
+  ok(r.audio, "el cliente recibe la respuesta", JSON.stringify(r.enviados).slice(0, 120));
   ok(/Voz: el cliente dijo/.test(r.registro), "y en el registro queda lo que dijo");
 }
 
-titulo("le habló con voz: le contesta con voz, ADEMÁS del texto");
+titulo("le habló con voz: le contesta con voz, EN LUGAR del texto (2-oct)");
 {
   const r = await mandarNota();
-  ok(r.enviados.some((m) => /Sí tengo las Jordan 4/.test(m.text || "")), "el texto le llega igual");
+  ok(!r.enviados.some((m) => /Sí tengo las Jordan 4/.test(m.text || "")), "NO le llega además el mismo texto (era texto y voz a la vez)", JSON.stringify(r.enviados).slice(0, 160));
   ok(r.audio && /^https:\/\/bot\.test\/voz\/[a-f0-9]+\.aac$/.test(r.audio.attachment.payload.url), "y una nota de voz (AAC, liviana), con un enlace del propio Worker", r.audio?.attachment?.payload?.url);
   ok(r.servida && r.servida.estado === 200 && r.servida.tipo === "audio/aac" && r.servida.bytes === 8, "el Worker sirve ese audio con los MISMOS bytes (Instagram lo puede bajar)", JSON.stringify(r.servida));
   ok(r.habladas[0]?.response_format === "aac", "se le pide a OpenAI en AAC, no en WAV (el WAV pasaba el límite de CPU al servirlo)");
@@ -103,6 +108,33 @@ titulo("le habló con voz: le contesta con voz, ADEMÁS del texto");
 {
   const r = await mandarNota({ comoTexto: true });
   ok(!r.audio && r.habladas.length === 0, "si escribió, se le contesta solo por escrito (sin voz)");
+  ok(r.enviados.some((m) => /Sí tengo las Jordan 4/.test(m.text || "")), "y el texto le llega");
+  ok(r.llamadasIA.some((t) => /NOTAS DE VOZ: con este cliente te quedan 3/.test(t)), "la IA sabe cuántas notas de voz le quedan con él");
+}
+
+titulo("si la voz no sale, va el texto: nunca se queda sin respuesta");
+{
+  const r = await mandarNota({ fallaVoz: true });
+  ok(!r.audio && r.enviados.some((m) => /Sí tengo las Jordan 4/.test(m.text || "")), "OpenAI no hizo la voz → le llega el texto", JSON.stringify(r.enviados).slice(0, 160));
+  const s = await mandarNota({ rechazaAudio: true });
+  ok(s.enviados.some((m) => /Sí tengo las Jordan 4/.test(m.text || "")), "Instagram rechazó la nota → le llega el texto", JSON.stringify(s.enviados).slice(0, 160));
+}
+
+titulo("la IA puede elegir voz con quien escribió, pero solo 3 veces por cliente");
+{
+  const db = baseDeMentira().DB;
+  const conVoz = [];
+  for (let i = 0; i < 5; i++) {
+    const r = await mandarNota({ comoTexto: true, vozIA: true, db });
+    conVoz.push(Boolean(r.audio) && !r.enviados.some((m) => /Sí tengo las Jordan 4/.test(m.text || "")));
+    if (i === 4) {
+      ok(r.enviados.some((m) => /Sí tengo las Jordan 4/.test(m.text || "")), "pasado el tope, va por escrito");
+      ok(r.llamadasIA.some((t) => /ya usaste todas las de este cliente/.test(t)), "y la IA sabe que ya no le quedan");
+    }
+  }
+  ok(conVoz.join() === "true,true,true,false,false", "las 3 primeras que eligió la IA van con voz, las demás por escrito", conVoz.join());
+  const r = await mandarNota({ db });
+  ok(r.audio, "si ÉL habla con voz, se le contesta con voz aunque la IA ya gastara las suyas");
 }
 
 titulo("lo que se lee en voz: sin emojis, sin enlaces, corto");

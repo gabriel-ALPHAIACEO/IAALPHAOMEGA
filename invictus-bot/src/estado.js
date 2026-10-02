@@ -29,6 +29,7 @@ export async function cargarContacto(db, id) {
       mids_enviados: [],
       ultimo_envio: 0,
       mostrados: [],
+      notas_de_voz: 0,
     };
   }
 
@@ -47,6 +48,9 @@ export async function cargarContacto(db, id) {
     // Los títulos que este cliente YA vio. Sin esto, pedir "más" le devuelve
     // el mismo carrusel (ver migrations/0003_mostrados.sql).
     mostrados: leerLista(fila.mostrados),
+    // Las notas de voz que la IA le mandó POR SU CUENTA (no las que fueron
+    // porque él habló con voz). Tienen tope por cliente: ver voz.js.
+    notas_de_voz: Number(fila.notas_de_voz) || 0,
   };
 }
 
@@ -138,6 +142,7 @@ export async function guardarContacto(db, contacto) {
     JSON.stringify(mids),
     Number(contacto.ultimo_envio) || 0,
     JSON.stringify(mostrados),
+    Number(contacto.notas_de_voz) || 0,
   ];
 
   // Los tres campos del perfil NUNCA se borran desde aquí: si el que llama
@@ -147,8 +152,8 @@ export async function guardarContacto(db, contacto) {
   const guardar = () =>
     db
       .prepare(
-        `INSERT INTO contactos (id, nombre, nombre_completo, usuario, historial, pausado_hasta, mids_enviados, ultimo_envio, mostrados)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO contactos (id, nombre, nombre_completo, usuario, historial, pausado_hasta, mids_enviados, ultimo_envio, mostrados, notas_de_voz)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            nombre = COALESCE(NULLIF(excluded.nombre, ''), contactos.nombre),
            nombre_completo = COALESCE(NULLIF(excluded.nombre_completo, ''), contactos.nombre_completo),
@@ -157,7 +162,8 @@ export async function guardarContacto(db, contacto) {
            pausado_hasta = excluded.pausado_hasta,
            mids_enviados = excluded.mids_enviados,
            ultimo_envio = excluded.ultimo_envio,
-           mostrados = excluded.mostrados`
+           mostrados = excluded.mostrados,
+           notas_de_voz = MAX(COALESCE(contactos.notas_de_voz, 0), excluded.notas_de_voz)`
       )
       .bind(...datos)
       .run();
@@ -187,6 +193,7 @@ export async function guardarContacto(db, contacto) {
 //   mostrados        los productos que el cliente ya vio (no repetir carrusel)
 //   nombre_completo  el nombre del perfil, tal cual ("María José Pérez")
 //   usuario          el @ de Instagram ("mariajo.p") — para Slack y /estado
+//   notas_de_voz     cuántas notas de voz le mandó la IA por su cuenta (tope)
 // LA TABLA TAMBIÉN SE CREA SOLA (22-sep-2026).
 //
 // Antes esto solo agregaba COLUMNAS: si la tabla no existía, se rendía y
@@ -215,6 +222,7 @@ const COLUMNAS_SOLAS = [
   ["mostrados", "TEXT NOT NULL DEFAULT '[]'"],
   ["nombre_completo", "TEXT NOT NULL DEFAULT ''"],
   ["usuario", "TEXT NOT NULL DEFAULT ''"],
+  ["notas_de_voz", "INTEGER NOT NULL DEFAULT 0"],
 ];
 
 // Una vez por instancia del Worker basta: después de la primera revisión,
@@ -357,6 +365,7 @@ const COLUMNAS = [
   ["mostrados", "0003_mostrados"],
   ["nombre_completo", "se crea sola"],
   ["usuario", "se crea sola"],
+  ["notas_de_voz", "se crea sola"],
 ];
 
 // Las que el propio Worker crea en cuanto atiende un mensaje (ver

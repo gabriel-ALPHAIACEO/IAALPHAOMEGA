@@ -363,6 +363,23 @@ titulo("los 3 casos: solo texto, texto con fotos, fotos con poco texto (2-oct)")
   ok(carrusel(nuevo) === 1, "caso real (2-oct): marcó 'texto' pero los productos son NUEVOS para él → las fotos van igual");
 }
 
+titulo('"¿tienen retro 4?": el precio ya va en la foto, no se pregunta (2-oct)');
+{
+  const R4 = [
+    { titulo: "Retro 4 negro caballero", precio: 95, imagen: "https://cdn.test/r4n.jpg" },
+    { titulo: "Retro 4 blanco caballero", precio: 95, imagen: "https://cdn.test/r4b.jpg" },
+  ];
+  const carrusel = (r) => r.textos.filter((t) => /"template_type":"generic"/.test(t)).length;
+  const r = await conversar("tienen retro 4?", {
+    productos: R4,
+    respuestaModelo: { pienso: "x", mostrar: "texto_e_imagenes", respuesta: "¡Sí tenemos Retro 4! 👟 ¿Quieres saber el precio?", buscar: "Retro 4", historial: "x" },
+  });
+  const texto = r.textos.find((t) => !/template_type/.test(t)) || "";
+  ok(carrusel(r) === 1, "las fichas (con su precio) van");
+  ok(!/quieres saber el precio/i.test(r.todo), "no le pregunta si quiere saber el precio", texto);
+  ok(/precios están en cada foto/i.test(texto) && /Sí tenemos Retro 4/.test(texto), "le dice que los precios están en cada foto", texto);
+}
+
 titulo("la talla sigue yendo al asesor");
 {
   const r = await conversar("tienen talla 42?", {

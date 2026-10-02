@@ -27,6 +27,7 @@ const SUITES = [
   ["datos.mjs", "horarios, envíos, delivery y empleo: que estén y salten solos"],
   ["botas.mjs", "que las botas de básquet no busquen las tácticas"],
   ["voz.mjs", "las notas de voz: las escucha, contesta, y si le hablan con voz contesta con voz"],
+  ["precio.mjs", "con las fichas a la vista no pregunta por el precio: dice que está en cada foto"],
   ["tono.mjs", "todo tipo de clientes: ni groserías ni regaños del bot, y el prompt que lo enseña"],
   ["rescate.mjs", "que un \"no es ese\" pase a una persona en vez de seguir adivinando"],
   ["extremo.mjs", "de punta a punta: lo que de verdad le llega al cliente"],

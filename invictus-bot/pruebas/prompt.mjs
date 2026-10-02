@@ -141,7 +141,7 @@ ok(malos === 0, "todos parsean y traen 'respuesta' y 'buscar'");
 titulo("piensa antes de responder (2-oct)");
 {
   const ia = fuente("ia.js");
-  ok(/pienso: \{ type: "string" \}/.test(ia) && /required: \["pienso", "mostrar", "respuesta", "buscar", "historial"\]/.test(ia), "la respuesta de texto lleva 'pienso' PRIMERO y 'mostrar' (cómo responde), obligatorios");
+  ok(/pienso: \{ type: "string" \}/.test(ia) && /required: \["pienso", "mostrar", "voz", "respuesta", "buscar", "historial"\]/.test(ia), "la respuesta de texto lleva 'pienso' PRIMERO, 'mostrar' (cómo responde) y 'voz', obligatorios");
   ok(/mostrar: \{ type: "string", enum: \["texto", "texto_e_imagenes", "imagenes"\] \}/.test(ia), "'mostrar' solo admite los 3 casos");
   ok(/CÓMO RESPONDES: SOLO TEXTO, TEXTO CON FOTOS, O FOTOS/.test(texto), "el prompt explica los 3 casos");
   ok(/required: \["porque", "eleccion", "confianza"\]/.test(ia), "el cotejo dice el porqué ANTES de elegir");
