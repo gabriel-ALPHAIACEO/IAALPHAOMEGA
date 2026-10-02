@@ -119,7 +119,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (40) · catalogo: si el cliente lo nombra sale el boton, y la IA ya no dice que no hay catalogo";
+const VERSION = "2026-10-02 (40) · catalogo: si el cliente lo nombra, el boton sale debajo de la respuesta de la IA";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
