@@ -156,8 +156,10 @@ const REGLAS = [
 // Recibe lo que devolvió la IA de visión ya normalizado (buscar, rasgos,
 // pedirNombreExacto) y devuelve la versión corregida —igual a la original
 // si no hay nada que corregir.
-export function validarIdentificacion({ buscar, rasgos, pedirNombreExacto }) {
-  if (!rasgos || typeof rasgos !== "object") {
+export function validarIdentificacion({ buscar, rasgos, pedirNombreExacto, tipo = "calzado" }) {
+  // Las reglas son de calzado (suelas, swoosh, Jumpman). Una gorra, un bolso
+  // o una franela no se corrigen con ellas.
+  if (!rasgos || typeof rasgos !== "object" || (tipo && tipo !== "calzado")) {
     // Sin rasgos no hay con qué verificar: pasa tal cual. Así un cambio
     // de modelo de OpenAI que deje de mandar "rasgos" no rompe nada, solo
     // apaga esta red de seguridad hasta que se note en los registros.

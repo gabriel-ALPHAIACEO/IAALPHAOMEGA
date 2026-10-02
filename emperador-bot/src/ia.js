@@ -379,6 +379,10 @@ const ESQUEMA_IDENTIFICACION = {
   schema: {
     type: "object",
     properties: {
+      // QUÉ TIPO DE PRODUCTO ES (2-oct-2026): El Emperador vende calzado,
+      // bolsos, ropa y gorras. Con esto el cotejo compara solo contra los
+      // del mismo tipo, y la IA de texto sabe de qué está hablando.
+      tipo: { type: "string", enum: ["calzado", "gorra", "bolso", "franela", "pantalon", "short", "uniforme", "otro"] },
       visto: { type: "string" },
       rasgos: {
         type: "object",
@@ -416,7 +420,7 @@ const ESQUEMA_IDENTIFICACION = {
       // que pedirle al cliente el nombre exacto en el mismo mensaje.
       pedirNombreExacto: { type: "boolean" },
     },
-    required: ["visto", "rasgos", "buscar", "color", "variosProductos", "pedirNombreExacto"],
+    required: ["tipo", "visto", "rasgos", "buscar", "color", "variosProductos", "pedirNombreExacto"],
     additionalProperties: false,
   },
 };
@@ -678,7 +682,11 @@ export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) 
     );
   }
 
+  const TIPOS_VALIDOS = ["calzado", "gorra", "bolso", "franela", "pantalon", "short", "uniforme", "otro"];
   return {
+    // Sin tipo (una respuesta vieja, o un modelo que no lo mandó): calzado,
+    // que es como funcionaba todo antes.
+    tipo: TIPOS_VALIDOS.includes(String(datos.tipo || "").toLowerCase()) ? String(datos.tipo).toLowerCase() : "calzado",
     visto: String(datos.visto || "").trim(),
     buscar: String(datos.buscar || "NADA").trim(),
     color: String(datos.color || "").trim().toLowerCase(),

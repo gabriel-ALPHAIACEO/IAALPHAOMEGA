@@ -235,6 +235,18 @@ titulo("las CATEGORÍAS de la carpeta (CATALOGO › CNTND 1 (30/6/26) › CALZAD
     ok(tenis.productos.length === 1 && /Jordan/.test(tenis.productos[0].titulo), '"tenis negros" → el Jordan negro (calzado + plural)');
     const lista = await D.titulosDeDrive(envC);
     ok(/^CALZADOS:\n/m.test(lista) && /^GORRAS:\n/m.test(lista), "los títulos van al prompt agrupados por categoría", lista.replace(/\n/g, " | "));
+    // EL TIPO de la foto filtra el cotejo: una gorra solo contra gorras.
+    const C = await src.cargar("cotejo.js");
+    const todos = (await D.catalogoDeDrive(envC)).productos;
+    const soloGorras = todos.filter(await C.filtroDelTipo(envC, "gorra"));
+    ok(soloGorras.length === 1 && /New Era/.test(soloGorras[0].titulo), "foto de una GORRA → el cotejo solo compara contra GORRAS", soloGorras.map((p) => p.titulo).join(" · "));
+    const soloCalzado = todos.filter(await C.filtroDelTipo(envC, "calzado"));
+    ok(soloCalzado.length === 2 && soloCalzado.every((p) => !/New Era/.test(p.titulo)), "foto de un ZAPATO → solo contra CALZADOS");
+    ok(todos.filter(await C.filtroDelTipo(envC, "bolso")).length === 3, "un tipo que la tienda no tiene en carpetas (bolso) no deja al cotejo sin nada: compara con todo");
+    ok(todos.filter(await C.filtroDelTipo(envC, "")).length === 3, "sin tipo, todo");
+    ok(D.carpetaDelTipo("FRANELAS", "franela") && D.carpetaDelTipo("PANTALONES", "pantalon") && D.carpetaDelTipo("SHORT", "short") && D.carpetaDelTipo("UNIFORMES", "uniforme") && D.carpetaDelTipo("BOLSOS", "bolso"),
+       "las carpetas de El Emperador se reconocen por tipo");
+
     const cats = await D.categoriasDeDrive(envC);
     ok(cats.map((c) => c.nombre).sort().join() === "CALZADOS,GORRAS", "las categorías: CALZADOS y GORRAS");
 

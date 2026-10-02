@@ -69,6 +69,16 @@ titulo("la llamada de texto");
   ok(/Qué estás buscando/.test(JSON.stringify(valor)), "y la respuesta vuelve normal al resto del bot");
 }
 
+titulo("la vista de fotos dice QUÉ TIPO de producto es (calzado, gorra, bolso, ropa)");
+{
+  const m = deepseekDeMentira({ contenido: '{"tipo":"gorra","visto":"gorra negra New Era","rasgos":{},"buscar":"gorra New Era","color":"negro","variosProductos":false,"pedirNombreExacto":false}' });
+  const { valor } = await con(m, () => ia.identificarEnImagen(ENV, "https://cdn.test/foto.jpg"));
+  const sistema = m.llamadas[0]?.cuerpo?.messages?.[0]?.content || "";
+  ok(/"tipo"/.test(sistema) && /"gorra"/.test(sistema) && /"bolso"/.test(sistema), "el esquema pide el tipo, con gorra y bolso entre las opciones");
+  ok(/GORRAS, BOLSOS y ROPA/.test(sistema), "y el prompt sabe que la tienda vende más que calzado");
+  ok(valor?.tipo === "gorra", "y la respuesta trae el tipo", JSON.stringify(valor?.tipo));
+}
+
 titulo("la llamada con foto: al modelo de IMÁGENES, con la foto dentro");
 {
   const m = deepseekDeMentira({ contenido: '{"visto":"zapatilla","rasgos":[],"buscar":"jordan 4","color":"negro","variosProductos":false,"pedirNombreExacto":false}' });

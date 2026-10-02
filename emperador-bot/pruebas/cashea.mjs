@@ -138,7 +138,7 @@ ok(/No tengo el Nivel 9/.test(nivelRaro) && /Nivel 1 → 50%/.test(nivelRaro),
    "un nivel que no existe: lo dice y enseña la tabla");
 
 const muchos = C.tarjetaCashea({ nivel: 3, productos: [jordan, samba, jordan, samba, jordan], ahora: EN });
-ok((muchos.match(/👟/g) || []).length === 3, "desglosa 3 zapatos como mucho");
+ok((muchos.match(/🛍️/g) || []).length === 3, "desglosa 3 productos como mucho");
 ok(muchos.length <= 1000, "y cabe en un mensaje de Instagram (1000 letras)", `${muchos.length}`);
 
 // ───────────────────────────────────────────────────────────────────────

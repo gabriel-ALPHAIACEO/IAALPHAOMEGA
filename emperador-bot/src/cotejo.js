@@ -33,6 +33,7 @@
 // Shopify no responde, se devuelve null y el bot sigue exactamente como
 // seguiría sin este archivo.
 
+import { TIPOS, carpetaDelTipo, categoriasPorImagen } from "./drive.js";
 import { quedan as quedanAhora, RESERVA_PARA_CONTESTAR } from "./presupuesto.js";
 import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
 import { cotejarConCatalogo, estaLimitado, esperarCupo, modeloDeVision, familiaDelTitulo } from "./ia.js";
@@ -191,6 +192,9 @@ export async function cotejoPorImagen({
   // de los 30 segundos y, con eso, si da para esperar a que vuelva el
   // cupo de OpenAI. Sin él no se espera nunca.
   recibidoEn = 0,
+  // EL TIPO DE PRODUCTO de la foto ("calzado", "gorra", "bolso"…), según la
+  // IA de visión. Con él, el cotejo solo compara contra los del mismo tipo.
+  tipo = "",
   // Opcional. Sale con sinCupo = true si algo se quedó SIN MIRAR porque
   // OpenAI no tenía cupo: así el aviso al asesor no dice "no supe qué
   // calzado es" cuando lo que pasó es que no se pudo mirar.
@@ -198,11 +202,17 @@ export async function cotejoPorImagen({
 } = {}) {
   // Lo que cotejar() necesita para decidir si puede esperar al cupo, y
   // dónde apuntar que algo se quedó sin mirar.
-  const cupo = { recibidoEn, informe: informe || {} };
+  const cupo = { recibidoEn, informe: informe || {}, tipo };
   cupo.informe.sinCupo = false;
   cupo.informe.mejorMedia = null;
 
   if (!foto) return null;
+
+  // SOLO LOS DEL MISMO TIPO (2-oct-2026: El Emperador vende también
+  // bolsos, ropa y gorras). Si la foto es una gorra, ni los zapatos ni los
+  // bolsos entran en la comparación.
+  const delTipo = await filtroDelTipo(env, tipo);
+  productos = productos.filter(delTipo);
 
   // Un solo resultado y nada que verificar: no hay elección que hacer, y
   // descartarlo por una duda del modelo sería cambiar un resultado bueno
@@ -224,12 +234,13 @@ export async function cotejoPorImagen({
   // Los rasgos que la IA marcó (swoosh grande y recto sí, pieza metálica
   // no) apuntaban a "dunk". Buscar ESO y no la marca entera es la
   // diferencia entre ocho fotos al azar y ocho del estante correcto.
-  const porRasgos = await buscarPorRasgos(env, rasgos, termino);
+  // Los rasgos son de calzado (suelas, swoosh…): para otro tipo no dicen nada.
+  const porRasgos = !tipo || tipo === "calzado" ? (await buscarPorRasgos(env, rasgos, termino)).filter(delTipo) : [];
 
   // El índice se lee UNA vez, al principio: hace falta para ordenar (trae
   // los rasgos de cada producto del catálogo) y no solo para elegir
   // candidatos al final.
-  const indice = await leerIndiceSeguro(env);
+  const indice = (await leerIndiceSeguro(env)).filter(delTipo);
 
   // Primero los del rasgo, después los que ya había: si el cupo de 8 se
   // llena, que lo llenen los que tienen motivo para parecerse.
@@ -445,6 +456,23 @@ export async function cotejoPorImagen({
 
 // El índice entero, una sola vez. Sin él el bot sigue funcionando: solo
 // se queda sin su mejor atajo y cae al barrido.
+// Un filtro (producto → sí/no) que deja solo los del TIPO de la foto. Si
+// no se sabe el tipo, o la tienda no tiene carpetas de ese tipo, o el
+// catálogo no es de Drive, deja pasar todo: mejor comparar de más que
+// quedarse sin nada que comparar.
+export async function filtroDelTipo(env, tipo) {
+  if (!tipo || !TIPOS.includes(tipo)) return () => true;
+  const mapa = await categoriasPorImagen(env);
+  if (!mapa.size) return () => true;
+  const hayDeEseTipo = [...mapa.values()].some((c) => carpetaDelTipo(c, tipo));
+  if (!hayDeEseTipo) return () => true;
+  return (p) => {
+    const categoria = mapa.get(p?.imagen);
+    // Un producto que no está en el mapa (de otra fuente) no se descarta.
+    return categoria === undefined ? true : carpetaDelTipo(categoria, tipo);
+  };
+}
+
 async function leerIndiceSeguro(env) {
   if (!env.DB) return [];
   try {
@@ -466,7 +494,8 @@ async function barrerCatalogo(env, foto, textoCliente, { termino, yaMirados, cup
   }
 
   const maximo = Number(env.COTEJO_MAXIMO) || MAXIMO_CATALOGO;
-  const { productos } = await traerCatalogoCompleto(env, maximo);
+  const { productos: todos } = await traerCatalogoCompleto(env, maximo);
+  const productos = todos.filter(await filtroDelTipo(env, cupo.tipo));
 
   const pendientes = productos.filter(
     (p) => p.imagen && !yaMirados.has(clave(p))

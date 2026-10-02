@@ -120,7 +120,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (25) · indice: con Drive se indexa la carpeta entera (no solo 600) y /indexar-catalogo dice Drive";
+const VERSION = "2026-10-02 (26) · gorras, bolsos y ropa: la vista dice el tipo, el cotejo compara solo con los del mismo tipo, tallas de ropa";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -343,7 +343,8 @@ const PREGUNTA_TALLA =
 // Ningún título del catálogo lleva la talla, así que colarla en la búsqueda
 // devuelve cero productos. Solo se quita el número cuando va detrás de
 // "talla" o "size": si no, nos cargaríamos nombres como "Jordan 40".
-const TALLA_EN_BUSQUEDA = /\b(tallas?|sizes?|n[uú]mero)\s*:?\s*\d{1,2}(\.\d)?\b|\b(tallas?|sizes?)\b/gi;
+// Tallas de calzado ("talla 42") y de ropa ("talla M", "talla XL", "talla 32").
+const TALLA_EN_BUSQUEDA = /\b(tallas?|sizes?)\s*:?\s*(?:xxs|xs|s|m|l|xl|xxl|xxxl|[2-5]xl)\b|\b(tallas?|sizes?|n[uú]mero)\s*:?\s*\d{1,2}(\.\d)?\b|\b(tallas?|sizes?)\b/gi;
 
 // ¿El cliente NOMBRÓ algo concreto, o solo mandó la foto con un "precio"?
 //
@@ -1002,6 +1003,7 @@ async function atenderPeticion(request, env, ctx) {
         rasgos: identificacion.rasgos,
         colorFoto: nombreDeColor(identificacion.color),
         vistoFoto: identificacion.visto || "",
+        tipoFoto: identificacion.tipo || "calzado",
         modeloNombrado: !pedirNombreExacto && String(buscar).toUpperCase() !== "NADA",
         porConfirmar: Boolean(confirmar),
       });
@@ -1725,6 +1727,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // verifica contra la foto real del catálogo — incluso si hay un solo
   // resultado, que es cuando más falta hace.
   let porConfirmar = false;
+  // Qué TIPO de producto es lo de la foto: calzado, gorra, bolso, ropa.
+  let tipoFoto = "";
   if (foto) {
     const identificacion = await identificarEnImagen(env, foto);
     if (identificacion) {
@@ -1737,13 +1741,14 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       // logo es lo ÚNICO que los distingue, así que si uno falla hay que
       // poder leer qué vio exactamente.
       console.log(
-        `La IA de visión vio: "${identificacion.visto}"` +
+        `La IA de visión vio (${identificacion.tipo || "calzado"}): "${identificacion.visto}"` +
           (identificacion.color ? ` · color: ${identificacion.color}` : " · color: no lo distingue") +
           ` → busco: "${buscar}"` +
           (confirmar ? " (sin confirmar)" : "")
       );
 
-      marcaFoto = marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar);
+      tipoFoto = identificacion.tipo || "calzado";
+      marcaFoto = marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar, tipoFoto);
       rasgosFoto = identificacion.rasgos;
       colorFoto = nombreDeColor(identificacion.color);
       vistoFoto = identificacion.visto || "";
@@ -1864,6 +1869,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     rasgos: rasgosFoto,
     colorFoto,
     vistoFoto,
+    tipoFoto,
     modeloNombrado,
     eraLaVitrina,
     porConfirmar,
@@ -2203,10 +2209,16 @@ function marcarSinVer(motivo) {
 // lo que se le pasa a la IA de texto es el dato ya corregido — ella no
 // tiene que desconfiar de él, solo redactar con su propio tono, exactamente
 // como con cualquier otro mensaje.
-function marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar = false) {
+const NOMBRE_DEL_TIPO = {
+  calzado: "UN CALZADO", gorra: "UNA GORRA", bolso: "UN BOLSO", franela: "UNA FRANELA",
+  pantalon: "UN PANTALÓN", short: "UN SHORT", uniforme: "UN UNIFORME", otro: "UN PRODUCTO",
+};
+
+function marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar = false, tipo = "calzado") {
+  const queEs = NOMBRE_DEL_TIPO[tipo] || "UN PRODUCTO";
   const encabezado = esHistoria
-    ? "[EL CLIENTE RESPONDIÓ A UNA HISTORIA — la imagen que ves ES la historia. "
-    : "[EL CLIENTE MANDÓ UNA FOTO DE UN CALZADO. ";
+    ? `[EL CLIENTE RESPONDIÓ A UNA HISTORIA — la imagen que ves ES la historia (es ${queEs}). `
+    : `[EL CLIENTE MANDÓ UNA FOTO DE ${queEs}. `;
 
   if (String(buscar).toUpperCase() === "NADA") {
     return (
@@ -2329,6 +2341,8 @@ async function decidir({
   // Lo que la IA describió de la foto. Es lo único que distingue un
   // zapato liso de otro: en los 15 rasgos, todos los lisos empatan.
   vistoFoto = "",
+  // Qué TIPO de producto es lo de la foto (calzado, gorra, bolso, ropa).
+  tipoFoto = "",
   // La visión nombró un MODELO concreto, no solo la marca. Si además la
   // búsqueda encontró producto, el índice no debe cambiarlo por otro.
   modeloNombrado = false,
@@ -2485,6 +2499,7 @@ async function decidir({
       barrer: env.COTEJO_BARRIDO !== "no",
       recibidoEn,
       informe: informeCotejo,
+      tipo: tipoFoto,
     });
 
     if (cotejo) {

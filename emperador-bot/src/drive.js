@@ -547,6 +547,39 @@ export async function catalogoDeDrive(env) {
   return datos;
 }
 
+/* ── Qué TIPO de producto es cada foto (2-oct-2026) ─────────────────
+   El Emperador vende calzado, bolsos, ropa y gorras. La IA de visión dice
+   qué TIPO es lo de la foto del cliente ("gorra"), y el cotejo solo compara
+   contra los productos de ese tipo: una gorra no puede salir emparejada con
+   un zapato. El tipo de cada producto sale de su carpeta (CALZADOS,
+   GORRAS…), que es como el dueño ya los tiene ordenados.
+   ─────────────────────────────────────────────────────────────────── */
+
+export const TIPOS = ["calzado", "gorra", "bolso", "franela", "pantalon", "short", "uniforme"];
+
+const CARPETA_DEL_TIPO = {
+  calzado: /calzad|zapat|tenis|bota/i,
+  gorra: /gorr|cachucha|visera/i,
+  bolso: /bols|carter|morral|mochil|koala|riñonera|rinonera/i,
+  franela: /franel|camis|chemise|polo|sueter|suéter|hoodie|sudader/i,
+  pantalon: /pantal|jean|jogger/i,
+  short: /short|bermud/i,
+  uniforme: /uniform/i,
+};
+
+// ¿La carpeta (categoría) es de ese tipo?
+export function carpetaDelTipo(categoria, tipo) {
+  const patron = CARPETA_DEL_TIPO[tipo];
+  return Boolean(patron && patron.test(String(categoria || "")));
+}
+
+// foto (url de la imagen) → categoría de su carpeta. Vacío si no es Drive.
+export async function categoriasPorImagen(env) {
+  if (!usaDrive(env)) return new Map();
+  const { productos } = await catalogoDeDrive(env);
+  return new Map(productos.map((p) => [p.imagen, p.categoria || ""]));
+}
+
 /* ── Lo mismo que shopify.js, para que nadie más se entere ───────── */
 
 function despejar(texto) {

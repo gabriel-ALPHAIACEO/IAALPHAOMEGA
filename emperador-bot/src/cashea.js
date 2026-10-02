@@ -424,9 +424,9 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
 
   const lineas = conCuenta.map(({ p, cuenta }) =>
     cuenta.ceroSinMinimo
-      ? `👟 ${p.titulo} — ${cuenta.precio}\n` +
+      ? `🛍️ ${p.titulo} — ${cuenta.precio}\n` +
         `   ⚠️ El 0% de inicial es para ${minimo}: la inicial de este par te la confirma un asesor`
-      : `👟 ${p.titulo} — ${cuenta.precio}\n` +
+      : `🛍️ ${p.titulo} — ${cuenta.precio}\n` +
         `   ✅ Inicial: ${cuenta.inicial}\n` +
         (pct === 0
           ? `   🗓️ Todo (${cuenta.resto}) ${enCuotas(cuenta)}`
