@@ -50,6 +50,7 @@ import {
   notaDeNivel,
   tarjetaCashea,
   revisarCashea,
+  ASESOR_CONFIRMA_MONTOS,
 } from "./cashea.js";
 import {
   queDatoPide,
@@ -120,7 +121,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (42) · piensa antes de responder; Cashea entiende level 6 y da la cuenta del producto del que se habla, una sola vez";
+const VERSION = "2026-10-02 (43) · cashea sin montos: el porcentaje y las cuotas si, el dinero lo confirma un asesor (con aviso)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1582,9 +1583,13 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   let tarjetaDeCashea = "";
   let casheaFueraDeFecha = false;
+  // La tarjeta dice que los MONTOS los confirma un asesor (2-oct-2026): se
+  // le avisa siempre, aunque la tarjeta vaya detrás de los zapatos.
+  let casheaMontosAlAsesor = false;
   if (!revisionDeCashea.corregido && preguntaPorCashea(mensaje.texto)) {
     if (casheaVigente()) {
       tarjetaDeCashea = tarjetaCashea({ nivel: nivelCashea, productos });
+      casheaMontosAlAsesor = tarjetaDeCashea.toLowerCase().includes(ASESOR_CONFIRMA_MONTOS.toLowerCase());
       console.log(
         `Preguntó por Cashea → tarjeta ` +
           (nivelCashea ? `con su Nivel ${nivelCashea}` : "con la tabla") +
@@ -1691,6 +1696,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const pidioDatos = pideDatosDePago(mensaje.texto);
   const escalada =
     casheaFueraDeFecha ||
+    casheaMontosAlAsesor ||
     pidioDatos ||
     hayEscalada({
       respuesta: respuestaCliente,
@@ -1711,6 +1717,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       respuesta: respuestaCliente,
       motivo: casheaFueraDeFecha
         ? `PREGUNTO POR CASHEA FUERA DE LA PROMOCION${fechasDeLaPromocion() ? ` (${fechasDeLaPromocion().toUpperCase()})` : ""}`
+        : casheaMontosAlAsesor
+          ? `CASHEA${nivelCashea ? ` NIVEL ${nivelCashea}` : ""}: CONFIRMARLE LOS MONTOS DE LA INICIAL Y LAS CUOTAS`
         : pidioDatos && !preguntoTalla
           ? "PIDE LOS DATOS PARA PAGAR"
           : motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo }),

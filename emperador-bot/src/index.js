@@ -50,6 +50,7 @@ import {
   notaDeNivel,
   tarjetaCashea,
   revisarCashea,
+  ASESOR_CONFIRMA_MONTOS,
   hayTablaCashea,
 } from "./cashea.js";
 import {
@@ -121,7 +122,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (28) · piensa antes de responder; Cashea entiende level 6 y da la cuenta del producto del que se habla, una sola vez";
+const VERSION = "2026-10-02 (29) · cashea sin montos: el porcentaje y las cuotas si, el dinero lo confirma un asesor (con aviso)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1930,12 +1931,16 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   let tarjetaDeCashea = "";
   let casheaFueraDeFecha = false;
+  // La tarjeta dice que los MONTOS los confirma un asesor (2-oct-2026): se
+  // le avisa siempre, aunque la tarjeta vaya detrás de los zapatos.
+  let casheaMontosAlAsesor = false;
   // Cashea sin tabla de niveles (El Emperador): la inicial la da un asesor,
   // así que se le avisa aunque la tarjeta vaya detrás de los zapatos.
   let casheaSinTabla = false;
   if (!revisionDeCashea.corregido && preguntaPorCashea(mensaje.texto)) {
     if (casheaVigente()) {
       tarjetaDeCashea = tarjetaCashea({ nivel: nivelCashea, productos });
+      casheaMontosAlAsesor = tarjetaDeCashea.toLowerCase().includes(ASESOR_CONFIRMA_MONTOS.toLowerCase());
       casheaSinTabla = !hayTablaCashea();
       console.log(
         `Preguntó por Cashea → tarjeta ` +
@@ -2027,6 +2032,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const pidioDatos = pideDatosDePago(mensaje.texto);
   const escalada =
     casheaFueraDeFecha ||
+    casheaMontosAlAsesor ||
     casheaSinTabla ||
     pidioDatos ||
     hayEscalada({
@@ -2048,6 +2054,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       respuesta: respuestaCliente,
       motivo: casheaFueraDeFecha
         ? `PREGUNTO POR CASHEA FUERA DE LA PROMOCION${fechasDeLaPromocion() ? ` (${fechasDeLaPromocion().toUpperCase()})` : ""}`
+        : casheaMontosAlAsesor
+          ? `CASHEA${nivelCashea ? ` NIVEL ${nivelCashea}` : ""}: CONFIRMARLE LOS MONTOS DE LA INICIAL Y LAS CUOTAS`
         : casheaSinTabla
           ? `QUIERE PAGAR CON CASHEA${nivelCashea ? ` (NIVEL ${nivelCashea})` : ""}: CONFIRMARLE LA INICIAL`
         : pidioDatos && !preguntoTalla

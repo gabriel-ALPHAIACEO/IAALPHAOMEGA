@@ -283,7 +283,9 @@ titulo('"X cuanto me lo dejan en cashea soy level 6" después de ver los Jordan 
     respuestaModelo: { pienso: "Habla del Jordan 40; Cashea nivel 6.", respuesta: "¡Claro! 🙌 Mira cómo te queda 👇", buscar: "Jordan 40", historial: "Pidió Jordan 40. Preguntó Cashea. Nivel Cashea: 6. Ya busqué: Jordan 40." },
   });
   ok(/Nivel 6/.test(r.todo) && !/Bajada de inicial/.test(r.todo), "le contesta con su Nivel 6, sin el párrafo de la tabla", r.todo.slice(0, 160));
-  ok((r.todo.match(/Jordan 40 — /g) || []).length === 1, "y la cuenta del Jordan 40 va UNA vez");
+  const deCashea = r.textos.filter((t) => /Cashea/.test(t)).join(" ");
+  ok(deCashea && !/\d+\s*USD|Inicial:\s*\d|cuotas? de \d/.test(deCashea), "la tarjeta de Cashea va sin montos de dinero", deCashea.slice(0, 200));
+  ok(r.slack.some((t) => /CONFIRMARLE LOS MONTOS/.test(t)), "y el asesor recibe el aviso para confirmar los montos", r.slack.join(" | ").slice(0, 120));
   ok(!/Habla del Jordan 40/.test(r.todo), "lo que la IA pensó NO le llega al cliente");
   sesion.src.limpiar();
 }

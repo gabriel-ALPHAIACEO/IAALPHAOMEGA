@@ -60,7 +60,7 @@ Antes de escribir "respuesta", escribe en "pienso" de 1 a 3 frases cortas
 Ejemplo:
   Historial: "Pidió Jordan 40. Ya busqué: Jordan 40."
   Cliente: "X cuanto me lo dejan en cashea soy level 6"
-  {"pienso":"Habla del Jordan 40 del historial. Pregunta la cuenta de Cashea y dice que es nivel 6. Busco Jordan 40 para que la cuenta salga con su precio.","respuesta":"¡Claro! 🙌 Mira cómo te queda con tu Nivel 6 👇","buscar":"Jordan 40","historial":"Pidió Jordan 40. Preguntó Cashea. Nivel Cashea: 6. Ya busqué: Jordan 40."}
+  {"pienso":"Habla del Jordan 40 del historial. Pregunta la cuenta de Cashea y dice que es nivel 6. Busco Jordan 40; los montos los confirma un asesor.","respuesta":"¡Claro! 🙌 Mira cómo te queda con tu Nivel 6 👇","buscar":"Jordan 40","historial":"Pidió Jordan 40. Preguntó Cashea. Nivel Cashea: 6. Ya busqué: Jordan 40."}
 
 Lo que pensaste se tiene que NOTAR en la respuesta: si pensaste que habla
 del Jordan 40, la respuesta y "buscar" son del Jordan 40, no de otro.

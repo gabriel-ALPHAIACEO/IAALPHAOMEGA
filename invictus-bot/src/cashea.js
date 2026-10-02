@@ -370,8 +370,8 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
 
     const aviso = nivel ? `No tengo el Nivel ${nivel} en la tabla de Cashea. ` : "";
     const cierre = conCuenta.length
-      ? `¿Qué nivel tienes en Cashea? Dímelo y te digo exactamente cuánto das de inicial por ${nombreCorto(conCuenta[0].p.titulo)} 😉`
-      : "¿Qué nivel tienes en Cashea? Dímelo y te saco la cuenta exacta 😉";
+      ? `¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca por ${nombreCorto(conCuenta[0].p.titulo)} 😉`
+      : "¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca 😉";
 
     return [
       titular ? (/🔥/.test(titular) ? titular : `🔥 ${titular}`) : "💜 ¡Sí, trabajamos con Cashea!",
@@ -391,64 +391,42 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
   }
 
   // ── Con nivel.
+  //
+  // SIN MONTOS (2-oct-2026, dueño: "eliminemos eso de cuánto dinero son
+  // las cuotas; no debe prometer nada de eso, de eso se encarga un asesor,
+  // cuando habla de dinero"). Se dice lo que es de la PROMOCIÓN —el
+  // porcentaje de inicial de su nivel y en cuántas cuotas— y para QUÉ
+  // producto, pero ni la inicial en dinero ni lo de cada cuota: eso lo
+  // confirma un asesor, que recibe el aviso (ver ASESOR_CONFIRMA_MONTOS).
   const condicionDelCero = minimo && leer().minimoAlCero ? " en " + minimo : "";
-  const encabezado =
+  const nombres = [...new Set(conCuenta.map(({ p }) => p.titulo))];
+  const delProducto = !nombres.length
+    ? ""
+    : nombres.length === 1
+      ? nombres[0]
+      : nombreComun(nombres) || "";
+  const conProducto = delProducto ? ", " + nombreCorto(delProducto) : "";
+  const encabezadoConProducto =
     pct === 0
-      ? `🎉 ¡Con tu Nivel ${nivel} en Cashea te lo llevas con 0% de inicial${condicionDelCero}!`
-      : `💜 Con tu Nivel ${nivel} en Cashea pagas solo el ${formatoPct(pct)} de inicial`;
+      ? `🎉 ¡Con tu Nivel ${nivel} en Cashea${conProducto} te lo llevas con 0% de inicial${condicionDelCero}!`
+      : `💜 Con tu Nivel ${nivel} en Cashea${conProducto} es con el ${formatoPct(pct)} de inicial`;
 
-  if (!conCuenta.length) {
-    return [
-      `${encabezado} 🙌`,
-      lineaCuotas,
-      cuando,
-      "",
-      "¿Qué modelo te gustó? Dime cuál y te saco la cuenta exacta 😉",
-    ]
-      .join("\n")
-      .replace(/\n{3,}/g, "\n\n");
-  }
-
-  // TODOS AL MISMO PRECIO (2-oct-2026). "¿Por cuánto me lo dejan en
-  // Cashea?" sobre los Jordan 40 traía tres colores del mismo modelo y la
-  // misma cuenta repetida tres veces: un párrafo que nadie lee. Si cuestan
-  // lo mismo, la cuenta va UNA vez, con el nombre que comparten.
-  const precios = new Set(conCuenta.map(({ cuenta }) => cuenta.precio));
-  if (conCuenta.length > 1 && precios.size === 1 && !conCuenta[0].cuenta.ceroSinMinimo) {
-    const { cuenta } = conCuenta[0];
-    const nombre = nombreComun(conCuenta.map(({ p }) => p.titulo)) || conCuenta[0].p.titulo;
-    return [
-      pct === 0 ? encabezado : `${encabezado}:`,
-      "",
-      `${MARCA_PRODUCTO} ${nombre} — ${cuenta.precio}`,
-      `   ✅ Inicial: ${cuenta.inicial}`,
-      pct === 0 ? `   🗓️ Todo (${cuenta.resto}) ${enCuotas(cuenta)}` : `   🗓️ El resto (${cuenta.resto}) ${enCuotas(cuenta)}`,
-      "",
-      cuando,
-      "",
-      "¿Cuál te gusta? 😊",
-    ]
-      .join("\n")
-      .replace(/\n{3,}/g, "\n\n");
-  }
-
-  const lineas = conCuenta.map(({ p, cuenta }) =>
-    cuenta.ceroSinMinimo
-      ? `👟 ${p.titulo} — ${cuenta.precio}\n` +
-        `   ⚠️ El 0% de inicial es para ${minimo}: la inicial de este par te la confirma un asesor`
-      : `👟 ${p.titulo} — ${cuenta.precio}\n` +
-        `   ✅ Inicial: ${cuenta.inicial}\n` +
-        (pct === 0
-          ? `   🗓️ Todo (${cuenta.resto}) ${enCuotas(cuenta)}`
-          : `   🗓️ El resto (${cuenta.resto}) ${enCuotas(cuenta)}`)
-  );
-
-  const cierre = conCuenta.length > 1 ? "¿Con cuál te quedas? 😊" : "¿Te animas? 😊";
-
-  return [pct === 0 ? encabezado : `${encabezado}:`, "", lineas.join("\n\n"), "", cuando, "", cierre]
+  return [
+    encabezadoConProducto,
+    lasCuotas ? `🗓️ El resto, en ${lasCuotas}.` : "",
+    minimo ? `💲 ${mayuscula(fraseDelMinimo())}.` : "",
+    cuando,
+    "",
+    `💬 ${mayuscula(ASESOR_CONFIRMA_MONTOS)}`,
+  ]
+    .filter((l, n, todas) => l !== "" || (n > 0 && todas[n - 1] !== ""))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n");
+
 }
+
+// Lleva "en un momento" a propósito: así hayEscalada() avisa al asesor.
+export const ASESOR_CONFIRMA_MONTOS = "los montos exactos de la inicial y de cada cuota te los confirma un asesor en un momento 😊";
 
 const MARCA_PRODUCTO = "👟";
 
@@ -496,8 +474,24 @@ const INICIAL_CON_PORCENTAJE =
 // porcentajes de Cashea —la cuenta la manda este archivo aparte—, pero si
 // escribe uno, tiene que ser uno de la tabla y del nivel correcto. Un "nivel
 // 3: 20%" inventado es dinero: se cambia por la tabla de verdad.
+// Un monto de dinero pegado a la inicial o a las cuotas ("inicial de 36$",
+// "6 cuotas de 20 USD", "pagas 14$ por cuota"). La IA no los da: los da un
+// asesor (dueño, 2-oct-2026).
+const MONTO_DE_CASHEA =
+  /\b(?:inicial|cuotas?)\b[^.!?\n]{0,30}?(?:\$\s*\d|\d+(?:[.,]\d+)?\s*(?:\$|usd|d[oó]lares?|bs\.?|bol[ií]vares))|(?:\$\s*\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:\$|usd|d[oó]lares?))[^.!?\n]{0,25}?\b(?:de\s+inicial|por\s+cuota|cada\s+cuota|en\s+cuotas|mensual|quincenal)/i;
+
 export function revisarCashea(respuesta, ahora = Date.now()) {
   const texto = String(respuesta || "");
+  // La condición de la promoción ("la compra debe ser de 100$ en adelante")
+  // no es un monto que se le promete: se quita antes de mirar.
+  const sinCondicion = texto.replace(
+    /(?:la\s+compra\s+)?debe\s+ser\s+de\s+\d+\s*\$?\s*(?:usd\s*)?en\s+adelante|\b(?:desde|a\s+partir\s+de)\s+\d+\s*(?:\$|usd|d[oó]lares)|\bde\s+\d+\s*\$\s+en\s+adelante/gi,
+    ""
+  );
+  if (hayCashea() && MONTO_DE_CASHEA.test(sinCondicion) && /\b(?:c|k)a(?:s|c)?hea\b|\binicial\b|\bcuotas?\b/i.test(texto)) {
+    console.error("CASHEA: escribió un monto de dinero de la inicial o las cuotas. Va la tarjeta, sin montos.");
+    return { respuesta: tarjetaCashea({ ahora }), corregido: true, motivos: ["monto de dinero de Cashea"] };
+  }
   if (!hayCashea() || !/%/.test(texto)) return { respuesta: texto, corregido: false };
 
   // Fuera de fecha, CUALQUIER porcentaje de Cashea es una promoción vencida.

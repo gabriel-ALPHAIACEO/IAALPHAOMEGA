@@ -41,10 +41,8 @@ titulo('"X cuanto me lo dejan en cashea soy level 6" (caso real, 2-oct)');
   const tarjeta = C.tarjetaCashea({ nivel: 6, productos: tres, ahora: DIA });
   ok(/Nivel 6/.test(tarjeta) && /0% de inicial/.test(tarjeta), "le contesta con SU nivel (0% de inicial), no con la tabla", tarjeta.split("\n")[0]);
   ok(!/Bajada de inicial/.test(tarjeta), "sin la tabla entera de niveles");
-  ok((tarjeta.match(/Jordan 40/g) || []).length === 1 && /Jordan 40 — 120 USD/.test(tarjeta), "los tres colores al mismo precio: la cuenta UNA vez, como 'Jordan 40'", tarjeta.replace(/\n/g, " | "));
-  ok(/6 cuotas/.test(tarjeta) && /20 USD/.test(tarjeta), "con las 6 cuotas de 20 USD");
-  const distintos = C.tarjetaCashea({ nivel: 6, productos: [tres[0], { titulo: "Jordan 40 blanco dama", precio: "110 USD" }], ahora: DIA });
-  ok((distintos.match(/Jordan 40/g) || []).length === 2, "si los precios son distintos, cada uno con su cuenta");
+  ok((tarjeta.match(/Jordan 40/g) || []).length === 1 && !/\d+\s*USD/.test(tarjeta), "nombra el Jordan 40 UNA vez, y sin montos de dinero", tarjeta.replace(/\n/g, " | "));
+  ok(/6 cuotas/.test(tarjeta) && /asesor/.test(tarjeta), "las 6 cuotas sí; los montos, el asesor");
 }
 
 titulo("la tabla se lee de pagos.txt");
@@ -137,31 +135,38 @@ ok(/Promoción por tiempo limitado del 1 al 6 de octubre/.test(enFecha) && !/Arr
 const sinNivelConZapato = C.tarjetaCashea({ productos: [jordan], ahora: EN });
 ok(/por el Jordan 4 Retro/.test(sinNivelConZapato), "sin nivel pero mirando un zapato: le promete la cuenta de ESE");
 
-const n3 = C.tarjetaCashea({ nivel: 3, productos: [jordan, samba], ahora: EN });
-ok(/Nivel 3/.test(n3) && /30% de inicial/.test(n3), "con Nivel 3: su porcentaje");
-ok(/Inicial: 36 USD/.test(n3) && /El resto \(84 USD\) en 6 cuotas sin interés de 14 USD/.test(n3),
-   "los Jordan (120): 36 de inicial + 6 cuotas de 14");
-ok(/Inicial: 22.50 USD/.test(n3) && /para optar por las 6 cuotas sin interés la compra debe ser de 100\$ en adelante/.test(n3),
-   "las Samba (75): su inicial, y que las 6 cuotas son desde 100$");
+// SIN MONTOS (dueño, 2-oct-2026): el porcentaje de su nivel y las cuotas,
+// sí; cuánto dinero es la inicial o cada cuota, NO — eso, el asesor.
+const SIN_DINERO = /\d+(?:[.,]\d+)?\s*USD|Inicial:\s*\d|cuotas? de \d/;
+
+const n3 = C.tarjetaCashea({ nivel: 3, productos: [jordan], ahora: EN });
+ok(/Nivel 3/.test(n3) && /30% de inicial/.test(n3) && /Jordan 4 Retro/.test(n3), "con Nivel 3: su porcentaje, y de qué producto habla", n3.split("\n")[0]);
+ok(!SIN_DINERO.test(n3), "SIN montos de dinero (ni inicial ni cuotas)", n3.replace(/\n/g, " | "));
+ok(/montos exactos de la inicial y de cada cuota te los confirma un asesor en un momento/.test(n3), "los montos, un asesor (y 'en un momento' avisa)");
+ok(/6 cuotas sin interés/.test(n3) && /debe ser de 100\$ en adelante/.test(n3), "sí dice las 6 cuotas y la condición de la promoción (desde 100$)");
 
 const n6 = C.tarjetaCashea({ nivel: 6, productos: [jordan], ahora: EN });
-ok(/0% de inicial!/.test(n6) && /Todo \(120 USD\) en 6 cuotas sin interés de 20 USD/.test(n6) && !/!:/.test(n6),
-   "Nivel 6: sin inicial, todo en 6 cuotas de 20");
-
-const n6Barato = C.tarjetaCashea({ nivel: 6, productos: [samba], ahora: EN });
-ok(/Inicial: 0 USD/.test(n6Barato) && /Todo \(75 USD\) en cuotas con Cashea \(para optar por las 6 cuotas/.test(n6Barato),
-   "Nivel 6 con las Samba (75): 0% de inicial, y que las 6 cuotas son desde 100$");
+ok(/0% de inicial!/.test(n6) && !SIN_DINERO.test(n6) && !/!:/.test(n6), "Nivel 6: 0% de inicial, sin montos", n6.split("\n")[0]);
 
 const nivelSinZapato = C.tarjetaCashea({ nivel: 2, ahora: HOY });
-ok(/40% de inicial/.test(nivelSinZapato) && /¿Qué modelo te gustó\?/.test(nivelSinZapato) && /Arranca/.test(nivelSinZapato),
-   "con nivel y sin zapato: su porcentaje, le pide el modelo, y hoy anuncia la fecha");
+ok(/40% de inicial/.test(nivelSinZapato) && /Arranca/.test(nivelSinZapato) && !SIN_DINERO.test(nivelSinZapato),
+   "con nivel y sin zapato: su porcentaje y la fecha, sin montos");
 
 const nivelRaro = C.tarjetaCashea({ nivel: 9, productos: [jordan], ahora: EN });
 ok(/No tengo el Nivel 9/.test(nivelRaro) && /Nivel 1 → 50%/.test(nivelRaro),
    "un nivel que no existe: lo dice y enseña la tabla");
 
 const muchos = C.tarjetaCashea({ nivel: 3, productos: [jordan, samba, jordan, samba, jordan], ahora: EN });
-ok((muchos.match(/👟/g) || []).length === 3, "desglosa 3 zapatos como mucho");
+ok(!SIN_DINERO.test(muchos), "con varios productos, tampoco montos");
+
+titulo("la red: si la IA escribe montos de Cashea, se cambian por la tarjeta sin montos");
+for (const malo of ["Con tu nivel 3 das 36$ de inicial y el resto en cuotas", "Te quedan 6 cuotas de 20 USD 😊", "Pagas 14$ por cuota con Cashea"]) {
+  const r = C.revisarCashea(malo, EN);
+  ok(r.corregido && !SIN_DINERO.test(r.respuesta), `atrapa: "${malo}"`, r.respuesta.split("\n")[0]);
+}
+for (const bueno of ["¡Claro que sí! 🙌 Mira cómo te queda con Cashea 👇", "Para optar por las 6 cuotas la compra debe ser de 100$ en adelante", "Estos Jordan cuestan 120$ 👟"]) {
+  ok(!C.revisarCashea(bueno, EN).corregido, `deja pasar: "${bueno}"`);
+}
 ok(muchos.length <= 1000, "y cabe en un mensaje de Instagram (1000 letras)", `${muchos.length}`);
 
 // ───────────────────────────────────────────────────────────────────────
