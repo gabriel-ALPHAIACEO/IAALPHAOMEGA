@@ -127,7 +127,7 @@ for (const dicho of ["En imágenes", "Mandalos", "Mándalos", "Ahora muéstrame,
   comprobar("con fichas: sale lo que redactó viendo el resultado", textos(r.enviados)[0], "¡Sí! El Samsung A57 de 12/512 es de lo mejor que tengo 👇 ¿Es para ti o para regalo?");
   const pedido = r.alModelo.find((x) => x.redaccion);
   const lo = JSON.stringify(pedido?.messages || []);
-  comprobar("la IA recibe lo que se le va a enseñar, con su precio", /- Samsung A57 · \$\d+/.test(lo), true);
+  comprobar("la IA recibe lo que se le va a enseñar, con su precio", /- Samsung A57 · precio en divisas: \$310 · precio con Cashea: \$95/.test(lo), true);
   comprobar("y la conversación y su borrador", /LO QUE PIDE AHORA: tienes el samsung a57/.test(lo) && /TU BORRADOR: Déjame revisar/.test(lo), true);
 
   r = await turno({ ...base, redaccion: "Uy, ese no lo tengo 😅" });
@@ -144,6 +144,43 @@ for (const dicho of ["En imágenes", "Mandalos", "Mándalos", "Ahora muéstrame,
 
   r = await turno({ texto: "gracias!", fila: { historial: "Ya di la bienvenida." }, respuestaDelModelo: { respuesta: "¡Con gusto! 😊", buscar: "NADA" }, redaccion: "otra cosa" });
   comprobar("conversación sin fichas y sin cambios del código: una sola llamada", r.alModelo.filter((x) => x.redaccion).length, 0);
+}
+
+// ── 10. La IA ve el anuncio por el que llegó, con sus precios ──────
+{
+  const ANUNCIO = { fuente: "ADS", id: "777", titulo: "Samsung A57 12/512 · llévatelo en cuotas", ref: "", foto: "", publicacion: "" };
+  let r = await turno({
+    texto: "precio?",
+    mensaje: { anuncio: ANUNCIO },
+    respuestaDelModelo: { respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 El Samsung A57 está en $310 en divisas, o $95 con Cashea 📱", buscar: "Samsung A57" },
+  });
+  const lo = JSON.stringify(r.alModelo.find((x) => !x.redaccion)?.messages || []);
+  comprobar("la IA sabe que viene del anuncio del A57", /LLEGÓ POR UN ANUNCIO DEL SAMSUNG A57/.test(lo), true);
+  comprobar("y tiene sus precios reales", /Precio en divisas: \$310/.test(lo) && /Precio con Cashea: \$95/.test(lo), true);
+  comprobar("si dice el precio de verdad, se queda", textos(r.enviados).some((t) => /\$310 en divisas/.test(t)), true);
+  comprobar("y la ficha del A57 va debajo", titulos(r.enviados), ["Samsung A57"]);
+
+  const AYER = JSON.stringify({ titulo: ANUNCIO.titulo, descripcion: "", cuando: Date.now() - 20 * 60 * 60 * 1000, atendida: true, deAnuncio: true, equipo: "Samsung A57" });
+  r = await turno({
+    texto: "y si soy nivel 3 de cashea cuanto seria la inicial?",
+    fila: { historial: "Ya di la bienvenida. Vino del anuncio del A57.", publicacion: AYER },
+    respuestaDelModelo: { respuesta: "Con nivel 3 la inicial es el 30% 😊 y el A57 con Cashea está en $95", buscar: "NADA" },
+  });
+  const lo2 = JSON.stringify(r.alModelo.find((x) => !x.redaccion)?.messages || []);
+  comprobar("al día siguiente la IA SIGUE sabiendo del anuncio", /LLEGÓ POR UN ANUNCIO DEL SAMSUNG A57/.test(lo2), true);
+  comprobar("y el precio de ese equipo no se toma por inventado", textos(r.enviados).some((t) => /\$95/.test(t)), true);
+
+  r = await turno({
+    texto: "cuanto cuesta?",
+    fila: { historial: "Ya di la bienvenida.", publicacion: AYER },
+    respuestaDelModelo: { respuesta: "Está en $500 😊", buscar: "NADA" },
+  });
+  comprobar("un precio que NO es del equipo del anuncio sí se quita", textos(r.enviados).some((t) => /500/.test(t)), false);
+
+  const VIEJO = JSON.stringify({ titulo: ANUNCIO.titulo, cuando: Date.now() - 9 * 24 * 60 * 60 * 1000, atendida: true, deAnuncio: true, equipo: "Samsung A57" });
+  r = await turno({ texto: "hola de nuevo", fila: { historial: "Ya di la bienvenida.", publicacion: VIEJO }, respuestaDelModelo: { respuesta: "¡Hola! ¿Qué estás buscando? 😊", buscar: "NADA" } });
+  const lo3 = JSON.stringify(r.alModelo.find((x) => !x.redaccion)?.messages || []);
+  comprobar("un anuncio de hace más de una semana ya no se arrastra", /LLEGÓ POR UN ANUNCIO/.test(lo3), false);
 }
 
 // ── 8. Las redes nuevas no tocan las respuestas buenas del prompt ─

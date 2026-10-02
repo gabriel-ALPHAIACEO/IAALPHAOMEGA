@@ -147,7 +147,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-02 (20) · panel de anuncios (/anuncios) y la IA redacta viendo los equipos que salieron";
+const VERSION = "2026-10-02 (21) · la IA recuerda el anuncio por el que llego el cliente, con los precios reales de ese equipo";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -2872,6 +2872,33 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // visión sacó de la imagen (o el aviso de que no se pudo mirar) y lo que
   // solo sabe la publicación — su pie de foto y, si venía de un enlace de
   // ficha, el nombre exacto del producto.
+  // EL ANUNCIO POR EL QUE LLEGÓ, CON SUS PRECIOS DE VERDAD (2-oct-2026).
+  //
+  // El dueño: "que la IA vea a las personas que vienen de los anuncios para
+  // que responda bien, no genérico, y si preguntan un precio específico
+  // sepa qué responder". Antes la IA solo sabía del anuncio en el PRIMER
+  // mensaje (3 minutos), sin precios. Ahora:
+  //   · se recuerda durante días (ANUNCIO_RECORDADO_MS), mensaje a mensaje;
+  //   · se le da el equipo del anuncio con su capacidad y sus precios
+  //     reales de la hoja, para que conteste "¿cuánto?" con el número;
+  //   · esos precios cuentan como verdaderos para la red de precios.
+  const pubDelAnuncio = publicacion?.deAnuncio
+    ? { ...publicacion, equipo: publicacion.equipo || equipoDeLaPublicacion || "" }
+    : contacto.publicacion?.deAnuncio &&
+        Date.now() - (Number(contacto.publicacion.cuando) || 0) < ANUNCIO_RECORDADO_MS
+      ? contacto.publicacion
+      : null;
+  const hojaDelAnuncio = pubDelAnuncio ? await catalogoCompleto(env) : [];
+  const productoDelAnuncio = pubDelAnuncio ? equipoDelAnuncio(pubDelAnuncio, hojaDelAnuncio) : null;
+  const notaDelAnuncio = productoDelAnuncio ? marcaDelAnuncio(productoDelAnuncio, pubDelAnuncio) : "";
+  if (productoDelAnuncio) {
+    console.log(`Viene del anuncio del "${productoDelAnuncio.titulo}": la IA lo sabe, con sus precios`);
+    // Se guarda qué equipo era: la próxima vez no hay que volver a deducirlo.
+    if (publicacion?.deAnuncio && !publicacion.soloContexto && !publicacion.equipo) {
+      await guardarPublicacion(env.DB, mensaje.igsid, { ...publicacion, atendida: true, equipo: productoDelAnuncio.titulo });
+    }
+  }
+
   const marca = publicacion
     ? [
         foto || equipoDeLaPublicacion ? marcaFoto : marcarPublicacionSinVer(porQueNo),
@@ -2894,7 +2921,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     nombre,
     historialPrevio,
     textoCliente,
-    [notaVoz, marca].filter(Boolean).join("\n"),
+    [notaVoz, marca, notaDelAnuncio].filter(Boolean).join("\n"),
     esHistoria,
     minutosCallado,
     catalogo,
@@ -2934,7 +2961,14 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     buscoSinExito,
     hayMas,
     porCategoria,
-  } = await decidir({ env, salida, texto: mensaje.texto, historialPrevio, senalado: equipoSenalado });
+  } = await decidir({
+    env,
+    salida,
+    texto: mensaje.texto,
+    historialPrevio,
+    senalado: equipoSenalado,
+    productoAnuncio: productoDelAnuncio,
+  });
 
   // No es const: las redes de abajo pueden cambiar lo que se le dice o lo
   // que se le enseña.
@@ -3088,7 +3122,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
         // Sin su última línea: va aparte, en "lo que pide ahora".
         conversacion: conversacion.slice(0, -1),
         texto: textoCliente,
-        productos: paraMostrar,
+        // Los de la hoja, con sus dos precios (la ficha lleva solo uno).
+        productos: productos.filter((p) => paraMostrar.some((f) => f.titulo === p.titulo)),
+        anuncio: notaDelAnuncio,
         queMostrar: soloTexto ? "texto" : modo,
         paso: cambioElCodigo ? respuestaCliente : "",
         borrador: salida.respuesta,
@@ -3102,7 +3138,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       // precios inventados, la puerta cerrada y la pregunta del precio.
       let revisada = revisarTono(redactada).respuesta;
       revisada = revisarDisponibilidad(revisada, enLaHojaAhora).respuesta;
-      revisada = sinCerrarLaPuerta(sinPreciosInventados(revisada, paraMostrar), paraMostrar);
+      const conPrecioDeVerdad = productoDelAnuncio ? [...productos, productoDelAnuncio] : productos;
+      revisada = sinCerrarLaPuerta(sinPreciosInventados(revisada, conPrecioDeVerdad), paraMostrar);
       revisada = revisarPrecio(revisada, { hayFichas: paraMostrar.length > 0, yaLasVio: soloTexto }).respuesta;
       if (historialPrevio) revisada = sinBienvenida(revisada);
       // Sin fichas debajo, una flecha que apunta a nada no puede salir.
@@ -3650,6 +3687,47 @@ function contexto(
 // Cuándo SÍ va la lista escrita: cuando el cliente pide una lista y no hay
 // fotos de por medio (ver lista.js). Por eso esto solo se aplica en el
 // momento de mandar fichas.
+// Cuánto se recuerda el anuncio por el que llegó un cliente. Quien llega
+// por una publicidad suele preguntar en varios mensajes, a veces al día
+// siguiente ("¿y la inicial con Cashea?"): sigue hablando de ESE equipo.
+const ANUNCIO_RECORDADO_MS = 7 * 24 * 60 * 60 * 1000;
+
+// El equipo de la hoja del que es el anuncio: el que se guardó al llegar, o
+// el que nombra su texto. Solo si es UNO y está hoy en la hoja.
+function equipoDelAnuncio(pub, hoja) {
+  if (!pub || !hoja.length) return null;
+  const titulo =
+    (pub.equipo && equipoQueNombra(pub.equipo, hoja)) ||
+    (() => {
+      const r = queEquipoSenala(`${pub.titulo || ""} ${pub.descripcion || ""}`, hoja);
+      return r.estado === "exacto" ? r.titulo : "";
+    })();
+  if (!titulo) return null;
+  return hoja.find((p) => despejar(p.titulo) === despejar(titulo)) || null;
+}
+
+// Lo que lee la IA: el equipo del anuncio con sus datos de verdad.
+function marcaDelAnuncio(producto, pub) {
+  const datos = [
+    `Nombre: ${producto.titulo}`,
+    producto.capacidad && `Capacidad: ${producto.capacidad}`,
+    producto.precio && `Precio en divisas: ${conMoneda(producto.precio)}`,
+    producto.precioCashea && `Precio con Cashea: ${conMoneda(producto.precioCashea)}`,
+  ].filter(Boolean);
+  const dice = [pub.titulo, pub.descripcion].filter(Boolean).join(" · ").slice(0, 200);
+  return [
+    `[ESTE CLIENTE LLEGÓ POR UN ANUNCIO DEL ${producto.titulo.toUpperCase()}` +
+      (pub.cuando ? ` (${haceCuanto(Number(pub.cuando))})` : "") + "]",
+    dice ? `[El anuncio dice: ${dice}]` : "",
+    `[DATOS DE ESE EQUIPO EN LA HOJA, son reales y puedes decirlos tal cual: ${datos.join(" · ")}]`,
+    "[Si pregunta precio, cuánto, la inicial o algo del equipo SIN nombrar otro, habla de ESTE: dale el",
+    "precio que sale arriba y pon el equipo en \"buscar\" para que vea la ficha. NO le preguntes qué",
+    "equipo busca. Si nombra otro equipo, atiende ese]",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 // LA REDACCIÓN CON RESULTADOS SE APAGA CON REDACCION_LIBRE = "no" en
 // wrangler.toml (vuelven las frases de siempre). Por defecto, encendida.
 function redaccionLibre(env) {
@@ -3657,7 +3735,7 @@ function redaccionLibre(env) {
 }
 
 // Lo que recibe la IA para redactar con los resultados delante.
-function contextoParaRedactar({ conversacion = [], texto, productos, queMostrar, paso, borrador, yaSeConocen }) {
+function contextoParaRedactar({ conversacion = [], texto, productos, anuncio = "", queMostrar, paso, borrador, yaSeConocen }) {
   const charla = conversacion
     .slice(-8)
     .map((l) => `${l.de === "bot" ? "Tú" : "Cliente"}: ${String(l.texto || "").slice(0, 300)}`)
@@ -3665,7 +3743,12 @@ function contextoParaRedactar({ conversacion = [], texto, productos, queMostrar,
   const fichas = productos.length
     ? productos
         .slice(0, 10)
-        .map((p) => `- ${p.titulo}${p.capacidad ? ` (${p.capacidad})` : ""}${p.precio ? ` · ${p.precio}` : ""}`)
+        .map(
+          (p) =>
+            `- ${p.titulo}${p.capacidad ? ` (${p.capacidad})` : ""}` +
+            `${p.precio ? ` · precio en divisas: ${conMoneda(p.precio)}` : ""}` +
+            `${p.precioCashea ? ` · precio con Cashea: ${conMoneda(p.precioCashea)}` : ""}`
+        )
         .join("\n")
     : queMostrar === "texto"
       ? "(nada nuevo: ya las vio antes y esta vez la respuesta va solo en texto)"
@@ -3676,6 +3759,7 @@ function contextoParaRedactar({ conversacion = [], texto, productos, queMostrar,
     "",
     `LO QUE PIDE AHORA: ${texto || "(sin texto)"}`,
     "",
+    ...(anuncio ? [anuncio, ""] : []),
     "LO QUE SE LE VA A ENSEÑAR:",
     fichas,
     "",
@@ -4280,7 +4364,7 @@ function sinBienvenida(respuesta) {
 // De lo que escribió el modelo a lo que se le manda al cliente: se limpia el
 // término, se le quita el color, se busca en la hoja y se decide si la
 // respuesta del modelo sirve o hay que sustituirla.
-async function decidir({ env, salida, texto, historialPrevio, senalado = "" }) {
+async function decidir({ env, salida, texto, historialPrevio, senalado = "", productoAnuncio = null }) {
   // El color se busca en lo que escribió EL CLIENTE, no en el término que
   // escribió el modelo: si el modelo ya lo quitó por su cuenta, el cliente
   // igual lo preguntó y el asesor tiene que enterarse.
@@ -4737,7 +4821,9 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "" }) {
   // más: lo que se mira debajo (que no diga "no hay", la bienvenida
   // repetida) tiene que mirar el texto que de verdad va a salir.
   const sinInventos = sinCerrarLaPuerta(
-    sinPreciosInventados(salida.respuesta, productos),
+    // Los precios del equipo del anuncio también son de verdad: la IA los
+    // tiene delante y puede decirlos.
+    sinPreciosInventados(salida.respuesta, productoAnuncio ? [...productos, productoAnuncio] : productos),
     productos
   );
 

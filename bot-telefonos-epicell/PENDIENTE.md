@@ -1,5 +1,15 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: v21 — la IA ve el anuncio por el que llegó el cliente (2-oct-2026)
+
+- Lo recuerda **7 días**, en cada mensaje (antes: solo el primero, 3 min).
+- Recibe el equipo del anuncio con su **capacidad y sus precios reales**
+  (divisas y Cashea) de la hoja: "¿cuánto?" se contesta con el número.
+- Esos precios cuentan como verdaderos para la red de precios inventados;
+  cualquier otro número se sigue quitando.
+- El equipo se guarda con la publicación (`deAnuncio`, `equipo`), así no
+  hay que volver a deducirlo.
+
 ## Hecho: v20 — los anuncios y una IA menos de plantilla (2-oct-2026)
 
 - **/anuncios**: si el `ADS_TOKEN` sirve (y si no, qué le falta exactamente

@@ -214,6 +214,10 @@ export async function guardarPublicacion(db, id, publicacion) {
     termino: publicacion.termino || "",
     cuando: Number(publicacion.cuando) || Date.now(),
     atendida: Boolean(publicacion.atendida),
+    // Si vino de un anuncio, y de qué equipo (2-oct-2026): con esto la IA
+    // recuerda el anuncio en los mensajes siguientes, con sus precios.
+    deAnuncio: Boolean(publicacion.deAnuncio),
+    equipo: publicacion.equipo || "",
   });
 
   const guardar = () =>
