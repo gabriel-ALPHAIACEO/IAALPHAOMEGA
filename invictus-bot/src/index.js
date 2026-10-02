@@ -62,7 +62,13 @@ import {
 import { hayQueRescatar, FRASE_DE_RESCATE, MOTIVO_DE_RESCATE } from "./rescate.js";
 import { revisarTono } from "./tono.js";
 import { revisarPrecio } from "./precio.js";
-import { atenderPanel, anotarTurno, anotarMensaje } from "./panel.js";
+import { atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
+import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
+import { revisarTurno } from "./revisor.js";
+
+// Lo que el bot escribe como error queda guardado para el panel central
+// (ver registro.js), además de salir en el registro como siempre.
+vigilarErrores();
 import {
   transcribirAudio,
   notaDeVoz,
@@ -139,7 +145,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (50) · panel de la tienda en /panel: los mensajes y lo que penso la IA";
+const VERSION = "2026-10-02 (51) · panel central: errores, avisos, metricas, ganadores, mensajes en vivo y despausar desde la lista";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -421,6 +427,19 @@ const trabajador = {
     // EL PANEL DE LA TIENDA (2-oct-2026, ver panel.js): las conversaciones,
     // lo que pensó la IA en cada respuesta y el estado. Con clave
     // (PANEL_CLAVE).
+    // LA PUERTA DEL PANEL CENTRAL (2-oct-2026, ver panel.js): los datos de
+    // esta tienda para el Worker del dueño que junta todas. Con clave
+    // (PANEL_API_CLAVE).
+    if (url.pathname.startsWith("/api/central")) {
+      return atenderApiCentral(request, env, {
+        tienda: String(env.TIENDA_NOMBRE || "Invictus Shoes"),
+        version: VERSION,
+        horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
+        conAnuncios: false,
+        verTexto: async (ruta) => (await trabajador.fetch(new Request(new URL(ruta, url)), env, ctx)).text(),
+      });
+    }
+
     if (url.pathname === "/panel" || url.pathname.startsWith("/panel/")) {
       return atenderPanel(request, env, {
         tienda: String(env.TIENDA_NOMBRE || "Invictus Shoes"),
@@ -588,6 +607,8 @@ const trabajador = {
           "SECRETOS",
           `  OPENAI_API_KEY      ${secreto("OPENAI_API_KEY")}`,
           `  PANEL_CLAVE         ${secreto("PANEL_CLAVE")}   (la clave del panel de la tienda: /panel)`,
+          `  PANEL_API_CLAVE     ${secreto("PANEL_API_CLAVE")}   (la del panel central: la misma va en tu Worker panel-central)`,
+          `  PANEL_CENTRAL_URL   ${env.PANEL_CENTRAL_URL ? "puesto (avisos en tiempo real al panel central)" : "sin poner (sin avisos en tiempo real)"}`,
           `  SHOPIFY_TOKEN       ${secreto("SHOPIFY_TOKEN")}`,
           `  SLACK_WEBHOOK       ${secreto("SLACK_WEBHOOK")}`,
           `  META_APP_SECRET     ${secreto("META_APP_SECRET")}   (la de Facebook)`,
@@ -937,7 +958,7 @@ const trabajador = {
   // falta nada no gasta ni una llamada al modelo: solo comprueba si
   // entraron productos nuevos, y esos los recoge sola.
   async scheduled(evento, env, ctx) {
-    ctx.waitUntil(indexarLoQueFalte(env));
+    ctx.waitUntil(indexarLoQueFalte(env).finally(() => guardarErrores(env.DB, env)));
   },
 };
 
@@ -1051,10 +1072,12 @@ async function atenderConRed(env, mensaje) {
 
   try {
     await atenderMeta(env, mensaje, rastro);
+    // ¿Contestó bien? Con todo ya enviado: el cliente no espera esto.
+    if (rastro.turno?.id) await revisarTurno(env, rastro.turno);
+    await guardarErrores(env.DB, env);
   } catch (error) {
     const detalle = error?.stack || error?.message || String(error);
     console.error(`ATENDER FALLÓ para ${mensaje.igsid}:`, detalle);
-
     // Un eco es un mensaje NUESTRO que nos rebota: el cliente no escribió
     // nada y no está esperando respuesta. Si falla el manejo del eco, lo
     // último que hay que hacer es escribirle "se me trabó el sistema" de la
@@ -1065,6 +1088,17 @@ async function atenderConRed(env, mensaje) {
       } catch (otro) {
         console.error("Tampoco se pudo avisar al cliente:", otro?.message || otro);
       }
+    }
+
+    // ❌ en el panel: el turno que se cayó. DESPUÉS de escribirle al cliente:
+    // avisar al panel central puede tardar (hasta 4 s si está caído) y el
+    // cliente no tiene por qué esperar eso.
+    if (mensaje.tipo !== "eco") {
+      await anotarTurno(
+        env.DB,
+        { igsid: mensaje.igsid, cliente: mensaje.texto || "", respuesta: rastro.respondio ? "(se le respondió, pero algo falló después)" : "(EL BOT NO PUDO RESPONDER)", marca: "error", motivo: String(error?.message || error).slice(0, 200) },
+        env
+      ).catch(() => {});
     }
 
     // El nombre, si ya lo teníamos. Si la base es justo lo que falló, el
@@ -1083,6 +1117,7 @@ async function atenderConRed(env, mensaje) {
       motivo: "FALLO TÉCNICO",
       historial: detalle.slice(0, 400),
     }).catch((otro) => console.error("Ni el aviso salió:", otro?.message || otro));
+    await guardarErrores(env.DB, env);
   }
 }
 
@@ -1231,6 +1266,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     );
   }
 
+  // ¿Se está quejando de la respuesta? Al panel central, en el momento.
+  if (!mensaje.audio) await vigilarQueja(env, mensaje.igsid, mensaje.texto);
+
   if (estaPausado(contacto)) {
     console.log(`Bot pausado para ${mensaje.igsid}: no respondo`);
     await avisarQueYaLoAtienden(env, mensaje, contacto, mandar);
@@ -1259,6 +1297,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     mensaje.texto = [mensaje.texto, oido.texto].filter(Boolean).join(" ");
     notaVoz = notaDeVoz();
     await anotarMensaje(env.DB, mensaje.igsid, "cliente", `🎤 ${oido.texto}`);
+    await vigilarQueja(env, mensaje.igsid, oido.texto);
   }
 
   const esHistoria = mensaje.tipo === "historia";
@@ -1623,6 +1662,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       motivo: "EL MODELO NO RESPONDIÓ",
       historia: esHistoria ? "respuesta a una historia" : "",
     });
+    // ❌ en el panel, y aviso al central en el momento.
+    await anotarTurno(
+      env.DB,
+      { igsid: mensaje.igsid, cliente: textoCliente, respuesta: FALLO_TECNICO, marca: "error", motivo: "La IA no respondió (OpenAI falló o tardó demasiado)" },
+      env
+    );
     return;
   }
 
@@ -1892,7 +1937,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   // LO QUE PENSÓ LA IA, PARA EL PANEL (2-oct-2026, ver panel.js): qué
   // entendió, qué buscó, qué fichas salieron y qué corrigieron las redes.
-  await anotarTurno(env.DB, {
+  const turnoDelPanel = {
     igsid: mensaje.igsid,
     cliente: notaVoz ? `🎤 ${mensaje.texto}` : textoCliente,
     pienso: salida.pienso,
@@ -1911,7 +1956,13 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       fraseDeLaIA !== String(salida.respuesta || "").trim() && !revisionDeTono.corregido && !revisionDePrecio.corregido &&
         `su borrador era: "${String(salida.respuesta || "").slice(0, 140)}"`,
     ],
-  });
+  };
+  // El revisor lo mira cuando todo ya salió (ver atenderConRed y revisor.js).
+  rastro.turno = {
+    ...turnoDelPanel,
+    id: await anotarTurno(env.DB, turnoDelPanel, env),
+    fichas: fichas.map((p) => `${p.titulo}${p.precio ? ` · ${p.precio}` : ""}`),
+  };
 
   // La tarjeta de Cashea, cuando no fue dentro del mensaje de arriba: va
   // DETRÁS de los zapatos, que es donde se lee "y con tu nivel, esto".

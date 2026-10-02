@@ -12,6 +12,7 @@ const CLAVE = "clave-del-panel-123";
 const src = await prepararSrc();
 const { default: worker } = await src.cargar("index.js");
 const P = await src.cargar("panel.js");
+const E = await src.cargar("estado.js");
 const { DB } = baseDeMentira();
 const ENV = {
   DB, META_APP_SECRET: SECRETO, META_MODO: "todo", IG_TOKEN: "x", OPENAI_API_KEY: "x",
@@ -109,11 +110,218 @@ await pedir("/panel/devolver", { metodo: "POST", cookie, cuerpo: id2, origen: "h
 r = await pedir("/panel/c/123", { cookie });
 ok(/Pausar el bot 1 h/.test(r.texto), "y devolverle la conversación");
 
+// Despausar desde la LISTA, sin abrir la conversación.
+await pedir("/panel/pausar", { metodo: "POST", cookie, cuerpo: id, origen: "https://bot.test" });
+r = await pedir("/panel?f=pausados", { cookie });
+ok(/⏸️ bot en pausa hasta/.test(r.texto) && /Devolverle la conversación al bot/.test(r.texto) && /name="volver" value="\/panel\?f=pausados"/.test(r.texto), "en la lista, cada persona en pausa trae su botón para devolvérsela al bot");
+ok(/Devolverle todas al bot \(1\)/.test(r.texto), "y en el filtro de pausados, devolverlas todas");
+const id3 = new FormData(); id3.set("id", "123"); id3.set("volver", "/panel?f=pausados");
+r = await pedir("/panel/devolver", { metodo: "POST", cookie, cuerpo: id3, origen: "https://bot.test" });
+ok(r.donde === "/panel?f=pausados" && !(await E.estaPausado(await E.cargarContacto(DB, "123"))), "devolver desde la lista despausa y vuelve a la lista", r.donde);
+const id4 = new FormData(); id4.set("id", "123"); id4.set("volver", "https://otra-web.com/robar");
+await pedir("/panel/pausar", { metodo: "POST", cookie, cuerpo: id, origen: "https://bot.test" });
+r = await pedir("/panel/devolver", { metodo: "POST", cookie, cuerpo: id4, origen: "https://bot.test" });
+ok(r.donde === "/panel/c/123", "volver a otra web no: se queda en el panel", r.donde);
+await E.pausar(DB, "123", 1);
+await E.pausar(DB, "777", 1);
+r = await pedir("/panel/devolver-todos", { metodo: "POST", cookie, cuerpo: new FormData(), origen: "https://bot.test" });
+const quedan = await DB.prepare("SELECT COUNT(*) AS n FROM contactos WHERE pausado_hasta > ?").bind(Date.now()).first();
+ok(r.donde === "/panel?f=pausados" && quedan.n === 0, "devolverlas todas de una vez");
+const nota = await E.cargarContacto(DB, "123");
+ok(/devolvió la conversación al bot/.test(nota.historial), "con su nota en el historial (el bot no saluda de cero)");
+r = await pedir("/panel?f=pausados", { cookie });
+ok(/Nadie en pausa/.test(r.texto), "sin nadie en pausa, lo dice");
+
 titulo("seguridad y el resto");
 r = await pedir("/panel/c/%3Cscript%3E", { cookie });
 ok(!/<script>/.test(r.texto), "lo que viene en la URL se escapa");
 r = await pedir("/panel/estado", { cookie });
 ok(/PANEL_CLAVE/.test(r.texto), "el estado se ve dentro del panel");
+
+titulo("la puerta del panel central (/api/central)");
+{
+  const API = "x".repeat(10) + "-clave-larga-del-central";
+  const ENV_API = { ...ENV, PANEL_API_CLAVE: API };
+  const A = await src.cargar("aviso.js");
+  const R = await src.cargar("registro.js");
+  // Una venta por cerrar con el Jordan 4 delante, y un error del bot.
+  await callado(() => A.avisarAsesor({ DB }, { igsid: "123", motivo: "QUIERE COMPRAR", mensaje: "lo quiero", productos: [{ titulo: "Jordan 4 Retro negro" }] }));
+  // console.error ya está vigilado desde que se cargó index.js (ver
+  // registro.js): lo que se escribe ahí queda para guardarse.
+  console.error("(prueba) No pude leer la hoja: 500");
+  await R.guardarErrores(DB);
+
+  const api = async (ruta, { clave = API, metodo = "GET", cuerpo = null, env = ENV_API } = {}) => {
+    const headers = clave ? { authorization: `Bearer ${clave}` } : {};
+    const real = globalThis.fetch;
+    globalThis.fetch = falso({});
+    try {
+      const r = await callado(() => worker.fetch(new Request(`https://bot.test/api/central/${ruta}`, { method: metodo, headers, body: cuerpo }), env, { waitUntil() {} }));
+      return { estado: r.status, datos: await r.json().catch(() => null) };
+    } finally {
+      globalThis.fetch = real;
+    }
+  };
+
+  ok((await api("resumen", { env: ENV })).estado === 403, "sin PANEL_API_CLAVE la puerta está cerrada");
+  ok((await api("resumen", { clave: "otra-clave-cualquiera-larga" })).estado === 401, "con otra clave, no");
+  ok((await api("resumen", { clave: "" })).estado === 401, "sin clave, no");
+
+  const res = (await api("resumen")).datos;
+  ok(res?.tienda === "Invictus Shoes" && /\(51\)/.test(res.version), "resumen: la tienda y su versión", JSON.stringify(res).slice(0, 120));
+  ok(res.hoy.clientes === 1 && res.hoy.mensajes >= 1 && res.hoy.respuestas >= 1, "resumen: clientes, mensajes y respuestas de hoy", JSON.stringify(res.hoy));
+  ok(res.hoy.ventas === 1, "resumen: 1 venta por cerrar");
+  ok(res.semana.errores >= 1, "resumen: los errores guardados se cuentan", JSON.stringify(res.semana));
+
+  const met = (await api("metricas?dias=7")).datos;
+  ok(met?.dias?.length === 7 && met.dias.at(-1).clientes === 1, "métricas: 7 días, hoy con 1 cliente", JSON.stringify(met?.dias?.at(-1)));
+  ok(typeof met.tasas.conFichas === "number", "métricas: las tasas");
+
+  const gan = (await api("ganadores")).datos;
+  ok(gan?.[0]?.titulo === "Jordan 4 Retro negro" && gan[0].ventas === 1, "ganadores: el que llevó a 'lo quiero'", JSON.stringify(gan));
+
+  const chat = (await api("chat?id=123")).datos;
+  ok(chat?.mensajes?.some((m) => /jordan 4/.test(m.texto)) && chat.turnos.length >= 1, "una conversación, con lo que pensó la IA");
+
+  const err = (await api("errores")).datos;
+  ok(err?.some((e) => /No pude leer la hoja/.test(e.texto) && e.tipo === "error"), "los errores, con su texto", JSON.stringify(err).slice(0, 160));
+
+  ok((await api("chats")).datos?.[0]?.id === "123", "la lista de chats");
+  const p = await api("pausar", { metodo: "POST", cuerpo: JSON.stringify({ id: "123" }) });
+  const tras = (await api("chat?id=123")).datos;
+  ok(p.datos?.ok && tras.contacto.pausado_hasta > Date.now(), "pausar desde el panel central");
+}
+
+titulo("las respuestas señaladas: 🔴 ❌ 👎 (y el revisor)");
+{
+  const R = await src.cargar("registro.js");
+  const V = await src.cargar("revisor.js");
+  const real = globalThis.fetch;
+
+  // El revisor dice que la última respuesta alucinó.
+  const fila = await DB.prepare("SELECT id, respuesta FROM turnos WHERE igsid = '123' ORDER BY id DESC LIMIT 1").first();
+  globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ veredicto: "alucino", explicacion: "dijo que había Jordan 4 sin buscarlos" }) } }], usage: { prompt_tokens: 300, completion_tokens: 20 } }), { status: 200 });
+  const v = await callado(() => V.revisarTurno({ DB, OPENAI_API_KEY: "x" }, { id: fila.id, igsid: "123", cliente: "tienen jordan 4?", respuesta: fila.respuesta }));
+  globalThis.fetch = real;
+  ok(v?.veredicto === "alucino", "el revisor devuelve su veredicto");
+  let marca = await DB.prepare("SELECT marca, motivo FROM turnos WHERE id = ?").bind(fila.id).first();
+  ok(marca.marca === "indebida" && /Alucinó/.test(marca.motivo), "y la respuesta queda marcada 🔴", JSON.stringify(marca));
+
+  globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"veredicto":"bien"}' } }] }), { status: 200 });
+  const bien = await callado(() => V.revisarTurno({ DB, OPENAI_API_KEY: "x" }, { id: fila.id, igsid: "123", cliente: "x", respuesta: "y" }));
+  globalThis.fetch = real;
+  ok(bien?.veredicto === "bien", "una respuesta bien no se marca");
+  ok(V.revisorActivo({ OPENAI_API_KEY: "x", REVISOR_IA: "no" }) === false, "REVISOR_IA = no lo apaga");
+
+  r = await pedir("/panel/c/123", { cookie });
+  ok(/🔴 <|🔴 Respuesta indebida/.test(r.texto) && /dijo que había Jordan 4/.test(r.texto), "en el panel sale el 🔴 con el motivo");
+  r = await pedir("/panel?f=problemas", { cookie });
+  ok(/Ana Pérez/.test(r.texto) && /🔴 1/.test(r.texto), "la lista 'Con problemas' la enseña, con el símbolo");
+
+  // (La prueba de la API la dejó en pausa: se le devuelve al bot.)
+  const E = await src.cargar("estado.js");
+  await E.despausar(DB, "123");
+
+  // Una queja del cliente marca la respuesta anterior (sin pisar una más grave).
+  await escribe("hola tienen cholas?", { pienso: "Pide cholas.", mostrar: "texto", voz: false, respuesta: "¡Claro! ¿De qué talla?", buscar: "NADA", historial: "Pidió cholas." });
+  await escribe("no es eso lo que te pregunté", { pienso: "Se queja.", mostrar: "texto", voz: false, respuesta: "Disculpa 🙏 ¿Qué estás buscando?", buscar: "NADA", historial: "Se quejó." });
+  const quejada = await DB.prepare("SELECT marca, motivo FROM turnos WHERE igsid = '123' AND respuesta LIKE '%De qué talla%'").first();
+  ok(quejada?.marca === "queja" && /no es eso/.test(quejada.motivo), "una queja marca 👎 la respuesta que la provocó", JSON.stringify(quejada));
+
+  // La IA no responde: ❌.
+  await escribe("y tienen crocs?", "esto no es json");
+  const fallida = await DB.prepare("SELECT marca FROM turnos WHERE igsid = '123' ORDER BY id DESC LIMIT 1").first();
+  ok(fallida?.marca === "error", "si la IA no responde, el turno queda ❌", JSON.stringify(fallida));
+  ok(R.MARCAS.error.simbolo === "❌" && R.MARCAS.corregida.simbolo === "⚠️", "los símbolos");
+}
+
+titulo("las bases de datos: ver, editar, borrar, SQL y deshacer");
+{
+  const API = "x".repeat(10) + "-clave-larga-del-central";
+  const ENV_API = { ...ENV, PANEL_API_CLAVE: API };
+  const api = async (ruta, { metodo = "GET", cuerpo = null } = {}) => {
+    const r = await callado(() => worker.fetch(new Request(`https://bot.test/api/central/${ruta}`, { method: metodo, headers: { authorization: `Bearer ${API}` }, body: cuerpo ? JSON.stringify(cuerpo) : null }), ENV_API, { waitUntil() {} }));
+    return { estado: r.status, datos: await r.json().catch(() => null) };
+  };
+
+  const tablas = (await api("tablas")).datos;
+  const nombres = (tablas || []).map((t) => t.nombre);
+  ok(["contactos", "mensajes", "turnos", "avisos", "errores"].every((n) => nombres.includes(n)), "se ven todas las tablas del bot", nombres.join(", "));
+  ok(tablas.find((t) => t.nombre === "mensajes").filas > 0 && tablas.find((t) => t.nombre === "contactos").columnas.some((c) => c.nombre === "historial"), "con cuántas filas y sus columnas");
+
+  const pag = (await api("tabla?nombre=mensajes&q=jordan")).datos;
+  ok(pag?.filas?.length >= 1 && pag.filas.every((f) => /jordan/i.test(JSON.stringify(f))), "una tabla, con el buscador");
+  ok((await api("tabla?nombre=contactos;DROP TABLE contactos")).estado === 404, "un nombre de tabla inventado no entra en el SQL");
+
+  const c = (await api("tabla?nombre=contactos")).datos.filas[0];
+  const ed = await api("fila", { metodo: "POST", cuerpo: { tabla: "contactos", rowid: c._rowid, cambios: { historial: "Editado a mano por el experto." } } });
+  ok(ed.datos?.ok && ed.datos.fila.historial === "Editado a mano por el experto.", "editar un valor de una fila");
+  const cambios = (await api("cambios")).datos;
+  ok(cambios?.[0]?.accion === "editar" && /historial/.test(cambios[0].antes), "el cambio queda en el historial, con cómo estaba antes");
+  await api("deshacer", { metodo: "POST", cuerpo: { id: cambios[0].id } });
+  const vuelta = (await api(`fila?tabla=contactos&rowid=${c._rowid}`)).datos.fila;
+  ok(vuelta.historial === c.historial, "y se puede deshacer");
+
+  const e = (await api("tabla?nombre=errores")).datos.filas[0];
+  await api("borrar", { metodo: "POST", cuerpo: { tabla: "errores", rowid: e._rowid } });
+  ok((await api(`fila?tabla=errores&rowid=${e._rowid}`)).estado === 404, "borrar una fila");
+  const borrado = (await api("cambios")).datos[0];
+  await api("deshacer", { metodo: "POST", cuerpo: { id: borrado.id } });
+  ok((await api(`fila?tabla=errores&rowid=${e._rowid}`)).datos?.fila?.texto === e.texto, "y deshacer el borrado (vuelve igual)");
+
+  const sel = (await api("sql", { metodo: "POST", cuerpo: { sql: "SELECT COUNT(*) AS n FROM mensajes" } })).datos;
+  ok(sel?.filas?.[0]?.n > 0, "consola SQL: leer");
+  const upd = (await api("sql", { metodo: "POST", cuerpo: { sql: "UPDATE contactos SET nombre = 'Ana' WHERE id = '123'" } })).datos;
+  ok(upd?.ok, "consola SQL: cambiar");
+  const mal = await api("sql", { metodo: "POST", cuerpo: { sql: "SELEC mal escrito" } });
+  ok(mal.estado === 400 && /syntax|error/i.test(mal.datos?.error || ""), "un SQL mal escrito devuelve el error, sin romper nada");
+
+  // Vaciar un campo de una columna NOT NULL no rompe: queda "" (y uno que
+  // admite NULL queda NULL).
+  const t = (await api("tabla?nombre=turnos")).datos.filas[0];
+  const vacio = await api("fila", { metodo: "POST", cuerpo: { tabla: "turnos", rowid: t._rowid, cambios: { motivo: "" } } });
+  ok(vacio.datos?.ok && vacio.datos.fila.motivo === "", "vaciar un campo NOT NULL lo deja en blanco, sin error", JSON.stringify(vacio.datos).slice(0, 120));
+}
+
+titulo("el panel central: ping y en vivo");
+{
+  const API = "y".repeat(10) + "-clave-larga-del-central";
+  const ENV_API = { ...ENV, PANEL_API_CLAVE: API };
+  const api = async (ruta) => {
+    const r = await callado(() => worker.fetch(new Request(`https://bot.test/api/central/${ruta}`, { headers: { authorization: `Bearer ${API}` } }), ENV_API, { waitUntil() {} }));
+    return { estado: r.status, datos: await r.json().catch(() => null) };
+  };
+
+  const ping = (await api("ping")).datos;
+  ok(ping?.ok && /\(\d+\)/.test(ping.version), "ping: responde con su versión, sin leer la base", JSON.stringify(ping));
+
+  const primera = (await api("vivo")).datos;
+  ok(primera?.mensajes?.length > 0 && primera.mensajes.length <= 40 && primera.ultimo > 0, "en vivo, la primera vez: los últimos mensajes y por dónde va");
+  ok(primera.turnos.length > 0 && primera.turnos.length <= 20 && Array.isArray(primera.turnos[0].productos), "y los últimos turnos (lo que pensó), ya leídos");
+  ok(primera.nombres?.["123"]?.nombre, "con el nombre de cada cliente", JSON.stringify(primera.nombres));
+  const ordenados = primera.mensajes.every((m, i, a) => !i || a[i - 1].id < m.id);
+  ok(ordenados, "del más viejo al más nuevo");
+
+  const nada = (await api(`vivo?desde=${primera.ultimo}&turno=${primera.ultimoTurno}`)).datos;
+  ok(nada.mensajes.length === 0 && nada.turnos.length === 0 && nada.ultimo === primera.ultimo, "si no hay nada nuevo, no repite nada");
+
+  await escribe("tienen jordan 4?", { pienso: "Pide Jordan 4, busco.", mostrar: "texto", voz: false, respuesta: "Déjame ver 👀", buscar: "NADA", historial: "Pidió Jordan 4." });
+  const nuevo = (await api(`vivo?desde=${primera.ultimo}&turno=${primera.ultimoTurno}`)).datos;
+  ok(nuevo.mensajes.some((m) => m.de === "cliente" && /jordan 4/.test(m.texto)) && nuevo.mensajes.some((m) => m.de === "bot"), "llega lo nuevo: lo del cliente y lo del bot", JSON.stringify(nuevo.mensajes.map((m) => m.texto)));
+  ok(nuevo.turnos.some((x) => /Jordan 4/.test(x.pienso)), "y lo que pensó la IA");
+
+  // El revisor marca DESPUÉS un turno que ya se vio: la marca llega igual.
+  const visto = nuevo.turnos.at(-1);
+  await DB.prepare("UPDATE turnos SET marca = 'indebida', motivo = 'Alucinó — prueba' WHERE id = ?").bind(visto.id).run();
+  const luego = (await api(`vivo?desde=${nuevo.ultimo}&turno=${nuevo.ultimoTurno}`)).datos;
+  ok(luego.marcas.some((m) => m.id === visto.id && m.marca === "indebida"), "una marca que llega después (🔴 del revisor) se manda para ponerle el símbolo");
+
+  const deOtro = (await api(`vivo?id=no-existe`)).datos;
+  ok(deOtro.mensajes.length === 0 && deOtro.turnos.length === 0, "se puede pedir lo de un solo cliente");
+
+  const indices = (await DB.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all()).results.map((f) => f.name);
+  ok(["mensajes_igsid", "mensajes_cuando", "turnos_igsid", "turnos_cuando"].every((n) => indices.includes(n)), "los índices se crean solos (abrir un chat no lee la tabla entera)", indices.join(", "));
+}
 
 src.limpiar();
 terminar();
