@@ -62,6 +62,7 @@ import {
 import { hayQueRescatar, FRASE_DE_RESCATE, MOTIVO_DE_RESCATE } from "./rescate.js";
 import { revisarTono } from "./tono.js";
 import { revisarPrecio } from "./precio.js";
+import { atenderPanel, anotarTurno, anotarMensaje } from "./panel.js";
 import {
   transcribirAudio,
   notaDeVoz,
@@ -138,7 +139,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (49) · notas de voz de hasta 30 segundos, y la voz y el tono se eligen en wrangler.toml";
+const VERSION = "2026-10-02 (50) · panel de la tienda en /panel: los mensajes y lo que penso la IA";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -413,9 +414,21 @@ function sinTalla(termino) {
     .trim();
 }
 
-export default {
+const trabajador = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    // EL PANEL DE LA TIENDA (2-oct-2026, ver panel.js): las conversaciones,
+    // lo que pensó la IA en cada respuesta y el estado. Con clave
+    // (PANEL_CLAVE).
+    if (url.pathname === "/panel" || url.pathname.startsWith("/panel/")) {
+      return atenderPanel(request, env, {
+        tienda: String(env.TIENDA_NOMBRE || "Invictus Shoes"),
+        horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
+        conAnuncios: false,
+        verTexto: async (ruta) => (await trabajador.fetch(new Request(new URL(ruta, url)), env, ctx)).text(),
+      });
+    }
 
     // Dispara un aviso de prueba y enseña lo que respondió Slack. Sirve para
     // saber si el problema está en el aviso o en lo que pasa antes.
@@ -574,6 +587,7 @@ export default {
           "",
           "SECRETOS",
           `  OPENAI_API_KEY      ${secreto("OPENAI_API_KEY")}`,
+          `  PANEL_CLAVE         ${secreto("PANEL_CLAVE")}   (la clave del panel de la tienda: /panel)`,
           `  SHOPIFY_TOKEN       ${secreto("SHOPIFY_TOKEN")}`,
           `  SLACK_WEBHOOK       ${secreto("SLACK_WEBHOOK")}`,
           `  META_APP_SECRET     ${secreto("META_APP_SECRET")}   (la de Facebook)`,
@@ -927,6 +941,8 @@ export default {
   },
 };
 
+export default trabajador;
+
 // Cuánto se le permite tardar a una pasada. Cloudflare corta las tareas
 // largas, y no hace falta terminar en una sola: lo que quede lo agarra la
 // siguiente.
@@ -1095,7 +1111,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   let mids = [];
   let enviadoEn = 0;
 
-  const mandar = async (hacer) => {
+  // "texto" es lo que se guarda para el panel (ver panel.js): lo que el
+  // cliente vio, tal cual.
+  const mandar = async (hacer, texto = "") => {
     const mid = await hacer();
     if (!mid) return "";
 
@@ -1103,6 +1121,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     mids = agregarMid(mids, mid);
     enviadoEn = Date.now();
     await marcarEnvio(env.DB, mensaje.igsid, mids, enviadoEn);
+    if (texto) await anotarMensaje(env.DB, mensaje.igsid, "bot", texto);
     return mid;
   };
   // El eco de un mensaje que salió de la cuenta: el nuestro (el bot
@@ -1128,6 +1147,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     if (esFraseDeDespausar(env, mensaje.texto)) {
       await new Promise((seguir) => setTimeout(seguir, ESPERA_ANTES_DE_PAUSAR_MS + 1000));
       await despausar(env.DB, mensaje.igsid, NOTA_DESPAUSADO);
+      await anotarMensaje(env.DB, mensaje.igsid, "asesor", mensaje.texto);
       console.log(`El asesor le devolvió ${mensaje.igsid} al bot: vuelvo a atender`);
       return;
     }
@@ -1166,6 +1186,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     const horas = Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO;
     await pausar(env.DB, mensaje.igsid, horas);
     console.log(`Asesor humano le escribió a ${mensaje.igsid}: bot pausado ${horas}h`);
+    // Lo que escribió el asesor también sale en el panel.
+    await anotarMensaje(env.DB, mensaje.igsid, "asesor", mensaje.texto || "(mandó algo que no es texto)");
 
     // Sin aviso a Slack. Antes salía un "BOT EN PAUSA — la conversación es
     // tuya" con cada mensaje del asesor, y no le decía nada que no supiera:
@@ -1193,6 +1215,22 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const contacto = await asegurarPerfil(env, await cargarContacto(env.DB, mensaje.igsid));
   mids = contacto.mids_enviados;
 
+  // LO QUE ESCRIBIÓ, PARA EL PANEL (ver panel.js). Se guarda antes de mirar
+  // la pausa: el dueño tiene que verlo aunque el bot no conteste. Una nota
+  // de voz se guarda ya transcrita, más abajo.
+  if (!mensaje.audio || estaPausado(contacto)) {
+    await anotarMensaje(
+      env.DB,
+      mensaje.igsid,
+      "cliente",
+      mensaje.audio
+        ? "🎤 (mandó una nota de voz)"
+        : [mensaje.texto, mensaje.historia?.url ? "(respondió a una historia)" : mensaje.foto ? "(mandó una foto)" : ""]
+            .filter(Boolean)
+            .join(" ")
+    );
+  }
+
   if (estaPausado(contacto)) {
     console.log(`Bot pausado para ${mensaje.igsid}: no respondo`);
     await avisarQueYaLoAtienden(env, mensaje, contacto, mandar);
@@ -1207,7 +1245,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     const oido = await transcribirAudio(env, mensaje.audio, { anotar: (d) => anotarGasto(env, d) });
     if (!oido.texto) {
       console.error(`Voz: no pude transcribir la nota de ${mensaje.igsid}: ${oido.error}`);
-      await mandar(() => enviarTexto(env, mensaje.igsid, PEDIR_QUE_ESCRIBA));
+      await mandar(() => enviarTexto(env, mensaje.igsid, PEDIR_QUE_ESCRIBA), PEDIR_QUE_ESCRIBA);
       await guardarContacto(env.DB, {
         ...contacto,
         nombre: contacto.nombre,
@@ -1220,6 +1258,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     console.log(`Voz: el cliente dijo (${oido.modelo}): ${JSON.stringify(oido.texto.slice(0, 200))}`);
     mensaje.texto = [mensaje.texto, oido.texto].filter(Boolean).join(" ");
     notaVoz = notaDeVoz();
+    await anotarMensaje(env.DB, mensaje.igsid, "cliente", `🎤 ${oido.texto}`);
   }
 
   const esHistoria = mensaje.tipo === "historia";
@@ -1251,7 +1290,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   });
   if (motivoDeRescate) {
     console.log(`Rescate: el cliente ${motivoDeRescate} → a un asesor, y el bot se aparta`);
-    await mandar(() => enviarTexto(env, mensaje.igsid, FRASE_DE_RESCATE));
+    await mandar(() => enviarTexto(env, mensaje.igsid, FRASE_DE_RESCATE), FRASE_DE_RESCATE);
     await avisarAsesor(env, {
       ...paraElAviso(contacto),
       igsid: mensaje.igsid,
@@ -1279,7 +1318,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (historialPrevio && !imagenCruda && esSoloSaludo(mensaje.texto)) {
     const respuesta = saludoDeVuelta(nombre, mensaje.texto);
     console.log(`Saludo de vuelta → ${JSON.stringify(respuesta)}`);
-    await mandar(() => enviarTexto(env, mensaje.igsid, respuesta));
+    await mandar(() => enviarTexto(env, mensaje.igsid, respuesta), respuesta);
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
@@ -1310,7 +1349,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       // letras); si no, va entera en un mensaje y la tarjeta —foto y botón—
       // detrás. Cortarla sería peor: el cliente leería media calle.
       const cabe = [...lugar.texto].length <= 78;
-      if (!cabe) await mandar(() => enviarTexto(env, mensaje.igsid, lugar.texto));
+      if (!cabe) await mandar(() => enviarTexto(env, mensaje.igsid, lugar.texto), lugar.texto);
       await mandar(() =>
         enviarTarjeta(env, mensaje.igsid, {
           titulo: cabe ? `📍 ${lugar.texto}` : "📍 INVICTUS SHOES",
@@ -1318,10 +1357,11 @@ async function atenderMeta(env, mensaje, rastro = {}) {
           resumen: "Toca el botón y te abre el mapa 👇",
           imagen: lugar.foto,
           boton: { url: lugar.enlace, title: lugar.boton },
-        })
+        }),
+        cabe ? `📍 ${lugar.texto}` : "📍 (la tarjeta con la foto del local y el mapa)"
       );
     } else {
-      await mandar(() => enviarBotonEnlace(env, mensaje.igsid, lugar.texto, lugar.boton, lugar.enlace));
+      await mandar(() => enviarBotonEnlace(env, mensaje.igsid, lugar.texto, lugar.boton, lugar.enlace), lugar.texto);
     }
 
     if (soloPreguntaUbicacion(mensaje.texto)) {
@@ -1378,7 +1418,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     !queDatoPide(mensaje.texto)
   ) {
     console.log("Preguntó los métodos de pago: le mando la lista completa");
-    await mandar(() => enviarTexto(env, mensaje.igsid, listaDeMetodos()));
+    await mandar(() => enviarTexto(env, mensaje.igsid, listaDeMetodos()), listaDeMetodos());
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
@@ -1405,7 +1445,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (!imagenCruda && !PREGUNTA_TALLA.test(mensaje.texto) && pideElCatalogo(mensaje.texto)) {
     const respuesta = fraseDeCatalogo(nombre);
     console.log(`Pidió el catálogo → ${JSON.stringify(respuesta)}`);
-    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuesta));
+    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuesta), respuesta);
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
@@ -1557,7 +1597,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (!salida && imagenCruda && !foto) {
     const frase = HISTORIA_SIN_VER[Math.floor(Math.random() * HISTORIA_SIN_VER.length)];
     console.log(`Historia sin ver (${porQueNo}) → pregunto: ${JSON.stringify(frase)}`);
-    await mandar(() => enviarTexto(env, mensaje.igsid, frase));
+    await mandar(() => enviarTexto(env, mensaje.igsid, frase), frase);
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
@@ -1568,7 +1608,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   }
 
   if (!salida) {
-    await mandar(() => enviarTexto(env, mensaje.igsid, FALLO_TECNICO));
+    await mandar(() => enviarTexto(env, mensaje.igsid, FALLO_TECNICO), FALLO_TECNICO);
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
@@ -1821,7 +1861,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     const voz = await sintetizarVoz(env, fraseDeLaIA);
     if (voz) {
       const id = await guardarNotaDeVoz(env.DB, voz);
-      hablado = await mandar(() => enviarAudio(env, mensaje.igsid, `${mensaje.origen}/voz/${id}.${voz.extension}`));
+      hablado = await mandar(() => enviarAudio(env, mensaje.igsid, `${mensaje.origen}/voz/${id}.${voz.extension}`), `🎤 (nota de voz) ${fraseDeLaIA}`);
       console.log(
         hablado
           ? `Voz: le contesté con una nota de voz (${vozPorLaIA ? "la eligió la IA" : "él habló con voz"}; ${voz.texto.length} letras, ${Math.round(voz.datos.byteLength / 1024)} KB)`
@@ -1834,26 +1874,49 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const notasDeVozDeLaIA = (Number(contacto.notas_de_voz) || 0) + (hablado && vozPorLaIA ? 1 : 0);
 
   if (fichas.length) {
-    if (!hablado) await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
-    await mandar(() => enviarFichas(env, mensaje.igsid, fichas));
+    if (!hablado) await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente), respuestaCliente);
+    await mandar(() => enviarFichas(env, mensaje.igsid, fichas), `📷 Fichas: ${fichas.map((f) => f.titulo).join(" · ")}`);
   } else if (soloTexto) {
     // Habló de algo que ya está en la conversación: solo texto.
-    if (!hablado) await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
+    if (!hablado) await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente), respuestaCliente);
   } else if (vaConBoton) {
     // Tres motivos distintos, misma salida: el cliente quería ver algo y no
     // hay nada (más) que enseñarle en una ficha. Ahí el enlace de la tienda
     // sí es una ayuda — incluido cuando SÍ hay más, pero no caben en un
     // carrusel de 10 (hayMasDelCatalogo, ver decidir()).
-    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente));
+    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente), respuestaCliente);
   } else if (!hablado) {
     // Conversación: preguntas, dudas, cortesías. Texto limpio, sin botón.
-    await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
+    await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente), respuestaCliente);
   }
+
+  // LO QUE PENSÓ LA IA, PARA EL PANEL (2-oct-2026, ver panel.js): qué
+  // entendió, qué buscó, qué fichas salieron y qué corrigieron las redes.
+  await anotarTurno(env.DB, {
+    igsid: mensaje.igsid,
+    cliente: notaVoz ? `🎤 ${mensaje.texto}` : textoCliente,
+    pienso: salida.pienso,
+    buscar: salida.buscar,
+    mostrar: soloTexto ? "texto" : modo,
+    respuesta: hablado ? `🎤 (nota de voz) ${fraseDeLaIA}` : respuestaCliente,
+    productos: fichas.map((p) => p.titulo),
+    notas: [
+      notaVoz && "llegó por nota de voz",
+      hablado && (vozPorLaIA ? "contestó con nota de voz (la eligió la IA)" : "contestó con nota de voz"),
+      revisionDeTono.corregido && "se quitó una grosería o un regaño",
+      revisionDeCashea.corregido && "Cashea: se corrigió lo que escribió",
+      revisionDePrecio.corregido && "ofrecía el precio: se cambió por 'está en cada foto'",
+      tarjetaDeCashea && "fue la tarjeta de Cashea",
+      mandarCatalogo && "fue el botón del catálogo",
+      fraseDeLaIA !== String(salida.respuesta || "").trim() && !revisionDeTono.corregido && !revisionDePrecio.corregido &&
+        `su borrador era: "${String(salida.respuesta || "").slice(0, 140)}"`,
+    ],
+  });
 
   // La tarjeta de Cashea, cuando no fue dentro del mensaje de arriba: va
   // DETRÁS de los zapatos, que es donde se lee "y con tu nivel, esto".
   if (tarjetaDeCashea) {
-    await mandar(() => enviarTexto(env, mensaje.igsid, tarjetaDeCashea));
+    await mandar(() => enviarTexto(env, mensaje.igsid, tarjetaDeCashea), tarjetaDeCashea);
   }
 
   // Cashea fuera de fecha avisa SIEMPRE, aunque se le hayan enseñado
@@ -1943,7 +2006,8 @@ async function avisarQueYaLoAtienden(env, mensaje, contacto, mandar) {
 
   // mandar() ya lo anota en D1 en el momento: el eco de este mismo aviso
   // no puede volver y parecer el mensaje de otro asesor.
-  await mandar(() => enviarTexto(env, mensaje.igsid, alAzar(YA_TE_ATIENDEN)));
+  const yaTeAtienden = alAzar(YA_TE_ATIENDEN);
+  await mandar(() => enviarTexto(env, mensaje.igsid, yaTeAtienden), yaTeAtienden);
 
   const silencio = Date.now() - ultimoDelAsesor;
   if (silencio < ASESOR_CALLADO_MS) return;

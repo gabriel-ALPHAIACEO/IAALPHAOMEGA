@@ -31,6 +31,7 @@ const SUITES = [
   ["tono.mjs", "todo tipo de clientes: ni groserías ni regaños del bot, y el prompt que lo enseña"],
   ["rescate.mjs", "que un \"no es ese\" pase a una persona en vez de seguir adivinando"],
   ["extremo.mjs", "de punta a punta: lo que de verdad le llega al cliente"],
+  ["tienda.mjs", "el panel /panel: la clave, los mensajes, lo que pensó la IA, pausar y devolver"],
   ["cupo.mjs", "que sin cupo de OpenAI no se cuente como \"miré y no está\""],
 ];
 
