@@ -21,6 +21,7 @@ Como los archivos se pegan a mano, **cada entrega sube la constante `VERSION` de
 | `emperador-bot/` | **El Emperador** (calzado, Shopify). Copia al día de Invictus con sus propios prompts: calidad doble A / triple A en vez de 1.1. **Le falta el catálogo** — ver su `EMPEZAR-AQUI.md`. |
 | `kit-meta/` | Las piezas de Meta directo (`instagram.js`, `estado.js`, `imagen.js` + migraciones), copiadas de producción sin cambios, con `GUIA.md` para portarlas a otro bot. **Decisión del dueño (22-sep): todos los bots van a Meta directo, ManyChat se retira de todos.** |
 | `bot-telefonos-epicell/` | **EPICELL** (teléfonos, Google Sheets). Meta directo, completo. Ver su `PENDIENTE.md`. |
+| `panel-central/` | **El panel central del dueño** (2-oct-2026). Un Worker suyo que NO atiende clientes: mira todas las tiendas por su `/api/central` y lo junta (en vivo, alertas, métricas, ganadores, gastos, en pausa, bases editables, diagrama). Su `src/` es SOLO suyo, no se pega en las tiendas. Ver su `LEEME.md`. Pruebas: `node pruebas/central.mjs` (usa `invictus-bot/` como tienda de verdad). |
 
 **`src/` es casi idéntico en `invictus-bot/`, `emperador-bot/` y `bot-telefonos-epicell/` a propósito.** Un arreglo se aplica pegando el mismo archivo en las carpetas que correspondan. Lo que NUNCA se cruza entre tiendas: `wrangler.toml`, `src/prompts/` y los secretos — ahí vive lo que hace que cada bot sea de su tienda. (EPICELL además lee de Google Sheets en vez de Shopify, así que sus `sheets.js`, `capacidad.js` y `recomendados.js` son suyos.)
 
@@ -29,6 +30,9 @@ la vía multi-tienda —un solo Worker que atendía a varias con `tienda.js` y
 `tiendas/*.js`— y se descartó: con pocos clientes que son negocios de verdad,
 el aislamiento vale más que dar de alta rápido. Un despliegue malo tumba a UNA
 tienda, no a todas, y cada una tiene su D1 sin que los datos se mezclen.
+
+(El `panel-central/` no contradice esto: no atiende a nadie ni toca la base de
+ninguna tienda; si se cae, las tiendas siguen atendiendo igual.)
 
 Esa carpeta (`worker/`) se borró para que nadie vuelva a trabajar así. Está en
 el historial de git si alguna vez hace falta mirarla.
