@@ -18,7 +18,11 @@ const SRC = path.join(AQUI, "..", "src");
 
 const SUITES = [
   ["cupo.mjs", "que sin cupo de OpenAI no se cuente como \"miré y no está\""],
-]
+  ["corpus.mjs", "que los guardianes no alteren respuestas buenas"],
+  ["tono.mjs", "todo tipo de clientes: ni groserías ni regaños del bot"],
+  ["precio.mjs", "con las fichas a la vista no pregunta por el precio"],
+  ["conversacion.mjs", "de punta a punta: voz (solo escucha), 3 formas de responder, precio, catálogo, tono"],
+];
 
 let roto = false;
 

@@ -41,7 +41,16 @@ import {
 } from "./sheets.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
-import { pideVerMas, fraseDeCatalogo } from "./catalogo.js";
+import {
+  pideVerMas,
+  fraseDeCatalogo,
+  nombraElCatalogo,
+  niegaElCatalogo,
+  sinNegarElCatalogo,
+} from "./catalogo.js";
+import { revisarTono } from "./tono.js";
+import { revisarPrecio } from "./precio.js";
+import { transcribirAudio, notaDeVoz, PEDIR_QUE_ESCRIBA } from "./voz.js";
 import { pideVerLoRecomendado, productosRecomendados } from "./recomendados.js";
 import { separarColor } from "./color.js";
 import {
@@ -68,6 +77,8 @@ import {
   comoSeLlama,
   revisarBase,
   listarContactos,
+  yaLoVio,
+  conProductosMostrados,
 } from "./estado.js";
 import {
   firmaValida,
@@ -80,7 +91,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-09-30 (15) · sin cupo de OpenAI ya no cuenta como \"miré y no está\" (portado de Invictus)";
+const VERSION = "2026-10-02 (16) · escucha notas de voz (contesta por escrito), piensa antes de responder, 3 formas de responder, tono, precio en cada ficha";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -151,7 +162,7 @@ const PREGUNTA_POR_PAGOS = new RegExp(
 // Las señales de que YA sabe de qué habla: su nivel, o un equipo concreto
 // en la misma frase. Ahí la tabla entera estorba.
 const YA_DIJO_SU_NIVEL =
-  /\b(nivel\s*[1-6]|azul|plata|oro|platino|soy\s+\w+)\b/i;
+  /\b((?:nivel|level|lvl|niv|nv)\s*[1-6]|azul|plata|oro|platino|soy\s+\w+)\b/i;
 
 // Lo que se responde cuando preguntan un dato que solo sabe una persona.
 const SOLO_ASESOR = "Eso te lo confirma un asesor en un momento 😊";
@@ -1053,6 +1064,28 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     return;
   }
 
+  // UNA NOTA DE VOZ SE ESCUCHA Y SE ATIENDE COMO TEXTO (2-oct-2026, ver
+  // voz.js). Se le contesta por escrito: EPICELL no manda notas de voz. Si
+  // no se puede escuchar, se le pide con amabilidad que escriba.
+  let notaVoz = "";
+  if (mensaje.audio) {
+    const oido = await transcribirAudio(env, mensaje.audio);
+    if (!oido.texto) {
+      console.error(`Voz: no pude transcribir la nota de ${mensaje.igsid}: ${oido.error}`);
+      await mandar(() => enviarTexto(env, mensaje.igsid, PEDIR_QUE_ESCRIBA));
+      await guardarContacto(env.DB, {
+        ...contacto,
+        historial: conNota(contacto.historial, "Mandó una nota de voz que no se pudo escuchar: le pedí que escriba."),
+        mids_enviados: mids,
+        ultimo_envio: enviadoEn || Date.now(),
+      });
+      return;
+    }
+    console.log(`Voz: el cliente dijo (${oido.modelo}): ${JSON.stringify(oido.texto.slice(0, 200))}`);
+    mensaje.texto = [mensaje.texto, oido.texto].filter(Boolean).join(" ");
+    notaVoz = notaDeVoz();
+  }
+
   const esHistoria = mensaje.tipo === "historia";
   const imagenCruda = mensaje.historia.url || mensaje.foto || "";
 
@@ -1137,6 +1170,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       await guardarContacto(env.DB, {
         ...contacto,
         nombre,
+        mostrados: conProductosMostrados(contacto.mostrados || [], fichas),
         historial: conNota(
           historialPrevio,
           `Le mostré los que le había recomendado: ${recomendados
@@ -1217,7 +1251,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     nombre,
     historialPrevio,
     textoCliente,
-    marca,
+    [notaVoz, marca].filter(Boolean).join("\n"),
     esHistoria,
     minutosCallado,
     catalogo
@@ -1288,25 +1322,74 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     });
   }
 
+  // EL TONO (2-oct-2026, ver tono.js): ni una grosería, ni un insulto, ni
+  // un regaño salen del bot, por mucho que el cliente provoque.
+  const revisionDeTono = revisarTono(respuestaCliente);
+  if (revisionDeTono.corregido) respuestaCliente = revisionDeTono.respuesta;
+
+  // CÓMO RESPONDE: SOLO TEXTO, TEXTO CON FICHAS, O FICHAS (2-oct-2026,
+  // portado de Invictus). La IA elige en "mostrar":
+  //   texto              sin fichas (p. ej. Cashea de un equipo que ya vio)
+  //   texto_e_imagenes   el texto y las fichas
+  //   imagenes           las fichas, con un texto corto
+  //
+  // "Solo texto" sirve para NO REPETIR fichas que ya vio. Si lo encontrado
+  // es nuevo para él, o mandó una foto, las fichas van siempre.
+  const modo = salida?.mostrar || "texto_e_imagenes";
+  const yaLosVio = productos.length > 0 && productos.every((p) => yaLoVio(contacto.mostrados || [], p.titulo));
+  const soloTexto = modo === "texto" && productos.length > 0 && !imagenCruda && yaLosVio;
+  if (modo === "texto" && productos.length > 0 && !imagenCruda && !yaLosVio) {
+    console.log(`La IA eligió SOLO TEXTO, pero los ${productos.length} producto(s) son nuevos para él: se los mando igual`);
+  }
+  if (soloTexto) {
+    console.log(`La IA eligió responder SOLO TEXTO: no le mando las ${productos.length} ficha(s) (ya las había visto)`);
+  }
+  if (modo === "imagenes" && productos.length && respuestaCliente.length > 120) {
+    // Las fichas hablan: el texto va corto, la primera frase.
+    respuestaCliente = respuestaCliente.split(/(?<=[.!?👇😊🙌])\s+/)[0];
+  }
+
   const conCashea = PREGUNTA_CASHEA.test(mensaje.texto);
   const conDivisas = PREGUNTA_DIVISAS.test(mensaje.texto);
-  const fichas = productos.map((p) => ({
+  const fichas = (soloTexto ? [] : productos).map((p) => ({
     ...p,
     precio: subtituloDeFicha(p, conCashea, conDivisas),
   }));
 
-  // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO. El botón sale en dos casos:
-  // buscamos lo que pidió y no apareció, o hay más de los que caben en el
-  // carrusel. Una pregunta de vendedora —"¿lo quieres nuevo o usado?"— sale
-  // como texto limpio: el cliente que se va al catálogo se va de la
-  // conversación.
+  // EL PRECIO YA ESTÁ EN LA FICHA (2-oct-2026, ver precio.js): con las
+  // fichas a la vista, nada de "¿quieres saber el precio?".
+  const revisionDePrecio = revisarPrecio(respuestaCliente, { hayFichas: fichas.length > 0, yaLasVio: soloTexto });
+  if (revisionDePrecio.corregido) respuestaCliente = revisionDePrecio.respuesta;
+
+  // EL CATÁLOGO EXISTE (2-oct-2026, ver catalogo.js). Si la IA escribió que
+  // no hay catálogo, esa frase se quita; y si el cliente lo nombró y no se
+  // le enseña ningún equipo, va el botón debajo de lo que dijo la IA.
+  let mandarCatalogo = false;
+  if (niegaElCatalogo(respuestaCliente)) {
+    console.log(`La IA dijo que no hay catálogo ("${respuestaCliente.slice(0, 80)}"): lo corrijo`);
+    respuestaCliente = sinNegarElCatalogo(respuestaCliente) || (productos.length ? "¡Claro! Mira 👇" : fraseDeCatalogo(nombre));
+    if (!productos.length) mandarCatalogo = true;
+  }
+  if (!imagenCruda && !productos.length && nombraElCatalogo(mensaje.texto)) {
+    mandarCatalogo = true;
+    console.log("El cliente nombró el catálogo: va el botón debajo de la respuesta");
+  }
+
+  // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO. El botón sale cuando:
+  // buscamos lo que pidió y no apareció, hay más de los que caben en el
+  // carrusel, o el cliente nombró el catálogo. Una pregunta de vendedora
+  // —"¿lo quieres nuevo o usado?"— sale como texto limpio: el cliente que
+  // se va al catálogo se va de la conversación.
   if (fichas.length) {
     await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
     await mandar(() => enviarFichas(env, mensaje.igsid, fichas));
     if (hayMas) {
       await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, HAY_MAS_EN_CATALOGO));
     }
-  } else if (buscoSinExito) {
+  } else if (soloTexto) {
+    // Habló de algo que ya está en la conversación: solo texto.
+    await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
+  } else if (buscoSinExito || mandarCatalogo) {
     await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente));
   } else {
     await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
@@ -1352,6 +1435,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     // Si TODOS los envíos fallaron, enviadoEn sigue en 0 y no hay que pisar
     // la marca anterior con un cero.
     ultimo_envio: enviadoEn || contacto.ultimo_envio,
+    // Lo que acaba de ver queda anotado: así "solo texto" sabe qué fichas
+    // ya tiene delante y no se le repiten.
+    mostrados: conProductosMostrados(contacto.mostrados || [], fichas),
   });
 }
 

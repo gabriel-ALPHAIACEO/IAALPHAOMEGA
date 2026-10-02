@@ -1,5 +1,22 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho (2-oct-2026, v16): lo de la IA de Invictus, adaptado a teléfonos
+
+- **Notas de voz: solo las escucha.** Se transcriben (OpenAI) y se atienden
+  como si el cliente hubiera escrito. EPICELL contesta **siempre por
+  escrito**: no manda notas de voz (decisión del dueño). Ver `src/voz.js`.
+- **Piensa antes de responder** (campo `pienso`, primero en el esquema).
+- **3 formas de responder** (`mostrar`): solo texto (no repite fichas que
+  ya vio), texto con fichas, o fichas con un texto corto.
+- **El precio ya va en la ficha**: no pregunta "¿quieres saber el precio?",
+  dice que está en cada foto (`src/precio.js`).
+- **El catálogo existe**: si la IA dice que no hay, se corrige; si el cliente
+  lo nombra, va el botón.
+- **Todo tipo de clientes** y **el tono** (`src/tono.js`): ni groserías ni
+  regaños del bot.
+- **Cashea**: "level 5" = nivel 5.
+- Pruebas: `node pruebas/correr.mjs` (corpus, tono, precio, conversación).
+
 ## Hecho: Meta directo, sin ManyChat
 
 El webhook no validaba, y no era configuración: era arquitectura. Pedida la

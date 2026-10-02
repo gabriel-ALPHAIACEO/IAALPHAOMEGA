@@ -214,8 +214,35 @@ async function llamar(
   return datos.choices?.[0]?.message?.content || null;
 }
 
+// LA FORMA DE LA RESPUESTA, OBLIGADA (2-oct-2026, portado de Invictus).
+const ESQUEMA_RESPUESTA = {
+  name: "respuesta_vendedora",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      // PIENSA ANTES DE RESPONDER. Va PRIMERO a propósito: el modelo escribe
+      // en orden, así que primero razona de qué equipo le hablan y qué le
+      // preguntan, y recién después redacta. El cliente nunca lo ve; queda
+      // en el registro.
+      pienso: { type: "string" },
+      // CÓMO RESPONDE: solo texto, texto con fichas, o fichas con un texto
+      // corto. Si ya vio esos equipos y pregunta algo de ellos, no se le
+      // mandan las fichas otra vez.
+      mostrar: { type: "string", enum: ["texto", "texto_e_imagenes", "imagenes"] },
+      respuesta: { type: "string" },
+      buscar: { type: "string" },
+      historial: { type: "string" },
+    },
+    required: ["pienso", "mostrar", "respuesta", "buscar", "historial"],
+    additionalProperties: false,
+  },
+};
+
 export async function responderTexto(env, entrada) {
-  const salida = await llamar(env, textoConCatalogo(), [{ type: "text", text: entrada }]);
+  const salida = await llamar(env, textoConCatalogo(), [{ type: "text", text: entrada }], {
+    schema: ESQUEMA_RESPUESTA,
+  });
   return normalizar(salida);
 }
 
@@ -291,8 +318,14 @@ function normalizar(salida) {
   const respuesta = String(datos.respuesta || "").trim();
   if (!respuesta) return null; // sin texto no hay nada que mandarle al cliente
 
+  // Lo que pensó antes de responder: no va al cliente, va al registro.
+  const pienso = String(datos.pienso || "").trim();
+  if (pienso) console.log(`La IA pensó: ${pienso.slice(0, 300)}`);
+
+  const mostrar = ["texto", "texto_e_imagenes", "imagenes"].includes(datos.mostrar) ? datos.mostrar : "texto_e_imagenes";
   return {
     respuesta,
+    mostrar,
     buscar: String(datos.buscar || "NADA").trim(),
     historial: String(datos.historial || "").trim(),
   };
