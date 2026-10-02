@@ -120,6 +120,32 @@ for (const dicho of ["En imágenes", "Mandalos", "Mándalos", "Ahora muéstrame,
   comprobar("se quita el insulto, queda lo útil", textos(r.enviados), ["¿Qué equipo buscas?"]);
 }
 
+// ── 9. La IA redacta viendo lo que hay (menos frases fijas) ─────────
+{
+  const base = { texto: "tienes el samsung a57?", fila: { historial: "Ya di la bienvenida." }, respuestaDelModelo: { respuesta: "Déjame revisar 👇", buscar: "Samsung A57" } };
+  let r = await turno({ ...base, redaccion: "¡Sí! El Samsung A57 de 12/512 es de lo mejor que tengo 👇 ¿Es para ti o para regalo?" });
+  comprobar("con fichas: sale lo que redactó viendo el resultado", textos(r.enviados)[0], "¡Sí! El Samsung A57 de 12/512 es de lo mejor que tengo 👇 ¿Es para ti o para regalo?");
+  const pedido = r.alModelo.find((x) => x.redaccion);
+  const lo = JSON.stringify(pedido?.messages || []);
+  comprobar("la IA recibe lo que se le va a enseñar, con su precio", /- Samsung A57 · \$\d+/.test(lo), true);
+  comprobar("y la conversación y su borrador", /LO QUE PIDE AHORA: tienes el samsung a57/.test(lo) && /TU BORRADOR: Déjame revisar/.test(lo), true);
+
+  r = await turno({ ...base, redaccion: "Uy, ese no lo tengo 😅" });
+  comprobar("si contradice la búsqueda (dice que no hay con la ficha debajo) → la de siempre", textos(r.enviados)[0], "Déjame revisar 👇");
+
+  r = await turno({ ...base, redaccion: "No seas bruto, ya te lo dije. Mira el A57 👇" });
+  comprobar("las redes también pasan por lo que redacta (tono)", /bruto|ya te lo dije/.test(textos(r.enviados)[0]), false);
+
+  r = await turno({ ...base, redaccion: "El A57 te sale en $999, una ganga 👇" });
+  comprobar("un precio inventado en la redacción no sale", /999/.test(textos(r.enviados).join(" ")), false);
+
+  r = await turno({ ...base, env: { REDACCION_LIBRE: "no" }, redaccion: "esto no debería salir" });
+  comprobar("REDACCION_LIBRE = no → no se pide la segunda pasada", r.alModelo.some((x) => x.redaccion), false);
+
+  r = await turno({ texto: "gracias!", fila: { historial: "Ya di la bienvenida." }, respuestaDelModelo: { respuesta: "¡Con gusto! 😊", buscar: "NADA" }, redaccion: "otra cosa" });
+  comprobar("conversación sin fichas y sin cambios del código: una sola llamada", r.alModelo.filter((x) => x.redaccion).length, 0);
+}
+
 // ── 8. Las redes nuevas no tocan las respuestas buenas del prompt ─
 // El riesgo de una red así no es que se le escape algo malo: es que atrape
 // algo bueno. Se le pasan por encima todos los ejemplos de texto.txt.

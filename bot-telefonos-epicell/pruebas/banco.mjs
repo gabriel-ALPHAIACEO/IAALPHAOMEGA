@@ -156,7 +156,7 @@ export function baseFalsa(filaInicial = {}) {
 }
 
 // Devuelve todo lo que el bot mandó a Instagram en este turno.
-export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelModelo = {}, mensaje = {}, hoja = HOJA, env: envExtra = {}, apis = {}, fotosRotas = null, rechazarCarrusel = false, transcripcion = null } = {}) {
+export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelModelo = {}, mensaje = {}, hoja = HOJA, env: envExtra = {}, apis = {}, fotosRotas = null, rechazarCarrusel = false, transcripcion = null, redaccion = null } = {}) {
   const enviados = [];
   // Lo que se le mandó a OpenAI, para mirar qué sabía el modelo.
   const alModelo = [];
@@ -180,6 +180,15 @@ export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelMo
     if (donde.includes("/audio/speech")) {
       enviados.push({ HABLO: true });
       return { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(2) };
+    }
+
+    // LA SEGUNDA PASADA (2-oct-2026): la IA redacta viendo los resultados.
+    // Sin "redaccion", falla, y sale la frase de siempre: así las pruebas
+    // de antes siguen probando lo mismo.
+    if (donde.includes("api.openai.com") && JSON.parse(opciones.body || "{}")?.messages?.[0]?.content === "REDACTAR") {
+      alModelo.push({ ...JSON.parse(opciones.body), redaccion: true });
+      if (redaccion === null) return { ok: false, status: 500, text: async () => "sin redacción en esta prueba", json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify({ respuesta: redaccion }) } }] }) };
     }
 
     if (donde.includes("api.openai.com")) {

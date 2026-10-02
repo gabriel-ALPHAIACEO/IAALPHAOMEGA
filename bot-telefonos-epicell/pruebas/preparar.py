@@ -25,6 +25,7 @@ for linea, valor in [
     ('import promptTexto from "./prompts/texto.txt";', 'const promptTexto = "PROMPT {{CATALOGO}}\\nHorarios: {{TUS HORARIOS}}\\nPagos: {{METODOS DE PAGO}}";'),
     ('import listaCatalogo from "./prompts/catalogo.txt";', 'const listaCatalogo = "CATALOGO";'),
     ('import promptVision from "./prompts/vision.txt";', 'const promptVision = "VISION";'),
+    ('import promptRedactar from "./prompts/redactar.txt";', 'const promptRedactar = "REDACTAR";'),
 ]:
     s = s.replace(linea, valor)
 open(ia, "w", encoding="utf-8").write(s)

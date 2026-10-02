@@ -122,6 +122,24 @@ DELIVERY = ""
 TASA = ""
 TRABAJO = ""
 
+# --- LOS ANUNCIOS (2-oct-2026) ------------------------------------------
+# El panel completo está en https://TU-WORKER/anuncios : si el ADS_TOKEN
+# sirve, todos tus anuncios activos, qué equipo manda el bot en cada uno,
+# cuáles traen gente a un equipo AGOTADO y cuántas personas llegaron.
+#
+# EL EQUIPO DE UN ANUNCIO, PUESTO A MANO. Para los anuncios cuyo texto no
+# nombra el equipo ("¡Oferta!", "Mira esto"): el id del anuncio (o su ref)
+# = el nombre tal como está en la hoja. Varios, separados con |
+#
+#   ANUNCIOS_EQUIPOS = "120212345678901234=Samsung A57 | 120219876543210987=Poco X8 pro 5G"
+#
+# /anuncios te dice cuáles hacen falta y te deja la línea escrita.
+ANUNCIOS_EQUIPOS = ""
+
+# Opcional: solo estas cuentas publicitarias ("act_123, act_456"). Vacío =
+# todas las que vea el ADS_TOKEN.
+ADS_CUENTA = ""
+
 # --- LA TIENDA ---------------------------------------------------------
 # Enlace del catalogo online. EPICELL no tiene tienda web, asi que va
 # vacio A PROPOSITO: con esto el bot no manda el boton "Ver catalogo" ni
@@ -217,6 +235,24 @@ OPENAI_MODELO_AUDIO = "gpt-4o-mini-transcribe"
 #        y de ahi salen las respuestas que no vienen de ningun sitio.
 # Solo lo usan los modelos gpt-4 y gpt-3; los de razonamiento lo ignoran.
 OPENAI_TEMPERATURA = "0.3"
+
+# --- LA IA REDACTA VIENDO LO QUE HAY (2-oct-2026) ------------------------
+# "Que responda mejor y que no sea todo predeterminado." Antes la IA
+# escribía ANTES de buscar, sin saber qué había, y el código le cambiaba
+# muchas respuestas por frases fijas. Ahora, cuando hay fichas que enseñar
+# (o el código tuvo que corregirla), la IA escribe la respuesta final
+# VIENDO los equipos que salieron y lo que pasó con la búsqueda. Las frases
+# fijas quedan de respaldo, y las redes (precios inventados, tono, lo que
+# no hay) revisan lo que escriba.
+#
+#   "si"  la IA redacta con los resultados delante   <- recomendado
+#   "no"  vuelven las frases de siempre (una llamada menos por mensaje)
+REDACCION_LIBRE = "si"
+
+# Qué tan suelta escribe en esa segunda pasada. 0.7 suena a persona; más
+# alto, más variado y más riesgo de que se vaya por las ramas. Solo afecta
+# a cómo REDACTA: qué equipos se enseñan lo sigue decidiendo el sistema.
+REDACCION_TEMPERATURA = "0.7"
 
 # --- LA PAUSA CUANDO CONTESTA UN ASESOR --------------------------------
 # Cuantas horas se calla el bot despues de que un asesor le escribe a un

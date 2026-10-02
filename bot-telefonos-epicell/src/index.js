@@ -28,13 +28,21 @@
 // cualquier catálogo.
 // ──────────────────────────────────────────────────────────────────────
 
-import { responderTexto, identificarEnImagen } from "./ia.js";
+import { responderTexto, identificarEnImagen, redactarConResultados } from "./ia.js";
 import { transcribirAudio, notaDeVoz, PEDIR_QUE_ESCRIBA } from "./voz.js";
 import { revisarTono } from "./tono.js";
 import { revisarPrecio } from "./precio.js";
 import { revisarDisponibilidad, marcasNombradas, marcasQueHay, fraseDeMarcaQueNoHay } from "./disponible.js";
 import { referenciaEnTexto } from "./referencias.js";
-import { detallesDelAnuncio } from "./anuncio.js";
+import {
+  detallesDelAnuncio,
+  revisarTokenDeAnuncios,
+  anunciosActivos,
+  equipoAsignado,
+  equiposAsignados,
+  anotarLlegada,
+  llegadasPorAnuncio,
+} from "./anuncio.js";
 import { queDatoPide, respuestaDeDato } from "./datos.js";
 import {
   parentesco,
@@ -139,7 +147,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-02 (19) · horario y metodos de pago de verdad en wrangler.toml (se ven en /estado)";
+const VERSION = "2026-10-02 (20) · panel de anuncios (/anuncios) y la IA redacta viendo los equipos que salieron";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -1099,7 +1107,7 @@ export default {
           `  META_APP_SECRET     ${secreto("META_APP_SECRET")}   (la de Facebook)`,
           `  META_APP_SECRET_IG  ${secreto("META_APP_SECRET_IG")}   (la de Instagram ← es esta)`,
           `  IG_TOKEN            ${secreto("IG_TOKEN")}`,
-          `  ADS_TOKEN           ${secreto("ADS_TOKEN")}   (opcional: leer tus anuncios)`,
+          `  ADS_TOKEN           ${secreto("ADS_TOKEN")}   (leer tus anuncios — el panel completo está en /anuncios)`,
           "",
           "CONFIGURACIÓN (wrangler.toml)",
           `  META_MODO           ${env.META_MODO || "todo (por defecto)"}`,
@@ -1108,6 +1116,8 @@ export default {
           `  SHEET_NOMBRE        ${env.SHEET_NOMBRE || "FALTA"}`,
           `  URL_CATALOGO        ${env.URL_CATALOGO && !/CAMBIA-ESTO/i.test(env.URL_CATALOGO) ? env.URL_CATALOGO : "FALTA"}`,
           `  WHATSAPP            ${String(env.WHATSAPP || "").replace(/\D/g, "") ? "puesto" : "sin poner (no sale el botón Comprar)"}`,
+          `  REDACCION_LIBRE     ${redaccionLibre(env) ? "si (la IA redacta viendo los equipos que salieron)" : "no (frases de siempre)"}`,
+          `  ANUNCIOS_EQUIPOS    ${equiposAsignados(env).size ? `${equiposAsignados(env).size} anuncio(s) con equipo puesto a mano` : "ninguno (ver /anuncios)"}`,
           `  HORARIOS            ${String(env.HORARIOS || "").trim() || "sin poner (lo confirma un asesor)"}`,
           `  METODOS_PAGO        ${String(env.METODOS_PAGO || "").trim() ? `puestos (${(String(env.METODOS_PAGO).replace(/\\n/g, "\n").match(/🔹|•/g) || []).length} métodos)` : "sin poner (lo confirma un asesor)"}`,
           `  PAUSA_HORAS         ${env.PAUSA_HORAS || `${PAUSA_HORAS_POR_DEFECTO} (por defecto)`}`,
@@ -1294,13 +1304,22 @@ export default {
       );
     }
 
+    // EL PANEL DE ANUNCIOS (2-oct-2026): el token, las cuentas, todos los
+    // anuncios activos con el equipo que manda el bot en cada uno, y
+    // cuántas personas llegaron por cada uno.
+    if (url.pathname === "/anuncios") {
+      return texto200(await panelDeAnuncios(env));
+    }
+
     if (url.pathname === "/probar-anuncio") {
       const id = (url.searchParams.get("id") || "").trim();
 
       if (!id) {
         return texto200(
           [
-            "Pasame el id de un anuncio asi:",
+            "TODOS tus anuncios activos, de una vez: /anuncios",
+            "",
+            "Para uno solo, pasame su id asi:",
             "  /probar-anuncio?id=120212345678901234",
             "",
             "El id sale en el Administrador de anuncios, en la columna",
@@ -1351,8 +1370,9 @@ export default {
       }
 
       const enElCatalogo = await catalogoCompleto(env);
+      const aMano = equipoAsignado(env, { id });
       const { estado, titulo: equipo, dicho } = queEquipoSenala(
-        `${leido.titulo} ${leido.texto}`,
+        aMano || `${leido.titulo} ${leido.texto}`,
         enElCatalogo
       );
       const queHara = {
@@ -3043,6 +3063,68 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   }
 
   const paraMostrar = sinSaberQueEs ? [] : fichas;
+
+  // LA IA REDACTA VIENDO LO QUE HAY (2-oct-2026, ver redactarConResultados
+  // en ia.js). Cuando hay fichas que enseñar, o cuando el código tuvo que
+  // cambiar lo que la IA había escrito a ciegas, se le pide la respuesta
+  // final con los resultados delante. Lo de antes queda de respaldo.
+  //
+  // No se usa donde la respuesta tiene que salir EXACTA o avisa a una
+  // persona: las tablas de pago, las preguntas de asesor (colores,
+  // garantía…), la publicación que no se sabe cuál es, la pregunta de marca.
+  const cambioElCodigo = respuestaCliente.trim() !== String(salida.respuesta || "").trim();
+  if (
+    redaccionLibre(env) &&
+    !sinSaberQueEs &&
+    !segundoMensaje &&
+    !esConsultaDeAsesor &&
+    !preguntarMarca &&
+    (paraMostrar.length > 0 || cambioElCodigo) &&
+    tiempoParaLaIa(rastro) > 4000
+  ) {
+    const redactada = await redactarConResultados(
+      env,
+      contextoParaRedactar({
+        // Sin su última línea: va aparte, en "lo que pide ahora".
+        conversacion: conversacion.slice(0, -1),
+        texto: textoCliente,
+        productos: paraMostrar,
+        queMostrar: soloTexto ? "texto" : modo,
+        paso: cambioElCodigo ? respuestaCliente : "",
+        borrador: salida.respuesta,
+        yaSeConocen: Boolean(historialPrevio),
+      }),
+      { esperaMs: tiempoParaLaIa(rastro) }
+    );
+
+    if (redactada) {
+      // Las mismas redes que a la primera: el tono, lo que no hay, los
+      // precios inventados, la puerta cerrada y la pregunta del precio.
+      let revisada = revisarTono(redactada).respuesta;
+      revisada = revisarDisponibilidad(revisada, enLaHojaAhora).respuesta;
+      revisada = sinCerrarLaPuerta(sinPreciosInventados(revisada, paraMostrar), paraMostrar);
+      revisada = revisarPrecio(revisada, { hayFichas: paraMostrar.length > 0, yaLasVio: soloTexto }).respuesta;
+      if (historialPrevio) revisada = sinBienvenida(revisada);
+      // Sin fichas debajo, una flecha que apunta a nada no puede salir.
+      if (!paraMostrar.length) revisada = revisada.replace(/\s*👇/g, "").trim();
+
+      // Lo que la redacción NO puede deshacer: lo que el código ya
+      // comprobó. Si dice que no hay con las fichas debajo, o promete fotos
+      // que no van, se queda la de siempre.
+      const contradice =
+        (paraMostrar.length > 0 && AFIRMA_QUE_NO_HAY.test(revisada) && !AFIRMA_QUE_NO_HAY.test(respuestaCliente)) ||
+        (!paraMostrar.length && /\baqu[ií]\s+(?:los?|las?)\s+tienes\b|\bte\s+(?:los?|las?)\s+muestro\b/i.test(revisada));
+      if (contradice) {
+        console.log(`La redacción contradecía la búsqueda (${JSON.stringify(revisada.slice(0, 100))}): va la de siempre`);
+      } else if (revisada) {
+        console.log(`La IA redactó viendo los resultados: ${JSON.stringify(revisada.slice(0, 160))}`);
+        respuestaCliente = revisada;
+      }
+    } else {
+      console.log("La redacción con resultados no salió: va la respuesta de siempre");
+    }
+  }
+
   const leDigo = sinSaberQueEs
     ? alAzar(PUBLICACION_SIN_IDENTIFICAR)
     : paraMostrar.length
@@ -3204,6 +3286,16 @@ async function publicacionDelTurno(env, mensaje, contacto) {
     // cuesta una llamada por anuncio, no una por cliente.
     const delAnuncio = anuncio?.id ? await detallesDelAnuncio(env, anuncio.id) : null;
 
+    // CUÁNTA GENTE TRAE CADA ANUNCIO (2-oct-2026): una persona por anuncio,
+    // aunque escriba diez veces. Se ve en /anuncios.
+    if (anuncio) await anotarLlegada(env.DB, anuncio, mensaje.igsid);
+
+    // EL EQUIPO DEL ANUNCIO, PUESTO A MANO (ANUNCIOS_EQUIPOS en
+    // wrangler.toml). Gana a todo lo demás: es el dueño diciendo "este
+    // anuncio es del Samsung A57", para los anuncios que no lo nombran.
+    const asignado = anuncio ? equipoAsignado(env, anuncio) : "";
+    if (asignado) console.log(`Anuncio ${anuncio.id || anuncio.ref}: equipo puesto a mano → "${asignado}"`);
+
     const delPost = anuncio?.publicacion
       ? await publicacionPorId(env, anuncio.publicacion)
       : null;
@@ -3215,9 +3307,11 @@ async function publicacionDelTurno(env, mensaje, contacto) {
             url: anuncio.foto || delAnuncio?.imagen || delPost?.imagen || "",
             // El título del anuncio, su texto y el pie del post:
             // cualquiera de los tres puede ser el que nombre el equipo.
-            titulo: [...new Set([anuncio.titulo, delAnuncio?.titulo, delAnuncio?.texto, delPost?.titulo])]
-              .filter(Boolean)
-              .join(" · "),
+            titulo: asignado
+              ? asignado
+              : [...new Set([anuncio.titulo, delAnuncio?.titulo, delAnuncio?.texto, delPost?.titulo])]
+                  .filter(Boolean)
+                  .join(" · "),
             enlace: delPost?.permalink || "",
           }
         : { url: "", titulo: "", enlace: enlaceEscrito };
@@ -3556,6 +3650,43 @@ function contexto(
 // Cuándo SÍ va la lista escrita: cuando el cliente pide una lista y no hay
 // fotos de por medio (ver lista.js). Por eso esto solo se aplica en el
 // momento de mandar fichas.
+// LA REDACCIÓN CON RESULTADOS SE APAGA CON REDACCION_LIBRE = "no" en
+// wrangler.toml (vuelven las frases de siempre). Por defecto, encendida.
+function redaccionLibre(env) {
+  return !/^(no|off|false|0)$/i.test(String(env?.REDACCION_LIBRE || "").trim());
+}
+
+// Lo que recibe la IA para redactar con los resultados delante.
+function contextoParaRedactar({ conversacion = [], texto, productos, queMostrar, paso, borrador, yaSeConocen }) {
+  const charla = conversacion
+    .slice(-8)
+    .map((l) => `${l.de === "bot" ? "Tú" : "Cliente"}: ${String(l.texto || "").slice(0, 300)}`)
+    .join("\n");
+  const fichas = productos.length
+    ? productos
+        .slice(0, 10)
+        .map((p) => `- ${p.titulo}${p.capacidad ? ` (${p.capacidad})` : ""}${p.precio ? ` · ${p.precio}` : ""}`)
+        .join("\n")
+    : queMostrar === "texto"
+      ? "(nada nuevo: ya las vio antes y esta vez la respuesta va solo en texto)"
+      : "(nada: no van fichas debajo de tu mensaje)";
+  return [
+    "LA CONVERSACIÓN:",
+    charla || "(es su primer mensaje)",
+    "",
+    `LO QUE PIDE AHORA: ${texto || "(sin texto)"}`,
+    "",
+    "LO QUE SE LE VA A ENSEÑAR:",
+    fichas,
+    "",
+    `LO QUE PASÓ CON LA BÚSQUEDA: ${paso || "Lo que se le enseña es lo que pidió."}`,
+    "",
+    `TU BORRADOR: ${borrador || "(vacío)"}`,
+    "",
+    yaSeConocen ? "[YA SE CONOCEN: no saludes]" : "[PRIMER MENSAJE: conserva la bienvenida del borrador]",
+  ].join("\n");
+}
+
 // ¿La respuesta promete enseñar algo, o el cliente pidió verlo? (Ver "TE
 // LOS MUESTRO TIENE QUE TRAER FOTOS" en atenderMeta.)
 const PROMETE_FOTOS =
@@ -3930,6 +4061,118 @@ const PIDE_OTROS = /\b(otros?|otras?|dem[aá]s|m[aá]s\s+(modelos|opciones|equip
 function relacionConElTexto(texto, titulo) {
   if (!partesDelTitulo(titulo) || tipoDelProducto(titulo) !== "telefono") return "mismo";
   return parentesco(texto, titulo);
+}
+
+/* ── EL PANEL DE ANUNCIOS: /anuncios (2-oct-2026) ──────────────────
+   Todo lo que hay que saber de los anuncios en una pantalla, en el orden
+   en que se arregla: primero si el token sirve, después las alertas
+   (anuncios que traen gente a un equipo AGOTADO o que el bot no sabe cuál
+   es), y después cada anuncio activo con lo que el bot le manda a quien
+   llega y cuántas personas llegaron.
+   ───────────────────────────────────────────────────────────────── */
+function haceCuanto(ms) {
+  if (!ms) return "nunca";
+  const min = Math.round((Date.now() - ms) / 60000);
+  if (min < 60) return `hace ${min} min`;
+  if (min < 48 * 60) return `hace ${Math.round(min / 60)} h`;
+  return `hace ${Math.round(min / 1440)} días`;
+}
+
+const PASOS_DEL_TOKEN = [
+  "CÓMO SE SACA EL ADS_TOKEN (una vez, y no caduca):",
+  "  1. business.facebook.com → Configuración del negocio → Usuarios →",
+  "     Usuarios del sistema → Agregar (rol: Administrador).",
+  "  2. En ese usuario: Asignar activos → Cuentas publicitarias → tu cuenta",
+  "     → 'Ver rendimiento'. Y también Apps → la app del bot.",
+  "  3. Generar token → elige la app del bot → marca ads_read y",
+  "     business_management → Caducidad: Nunca.",
+  "  4. npx.cmd wrangler secret put ADS_TOKEN   (y pega el token)",
+  "",
+  "La app y la cuenta publicitaria tienen que estar en el MISMO portafolio",
+  "comercial. Si el anuncio se creó desde la app de Instagram (Promocionar),",
+  "la cuenta publicitaria igual existe: está en ese portafolio.",
+];
+
+async function panelDeAnuncios(env) {
+  const lineas = [`ANUNCIOS DE LA TIENDA · ${VERSION}`, ""];
+  const token = await revisarTokenDeAnuncios(env);
+
+  lineas.push("EL TOKEN (ADS_TOKEN)");
+  if (!token.ok) {
+    lineas.push(`  ✗ ${token.problema}`, "", ...PASOS_DEL_TOKEN, "");
+  } else {
+    lineas.push(
+      `  ✓ funciona (${token.quien})` + (token.permisos.length ? ` · permisos: ${token.permisos.join(", ")}` : ""),
+      ""
+    );
+  }
+
+  if (token.cuentas.length) {
+    lineas.push("CUENTAS PUBLICITARIAS QUE VE");
+    for (const c of token.cuentas) lineas.push(`  ${c.id}  ${c.nombre}${c.estado ? ` (${c.estado})` : ""}`);
+    lineas.push("");
+  }
+
+  const llegadas = await llegadasPorAnuncio(env.DB);
+  const aMano = equiposAsignados(env);
+  const hoja = await catalogoCompleto(env);
+  const { anuncios, errores } = token.cuentas.length ? await anunciosActivos(env, token.cuentas) : { anuncios: [], errores: [] };
+  for (const e of errores) lineas.push(`  ✗ ${e}`);
+
+  const alertas = [];
+  const detalle = [];
+  anuncios.forEach((a, i) => {
+    const puesto = aMano.get(String(a.id).toLowerCase()) || "";
+    const { estado, titulo: equipo, dicho } = queEquipoSenala(puesto || `${a.titulo} ${a.texto}`, hoja);
+    const llego = llegadas.get(String(a.id));
+    const queHace =
+      estado === "exacto"
+        ? `✓ manda el ${equipo}${puesto ? " (puesto a mano)" : ""}`
+        : estado === "agotado"
+          ? `⚠ es del "${dicho}", que HOY NO ESTÁ en la hoja: le dice que no está y le muestra ${equipo}`
+          : estado === "varios"
+            ? "· nombra varios teléfonos: no impone ninguno, mira la imagen y lo que escriba el cliente"
+            : `⚠ NO RECONOCE EL EQUIPO: saluda y pregunta. Arréglalo en wrangler.toml:
+        ANUNCIOS_EQUIPOS = "${a.id}=Nombre tal como está en la hoja"`;
+
+    if (estado === "agotado") alertas.push(`"${a.nombre}" trae gente al ${dicho}, que está AGOTADO. Páusalo o cámbiale el equipo.`);
+    if (!estado) alertas.push(`"${a.nombre}" (${a.id}): el bot no sabe de qué equipo es.`);
+    if (puesto && estado !== "exacto") alertas.push(`"${a.nombre}": el equipo puesto a mano ("${puesto}") no está en la hoja.`);
+
+    detalle.push(
+      `${i + 1}. ${a.nombre || "(sin nombre)"}${a.campana ? `  ·  campaña: ${a.campana}` : ""}`,
+      `     id ${a.id}`,
+      `     Dice: ${[a.titulo, a.texto].filter(Boolean).join(" — ").replace(/\s+/g, " ").slice(0, 160) || "(sin texto: el bot mira la imagen)"}`,
+      `     ${queHace}`,
+      `     Llegaron: ${llego ? `${llego.personas} persona(s), ${llego.semana} esta semana · la última ${haceCuanto(llego.ultima)}` : "nadie todavía"}`,
+      ""
+    );
+  });
+
+  if (alertas.length) lineas.push("⚠ PARA REVISAR", ...alertas.map((x) => `  · ${x}`), "");
+  if (token.ok) {
+    lineas.push(`ANUNCIOS ACTIVOS (${anuncios.length})`, "");
+    lineas.push(...(detalle.length ? detalle : ["  No hay ningún anuncio activo ahora mismo.", ""]));
+  }
+
+  // Lo que llegó por anuncios que no están en la lista: ya terminaron, o se
+  // contaron por su "ref" o su título (sin token).
+  const activos = new Set(anuncios.map((a) => String(a.id)));
+  const otros = [...llegadas.entries()].filter(([clave]) => !activos.has(clave));
+  if (otros.length) {
+    lineas.push("LLEGADAS POR OTROS ANUNCIOS (terminados o sin id)");
+    for (const [clave, l] of otros.sort((x, y) => y[1].ultima - x[1].ultima).slice(0, 20)) {
+      lineas.push(`  ${clave}: ${l.personas} persona(s) · la última ${haceCuanto(l.ultima)}`);
+    }
+    lineas.push("");
+  }
+
+  lineas.push(
+    "PARA PROBAR UNO SOLO: /probar-anuncio?id=ID_DEL_ANUNCIO",
+    "EQUIPO A MANO: ANUNCIOS_EQUIPOS en wrangler.toml (id=Equipo | ref=Equipo)",
+    ""
+  );
+  return lineas.join("\n");
 }
 
 // QUÉ EQUIPO SEÑALA EL TEXTO DE UN ANUNCIO O UNA PUBLICACIÓN.

@@ -16,6 +16,7 @@
 import promptTexto from "./prompts/texto.txt";
 import listaCatalogo from "./prompts/catalogo.txt";
 import promptVision from "./prompts/vision.txt";
+import promptRedactar from "./prompts/redactar.txt";
 
 // La lista de nombres vive en un archivo aparte (prompts/catalogo.txt) y se
 // pega dentro de texto.txt al arrancar, donde dice {{CATALOGO}}. Así hay UN
@@ -194,7 +195,7 @@ async function llamar(
   env,
   sistema,
   contenido,
-  { maxTokens = 1024, json = true, schema = null, modelo = "", esperaMs = ESPERA_OPENAI_MS } = {}
+  { maxTokens = 1024, json = true, schema = null, modelo = "", esperaMs = ESPERA_OPENAI_MS, temperatura = null } = {}
 ) {
   const elModelo = modelo || env.OPENAI_MODELO || MODELO_POR_DEFECTO;
 
@@ -222,9 +223,11 @@ async function llamar(
   // rechazan el parámetro, y mandárselo tumbaría la llamada.
   if (/^gpt-(4|3)/i.test(elModelo)) {
     const pedida = Number(env.OPENAI_TEMPERATURA);
-    cuerpo.temperature = Number.isFinite(pedida) && env.OPENAI_TEMPERATURA !== undefined && env.OPENAI_TEMPERATURA !== ""
-      ? pedida
-      : TEMPERATURA_POR_DEFECTO;
+    cuerpo.temperature = Number.isFinite(temperatura)
+      ? temperatura
+      : Number.isFinite(pedida) && env.OPENAI_TEMPERATURA !== undefined && env.OPENAI_TEMPERATURA !== ""
+        ? pedida
+        : TEMPERATURA_POR_DEFECTO;
   }
 
   // "schema" (json_schema + strict) manda sobre "json" (json_object) — es
@@ -331,6 +334,31 @@ export async function responderTexto(env, entrada, { esperaMs } = {}) {
     schema: ESQUEMA_RESPUESTA,
   });
   return normalizar(salida);
+}
+
+// LA IA REDACTA VIENDO LO QUE HAY (2-oct-2026).
+//
+// El dueño: "necesito que responda mejor y que no sea todo predeterminado;
+// sé que puede cagarla, pero vamos a darle rienda". La primera llamada
+// (responderTexto) escribe ANTES de buscar, sin saber qué hay, y por eso
+// el código le cambiaba tantas respuestas por frases fijas ("¡Claro! Aquí
+// lo tienes", "ese no lo tengo, pero…"). Esta segunda llamada escribe
+// DESPUÉS de buscar, con lo que de verdad se le va a enseñar y con la
+// verdad sobre su pedido delante. Las frases fijas quedan de respaldo: si
+// esto falla o no da el tiempo, sale la de siempre.
+//
+// Más suelta que la primera (REDACCION_TEMPERATURA, por defecto 0.7): su
+// trabajo es sonar a persona, no elegir un término de búsqueda.
+export async function redactarConResultados(env, contenido, { esperaMs } = {}) {
+  const pedida = Number(env.REDACCION_TEMPERATURA);
+  const salida = await llamar(env, promptRedactar, [{ type: "text", text: contenido }], {
+    maxTokens: 300,
+    esperaMs,
+    temperatura: Number.isFinite(pedida) && env.REDACCION_TEMPERATURA !== "" && env.REDACCION_TEMPERATURA !== undefined ? pedida : 0.7,
+  });
+  const datos = extraerJson(salida);
+  const respuesta = String(datos?.respuesta || "").replace(/\\n/g, "\n").trim();
+  return respuesta || null;
 }
 
 // SOLO identifica: no redacta nada para el cliente. Devuelve

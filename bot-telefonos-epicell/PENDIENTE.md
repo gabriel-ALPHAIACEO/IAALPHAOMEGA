@@ -1,5 +1,23 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: v20 — los anuncios y una IA menos de plantilla (2-oct-2026)
+
+- **/anuncios**: si el `ADS_TOKEN` sirve (y si no, qué le falta exactamente
+  y cómo sacar uno que no caduca), las cuentas publicitarias, TODOS los
+  anuncios activos con el equipo que manda el bot en cada uno, alertas de
+  anuncios que traen gente a un equipo agotado o que el bot no reconoce, y
+  cuántas personas llegaron por cada anuncio (tabla `anuncios_clientes`,
+  se crea sola).
+- **ANUNCIOS_EQUIPOS** (wrangler.toml): el equipo de un anuncio puesto a
+  mano, por id o por ref. Gana a todo.
+- **La IA redacta viendo lo que hay** (`REDACCION_LIBRE`, prompt
+  `src/prompts/redactar.txt`): cuando hay fichas o el código tuvo que
+  corregirla, una segunda llamada escribe la respuesta final con los
+  equipos reales y lo que pasó con la búsqueda delante. Las frases fijas
+  quedan de respaldo; las redes revisan lo que escriba, y si contradice la
+  búsqueda se descarta.
+- Pruebas: `pruebas/panel.mjs` y más casos en `pruebas/sesion.mjs`.
+
 ## Hecho: v18 — la versión del dueño + lo del 2-oct-2026
 
 **OJO, de dónde viene esta carpeta.** El 2-oct se entregaron una v16 y una
