@@ -173,6 +173,43 @@ function despejar(texto) {
     );
 }
 
+// "¿TIENEN CATÁLOGO DE ZAPATOS DE DAMA?" (2-oct-2026).
+//
+// EL FALLO. El dueño vio que la IA "en ocasiones dice que no hay catálogo".
+// pideElCatalogo() es estricto a propósito: solo salta cuando el mensaje
+// es SOLO el pedido ("mándame el catálogo"). En cuanto el cliente añade algo
+// —"hola, tienen catálogo de zapatos de dama?"— el mensaje lo contesta la
+// IA, y el prompt le decía que el enlace "lo manda otro mensaje y tú ni te
+// enteras". Ese otro mensaje no llegaba nunca, y la IA, sin enlace que dar,
+// terminaba diciendo que no hay catálogo.
+//
+// AHORA: si el cliente NOMBRA el catálogo (o pide el link) y no se le está
+// enseñando ningún producto, el botón del catálogo sale debajo de lo que
+// escribió la IA. Y si la IA aun así escribe que no hay catálogo, esa frase
+// se cambia: el catálogo existe y se le manda.
+const NOMBRA_EL_CATALOGO =
+  /\bcat[aá]logos?\b|\b(?:link|enlace)\s+(?:de\s+la\s+tienda|del\s+cat[aá]logo|de\s+la\s+p[aá]gina)\b|\bp[aá]gina\s+web\b|\btienda\s+(?:online|virtual|en\s+l[ií]nea)\b/i;
+
+export function nombraElCatalogo(texto) {
+  return NOMBRA_EL_CATALOGO.test(String(texto || ""));
+}
+
+const NIEGA_EL_CATALOGO =
+  /\bno\s+(?:tengo|tenemos|hay|contamos\s+con|manejo|manejamos|dispongo|disponemos)\s+(?:de\s+)?(?:un\s+|el\s+|ning[uú]n\s+|catálogo\s+)?cat[aá]logo|\bno\s+(?:puedo|podemos|logro)\s+(?:enviarte|mandarte|pasarte|compartirte|darte|enviar|mandar|pasar|compartir)\s+(?:el\s+|un\s+|tu\s+)?(?:cat[aá]logo|link|enlace)|\bno\s+(?:tengo|tenemos|hay)\s+(?:un\s+|el\s+|ning[uú]n\s+)?(?:link|enlace)\b|\bcat[aá]logo\s+no\s+(?:est[aá]|lo\s+tengo|disponible)/i;
+
+export function niegaElCatalogo(respuesta) {
+  return NIEGA_EL_CATALOGO.test(String(respuesta || ""));
+}
+
+// Quita las frases que niegan el catálogo, y deja el resto de lo que dijo.
+export function sinNegarElCatalogo(respuesta) {
+  return String(respuesta || "")
+    .split(/(?<=[.!?😊😅🙌👇])\s+/)
+    .filter((frase) => !niegaElCatalogo(frase))
+    .join(" ")
+    .trim();
+}
+
 // BOTAS: TÁCTICAS O DE BÁSQUET (30-sep-2026).
 //
 // EL FALLO. En este catálogo "bota" solo aparece en "Bota táctica" (y en

@@ -70,7 +70,15 @@ import { gastoDelMes } from "./gasto.js";
 import { buscarProductos } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
-import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo, corregirBusquedaDeBotas } from "./catalogo.js";
+import {
+  pideElCatalogo,
+  pideMasVariedad,
+  fraseDeCatalogo,
+  corregirBusquedaDeBotas,
+  nombraElCatalogo,
+  niegaElCatalogo,
+  sinNegarElCatalogo,
+} from "./catalogo.js";
 import { alternativasPara } from "./parecidos.js";
 import { separarColor, filtrarPorColor, terminoDeColor, nombreDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
@@ -111,7 +119,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-09-30 (39) · reconocimiento: primera ronda dentro de la marca, pista media primero, Waffle vs P6000, color principal del titulo";
+const VERSION = "2026-10-02 (40) · catalogo: si el cliente lo nombra sale el boton, y la IA ya no dice que no hay catalogo";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1632,10 +1640,26 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // se pausaba solo. Por eso pasaba con "¿me recomiendas algún calzado?" y
   // no con un "hola": solo estas respuestas mandan dos cosas. mandar()
   // guarda cada envío en el momento y cierra esa ventana.
+  // EL CATÁLOGO EXISTE (2-oct-2026, ver catalogo.js). Si el cliente lo
+  // nombró —"¿tienen catálogo de dama?"— y no se le enseña ningún zapato,
+  // va el botón debajo de lo que dijo la IA. Y si la IA escribió que no hay
+  // catálogo, esa frase se quita (o se cambia por una que lo ofrece).
+  let mandarCatalogo = false;
+  if (niegaElCatalogo(respuestaCliente)) {
+    const limpia = sinNegarElCatalogo(respuestaCliente);
+    console.log(`La IA dijo que no hay catálogo ("${respuestaCliente.slice(0, 80)}"): lo corrijo`);
+    respuestaCliente = limpia || (productos.length ? "¡Claro! Mira 👇" : fraseDeCatalogo(nombre));
+    if (!productos.length) mandarCatalogo = true;
+  }
+  if (!imagenCruda && !productos.length && nombraElCatalogo(mensaje.texto)) {
+    mandarCatalogo = true;
+    console.log("El cliente nombró el catálogo: va el botón debajo de la respuesta");
+  }
+
   if (productos.length) {
     await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
     await mandar(() => enviarFichas(env, mensaje.igsid, productos));
-  } else if (buscoSinExito || seAcabaron || hayMasDelCatalogo) {
+  } else if (buscoSinExito || seAcabaron || hayMasDelCatalogo || mandarCatalogo) {
     // Tres motivos distintos, misma salida: el cliente quería ver algo y no
     // hay nada (más) que enseñarle en una ficha. Ahí el enlace de la tienda
     // sí es una ayuda — incluido cuando SÍ hay más, pero no caben en un

@@ -87,8 +87,12 @@ const FUERA_DE_FECHA = Date.parse("2026-10-10T12:00:00-04:00");
 
 const { revisarDatoDeLaTienda } = await src.cargar("datos.js");
 
+const { niegaElCatalogo, sinNegarElCatalogo } = await src.cargar("catalogo.js");
+
 const GUARDIANES = [
   ["pagos.js", revisarPagos],
+  // La red del 2-oct: si la IA dice que no hay catálogo, se corrige.
+  ["catalogo.js (que no niegue el catálogo)", (t) => ({ corregido: niegaElCatalogo(t), respuesta: sinNegarElCatalogo(t) })],
   ["datos.js (envíos, delivery, horario, empleo)", (t) => revisarDatoDeLaTienda(t)],
   ["cashea.js (promoción en fecha)", (t) => revisarCashea(t, EN_FECHA)],
   ["cashea.js (promoción fuera de fecha)", (t) => revisarCashea(t, FUERA_DE_FECHA)],

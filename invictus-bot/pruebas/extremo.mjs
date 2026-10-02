@@ -138,7 +138,8 @@ async function conversar(texto, { respuestaModelo, ahora, productos = [], sesion
   }
 
   const textos = enviados.map((m) => m.text || m.attachment?.payload?.text || JSON.stringify(m.attachment?.payload || m));
-  return { textos, todo: textos.join("\n---\n"), slack, registro: registro.join("\n") };
+  const botones = enviados.flatMap((m) => m.attachment?.payload?.buttons || []).map((b) => `${b.title} → ${b.url || ""}`);
+  return { textos, todo: textos.join("\n---\n"), slack, registro: registro.join("\n"), botones };
 }
 
 const HOY = Date.parse("2026-09-30T19:00:00-04:00");
@@ -248,6 +249,42 @@ for (const [texto, inventa, espera] of [
 ]) {
   const r = await conversar(texto, { respuestaModelo: { respuesta: inventa, buscar: "NADA", historial: "x" } });
   ok(espera.test(r.todo) && !r.todo.includes(inventa), `"${texto}" con invento → texto fijo`, r.todo.slice(0, 60));
+}
+
+titulo('"¿tienen catálogo de dama?": la IA ya no dice que no hay catálogo (2-oct)');
+{
+  const r = await conversar("hola, tienen catalogo de zapatos de dama?", {
+    respuestaModelo: { respuesta: "¡Hola! No tengo un catálogo para enviarte, pero dime qué modelo buscas 😊", buscar: "NADA", historial: "Pidió catálogo de dama." },
+  });
+  ok(!/No tengo un catálogo/.test(r.todo), "la frase 'no tengo un catálogo' NO le llega", r.todo.slice(0, 100));
+  ok(r.botones.some((b) => /Ver catálogo → https:\/\/tienda\.test/.test(b)), "le llega el botón 'Ver catálogo' con el enlace de la tienda", r.botones.join(" | "));
+
+  const bien = await conversar("me pasas el catalogo de cholas porfa", {
+    respuestaModelo: { respuesta: "¡Claro! Aquí tienes el catálogo 👇", buscar: "NADA", historial: "Pidió catálogo de cholas." },
+  });
+  ok(/Aquí tienes el catálogo/.test(bien.todo) && bien.botones.some((b) => /Ver catálogo/.test(b)), "si lo pide con más palabras, la IA contesta y el botón sale debajo", bien.botones.join(" | "));
+
+  const normal = await conversar("tienen jordan 4?", {
+    productos: JORDAN,
+    respuestaModelo: { respuesta: "¡Sí tengo! Mira 👇", buscar: "Retro 4", historial: "Pidió Retro 4." },
+  });
+  ok(!normal.botones.some((b) => /Ver catálogo/.test(b)), "y una búsqueda normal sigue SIN botón de catálogo (regla 6)", normal.botones.join(" | "));
+
+  const src = await prepararSrc();
+  const K = await src.cargar("catalogo.js");
+  for (const t of ["tienen catalogo?", "hola, tienen catálogo de dama", "pásame el link de la tienda", "tienen página web?", "catalogo de cholas"]) {
+    ok(K.nombraElCatalogo(t), `"${t}" → nombra el catálogo`);
+  }
+  for (const t of ["me pasas el link de pago", "tienen jordan 4?", "te mando el enlace del comprobante", "cuánto cuesta"]) {
+    ok(!K.nombraElCatalogo(t), `"${t}" → no es pedir el catálogo`);
+  }
+  for (const t of ["No tengo un catálogo para enviarte", "Lo siento, no tenemos catálogo", "No puedo enviarte el catálogo", "no hay catálogo por ahora", "No tengo link de la tienda"]) {
+    ok(K.niegaElCatalogo(t), `atrapa "${t}"`);
+  }
+  for (const t of ["¡Claro! Aquí tienes el catálogo 👇", "Mira el catálogo completo 👇", "No tengo ese modelo, pero mira estos 👟"]) {
+    ok(!K.niegaElCatalogo(t), `deja pasar "${t}"`);
+  }
+  src.limpiar();
 }
 
 titulo("la talla sigue yendo al asesor");
