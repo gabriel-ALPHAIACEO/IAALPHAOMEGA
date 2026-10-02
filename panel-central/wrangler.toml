@@ -1,6 +1,10 @@
 name = "panel-central"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
+# Para poder hablar con las tiendas que están en ESTA MISMA cuenta de
+# Cloudflare (Invictus): sin esto, Cloudflare corta la llamada de un Worker
+# a otro de la misma cuenta por workers.dev (error 1042).
+compatibility_flags = ["global_fetch_strictly_public"]
 
 # ── EL PANEL CENTRAL ──────────────────────────────────────────────────
 # Este Worker NO atiende clientes: solo mira todas las tiendas y las junta

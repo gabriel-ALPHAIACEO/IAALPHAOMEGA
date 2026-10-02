@@ -63,6 +63,7 @@ const ENV_C = {
 
 let caidaViva = false;
 let caidaVieja = false; // la tienda con la versión vieja: a todo responde 200 "ok"
+let caida1042 = false; // lo que contesta Cloudflare a un Worker que llama a otro de su misma cuenta
 let modelo = { pienso: "", mostrar: "texto", voz: false, respuesta: "Hola", buscar: "NADA", historial: "" };
 const tareas = [];
 const ctx = { waitUntil: (p) => tareas.push(p) };
@@ -74,6 +75,7 @@ globalThis.fetch = async (url, op = {}) => {
   if (u.host === "otra.test") return W2.fetch(pedido(), ENV2, ctx);
   if (u.host === "caida.test") {
     if (caidaVieja) return new Response("ok", { status: 200 });
+    if (caida1042) return new Response("error code: 1042", { status: 404 });
     if (!caidaViva) throw new TypeError("fetch failed");
     return new Response(JSON.stringify({ ok: true, version: "2026-10-02 (9) · volvió" }), { status: 200 });
   }
@@ -407,6 +409,14 @@ titulo("una tienda con la versión vieja (responde 200 'ok' a todo)");
   const inicio = await abrir("/");
   ok(/versión vieja/.test(inicio.html) && /Invictus/.test(inicio.html), "el inicio dice que esa tienda tiene la versión vieja, y enseña las demás");
   caidaVieja = false;
+}
+
+titulo("una tienda en la misma cuenta de Cloudflare (error 1042)");
+{
+  caida1042 = true;
+  const r = await abrir("/t/caida");
+  ok(r.estado === 200 && /error 1042/.test(r.html) && /global_fetch_strictly_public/.test(r.html), "lo dice claro y con el arreglo (no 'versión vieja')");
+  caida1042 = false;
 }
 
 fs.rmSync(copia, { recursive: true, force: true });

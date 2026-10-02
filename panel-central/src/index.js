@@ -57,7 +57,7 @@ import {
   vistaEnPausa,
 } from "./vistas.js";
 
-const VERSION = "2026-10-02 (4) · ALPHA IA: una tienda con la versión vieja ya no tumba el panel";
+const VERSION = "2026-10-02 (5) · ALPHA IA: conecta con las tiendas de la misma cuenta de Cloudflare";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");

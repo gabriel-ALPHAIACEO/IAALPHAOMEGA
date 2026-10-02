@@ -58,10 +58,19 @@ export async function pedir(env, tienda, ruta, { metodo = "GET", cuerpo = null, 
       body: cuerpo ? JSON.stringify(cuerpo) : null,
       signal: AbortSignal.timeout(espera),
     });
-    const datos = await r.json().catch(() => null);
+    const texto = await r.text().catch(() => "");
+    let datos = null;
+    try {
+      datos = JSON.parse(texto);
+    } catch {}
     if (!r.ok) {
-      const motivo =
-        r.status === 401
+      // Error 1042 de Cloudflare: un Worker no puede llamar por workers.dev a
+      // otro de LA MISMA CUENTA. Pasó el 2-oct con Invictus (los dos en
+      // invictusshoes.workers.dev) y parecía "versión vieja".
+      const misma = /\b1042\b/.test(texto) || /error code: 1042/i.test(texto);
+      const motivo = misma
+        ? "Cloudflare no deja que dos Workers de la misma cuenta se hablen por workers.dev (error 1042): añade compatibility_flags = [\"global_fetch_strictly_public\"] al wrangler.toml del panel y despliégalo"
+        : r.status === 401
           ? "la clave no coincide con la PANEL_API_CLAVE de la tienda"
           : r.status === 403
             ? "la tienda no tiene puesta su PANEL_API_CLAVE"

@@ -1,6 +1,10 @@
 name = "invictus-bot"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
+# Para que los avisos en tiempo real lleguen al panel central, que está en
+# esta misma cuenta de Cloudflare: sin esto, Cloudflare corta la llamada de
+# un Worker a otro de la misma cuenta por workers.dev (error 1042).
+compatibility_flags = ["global_fetch_strictly_public"]
 
 # Permite importar los prompts como texto (import promptTexto from "./prompts/texto.txt")
 [[rules]]
