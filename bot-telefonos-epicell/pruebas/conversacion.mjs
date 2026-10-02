@@ -24,7 +24,7 @@ export function nuevaSesion() {
 
 // Un mensaje del cliente, de punta a punta. "modelo" es lo que contesta la
 // IA de texto.
-async function conversar(texto, { modelo, sesion = nuevaSesion(), audio = false, transcripcion = "", fallaTranscripcion = false } = {}) {
+async function conversar(texto, { modelo, sesion = nuevaSesion(), audio = false, transcripcion = "", fallaTranscripcion = false, hoja = HOJA } = {}) {
   const src = await prepararSrc();
   const { default: worker } = await src.cargar("index.js");
   const enviados = [], llamadasIA = [], transcripciones = [], habladas = [];
@@ -52,7 +52,7 @@ async function conversar(texto, { modelo, sesion = nuevaSesion(), audio = false,
       return new Response(JSON.stringify({ message_id: `mid-${Math.random()}` }), { status: 200 });
     }
     if (u.includes("graph.instagram.com")) return new Response(JSON.stringify({ name: "Ana", username: "ana" }), { status: 200 });
-    if (u.includes("docs.google.com")) return new Response(csvDe(HOJA), { status: 200, headers: { "content-type": "text/csv" } });
+    if (u.includes("docs.google.com")) return new Response(csvDe(hoja), { status: 200, headers: { "content-type": "text/csv" } });
     if (u.includes("hooks.slack.com")) return new Response("ok", { status: 200 });
     return new Response(new Uint8Array([0xff, 0xd8, 0xff]), { status: 200, headers: { "content-type": "image/jpeg" } });
   };
@@ -144,6 +144,30 @@ titulo("notas de voz: las escucha y contesta POR ESCRITO (nunca con voz)");
   const r = await conversar("", { audio: true, fallaTranscripcion: true, modelo: IA({}) });
   ok(/no logré escuchar tu nota de voz/.test(r.textos.join(" ")), "si no se puede escuchar, le pide con amabilidad que escriba", r.textos.join(" | "));
   ok(r.llamadasIA.length === 0, "y no le inventa una respuesta");
+}
+
+titulo("lo que NO hay en la hoja no se ofrece (caso real: iPhone por nota de voz)");
+{
+  const SIN_IPHONE = [
+    { titulo: "SAMSUNG GALAXY A55 8/256", precio: "$380", imagen: "https://cdn.test/a55.jpg" },
+    { titulo: "Samsung A57 12/512", precio: "$450", imagen: "https://cdn.test/a57.jpg" },
+    { titulo: "Redmi A7 pro 4/128", precio: "$120", imagen: "https://cdn.test/a7.jpg" },
+    { titulo: "Forro iPhone 15", precio: "$10", imagen: "https://cdn.test/forro.jpg" },
+  ];
+  const r = await conversar("", { hoja: SIN_IPHONE, audio: true, transcripcion: "hola tienes el iphone 15 pro max", modelo: IA({ respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 ¡Sí tenemos iPhone 15 Pro Max! 📱", buscar: "NADA" }) });
+  const alModelo = JSON.stringify(r.llamadasIA[0]?.messages || []);
+  ok(/NO HAY NINGÚN equipo de: iPhone/.test(alModelo), "la IA recibe, contado con TODA la hoja, que no hay ningún iPhone");
+  ok(/MARCAS DE TELÉFONO QUE HAY HOY[^"]*Samsung \(2\)/.test(alModelo), "y qué marcas sí hay", alModelo.match(/MARCAS DE TEL[^\\]*/)?.[0]);
+  ok(/De iPhone hay SOLO accesorios/.test(alModelo), "un forro de iPhone no cuenta como iPhone");
+  const dicho = r.textos.join(" | ");
+  ok(!/Sí tenemos iPhone/i.test(dicho) && /no tengo iPhone/.test(dicho) && /Samsung/.test(dicho), "si igual dice que hay, se corrige: no hay iPhone, pero hay Samsung", dicho);
+
+  const s = await conversar("tienes iphone 15?", { hoja: SIN_IPHONE, modelo: IA({ respuesta: "Déjame revisar los iPhone 15 📱", buscar: "iPhone 15" }) });
+  const dicho2 = s.textos.join(" | ");
+  ok(/no tengo iPhone/.test(dicho2) && !/asesor/.test(dicho2) && !/revisar/.test(dicho2), "si lo busca y no hay: se le dice claro, sin 'déjame confirmarlo con un asesor'", dicho2);
+
+  const t = await conversar("tienen samsung?", { hoja: SIN_IPHONE, modelo: IA({ respuesta: "¡Mira los Samsung! 📱", buscar: "Samsung" }) });
+  ok(t.carrusel === 1 && !/no tengo/.test(t.textos.join(" ")), "lo que sí hay se enseña normal");
 }
 
 titulo("Cashea: 'level 5' es nivel 5");

@@ -13,6 +13,8 @@
 // con el precio. Si algo no cuadra, abre /probar-hoja en tu Worker: te dice
 // exactamente qué columnas encontró y qué entendió.
 
+import { resumenDeMarcas } from "./disponible.js";
+
 // La respuesta se guarda en caché unos minutos: si no, cada mensaje de cada
 // cliente se descargaría la hoja entera.
 const MINUTOS_DE_CACHE = 5;
@@ -368,7 +370,13 @@ function otrasColumnas(fila, encabezados, indices) {
 // productos no cabe entera en un mensaje sin disparar el costo y el tiempo
 // de cada respuesta. El recorte es por tamaño de texto, así que da igual si
 // los títulos son cortos o largos.
-const MAXIMO_CARACTERES_CATALOGO = 6000;
+//
+// 2-oct-2026: de 6000 a 16000. El dueño: "debe saber TODO lo que está
+// disponible en el sheet". Con 6000 una hoja grande se cortaba y la IA no
+// veía el final. 16000 letras son unos 4000 tokens: menos de una décima de
+// centavo por mensaje con gpt-4o-mini. Y aunque se corte, el resumen de
+// marcas de arriba se cuenta con la hoja ENTERA (ver disponible.js).
+const MAXIMO_CARACTERES_CATALOGO = 16000;
 
 // TODO el catálogo, sin buscar nada.
 //
@@ -392,7 +400,9 @@ export async function listaDeTitulos(env, limite = MAXIMO_CARACTERES_CATALOGO) {
 
   if (!productos.length) return "(El catálogo está vacío ahora mismo.)";
 
-  const lineas = [];
+  // Primero, en dos líneas, qué marcas hay y cuáles NO (ver disponible.js).
+  const resumen = resumenDeMarcas(productos);
+  const lineas = resumen ? [resumen, ""] : [];
   let usados = 0;
   let cuantos = 0;
 
@@ -449,6 +459,9 @@ export async function diagnosticoHoja(env) {
     `  stock/cantidad      -> ${columnas.stock}`,
     "",
     `Productos visibles para el cliente: ${productos.length}`,
+    "",
+    // Lo mismo que lee la IA arriba del catálogo: qué marcas hay y cuáles no.
+    resumenDeMarcas(productos),
     "",
     // Lo que no encaja en ninguna columna conocida ya no se tira: entra en
     // la búsqueda y queda guardado. Verlo aquí evita la sorpresa de

@@ -82,12 +82,20 @@ const { revisarCuotas } = await src.cargar("cuotas.js");
 const { revisarTono } = await src.cargar("tono.js");
 const { revisarPrecio } = await src.cargar("precio.js");
 const { niegaElCatalogo, sinNegarElCatalogo } = await src.cargar("catalogo.js");
+const { revisarDisponibilidad } = await src.cargar("disponible.js");
+
+// Una hoja con un teléfono de cada marca de los ejemplos: con todo
+// disponible, la red de "lo que no hay" no puede tocar ninguna respuesta.
+const HOJA_CON_TODO = ["iPhone 15 128GB", "Samsung Galaxy S24", "Redmi Note 14", "Xiaomi 14", "Poco X6", "Infinix Hot 50",
+  "Tecno Spark 20", "Honor X8", "Motorola Moto G84", "Realme 12", "Huawei Nova 12", "Oppo A79", "ZTE Blade", "Nokia G42",
+  "Pixel 8", "OnePlus 12", "Itel A70", "Alcatel 1"].map((titulo) => ({ titulo }));
 
 const GUARDIANES = [
   ["cuotas.js (porcentajes de Cashea y Krece)", revisarCuotas],
   // Las redes del 2-oct (portadas de Invictus).
   ["tono.js (groserías, insultos, regaños)", revisarTono],
   ["catalogo.js (que no niegue el catálogo)", (t) => ({ corregido: niegaElCatalogo(t), respuesta: sinNegarElCatalogo(t) })],
+  ["disponible.js (lo que no hay en la hoja)", (t) => revisarDisponibilidad(t, HOJA_CON_TODO)],
   ["precio.js (con fichas)", (t) => revisarPrecio(t, { hayFichas: true })],
   ["precio.js (ya las vio)", (t) => revisarPrecio(t, { yaLasVio: true })],
 ];
@@ -129,6 +137,7 @@ ok(revisarCuotas("Con Cashea pagas 0% de inicial").corregido, "cuotas.js sigue v
 ok(revisarTono("No seas bruto").corregido, "tono.js sigue vivo");
 ok(revisarPrecio("¿Quieres saber el precio?", { hayFichas: true }).corregido, "precio.js sigue vivo");
 ok(niegaElCatalogo("No tenemos catálogo"), "catalogo.js sigue vivo");
+ok(revisarDisponibilidad("¡Sí tenemos iPhone!", [{ titulo: "Samsung A57" }]).corregido, "disponible.js sigue vivo");
 
 src.limpiar();
 terminar();

@@ -50,6 +50,7 @@ import {
 } from "./catalogo.js";
 import { revisarTono } from "./tono.js";
 import { revisarPrecio } from "./precio.js";
+import { revisarDisponibilidad, marcasNombradas, marcasQueHay, fraseDeMarcaQueNoHay } from "./disponible.js";
 import { transcribirAudio, notaDeVoz, PEDIR_QUE_ESCRIBA } from "./voz.js";
 import { pideVerLoRecomendado, productosRecomendados } from "./recomendados.js";
 import { separarColor } from "./color.js";
@@ -91,7 +92,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-02 (16) · escucha notas de voz (contesta por escrito), piensa antes de responder, 3 formas de responder, tono, precio en cada ficha";
+const VERSION = "2026-10-02 (17) · sabe que marcas hay y cuales no en la hoja, y no ofrece lo que no hay";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -1327,6 +1328,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const revisionDeTono = revisarTono(respuestaCliente);
   if (revisionDeTono.corregido) respuestaCliente = revisionDeTono.respuesta;
 
+  // LO QUE NO HAY EN LA HOJA NO SE OFRECE (2-oct-2026, ver disponible.js).
+  // Caso real: EPICELL no tiene iPhone, el dueño preguntó por uno con una
+  // nota de voz y la IA le habló como si hubiera.
+  const revisionDeDisponible = revisarDisponibilidad(respuestaCliente, await catalogoCompleto(env));
+  if (revisionDeDisponible.corregido) respuestaCliente = revisionDeDisponible.respuesta;
+
   // CÓMO RESPONDE: SOLO TEXTO, TEXTO CON FICHAS, O FICHAS (2-oct-2026,
   // portado de Invictus). La IA elige en "mostrar":
   //   texto              sin fichas (p. ej. Cashea de un equipo que ya vio)
@@ -1940,7 +1947,15 @@ async function decidir({
     // capacidad, no el producto.
     respuestaCliente = alAzar(SIN_DATO_DE_CAPACIDAD);
   } else if (buscoSinExito) {
-    respuestaCliente = SIN_RESULTADOS;
+    // Si pidió una marca que la hoja NO tiene (un iPhone, cuando no hay
+    // ninguno), se le dice claro y se le ofrece lo que sí hay: "déjame
+    // confirmarlo con un asesor" sería hacerlo esperar por algo que ya se
+    // sabe que no está.
+    const hoja = await catalogoCompleto(env);
+    const telefonos = marcasQueHay(hoja, { soloTelefonos: true });
+    const ausentes = hoja.length ? marcasNombradas(`${texto} ${termino}`).filter((m) => !telefonos.has(m)) : [];
+    respuestaCliente = ausentes.length ? fraseDeMarcaQueNoHay(ausentes, hoja) : SIN_RESULTADOS;
+    if (ausentes.length) console.log(`Pidió ${ausentes.join(", ")}, que no está en la hoja: se lo digo y le ofrezco lo que hay`);
   }
 
   return {
