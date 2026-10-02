@@ -76,6 +76,11 @@ export function enviarTexto(env, igsid, texto) {
   return enviar(env, igsid, { text: recortar(texto, 1000) });
 }
 
+// Una nota de voz (ver voz.js): Instagram la baja del enlace que se le da.
+export function enviarAudio(env, igsid, url) {
+  return enviar(env, igsid, { attachment: { type: "audio", payload: { url } } });
+}
+
 // Las fichas con foto son lo que en Make mandaba el módulo de plantilla
 // genérica. Instagram admite 10 como máximo.
 export function enviarFichas(env, igsid, productos) {
@@ -330,7 +335,7 @@ function recortar(texto, limite) {
 // Ahora que esta es la única app que atiende el webhook (sin ManyChat de
 // por medio), el texto suelto SÍ se atiende aquí: ya no hay un segundo
 // sistema que lo reciba y responda por su cuenta.
-const ACEPTADOS = new Set(["historia", "imagen", "texto", "eco"]);
+const ACEPTADOS = new Set(["historia", "imagen", "texto", "eco", "audio"]);
 
 export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
   const entrada = cuerpo?.entry?.[0];
@@ -376,8 +381,10 @@ export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
   const adjuntos = Array.isArray(mensaje.attachments) ? mensaje.attachments : [];
   const historia = leerHistoria(mensaje, adjuntos);
   const foto = primeraImagen(adjuntos);
+  // Las notas de voz (2-oct-2026): se transcriben en index.js (ver voz.js).
+  const audio = urlBuena(adjuntos.find((a) => a?.type === "audio")?.payload?.url);
 
-  const tipo = historia.url ? "historia" : foto ? "imagen" : "texto";
+  const tipo = historia.url ? "historia" : foto ? "imagen" : audio ? "audio" : "texto";
   if (!aceptar.has(tipo)) return descartar(`un mensaje de ${tipo}`);
 
   return {
@@ -387,6 +394,7 @@ export function leerMensaje(cuerpo, { aceptar = ACEPTADOS } = {}) {
     texto: String(mensaje.text || "").trim(),
     foto,
     historia,
+    audio: tipo === "audio" ? audio : "",
   };
 }
 

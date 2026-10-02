@@ -34,6 +34,8 @@
 const TARIFAS = {
   "gpt-4o": { entrada: 2.5, cacheada: 1.25, salida: 10 },
   "gpt-4o-mini": { entrada: 0.15, cacheada: 0.075, salida: 0.6 },
+  // Las notas de voz (voz.js): la entrada son los tokens del audio.
+  "gpt-4o-mini-transcribe": { entrada: 3, cacheada: 3, salida: 5 },
 };
 
 // Un modelo que no esté en la tabla se cobra como el grande. Es la

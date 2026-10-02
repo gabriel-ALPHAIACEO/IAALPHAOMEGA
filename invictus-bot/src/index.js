@@ -62,6 +62,15 @@ import {
 import { hayQueRescatar, FRASE_DE_RESCATE, MOTIVO_DE_RESCATE } from "./rescate.js";
 import { revisarTono } from "./tono.js";
 import {
+  transcribirAudio,
+  notaDeVoz,
+  PEDIR_QUE_ESCRIBA,
+  sintetizarVoz,
+  guardarNotaDeVoz,
+  leerNotaDeVoz,
+} from "./voz.js";
+import { anotarGasto } from "./gasto.js";
+import {
   hayUbicacion,
   mensajeDeUbicacion,
   preguntaPorUbicacion,
@@ -111,6 +120,7 @@ import {
   enviarFichas,
   enviarBotonCatalogo,
   enviarBotonEnlace,
+  enviarAudio,
   enviarTarjeta,
   revisarImagen,
   obtenerPerfil,
@@ -121,7 +131,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (44) · 3 casos: solo texto, texto con fotos, fotos con poco texto (ya no reenvia las fotos que ya vio)";
+const VERSION = "2026-10-02 (45) · notas de voz: las escucha y contesta; si le hablan con voz, contesta tambien con voz";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -511,6 +521,9 @@ export default {
       // le da el tiempo de esperar el cupo de OpenAI (ver cotejo.js).
       if (mensaje) {
         mensaje.recibidoEn = Date.now();
+        // De dónde se sirve el Worker: hace falta para el enlace de las
+        // notas de voz (Instagram baja el audio de /voz/<id>.wav).
+        mensaje.origen = url.origin;
         ctx.waitUntil(atenderConRed(env, mensaje));
       }
       return new Response("ok", { status: 200 });
@@ -559,6 +572,11 @@ export default {
           `  META_APP_SECRET     ${secreto("META_APP_SECRET")}   (la de Facebook)`,
           `  META_APP_SECRET_IG  ${secreto("META_APP_SECRET_IG")}   (la de Instagram ← es esta)`,
           `  IG_TOKEN            ${secreto("IG_TOKEN")}`,
+          "",
+          "NOTAS DE VOZ",
+          `  Escuchar             ${env.OPENAI_MODELO_AUDIO || "gpt-4o-mini-transcribe (por defecto)"}   (el audio del cliente se pasa a texto)`,
+          `  Contestar con voz    ${env.OPENAI_MODELO_VOZ || "gpt-4o-mini-tts (por defecto)"}, voz ${env.OPENAI_VOZ || "nova"}   (solo si el cliente habló con voz)`,
+          "  Para oír cómo suena: /probar-voz?texto=Hola, sí tengo las Jordan 4",
           "",
           "CONFIGURACIÓN (wrangler.toml)",
           `  META_MODO           ${env.META_MODO || "todo (por defecto)"}`,
@@ -726,6 +744,23 @@ export default {
 
     // Cómo queda la ubicación ANTES de que la vea un cliente, y por qué sale
     // rota la foto si sale rota (25-sep-2026).
+    // LAS NOTAS DE VOZ DEL BOT, para que Instagram las baje (ver voz.js).
+    const notaPedida = url.pathname.match(/^\/voz\/([a-f0-9]{16,64})\.wav$/);
+    if (notaPedida) {
+      const nota = await leerNotaDeVoz(env.DB, notaPedida[1]);
+      if (!nota) return new Response("no existe", { status: 404 });
+      return new Response(nota.datos, { status: 200, headers: { "content-type": nota.tipo, "cache-control": "public, max-age=86400" } });
+    }
+
+    // ESCUCHAR CÓMO SUENA EL BOT antes de que le hable a un cliente:
+    //   /probar-voz?texto=¡Hola! Sí tengo las Jordan 4, ¿te las muestro?
+    if (url.pathname === "/probar-voz") {
+      const texto = (url.searchParams.get("texto") || "¡Hola! Soy la asistente virtual de Invictus Shoes. Sí tengo las Jordan cuatro, ¿te las muestro?").trim();
+      const voz = await sintetizarVoz(env, texto);
+      if (!voz) return texto200("No se pudo generar la voz. Revisa OPENAI_API_KEY y `wrangler tail`.\n");
+      return new Response(voz.datos, { status: 200, headers: { "content-type": voz.tipo } });
+    }
+
     if (url.pathname === "/probar-ubicacion") {
       const u = mensajeDeUbicacion(env);
       const original = String(env.FOTO_LOCAL || "").trim();
@@ -1136,6 +1171,29 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     return;
   }
 
+  // UNA NOTA DE VOZ SE ESCUCHA Y SE ATIENDE COMO TEXTO (2-oct-2026, ver
+  // voz.js). Si no se puede escuchar, se le pide con amabilidad que escriba:
+  // nunca se queda sin respuesta.
+  let notaVoz = "";
+  if (mensaje.audio) {
+    const oido = await transcribirAudio(env, mensaje.audio, { anotar: (d) => anotarGasto(env, d) });
+    if (!oido.texto) {
+      console.error(`Voz: no pude transcribir la nota de ${mensaje.igsid}: ${oido.error}`);
+      await mandar(() => enviarTexto(env, mensaje.igsid, PEDIR_QUE_ESCRIBA));
+      await guardarContacto(env.DB, {
+        ...contacto,
+        nombre: contacto.nombre,
+        historial: conNota(contacto.historial, "Mandó una nota de voz que no se pudo escuchar: le pedí que escriba."),
+        mids_enviados: mids,
+        ultimo_envio: enviadoEn || Date.now(),
+      });
+      return;
+    }
+    console.log(`Voz: el cliente dijo (${oido.modelo}): ${JSON.stringify(oido.texto.slice(0, 200))}`);
+    mensaje.texto = [mensaje.texto, oido.texto].filter(Boolean).join(" ");
+    notaVoz = notaDeVoz();
+  }
+
   const esHistoria = mensaje.tipo === "historia";
   const imagenCruda = mensaje.historia.url || mensaje.foto || "";
 
@@ -1440,7 +1498,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     nombre,
     historialPrevio,
     textoCliente,
-    [marca, notaUbicacion, datoDeLaTienda ? notaDeDatoDeLaTienda(datoDeLaTienda) : ""].filter(Boolean).join("\n"),
+    [notaVoz, marca, notaUbicacion, datoDeLaTienda ? notaDeDatoDeLaTienda(datoDeLaTienda) : ""].filter(Boolean).join("\n"),
     esHistoria,
     minutosCallado
   );
@@ -1655,6 +1713,10 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   }
   const fichas = soloTexto ? [] : productos;
 
+  // Lo que dijo la IA, antes de pegarle la tarjeta de Cashea: es lo único
+  // que se lee en la nota de voz (los números de Cashea van por escrito).
+  const fraseDeLaIA = respuestaCliente;
+
   if (tarjetaDeCashea && !fichas.length && !buscoSinExito && !seAcabaron && !hayMasDelCatalogo) {
     respuestaCliente = respuestaCliente ? `${respuestaCliente}\n\n${tarjetaDeCashea}` : tarjetaDeCashea;
     tarjetaDeCashea = "";
@@ -1709,6 +1771,18 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   } else {
     // Conversación: preguntas, dudas, cortesías. Texto limpio, sin botón.
     await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
+  }
+
+  // LE HABLÓ CON VOZ, SE LE CONTESTA CON VOZ (2-oct-2026, ver voz.js).
+  // Además del texto, nunca en su lugar. Solo la frase de la IA: la tarjeta
+  // de Cashea, los precios y los métodos de pago siguen por escrito.
+  if (notaVoz && respuestaCliente && mensaje.origen) {
+    const voz = await sintetizarVoz(env, fraseDeLaIA || respuestaCliente);
+    if (voz) {
+      const id = await guardarNotaDeVoz(env.DB, voz);
+      await mandar(() => enviarAudio(env, mensaje.igsid, `${mensaje.origen}/voz/${id}.wav`));
+      console.log(`Voz: le contesté también con una nota de voz (${voz.texto.length} letras)`);
+    }
   }
 
   // La tarjeta de Cashea, cuando no fue dentro del mensaje de arriba: va
