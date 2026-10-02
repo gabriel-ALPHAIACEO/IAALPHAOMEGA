@@ -356,6 +356,11 @@ titulo("los 3 casos: solo texto, texto con fotos, fotos con poco texto (2-oct)")
     respuestaModelo: { pienso: "x", mostrar: "texto", respuesta: "¡Sí! Mira estas 👇", buscar: "Jordan 40", historial: "x" },
   });
   ok(carrusel(contradiccion) === 1, "si dice 'mira estas 👇' de algo que no ha visto, las fotos van aunque haya marcado 'texto'");
+  const nuevo = await conversar("hola tienes retro 4?", {
+    productos: J40,
+    respuestaModelo: { pienso: "x", mostrar: "texto", respuesta: "¡Sí, claro que tengo!", buscar: "Jordan 40", historial: "x" },
+  });
+  ok(carrusel(nuevo) === 1, "caso real (2-oct): marcó 'texto' pero los productos son NUEVOS para él → las fotos van igual");
 }
 
 titulo("la talla sigue yendo al asesor");

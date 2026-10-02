@@ -188,7 +188,7 @@ export async function transcribirAudio(env, url, { anotar = null } = {}) {
    CÓMO: OpenAI convierte el texto en voz (OPENAI_MODELO_VOZ, por defecto
    gpt-4o-mini-tts; voz OPENAI_VOZ, por defecto "nova"). Instagram necesita
    un ENLACE al audio, así que se guarda en D1 y lo sirve el propio Worker en
-   /voz/<id>.wav. Se borran solos al día siguiente.
+   /voz/<id>.aac. Se borran solos al día siguiente.
 
    Si algo falla, no pasa nada: el texto ya le llegó.
    ───────────────────────────────────────────────────────────────────── */
@@ -232,8 +232,11 @@ export async function sintetizarVoz(env, texto) {
         voice: env.OPENAI_VOZ || VOZ_POR_DEFECTO,
         input: decir,
         instructions: INSTRUCCIONES_VOZ,
-        // WAV: es el formato que Instagram acepta sin sorpresas.
-        response_format: "wav",
+        // AAC por defecto (2-oct-2026): el WAV pesaba ~10 veces más y servirlo
+        // pasaba el límite de CPU de Cloudflare ("Exceeded CPU Limit"), así
+        // que Instagram no lo podía bajar. VOZ_FORMATO lo cambia si hiciera
+        // falta ("mp3", "wav").
+        response_format: formatoDeVoz(env).openai,
       }),
     });
   } catch (error) {
@@ -244,16 +247,46 @@ export async function sintetizarVoz(env, texto) {
     console.error("Voz: OpenAI no generó el audio:", respuesta.status, (await respuesta.text()).slice(0, 200));
     return null;
   }
-  return { datos: await respuesta.arrayBuffer(), tipo: "audio/wav", texto: decir };
+  const f = formatoDeVoz(env);
+  return { datos: await respuesta.arrayBuffer(), tipo: f.tipo, extension: f.extension, texto: decir };
 }
 
+const FORMATOS_DE_VOZ = {
+  aac: { openai: "aac", tipo: "audio/aac", extension: "aac" },
+  mp3: { openai: "mp3", tipo: "audio/mpeg", extension: "mp3" },
+  wav: { openai: "wav", tipo: "audio/wav", extension: "wav" },
+};
+
+export function formatoDeVoz(env = {}) {
+  return FORMATOS_DE_VOZ[String(env.VOZ_FORMATO || "aac").toLowerCase()] || FORMATOS_DE_VOZ.aac;
+}
+
+// EL AUDIO SE GUARDA EN BASE64 (TEXTO), NO COMO BLOB (2-oct-2026). D1
+// devuelve los BLOB como una lista de números, y convertir cientos de miles
+// de números en bytes al servirlo se comía el límite de CPU. Un texto en
+// base64 se decodifica de una vez.
 const TABLA_VOZ = `
-  CREATE TABLE IF NOT EXISTS notas_de_voz (
+  CREATE TABLE IF NOT EXISTS notas_de_voz_b64 (
     id TEXT PRIMARY KEY,
-    datos BLOB NOT NULL,
+    datos TEXT NOT NULL,
     tipo TEXT NOT NULL,
     creada INTEGER NOT NULL
   )`;
+
+function aBase64(datos) {
+  const bytes = new Uint8Array(datos);
+  let binario = "";
+  const trozo = 0x8000;
+  for (let i = 0; i < bytes.length; i += trozo) binario += String.fromCharCode(...bytes.subarray(i, i + trozo));
+  return btoa(binario);
+}
+
+function deBase64(texto) {
+  const binario = atob(texto);
+  const bytes = new Uint8Array(binario.length);
+  for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+  return bytes;
+}
 let tablaVozLista = false;
 
 async function asegurarTablaVoz(db) {
@@ -267,17 +300,17 @@ export async function guardarNotaDeVoz(db, { datos, tipo }) {
   await asegurarTablaVoz(db);
   const id = crypto.randomUUID().replace(/-/g, "");
   await db
-    .prepare("INSERT INTO notas_de_voz (id, datos, tipo, creada) VALUES (?, ?, ?, ?)")
-    .bind(id, new Uint8Array(datos), tipo, Date.now())
+    .prepare("INSERT INTO notas_de_voz_b64 (id, datos, tipo, creada) VALUES (?, ?, ?, ?)")
+    .bind(id, aBase64(datos), tipo, Date.now())
     .run();
-  await db.prepare("DELETE FROM notas_de_voz WHERE creada < ?").bind(Date.now() - 24 * 3600 * 1000).run();
+  await db.prepare("DELETE FROM notas_de_voz_b64 WHERE creada < ?").bind(Date.now() - 24 * 3600 * 1000).run();
   return id;
 }
 
 export async function leerNotaDeVoz(db, id) {
   await asegurarTablaVoz(db);
-  const fila = await db.prepare("SELECT datos, tipo FROM notas_de_voz WHERE id = ?").bind(String(id)).first();
-  return fila ? { datos: fila.datos, tipo: fila.tipo } : null;
+  const fila = await db.prepare("SELECT datos, tipo FROM notas_de_voz_b64 WHERE id = ?").bind(String(id)).first();
+  return fila ? { bytes: deBase64(fila.datos), tipo: fila.tipo } : null;
 }
 
 // Solo para las pruebas.

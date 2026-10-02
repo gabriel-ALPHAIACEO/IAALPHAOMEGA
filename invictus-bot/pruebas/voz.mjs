@@ -29,7 +29,7 @@ async function mandarNota({ transcripcion = "hola tienes las jordan 4 en negro",
     if (u === "https://cdn.test/nota.mp4") return new Response(new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112]), { status: 200, headers: { "content-type": "audio/mp4" } });
     if (u.includes("/audio/speech")) {
       habladas.push(JSON.parse(op.body));
-      return new Response(new Uint8Array([82, 73, 70, 70, 1, 2, 3, 4]), { status: 200, headers: { "content-type": "audio/wav" } });
+      return new Response(new Uint8Array([0xff, 0xf1, 0x50, 0x80, 1, 2, 3, 4]), { status: 200, headers: { "content-type": "audio/aac" } });
     }
     if (u.includes("/audio/transcriptions")) {
       transcripciones.push(op.body);
@@ -93,8 +93,9 @@ titulo("le habló con voz: le contesta con voz, ADEMÁS del texto");
 {
   const r = await mandarNota();
   ok(r.enviados.some((m) => /Sí tengo las Jordan 4/.test(m.text || "")), "el texto le llega igual");
-  ok(r.audio && /^https:\/\/bot\.test\/voz\/[a-f0-9]+\.wav$/.test(r.audio.attachment.payload.url), "y una nota de voz, con un enlace del propio Worker", r.audio?.attachment?.payload?.url);
-  ok(r.servida && r.servida.estado === 200 && r.servida.tipo === "audio/wav" && r.servida.bytes === 8, "el Worker sirve ese audio (Instagram lo puede bajar)", JSON.stringify(r.servida));
+  ok(r.audio && /^https:\/\/bot\.test\/voz\/[a-f0-9]+\.aac$/.test(r.audio.attachment.payload.url), "y una nota de voz (AAC, liviana), con un enlace del propio Worker", r.audio?.attachment?.payload?.url);
+  ok(r.servida && r.servida.estado === 200 && r.servida.tipo === "audio/aac" && r.servida.bytes === 8, "el Worker sirve ese audio con los MISMOS bytes (Instagram lo puede bajar)", JSON.stringify(r.servida));
+  ok(r.habladas[0]?.response_format === "aac", "se le pide a OpenAI en AAC, no en WAV (el WAV pasaba el límite de CPU al servirlo)");
   const dicho = r.habladas[0] || {};
   ok(dicho.model === "gpt-4o-mini-tts" && /español latinoamericano/.test(dicho.instructions || ""), "voz de OpenAI, en español latino y tono de vendedora");
   ok(dicho.input === "¡Sí tengo las Jordan 4!", "lee la frase, sin emojis", JSON.stringify(dicho.input));

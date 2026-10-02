@@ -131,7 +131,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (46) · voz: el formato del audio se mira en el archivo, whisper-1 de respaldo y el motivo exacto en el registro";
+const VERSION = "2026-10-02 (47) · voz en AAC (liviana, sin pasar el limite de CPU) y las fotos nuevas siempre se mandan";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -745,11 +745,11 @@ export default {
     // Cómo queda la ubicación ANTES de que la vea un cliente, y por qué sale
     // rota la foto si sale rota (25-sep-2026).
     // LAS NOTAS DE VOZ DEL BOT, para que Instagram las baje (ver voz.js).
-    const notaPedida = url.pathname.match(/^\/voz\/([a-f0-9]{16,64})\.wav$/);
+    const notaPedida = url.pathname.match(/^\/voz\/([a-f0-9]{16,64})\.(?:wav|aac|mp3|m4a)$/);
     if (notaPedida) {
       const nota = await leerNotaDeVoz(env.DB, notaPedida[1]);
       if (!nota) return new Response("no existe", { status: 404 });
-      return new Response(nota.datos, { status: 200, headers: { "content-type": nota.tipo, "cache-control": "public, max-age=86400" } });
+      return new Response(nota.bytes, { status: 200, headers: { "content-type": nota.tipo, "cache-control": "public, max-age=86400" } });
     }
 
     // ESCUCHAR CÓMO SUENA EL BOT antes de que le hable a un cliente:
@@ -1703,7 +1703,14 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const modo = salida?.mostrar || "texto_e_imagenes";
   const yaLosVio = productos.length > 0 && productos.every((p) => yaLoVio(contacto.mostrados || [], p.titulo));
   const apuntaAFotos = /👇|\bmira\s+(?:est|ac[aá]|aqu[ií])|\bte\s+(?:los?|las?)\s+muestro\b/i.test(respuestaCliente);
-  const soloTexto = modo === "texto" && productos.length > 0 && !imagenCruda && (yaLosVio || !apuntaAFotos);
+  // "Solo texto" sirve para NO REPETIR fotos que ya vio. Si lo encontrado es
+  // nuevo para él, las fotos van siempre (2-oct-2026, caso real: "¿tienes
+  // Retro 4?" por nota de voz, la IA eligió "texto" y el cliente se quedó
+  // sin ver los 10 Retro 4 que había).
+  const soloTexto = modo === "texto" && productos.length > 0 && !imagenCruda && yaLosVio;
+  if (modo === "texto" && productos.length > 0 && !yaLosVio && !imagenCruda) {
+    console.log(`La IA eligió SOLO TEXTO, pero los ${productos.length} producto(s) son nuevos para él: se los mando igual`);
+  }
   if (soloTexto) {
     console.log(`La IA eligió responder SOLO TEXTO: no le mando las ${productos.length} ficha(s)` + (yaLosVio ? " (ya las había visto)" : ""));
   }
@@ -1780,8 +1787,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     const voz = await sintetizarVoz(env, fraseDeLaIA || respuestaCliente);
     if (voz) {
       const id = await guardarNotaDeVoz(env.DB, voz);
-      await mandar(() => enviarAudio(env, mensaje.igsid, `${mensaje.origen}/voz/${id}.wav`));
-      console.log(`Voz: le contesté también con una nota de voz (${voz.texto.length} letras)`);
+      const enviado = await mandar(() => enviarAudio(env, mensaje.igsid, `${mensaje.origen}/voz/${id}.${voz.extension}`));
+      console.log(
+        enviado
+          ? `Voz: le contesté también con una nota de voz (${voz.texto.length} letras, ${Math.round(voz.datos.byteLength / 1024)} KB)`
+          : "Voz: Instagram no aceptó la nota de voz (el texto sí le llegó). Mira el error de arriba."
+      );
     }
   }
 
