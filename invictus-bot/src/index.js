@@ -59,6 +59,7 @@ import {
   notaDeDatoDeLaTienda,
 } from "./datos.js";
 import { hayQueRescatar, FRASE_DE_RESCATE, MOTIVO_DE_RESCATE } from "./rescate.js";
+import { revisarTono } from "./tono.js";
 import {
   hayUbicacion,
   mensajeDeUbicacion,
@@ -119,7 +120,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (40) · catalogo: si el cliente lo nombra, el boton sale debajo de la respuesta de la IA";
+const VERSION = "2026-10-02 (41) · todo tipo de clientes: entiende al que escribe mal, paciencia, y el bot nunca contesta con groserias ni regaños";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1566,6 +1567,11 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // cambia por lo de verdad. Después, si el cliente preguntó por Cashea, va
   // la tarjeta armada por cashea.js: las cuentas las hace el código, no el
   // modelo. Ver cashea.js.
+  // EL TONO (2-oct-2026, ver tono.js): ni una grosería, ni un insulto, ni
+  // un regaño salen del bot, por mucho que el cliente provoque.
+  const revisionDeTono = revisarTono(respuestaCliente);
+  if (revisionDeTono.corregido) respuestaCliente = revisionDeTono.respuesta;
+
   const revisionDeCashea = revisarCashea(respuestaCliente);
   if (revisionDeCashea.corregido) respuestaCliente = revisionDeCashea.respuesta;
 

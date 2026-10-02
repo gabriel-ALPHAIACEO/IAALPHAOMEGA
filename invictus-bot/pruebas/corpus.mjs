@@ -89,8 +89,12 @@ const { revisarDatoDeLaTienda } = await src.cargar("datos.js");
 
 const { niegaElCatalogo, sinNegarElCatalogo } = await src.cargar("catalogo.js");
 
+const { revisarTono } = await src.cargar("tono.js");
+
 const GUARDIANES = [
   ["pagos.js", revisarPagos],
+  // La red del 2-oct: ni groserías, ni insultos, ni regaños del bot.
+  ["tono.js (groserías, insultos, regaños)", revisarTono],
   // La red del 2-oct: si la IA dice que no hay catálogo, se corrige.
   ["catalogo.js (que no niegue el catálogo)", (t) => ({ corregido: niegaElCatalogo(t), respuesta: sinNegarElCatalogo(t) })],
   ["datos.js (envíos, delivery, horario, empleo)", (t) => revisarDatoDeLaTienda(t)],

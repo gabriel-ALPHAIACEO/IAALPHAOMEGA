@@ -287,6 +287,15 @@ titulo('"¿tienen catálogo de dama?": la IA ya no dice que no hay catálogo (2-
   src.limpiar();
 }
 
+titulo("el cliente grosero: la IA no le contesta igual (2-oct)");
+{
+  const r = await conversar("esta mrd de tienda no responde, tienen las jordan o no?", {
+    productos: JORDAN,
+    respuestaModelo: { respuesta: "Verga, perdón. ¡Sí tengo Jordan, mira 👇", buscar: "Retro 4", historial: "Pidió Jordan, molesto." },
+  });
+  ok(!/verga/i.test(r.todo) && /Sí tengo Jordan/.test(r.todo), "la grosería no sale; lo útil sí, con los zapatos", r.todo.slice(0, 100));
+}
+
 titulo("la talla sigue yendo al asesor");
 {
   const r = await conversar("tienen talla 42?", {

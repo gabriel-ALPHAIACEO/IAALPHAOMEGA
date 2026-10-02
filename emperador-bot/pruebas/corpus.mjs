@@ -87,8 +87,12 @@ const FUERA_DE_FECHA = Date.parse("2026-10-10T12:00:00-04:00");
 
 const { revisarDatoDeLaTienda } = await src.cargar("datos.js");
 
+const { revisarTono } = await src.cargar("tono.js");
+
 const GUARDIANES = [
   ["pagos.js", revisarPagos],
+  // La red del 2-oct: ni groserías, ni insultos, ni regaños del bot.
+  ["tono.js (groserías, insultos, regaños)", revisarTono],
   ["datos.js (envíos, delivery, horario, empleo)", (t) => revisarDatoDeLaTienda(t)],
   ["cashea.js (promoción en fecha)", (t) => revisarCashea(t, EN_FECHA)],
   ["cashea.js (promoción fuera de fecha)", (t) => revisarCashea(t, FUERA_DE_FECHA)],

@@ -29,6 +29,7 @@ const SUITES = [
   ["cashea.mjs", "las cuentas de Cashea (con 0%), sus fechas, y la ubicación tal cual"],
   ["datos.mjs", "horario, envíos y delivery de El Emperador: que estén, que no se inventen"],
   ["botas.mjs", "que las botas de básquet no busquen las tácticas"],
+  ["tono.mjs", "todo tipo de clientes: ni groserías ni regaños del bot, y el prompt que lo enseña"],
   ["rescate.mjs", "que un \"no es ese\" pase a una persona en vez de seguir adivinando"],
   ["extremo.mjs", "de punta a punta: lo que de verdad le llega al cliente"],
   ["cupo.mjs", "que sin cupo de la IA no se cuente como \"miré y no está\""],
