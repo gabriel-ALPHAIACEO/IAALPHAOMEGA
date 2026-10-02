@@ -180,7 +180,7 @@ export function inicialDelNivel(nivel) {
 // "cachea". Y las otras formas de preguntar lo mismo: las cuotas, el
 // financiamiento, la inicial, o decir su nivel.
 const HABLA_DE_CASHEA =
-  /\b(?:c|k)a(?:s|c)?hea\b|\bcuotas?\b|\bfinanci\w*|\binicial\b|\bnivel\s*(?:\d|uno|dos|tres|cuatro|cinco|seis)\b|\ba\s+cr[eé]dito\b|\bpor\s+partes\b/i;
+  /\b(?:c|k)a(?:s|c)?hea\b|\bcuotas?\b|\bfinanci\w*|\binicial\b|\b(?:nivel|level|lvl|niv|nv)\s*(?:\d|uno|dos|tres|cuatro|cinco|seis)\b|\ba\s+cr[eé]dito\b|\bpor\s+partes\b/i;
 
 export function preguntaPorCashea(texto) {
   return HABLA_DE_CASHEA.test(sinTildes(texto));
@@ -190,7 +190,9 @@ const NUMEROS = { uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 
 
 // "soy nivel 3", "nivel tres", "tengo nivel 4 en cashea".
 export function nivelDelCliente(texto) {
-  const m = sinTildes(texto).match(/\bnivel\s*(\d+|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)\b/i);
+  // "nivel 6", y como lo escribe la gente: "level 6", "lvl6", "nv 6", "niv 6"
+  // (2-oct-2026: "soy level 6" no se entendía y salía la tabla entera).
+  const m = sinTildes(texto).match(/\b(?:nivel|level|lvl|niv|nv)\s*(\d+|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)\b/i);
   if (!m) return null;
   const valor = m[1].toLowerCase();
   return /^\d+$/.test(valor) ? Number(valor) : NUMEROS[valor];
@@ -422,6 +424,29 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
       .replace(/\n{3,}/g, "\n\n");
   }
 
+  // TODOS AL MISMO PRECIO (2-oct-2026). "¿Por cuánto me lo dejan en
+  // Cashea?" sobre los Jordan 40 traía tres colores del mismo modelo y la
+  // misma cuenta repetida tres veces: un párrafo que nadie lee. Si cuestan
+  // lo mismo, la cuenta va UNA vez, con el nombre que comparten.
+  const precios = new Set(conCuenta.map(({ cuenta }) => cuenta.precio));
+  if (conCuenta.length > 1 && precios.size === 1 && !conCuenta[0].cuenta.ceroSinMinimo) {
+    const { cuenta } = conCuenta[0];
+    const nombre = nombreComun(conCuenta.map(({ p }) => p.titulo)) || conCuenta[0].p.titulo;
+    return [
+      pct === 0 ? encabezado : `${encabezado}:`,
+      "",
+      `${MARCA_PRODUCTO} ${nombre} — ${cuenta.precio}`,
+      `   ✅ Inicial: ${cuenta.inicial}`,
+      pct === 0 ? `   🗓️ Todo (${cuenta.resto}) ${enCuotas(cuenta)}` : `   🗓️ El resto (${cuenta.resto}) ${enCuotas(cuenta)}`,
+      "",
+      cuando,
+      "",
+      "¿Cuál te gusta? 😊",
+    ]
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n");
+  }
+
   const lineas = conCuenta.map(({ p, cuenta }) =>
     cuenta.ceroSinMinimo
       ? `🛍️ ${p.titulo} — ${cuenta.precio}\n` +
@@ -456,6 +481,21 @@ function tarjetaSinTabla(nivel) {
       ? `Con tu Nivel ${nivel}, ${ASESOR_CONFIRMA_INICIAL}`
       : `¿Qué nivel tienes en Cashea? Dímelo y ${ASESOR_CONFIRMA_INICIAL}`,
   ].join("\n");
+}
+
+const MARCA_PRODUCTO = "🛍️";
+
+// Las palabras con las que empiezan TODOS los títulos: "Jordan 40 negro" y
+// "Jordan 40 blanco" → "Jordan 40". Vacío si no comparten nada.
+function nombreComun(titulos) {
+  const partidos = titulos.map((t) => String(t).trim().split(/\s+/));
+  const comun = [];
+  for (let i = 0; i < partidos[0].length; i++) {
+    const palabra = partidos[0][i];
+    if (!partidos.every((p) => (p[i] || "").toLowerCase() === palabra.toLowerCase())) break;
+    comun.push(palabra);
+  }
+  return comun.join(" ");
 }
 
 function cuotasSueltas() {

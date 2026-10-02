@@ -24,6 +24,29 @@ const U = await src.cargar("ubicacion.js");
 const EN_FECHA = Date.parse("2026-10-03T12:00:00-04:00");
 
 // ───────────────────────────────────────────────────────────────────────
+titulo('"X cuanto me lo dejan en cashea soy level 6" (caso real, 2-oct)');
+{
+  const t = "X cuanto me lo dejan en cashea soy level 6";
+  ok(C.preguntaPorCashea(t), "es una pregunta de Cashea");
+  ok(C.nivelDelCliente(t) === 6, '"level 6" es el Nivel 6', String(C.nivelDelCliente(t)));
+  for (const [frase, n] of [["lvl 4", 4], ["nv 5", 5], ["niv 3", 3], ["nivel6", 6], ["soy nivel tres", 3]]) {
+    ok(C.nivelDelCliente(frase) === n, `"${frase}" → Nivel ${n}`);
+  }
+  const DIA = Date.parse("2026-10-02T12:00:00-04:00");
+  const tres = [
+    { titulo: "Jordan 40 negro caballero", precio: "120 USD" },
+    { titulo: "Jordan 40 blanco caballero", precio: "120 USD" },
+    { titulo: "Jordan 40 rojo caballero", precio: "120 USD" },
+  ];
+  const tarjeta = C.tarjetaCashea({ nivel: 6, productos: tres, ahora: DIA });
+  ok(/Nivel 6/.test(tarjeta) && /0% de inicial/.test(tarjeta), "le contesta con SU nivel (0% de inicial), no con la tabla", tarjeta.split("\n")[0]);
+  ok(!/Bajada de inicial/.test(tarjeta), "sin la tabla entera de niveles");
+  ok((tarjeta.match(/Jordan 40/g) || []).length === 1 && /Jordan 40 — 120 USD/.test(tarjeta), "los tres colores al mismo precio: la cuenta UNA vez, como 'Jordan 40'", tarjeta.replace(/\n/g, " | "));
+  ok(/6 cuotas/.test(tarjeta) && /20 USD/.test(tarjeta), "con las 6 cuotas de 20 USD");
+  const distintos = C.tarjetaCashea({ nivel: 6, productos: [tres[0], { titulo: "Jordan 40 blanco dama", precio: "110 USD" }], ahora: DIA });
+  ok((distintos.match(/Jordan 40/g) || []).length === 2, "si los precios son distintos, cada uno con su cuenta");
+}
+
 titulo("la tabla se lee de pagos.txt");
 
 ok(C.hayCashea(), "Cashea está cargado");

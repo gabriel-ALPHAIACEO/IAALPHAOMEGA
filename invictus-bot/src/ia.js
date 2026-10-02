@@ -94,8 +94,12 @@ Así que tú:
     queda 👇"— y, si preguntó algo más, contéstalo también.
   · SI HABLA DE UN ZAPATO CONCRETO —"¿y con Cashea cuánto doy por esos?",
     "¿las Jordan se pueden con Cashea?"— pon ESE zapato en "buscar", igual que
-    cuando te preguntan un precio. Así la cuenta sale con su precio real. Si no
-    se sabe de qué zapato habla, "buscar" es "NADA".
+    cuando te preguntan un precio. Así la cuenta sale con su precio real.
+  · SI NO LO NOMBRA —"¿por cuánto me lo dejan en Cashea?", "¿y ese?"— habla
+    del ÚLTIMO producto del historial ("Ya busqué: Jordan 40"): pon ESE
+    término exacto en "buscar", no uno más general ("Jordan 40", no "Jordan").
+    Solo si el historial no tiene ninguno, "buscar" es "NADA".
+  · "level 6", "lvl 6", "nv 6" es lo mismo que "nivel 6".
   · Si dijo su nivel, escribe en el historial "Nivel Cashea: N." (con su
     número), para no tener que volver a preguntárselo.`;
 
@@ -381,11 +385,12 @@ const ESQUEMA_COTEJO = {
   schema: {
     type: "object",
     properties: {
+      // Primero el porqué y después la elección: así decide mirando, no al revés.
+      porque: { type: "string" },
       eleccion: { type: "integer" },
       confianza: { type: "string", enum: ["alta", "media", "baja"] },
-      porque: { type: "string" },
     },
-    required: ["eleccion", "confianza", "porque"],
+    required: ["porque", "eleccion", "confianza"],
     additionalProperties: false,
   },
 };
@@ -409,6 +414,12 @@ const ESQUEMA_RESPUESTA = {
   schema: {
     type: "object",
     properties: {
+      // PIENSA ANTES DE RESPONDER (2-oct-2026, pedido del dueño: "cada cosa
+      // debe pensarla, así sea unos segundos, antes de responder"). Va
+      // PRIMERO a propósito: el modelo escribe en orden, así que primero
+      // razona de qué producto le hablan y qué le preguntan, y recién
+      // después redacta. El cliente nunca lo ve; queda en el registro.
+      pienso: { type: "string" },
       // Lo que ve el cliente.
       respuesta: { type: "string" },
       // El término de búsqueda, o "NADA" si no hay que buscar.
@@ -416,7 +427,7 @@ const ESQUEMA_RESPUESTA = {
       // La memoria para el mensaje siguiente.
       historial: { type: "string" },
     },
-    required: ["respuesta", "buscar", "historial"],
+    required: ["pienso", "respuesta", "buscar", "historial"],
     additionalProperties: false,
   },
 };
@@ -835,6 +846,11 @@ function normalizar(salida) {
 
   const respuesta = String(datos.respuesta || "").trim();
   if (!respuesta) return null; // sin texto no hay nada que mandarle al cliente
+
+  // Lo que pensó antes de responder: no va al cliente, va al registro, que
+  // es donde se entiende por qué contestó lo que contestó.
+  const pienso = String(datos.pienso || "").trim();
+  if (pienso) console.log(`La IA pensó: ${pienso.slice(0, 300)}`);
 
   return {
     respuesta,

@@ -266,6 +266,28 @@ titulo("el cliente grosero: la IA no le contesta igual (2-oct)");
   ok(!/verga/i.test(r.todo) && /Sí tengo Jordan/.test(r.todo), "la grosería no sale; lo útil sí, con los zapatos", r.todo.slice(0, 100));
 }
 
+titulo('"X cuanto me lo dejan en cashea soy level 6" después de ver los Jordan 40 (2-oct)');
+{
+  const DIA = Date.parse("2026-10-02T12:00:00-04:00");
+  const J40 = [
+    { titulo: "Jordan 40 negro caballero", precio: 120, imagen: "https://cdn.test/j40n.jpg" },
+    { titulo: "Jordan 40 blanco caballero", precio: 120, imagen: "https://cdn.test/j40b.jpg" },
+  ];
+  const sesion = nuevaSesion();
+  await conversar("tienes el jordan 40?", {
+    sesion, ahora: DIA, productos: J40,
+    respuestaModelo: { pienso: "Pide Jordan 40.", respuesta: "¡Sí tengo! Mira 👇", buscar: "Jordan 40", historial: "Pidió Jordan 40. Ya busqué: Jordan 40." },
+  });
+  const r = await conversar("X cuanto me lo dejan en cashea soy level 6", {
+    sesion, ahora: DIA, productos: J40,
+    respuestaModelo: { pienso: "Habla del Jordan 40; Cashea nivel 6.", respuesta: "¡Claro! 🙌 Mira cómo te queda 👇", buscar: "Jordan 40", historial: "Pidió Jordan 40. Preguntó Cashea. Nivel Cashea: 6. Ya busqué: Jordan 40." },
+  });
+  ok(/Nivel 6/.test(r.todo) && !/Bajada de inicial/.test(r.todo), "le contesta con su Nivel 6, sin el párrafo de la tabla", r.todo.slice(0, 160));
+  ok((r.todo.match(/Jordan 40 — /g) || []).length === 1, "y la cuenta del Jordan 40 va UNA vez");
+  ok(!/Habla del Jordan 40/.test(r.todo), "lo que la IA pensó NO le llega al cliente");
+  sesion.src.limpiar();
+}
+
 titulo("la talla sigue yendo al asesor");
 {
   const r = await conversar("tienen talla 42?", {

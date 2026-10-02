@@ -138,4 +138,12 @@ for (const linea of texto.split("\n")) {
 ok(cuantos > 40, `hay ${cuantos} ejemplos de respuesta en el prompt`);
 ok(malos === 0, "todos parsean y traen 'respuesta' y 'buscar'");
 
+titulo("piensa antes de responder (2-oct)");
+{
+  const ia = fuente("ia.js");
+  ok(/pienso: \{ type: "string" \}/.test(ia) && /required: \["pienso", "respuesta", "buscar", "historial"\]/.test(ia), "la respuesta de texto lleva 'pienso' PRIMERO y obligatorio");
+  ok(/required: \["porque", "eleccion", "confianza"\]/.test(ia), "el cotejo dice el porqué ANTES de elegir");
+  ok(/PIENSA ANTES DE RESPONDER/.test(texto) && /level 6/.test(texto), "el prompt explica cómo pensar, con el caso del level 6");
+}
+
 terminar();
