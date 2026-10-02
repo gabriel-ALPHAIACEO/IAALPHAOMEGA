@@ -156,11 +156,12 @@ export function baseFalsa(filaInicial = {}) {
 }
 
 // Devuelve todo lo que el bot mandó a Instagram en este turno.
-export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelModelo = {}, mensaje = {}, hoja = HOJA, env: envExtra = {}, apis = {}, fotosRotas = null, rechazarCarrusel = false, transcripcion = null, redaccion = null } = {}) {
+export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelModelo = {}, mensaje = {}, hoja = HOJA, env: envExtra = {}, apis = {}, fotosRotas = null, rechazarCarrusel = false, transcripcion = null, redaccion = null, db = null } = {}) {
   const enviados = [];
   // Lo que se le mandó a OpenAI, para mirar qué sabía el modelo.
   const alModelo = [];
-  const DB = baseFalsa({ id: "cliente1", ...fila });
+  // db: una D1 de verdad (SQLite) para las pruebas que la necesitan entera.
+  const DB = db || baseFalsa({ id: "cliente1", ...fila });
 
   globalThis.fetch = async (url, opciones = {}) => {
     const donde = String(url);
@@ -251,5 +252,5 @@ export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelMo
     ...mensaje,
   });
 
-  return { enviados, fila: DB.filas.get("cliente1"), alModelo };
+  return { enviados, fila: DB.filas?.get("cliente1"), alModelo };
 }

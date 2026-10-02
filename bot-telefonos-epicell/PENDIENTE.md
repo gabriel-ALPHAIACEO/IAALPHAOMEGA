@@ -1,5 +1,17 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: v22 — el panel de la tienda: /panel (2-oct-2026)
+
+- Con clave (`npx.cmd wrangler secret put PANEL_CLAVE`); sin ella no abre.
+  Sesión con cookie firmada, 30 días.
+- Chats: la lista (buscador, filtros "bot en pausa" y "vino de un anuncio")
+  y cada conversación entera, con LO QUE PENSÓ LA IA debajo de cada
+  respuesta: qué entendió, qué buscó, qué eligió, qué fichas mandó y qué
+  corrigieron las redes (tabla `turnos`, se crea sola, 60 días).
+- Botones: pausar el bot / devolverle la conversación.
+- Anuncios y Estado dentro del mismo panel.
+- Pruebas: `pruebas/tienda.mjs` (con una D1 de verdad).
+
 ## Hecho: v21 — la IA ve el anuncio por el que llegó el cliente (2-oct-2026)
 
 - Lo recuerda **7 días**, en cada mensaje (antes: solo el primero, 3 min).

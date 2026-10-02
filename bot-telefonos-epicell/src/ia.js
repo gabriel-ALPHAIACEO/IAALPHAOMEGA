@@ -461,6 +461,7 @@ function normalizar(salida) {
   const mostrar = ["texto", "texto_e_imagenes", "imagenes"].includes(datos.mostrar) ? datos.mostrar : "texto_e_imagenes";
   return {
     respuesta,
+    pienso,
     mostrar,
     buscar: String(datos.buscar || "NADA").trim(),
     historial: String(datos.historial || "").trim(),

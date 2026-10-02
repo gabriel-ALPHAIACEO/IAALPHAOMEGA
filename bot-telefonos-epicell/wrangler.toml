@@ -122,6 +122,14 @@ DELIVERY = ""
 TASA = ""
 TRABAJO = ""
 
+# --- EL PANEL DE LA TIENDA (2-oct-2026) ---------------------------------
+# https://TU-WORKER/panel : las conversaciones, lo que pensó la IA en cada
+# respuesta, pausar el bot o devolverle la conversación, los anuncios y el
+# estado. Se abre con la clave del secreto PANEL_CLAVE (ver al final).
+#
+# El nombre que sale arriba del panel.
+TIENDA_NOMBRE = "EPICELL"
+
 # --- LOS ANUNCIOS (2-oct-2026) ------------------------------------------
 # El panel completo está en https://TU-WORKER/anuncios : si el ADS_TOKEN
 # sirve, todos tus anuncios activos, qué equipo manda el bot en cada uno,
@@ -318,6 +326,7 @@ FRASE_DESPAUSAR = "te dejo con la asistente|ya puedes seguir con la asistente"
 #   npx wrangler secret put META_APP_SECRET_IG  la clave del producto Instagram
 #   npx wrangler secret put IG_TOKEN            el token de acceso de Instagram
 #   npx wrangler secret put ADS_TOKEN           para leer tus anuncios (opcional)
+#   npx wrangler secret put PANEL_CLAVE         la clave para entrar a /panel (6 letras o más)
 #
 # OJO CON META_APP_SECRET_IG: Meta tiene DOS claves y las dos miden 32
 # caracteres, asi que no se distinguen a ojo. La que sirve es la del

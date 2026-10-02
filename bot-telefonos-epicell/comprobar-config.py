@@ -25,6 +25,8 @@ SECRETOS = {
     # Para leer los anuncios por la API de Meta (ver anuncio.js). Es
     # opcional: sin el, el bot atiende igual a quien viene de un anuncio.
     "ADS_TOKEN",
+    # La clave del panel de la tienda (/panel). Sin ella el panel no abre.
+    "PANEL_CLAVE",
 }
 
 if not os.path.exists(ARCHIVO):

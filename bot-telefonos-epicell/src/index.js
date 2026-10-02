@@ -30,6 +30,7 @@
 
 import { responderTexto, identificarEnImagen, redactarConResultados } from "./ia.js";
 import { transcribirAudio, notaDeVoz, PEDIR_QUE_ESCRIBA } from "./voz.js";
+import { atenderPanel, anotarTurno } from "./panel.js";
 import { revisarTono } from "./tono.js";
 import { revisarPrecio } from "./precio.js";
 import { revisarDisponibilidad, marcasNombradas, marcasQueHay, fraseDeMarcaQueNoHay } from "./disponible.js";
@@ -147,7 +148,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-02 (21) · la IA recuerda el anuncio por el que llego el cliente, con los precios reales de ese equipo";
+const VERSION = "2026-10-02 (22) · panel de la tienda en /panel: conversaciones y lo que penso la IA";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -987,12 +988,23 @@ const NOTA_VOLVI_SOLO =
   "El asesor dejo de escribir y el cliente seguia preguntando: volvi a atender.";
 
 
-export default {
+const trabajador = {
   async fetch(request, env, ctx) {
     // Desde aquí corren los 30 segundos que Cloudflare le da a este mensaje
     // (ver LIMITE_DEL_TURNO_MS).
     const llegoEn = Date.now();
     const url = new URL(request.url);
+
+    // EL PANEL DE LA TIENDA (2-oct-2026, ver panel.js): las conversaciones,
+    // lo que pensó la IA en cada respuesta, los anuncios y el estado. Con
+    // clave (PANEL_CLAVE).
+    if (url.pathname === "/panel" || url.pathname.startsWith("/panel/")) {
+      return atenderPanel(request, env, {
+        tienda: String(env.TIENDA_NOMBRE || "EPICELL"),
+        horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
+        verTexto: async (ruta) => (await trabajador.fetch(new Request(new URL(ruta, url)), env, ctx)).text(),
+      });
+    }
 
     // Meta comprueba que la URL es tuya antes de mandarte nada: te pide el
     // token que pusiste en el panel y espera que le devuelvas su desafío.
@@ -1108,6 +1120,7 @@ export default {
           `  META_APP_SECRET_IG  ${secreto("META_APP_SECRET_IG")}   (la de Instagram ← es esta)`,
           `  IG_TOKEN            ${secreto("IG_TOKEN")}`,
           `  ADS_TOKEN           ${secreto("ADS_TOKEN")}   (leer tus anuncios — el panel completo está en /anuncios)`,
+          `  PANEL_CLAVE         ${secreto("PANEL_CLAVE")}   (la clave del panel de la tienda: /panel)`,
           "",
           "CONFIGURACIÓN (wrangler.toml)",
           `  META_MODO           ${env.META_MODO || "todo (por defecto)"}`,
@@ -1407,6 +1420,8 @@ export default {
     return texto200(`bot activo · ${VERSION}\n`);
   },
 };
+
+export default trabajador;
 
 // Devuelve LO QUE HAY QUE ATENDER, siempre como lista: un mensaje suelto,
 // varios comentarios que llegaron juntos, o nada.
@@ -3204,6 +3219,29 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   } else {
     await mandar(() => enviarTexto(env, mensaje.igsid, leDigo), leDigo);
   }
+
+  // LO QUE PENSÓ LA IA, PARA EL PANEL (2-oct-2026, ver panel.js): qué
+  // entendió, qué buscó, qué fichas salieron y qué corrigieron las redes.
+  await anotarTurno(env.DB, {
+    igsid: mensaje.igsid,
+    cliente: notaVoz ? `🎤 ${mensaje.texto}` : textoCliente,
+    pienso: salida.pienso,
+    buscar: salida.buscar,
+    mostrar: soloTexto ? "texto" : modo,
+    respuesta: marcasParaElegir.length ? preguntaDeMarca : leDigo,
+    productos: paraMostrar.map((p) => p.titulo),
+    notas: [
+      notaVoz && "llegó por nota de voz",
+      productoDelAnuncio && `viene del anuncio del ${productoDelAnuncio.titulo}`,
+      revisionDeTono.corregido && "se quitó una grosería o un regaño",
+      revisionDeDisponible.corregido && "habló de una marca que no hay: se corrigió",
+      revisionDePrecio.corregido && "preguntó '¿quieres el precio?': se cambió",
+      respuestaCliente !== String(salida.respuesta || "").trim() && !revisionDeTono.corregido && !revisionDeDisponible.corregido && !revisionDePrecio.corregido &&
+        `su borrador era: "${String(salida.respuesta || "").slice(0, 140)}"`,
+      preguntarMarca && "prometió fotos sin buscar: se le preguntó la marca",
+      sinSaberQueEs && "no se supo de qué equipo era la publicación",
+    ],
+  });
 
   // El segundo mensaje de la tabla de pagos (Krece). Sale detrás del
   // primero, nunca solo, y nunca cuando no sabemos de qué equipo hablamos.
