@@ -101,9 +101,6 @@ export function pideVerMas(texto) {
   // buscar X, que es justo lo contrario de lo que pide el cliente.
   if (!palabras.every((p) => NUCLEO.has(p) || ACOMPANAN.has(p))) return false;
 
-  // "Mándame otra vez esos": no pide MÁS, pide volver a ver lo mismo.
-  if (pideVerOtraVez(texto)) return false;
-
   // "¿Eso es todo?", "¿y solo tienen esos?": el cliente se está quedando
   // frío. No lo dice con un "más", pero pide exactamente lo mismo.
   if (ESO_ES_TODO.some((patron) => patron.test(palabras.join(" ")))) return true;
@@ -132,41 +129,4 @@ function despejar(texto) {
     .map((palabra) =>
       palabra.replace(/(.)\1{2,}/g, "$1").replace(/(.)\1+$/, "$1")
     );
-}
-
-// "MÁNDAMELOS OTRA VEZ" NO ES PEDIR MÁS (2-oct-2026, portado de Invictus).
-// Quien pide volver a ver lo que ya vio no quiere el catálogo: quiere esos.
-const VOLVER_A_VER = /\b(otra\s+vez|de\s+nuevo|nuevamente|vuelve\s+a|vuelvelos|vuelvelas|repite|repitelos|reenvia\w*)\b/;
-
-export function pideVerOtraVez(texto) {
-  return VOLVER_A_VER.test(despejar(texto).join(" "));
-}
-
-// EL CATÁLOGO EXISTE (2-oct-2026, portado de Invictus).
-//
-// QUÉ PASÓ (en Invictus). El cliente preguntaba por el catálogo y la IA a
-// veces contestaba que no había. Sí hay, y es el botón de URL_CATALOGO. El
-// prompt ya lo dice; esto es la red por debajo: si la IA escribe que no hay
-// catálogo, esa frase se quita.
-const NOMBRA_EL_CATALOGO =
-  /\bcat[aá]logos?\b|\b(?:link|enlace)\s+(?:de\s+la\s+tienda|del\s+cat[aá]logo|de\s+la\s+p[aá]gina)\b|\bp[aá]gina\s+web\b|\btienda\s+(?:online|virtual|en\s+l[ií]nea)\b/i;
-
-export function nombraElCatalogo(texto) {
-  return NOMBRA_EL_CATALOGO.test(String(texto || ""));
-}
-
-const NIEGA_EL_CATALOGO =
-  /\bno\s+(?:tengo|tenemos|hay|contamos\s+con|manejo|manejamos|dispongo|disponemos)\s+(?:de\s+)?(?:un\s+|el\s+|ning[uú]n\s+|catálogo\s+)?cat[aá]logo|\bno\s+(?:puedo|podemos|logro)\s+(?:enviarte|mandarte|pasarte|compartirte|darte|enviar|mandar|pasar|compartir)\s+(?:el\s+|un\s+|tu\s+)?(?:cat[aá]logo|link|enlace)|\bno\s+(?:tengo|tenemos|hay)\s+(?:un\s+|el\s+|ning[uú]n\s+)?(?:link|enlace)\b|\bcat[aá]logo\s+no\s+(?:est[aá]|lo\s+tengo|disponible)/i;
-
-export function niegaElCatalogo(respuesta) {
-  return NIEGA_EL_CATALOGO.test(String(respuesta || ""));
-}
-
-// Quita las frases que niegan el catálogo, y deja el resto de lo que dijo.
-export function sinNegarElCatalogo(respuesta) {
-  return String(respuesta || "")
-    .split(/(?<=[.!?😊😅🙌👇])\s+/)
-    .filter((frase) => !niegaElCatalogo(frase))
-    .join(" ")
-    .trim();
 }

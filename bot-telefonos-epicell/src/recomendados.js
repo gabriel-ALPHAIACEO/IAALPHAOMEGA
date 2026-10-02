@@ -36,10 +36,17 @@ const PIDE_VERLOS =
 const LOS_QUE_DIJISTE =
   /\b(los|las|esos|esas)\s+(que\s+)?(me\s+)?(dijiste|mencionaste|nombraste|recomendaste|dices|recomiendas)\b|\besos\s+mismos\b/i;
 
+// "Mándalos", "en imágenes", "ahora muéstrame, quiero verlos" (2-oct-2026,
+// caso real con una nota de voz): también es pedir ver lo que se acaba de
+// nombrar. Solo mensajes cortos que no dicen NADA más que eso: si nombra un
+// equipo, es una búsqueda y va por el camino normal.
+const PIDE_FOTOS_CORTO =
+  /^(?:\s*(?:ahora|ok|dale|va|s[ií]|bueno|claro|porfa|por\s+favor|entonces|y|pues)[\s,]*)*(?:m[aá]nd(?:a|ame)?(?:los|las|melos|melas)|env[ií]a(?:me)?(?:los|las|melos|melas)|p[aá]sa(?:me)?(?:los|las|melos|melas)|mu[eé]stra(?:me)?(?:los|las|melos|melas)?|ens[eé][ñn]a(?:me)?(?:los|las|melos|melas)?|(?:en|con)\s+(?:im[aá]genes|fotos?)|(?:las\s+|sus\s+)?(?:im[aá]genes|fotos?)|quiero\s+ver(?:los|las)?)(?:[\s,.!]+(?:quiero\s+ver(?:los|las)?|porfa|por\s+favor|en\s+(?:im[aá]genes|fotos?)|las\s+fotos|las\s+im[aá]genes))*\s*[.!?]*\s*$/i;
+
 export function pideVerLoRecomendado(texto) {
   const limpio = String(texto || "").trim();
   if (!limpio) return false;
-  return PIDE_VERLOS.test(limpio) || LOS_QUE_DIJISTE.test(limpio);
+  return PIDE_VERLOS.test(limpio) || LOS_QUE_DIJISTE.test(limpio) || PIDE_FOTOS_CORTO.test(limpio);
 }
 
 // Los productos del catálogo que aparecen nombrados en un texto.

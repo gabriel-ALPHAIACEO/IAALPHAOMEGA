@@ -33,6 +33,7 @@ export async function avisarAsesor(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: lineas.join("\n") }),
+      signal: AbortSignal.timeout(5000),
     });
 
     const detalle = await r.text();

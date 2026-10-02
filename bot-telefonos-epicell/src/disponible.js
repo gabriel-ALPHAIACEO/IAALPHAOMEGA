@@ -94,7 +94,7 @@ export function resumenDeMarcas(productos = []) {
   return lineas.join("\n");
 }
 
-const NEGACION = /\bno\s+(?:tengo|tenemos|hay|manejo|manejamos|contamos|trabajamos|vendemos|nos\s+queda|me\s+queda)|\bpor\s+ahora\s+no\b|\bsin\s+stock\b/i;
+const NEGACION = /\bno\s+(?:tengo|tenemos|hay|manejo|manejamos|contamos|trabajamos|vendemos|nos\s+queda|me\s+queda|lo\s+tengo|la\s+tengo|los\s+tengo|est[aá]\s+disponible)|\bpor\s+ahora\s+no\b|\bsin\s+stock\b|\bno\s+\w+\s+disponible/i;
 
 function frases(texto) {
   return String(texto || "").split(/(?<=[.!?😊😅🙌👇📱🙏😔👋])\s+/);
@@ -105,23 +105,25 @@ function frases(texto) {
 export function fraseDeMarcaQueNoHay(ausentes, productos = []) {
   const hay = [...marcasQueHay(productos, { soloTelefonos: true }).entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n).slice(0, 3);
   const nombres = (lista) => (lista.length > 1 ? `${lista.slice(0, -1).join(", ")} y ${lista.at(-1)}` : lista[0]);
-  const base = `En este momento no tengo ${nombres(ausentes)} 😔`;
-  return hay.length ? `${base} Pero tengo ${nombres(hay)}, ¿te muestro alguno?` : `${base} ¿Te muestro lo que tengo?`;
+  // Como dice el prompt de EPICELL: es tecnología, así que nunca "no
+  // vendemos", sino "ahora mismo no lo tengo", y un asesor confirma si se
+  // puede conseguir.
+  const base = `Ahora mismo no tengo ${nombres(ausentes)} disponible 😊 Un asesor te confirma si podemos conseguirlo.`;
+  return hay.length ? `${base} Mientras, tengo ${nombres(hay)}, ¿te muestro alguno?` : `${base} ¿Te muestro lo que tengo mientras?`;
 }
 
 export function revisarDisponibilidad(respuesta, productos = []) {
   const texto = String(respuesta || "");
   if (!texto.trim() || !productos.length) return { corregido: false, respuesta: texto };
 
-  // Teléfonos de cada marca, y cualquier producto de cada marca: una frase
-  // que habla de un forro de iPhone se mira contra lo segundo.
-  const telefonos = marcasQueHay(productos, { soloTelefonos: true });
+  // Solo las marcas de las que la hoja no tiene NADA. Si de esa marca hay
+  // algo —aunque sean accesorios: "de Apple hoy hay cargadores y AirPods"—
+  // la búsqueda y las frases de "ese no, pero mira este" ya se encargan.
   const deTodo = marcasQueHay(productos);
   const ausentes = new Set();
   for (const frase of frases(texto)) {
     if (NEGACION.test(frase)) continue; // ya dice que no hay
-    const hay = ACCESORIO.test(frase) ? deTodo : telefonos;
-    marcasNombradas(frase).filter((m) => !hay.has(m)).forEach((m) => ausentes.add(m));
+    marcasNombradas(frase).filter((m) => !deTodo.has(m)).forEach((m) => ausentes.add(m));
   }
   if (!ausentes.size) return { corregido: false, respuesta: texto };
 

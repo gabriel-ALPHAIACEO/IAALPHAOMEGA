@@ -81,21 +81,54 @@ export function contextoParaElModelo({
   texto,
   marca = "",
   esHistoriaNueva = false,
+  esPublicacionNueva = false,
   minutosDesdeElUltimo = 0,
   minutosParaSerViejo = 30,
   // El catálogo actual, ya como texto listo para pegar (ver listaDeTitulos
   // en sheets.js, si tu tienda lo usa). Si tu catálogo no lo genera, se deja
   // vacío y este bloque simplemente no aparece.
   catalogo = "",
+  // Lo que se dijeron, turno por turno (ver estado.js). Es lo que hace que
+  // el modelo pueda LEER el chat en vez de recordarlo.
+  conversacion = [],
 }) {
   const previo = recortarHistorial(historial);
   const partes = [];
 
   if (nombre) partes.push(`Nombre del cliente: ${nombre}`);
 
+  // LA CONVERSACIÓN ENTERA, ANTES QUE NADA MÁS.
+  //
+  // Pedido del dueño (29-sep-2026): "que entienda el contexto de los
+  // chats, que pueda leer los chats completos, de arriba abajo, principio
+  // y fin".
+  //
+  // Hasta ahora lo único que viajaba era el resumen de abajo: 200
+  // caracteres que escribe el propio modelo. Con eso se pierde el tono, lo
+  // que el cliente ya descartó, para quién es el equipo, cuánto quiere
+  // gastar — y el bot vuelve a preguntar lo que ya le respondieron, que es
+  // lo que más cansa a quien está comprando.
+  //
+  // Aquí va lo que de verdad se dijeron, en orden, con sus palabras.
+  if (conversacion.length) {
+    partes.push(
+      "───────── LA CONVERSACIÓN, TAL COMO PASÓ ─────────",
+      "Léela entera antes de contestar, de arriba abajo. Es lo que YA se",
+      "dijeron: no vuelvas a preguntar algo que él ya respondió, no repitas",
+      "lo que ya le dijiste, y usa lo que contó (para quién es, qué",
+      "descartó, cuánto quiere gastar) para que tu respuesta encaje.",
+      ...conversacion.map(
+        (turno) => `${turno.de === "bot" ? "Tú" : "Cliente"}: ${turno.texto}`
+      ),
+      "─────────────────────────────────────────────────"
+    );
+  }
+
   if (previo) {
     partes.push(
-      "───────── DE QUÉ HABLARON ANTES ─────────",
+      conversacion.length
+        ? "───────── TUS APUNTES DE ANTES (lo que ya no cabe arriba) ─────────"
+        : "───────── DE QUÉ HABLARON ANTES ─────────",
       "Esto ya pasó. Sirve para entender referencias como \"y el otro?\" o",
       "\"dame ese\". NO es lo que el cliente pide ahora, y NO hay que volver a",
       "buscar lo que diga \"Ya busqué\" salvo que el mensaje de ahora lo pida.",
@@ -120,11 +153,26 @@ export function contextoParaElModelo({
       );
     }
 
-    if (noDiceQue && (viejo || esHistoriaNueva)) {
+    // Con una publicación compartida delante, un "precio?" suelto SÍ dice
+    // de qué habla: lo dice la publicación. Pedirle al modelo que pregunte
+    // "¿de cuál?" ahí sería justo lo que el cliente no entiende — acaba de
+    // señalarlo. Por eso esta protección se desactiva en ese caso, y solo
+    // en ese.
+    if (noDiceQue && (viejo || esHistoriaNueva) && !esPublicacionNueva) {
       partes.push(
+        // (Sin "ofrécele el catálogo": EPICELL no tiene tienda online, y
+        // el modelo le ofrecía un catálogo que no existe.)
         "[SU MENSAJE NO DICE DE QUÉ PRODUCTO HABLA. No lo adivines con lo de",
-        "arriba: PREGÚNTASELO con amabilidad y ofrécele el catálogo. Dar el",
-        "precio del producto equivocado es peor que preguntar]"
+        "arriba: PREGÚNTASELO con amabilidad (\"¿de cuál equipo me hablas?\").",
+        "Dar el precio del producto equivocado es peor que preguntar]"
+      );
+    }
+
+    // Igual que con una historia: lo de antes no es de lo que habla ahora.
+    if (esPublicacionNueva) {
+      partes.push(
+        "[OJO: el cliente ACABA DE COMPARTIR UNA PUBLICACIÓN. Está preguntando",
+        "por el equipo que sale en ELLA, no por lo de arriba]"
       );
     }
 
@@ -151,10 +199,20 @@ export function contextoParaElModelo({
   if (catalogo) {
     partes.push(
       "───────── CATÁLOGO ACTUAL DE LA TIENDA ─────────",
-      "Estos son los productos que existen AHORA MISMO. Elige \"buscar\"",
-      "copiando el título más corto que sirva; si el cliente pide algo que no",
-      "está en esta lista, no lo inventes ni lo busques: dilo con naturalidad",
-      "y ofrece el catálogo.",
+      // LO MISMO QUE DICE EL PROMPT, NO LO CONTRARIO (30-sep-2026).
+      //
+      // Aquí decía "si no está en la lista, no lo busques y ofrece el
+      // catálogo", y el prompt dice "si se parece a algo, búscalo; el
+      // sistema dice si no está". Dos órdenes opuestas en cada mensaje, y
+      // el modelo elegía una al azar: de ahí buena parte de las respuestas
+      // incoherentes. Y el catálogo que ofrecía no existe: EPICELL no
+      // tiene tienda online.
+      "Esto es lo que hay disponible HOY. En \"buscar\" usa las palabras de",
+      "esta lista. Si lo que pide SE PARECE a algo de aquí (aunque lo escriba",
+      "distinto), BÚSCALO: el sistema ve el resultado y, si justo ese no está,",
+      "él mismo le dice \"ese no, pero mira estos\". Si no hay NADA parecido,",
+      "dile que ahora mismo no lo tienes disponible y que un asesor le",
+      "confirma si se puede conseguir. Nunca \"no vendemos\".",
       catalogo,
       "─────────────────────────────────────────────────"
     );

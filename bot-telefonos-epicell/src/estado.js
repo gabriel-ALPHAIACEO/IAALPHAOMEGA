@@ -30,6 +30,9 @@ export async function cargarContacto(db, id) {
       ultimo_envio: 0,
       mostrados: [],
       ultima_respuesta: "",
+      ultimos_productos: [],
+      ultimos_textos: [],
+      publicacion: null,
     };
   }
 
@@ -51,7 +54,205 @@ export async function cargarContacto(db, id) {
     // Lo último que se le dijo, tal cual salió. Es de donde se recupera
     // "muéstrame esos".
     ultima_respuesta: fila.ultima_respuesta || "",
+    // Los títulos del ÚLTIMO carrusel que se le mandó. Es lo que permite
+    // volver a enseñárselos sin buscar otra vez —"¿y en divisas?"— sin
+    // depender de que el modelo acierte el término dos veces seguidas.
+    ultimos_productos: leerLista(fila.ultimos_productos),
+    // Los últimos mensajes de TEXTO que salieron de la cuenta por mano del
+    // bot. Es la segunda forma de reconocer su propio eco, la que funciona
+    // aunque el mid no cuadre (ver esEcoPorTexto).
+    ultimos_textos: leerLista(fila.ultimos_textos),
+    // La publicación del feed que acaba de compartir, si fue hace poco. Es
+    // lo que une los DOS webhooks de "compartir + preguntar" en una sola
+    // respuesta (ver publicacion.js).
+    publicacion: leerPublicacion(fila.publicacion),
+    // Lo que se dijeron, en orden. Ver COLUMNAS_SOLAS.
+    conversacion: leerConversacion(fila.conversacion),
   };
+}
+
+/* ── La conversación ──────────────────────────────────────────────
+
+   CUÁNTO SE GUARDA, Y POR QUÉ ESE TAMAÑO.
+
+   Todo lo que se guarda aquí viaja al modelo en CADA mensaje, así que es
+   dinero por turno. Doce intervenciones cubren de sobra una conversación
+   de venta —"hola", el equipo, la capacidad, el precio, Cashea, el
+   cierre— y 400 caracteres por línea dejan pasar entera cualquier
+   pregunta de un cliente. Lo que se salga de ahí lo sigue cubriendo el
+   resumen del modelo, que es corto pero no se borra nunca.
+   ───────────────────────────────────────────────────────────────── */
+const TURNOS_GUARDADOS = 12;
+const LARGO_DE_UNA_LINEA = 400;
+
+function leerConversacion(crudo) {
+  const lista = leerLista(crudo);
+
+  return lista
+    .map((turno) => ({
+      de: turno?.de === "bot" ? "bot" : "cliente",
+      texto: String(turno?.texto || "").slice(0, LARGO_DE_UNA_LINEA),
+    }))
+    .filter((turno) => turno.texto);
+}
+
+// Añade lo dicho y devuelve la conversación ya recortada. No toca la base:
+// quien llama la guarda junto con lo demás del turno (ver marcarEnvio).
+export function conLoDicho(conversacion, de, texto) {
+  const limpio = String(texto || "").trim();
+  if (!limpio) return conversacion || [];
+
+  const linea = { de: de === "bot" ? "bot" : "cliente", texto: limpio.slice(0, LARGO_DE_UNA_LINEA) };
+  const previa = conversacion || [];
+
+  // El mismo mensaje dos veces seguidas es un reintento de Meta o un eco:
+  // no se anota dos veces.
+  const ultima = previa[previa.length - 1];
+  if (ultima && ultima.de === linea.de && ultima.texto === linea.texto) return previa;
+
+  return [...previa, linea].slice(-TURNOS_GUARDADOS);
+}
+
+/* ── Los comentarios ya contestados ───────────────────────────────── */
+
+// POR QUÉ HACE FALTA. Meta reintenta los webhooks: el mismo comentario
+// puede llegar dos y tres veces. Sin esto, el cliente recibiría la misma
+// respuesta pública repetida debajo de su comentario —que es la peor
+// forma de parecer un robot— y varios privados seguidos.
+//
+// Se guarda solo el id y la fecha. La tabla se crea sola la primera vez,
+// igual que la de contactos.
+const CREAR_COMENTARIOS = `
+  CREATE TABLE IF NOT EXISTS comentarios (
+    id     TEXT PRIMARY KEY,
+    cuando INTEGER NOT NULL DEFAULT 0
+  )
+`;
+
+// Devuelve true si es la PRIMERA vez que vemos este comentario. La
+// escritura y la comprobación van juntas a propósito: dos webhooks en
+// paralelo del mismo comentario no pueden pasar los dos.
+export async function comentarioNuevo(db, id) {
+  if (!db || !id) return false;
+
+  const guardar = () =>
+    db
+      .prepare("INSERT INTO comentarios (id, cuando) VALUES (?, ?)")
+      .bind(id, Date.now())
+      .run();
+
+  try {
+    await guardar();
+    return true;
+  } catch (error) {
+    const mensaje = String(error?.message || "");
+
+    // Ya estaba: es un reintento de Meta.
+    if (/UNIQUE|PRIMARY KEY|constraint/i.test(mensaje)) return false;
+
+    // La tabla todavía no existe: se crea y se reintenta una vez.
+    if (/no such table/i.test(mensaje)) {
+      await db.prepare(CREAR_COMENTARIOS).run();
+      console.log('Tabla "comentarios" creada sola: primer comentario que atiende el bot.');
+      try {
+        await guardar();
+        return true;
+      } catch (otro) {
+        if (/UNIQUE|PRIMARY KEY|constraint/i.test(String(otro?.message || ""))) return false;
+        throw otro;
+      }
+    }
+
+    throw error;
+  }
+}
+
+// Y SI AL FINAL NO SE LE PUDO CONTESTAR, SE SUELTA (25-sep-2026).
+//
+// La marca se pone ANTES de contestar, que es lo correcto: entre los dos
+// webhooks del mismo comentario no puede colarse una respuesta doble. Pero
+// si después falla TODO —el token vencido, Meta devolviendo 500, la red— el
+// comentario se quedaba marcado como contestado sin que el cliente hubiera
+// recibido nada, y el reintento de Meta (que es la segunda oportunidad, y
+// la única) se descartaba por duplicado. La pregunta quedaba colgando
+// debajo de la publicación para siempre.
+//
+// Soltarlo devuelve esa oportunidad. Si falla otra vez, se vuelve a soltar:
+// lo que no se puede es perderla en silencio.
+export async function olvidarComentario(db, id) {
+  if (!db || !id) return;
+
+  try {
+    await db.prepare("DELETE FROM comentarios WHERE id = ?").bind(id).run();
+    console.log(`No se le pudo contestar al comentario ${id}: lo suelto para que Meta reintente`);
+  } catch (error) {
+    console.error("No pude soltar el comentario:", error?.message || error);
+  }
+}
+
+/* ── La publicación que acaba de compartir ────────────────────────── */
+
+// POR QUÉ ESTO VIVE EN LA BASE Y NO EN UNA VARIABLE.
+//
+// Compartir una publicación y escribir "precio?" son DOS mensajes, y Meta
+// los manda como dos webhooks distintos que el Worker atiende en paralelo,
+// cada uno en su propia petición. No comparten memoria: lo único que los
+// dos ven es D1. Sin esto, el que atiende la publicación y el que atiende
+// la pregunta contestan por separado — que es exactamente el mensaje
+// repetido que se vio en producción.
+//
+// "atendida" es la bandera que impide la segunda respuesta. Se marca ANTES
+// de llamar al modelo, no después: la llamada tarda segundos y en esa
+// ventana es cuando el otro webhook está decidiendo si contesta.
+export async function guardarPublicacion(db, id, publicacion) {
+  const valor = JSON.stringify({
+    url: publicacion.url || "",
+    imagen: publicacion.imagen || "",
+    titulo: publicacion.titulo || "",
+    descripcion: publicacion.descripcion || "",
+    enlace: publicacion.enlace || "",
+    termino: publicacion.termino || "",
+    cuando: Number(publicacion.cuando) || Date.now(),
+    atendida: Boolean(publicacion.atendida),
+  });
+
+  const guardar = () =>
+    db
+      .prepare(
+        `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, publicacion)
+         VALUES (?, '', '', 0, '[]', ?)
+         ON CONFLICT(id) DO UPDATE SET publicacion = excluded.publicacion`
+      )
+      .bind(id, valor)
+      .run();
+
+  try {
+    await guardar();
+  } catch (error) {
+    if (!faltaColumna(error)) throw error;
+    await asegurarColumnas(db, { aunqueYaSeRevisara: true });
+    await guardar();
+  }
+}
+
+// ¿Sigue valiendo lo que compartió? Fuera de la ventana es una publicación
+// vieja, y darle el precio de aquello a un "precio?" de hoy es el mismo
+// fallo que historial.js pelea con el recorte.
+export function publicacionVigente(contacto, ventanaMs, ahora = Date.now()) {
+  const guardada = contacto.publicacion;
+  if (!guardada) return null;
+  if (ahora - (Number(guardada.cuando) || 0) > ventanaMs) return null;
+  return guardada;
+}
+
+function leerPublicacion(valor) {
+  if (!valor) return null;
+  try {
+    const datos = JSON.parse(valor);
+    return datos && typeof datos === "object" ? datos : null;
+  } catch {
+    return null;
+  }
 }
 
 // ¿Este producto ya se lo mandamos? Se compara sin tildes, sin mayúsculas y
@@ -99,17 +300,81 @@ function normalizar(titulo) {
 // humano y se pausa a sí mismo. Pasó en producción: cinco de siete
 // conversaciones quedaron mudas. Por eso el mid se guarda inmediatamente
 // después de enviar, antes de Slack y antes de cualquier otra cosa lenta.
-export async function marcarEnvio(db, id, mids, cuando = Date.now()) {
-  await db
-    .prepare(
-      `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, ultimo_envio)
-       VALUES (?, '', '', 0, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         mids_enviados = excluded.mids_enviados,
-         ultimo_envio = excluded.ultimo_envio`
-    )
-    .bind(id, JSON.stringify(mids.slice(-MAX_MIDS)), cuando)
-    .run();
+export async function marcarEnvio(
+  db,
+  id,
+  mids,
+  cuando = Date.now(),
+  textos = [],
+  conversacion = null
+) {
+  const guardar = () =>
+    db
+      .prepare(
+        `INSERT INTO contactos (id, nombre, historial, pausado_hasta, mids_enviados, ultimo_envio, ultimos_textos, conversacion)
+         VALUES (?, '', '', 0, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           mids_enviados = excluded.mids_enviados,
+           ultimo_envio = excluded.ultimo_envio,
+           ultimos_textos = excluded.ultimos_textos,
+           conversacion = excluded.conversacion`
+      )
+      .bind(
+        id,
+        JSON.stringify(mids.slice(-MAX_MIDS)),
+        cuando,
+        JSON.stringify(textos.slice(-MAX_TEXTOS).map(huella)),
+        // Siempre se escribe entera: quien llama la trae del contacto y le
+        // añade lo de este turno, así que lo que llega aquí ya es la
+        // versión buena. Nada de condiciones dentro del SQL — la base es
+        // el sitio donde menos se quiere pensar.
+        JSON.stringify((conversacion || []).slice(-TURNOS_GUARDADOS))
+      )
+      .run();
+
+  try {
+    await guardar();
+  } catch (error) {
+    if (!faltaColumna(error)) throw error;
+    await asegurarColumnas(db, { aunqueYaSeRevisara: true });
+    await guardar();
+  }
+}
+
+// EL ECO SE RECONOCE TAMBIÉN POR EL TEXTO (24-sep-2026).
+//
+// EL FALLO QUE ESTO ARREGLA. El bot se pausaba solo con clientes a los que
+// ningún asesor había tocado, y desde esa pausa dejaba de responder aunque
+// el cliente siguiera preguntando. La pausa la dispara el eco de un mensaje
+// que salió de la cuenta y cuyo mid el bot no reconoce como suyo — y el mid
+// falla más de lo que parecía: si el envío no devolvió identificador, si la
+// escritura en D1 llegó tarde, o si Meta manda el eco con otro.
+//
+// El texto no falla. Si lo que rebota es palabra por palabra lo que el bot
+// acaba de escribir, es suyo, y no hay más que discutir. Se guardan los
+// últimos, no solo el último, porque un turno manda varios mensajes.
+//
+// Se compara por "huella": sin mayúsculas, sin tildes, sin espacios de más
+// y recortado. Un asesor que copie y pegue EXACTAMENTE un mensaje del bot
+// no pausaría; es un precio ridículo comparado con una hora de silencio
+// con un cliente que está preguntando.
+const MAX_TEXTOS = 6;
+const LARGO_HUELLA = 160;
+
+function huella(texto) {
+  return String(texto || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, LARGO_HUELLA);
+}
+
+export function esEcoPorTexto(contacto, texto) {
+  const suya = huella(texto);
+  if (!suya) return false;
+  return (contacto.ultimos_textos || []).some((guardada) => guardada === suya);
 }
 
 // La red de seguridad del párrafo de arriba: aunque el mid no aparezca en
@@ -120,10 +385,22 @@ export async function marcarEnvio(db, id, mids, cuando = Date.now()) {
 // sin atención durante horas.
 const VENTANA_ECO_PROPIO_MS = 90 * 1000;
 
-export function envioReciente(contacto, ahora = Date.now()) {
+export function envioReciente(contacto, ahora = Date.now(), ventana = VENTANA_ECO_PROPIO_MS) {
   const ultimo = Number(contacto.ultimo_envio) || 0;
-  return ultimo > 0 && ahora - ultimo < VENTANA_ECO_PROPIO_MS;
+  return ultimo > 0 && ahora - ultimo < ventana;
 }
+
+// UN ECO SIN TEXTO CASI SIEMPRE ES NUESTRO CARRUSEL.
+//
+// Las fichas de producto salen como adjunto, así que su eco vuelve sin una
+// sola letra: no hay texto que comparar y, si además el mid no cuadró, lo
+// único que queda es el reloj. Por eso aquí la ventana es más ancha que los
+// 90 segundos: un turno que manda texto + fichas + botón puede tardar.
+//
+// Lo que se pierde: un asesor que mande una FOTO en esos minutos no pausa
+// el bot. Lo que se gana: el carrusel del propio bot deja de pausarlo. En
+// cuanto ese asesor escriba una línea, la pausa entra igual.
+export const VENTANA_ECO_SIN_TEXTO_MS = 5 * 60 * 1000;
 
 export async function guardarContacto(db, contacto) {
   // Solo guardamos los últimos: la lista existe para reconocer ecos recientes,
@@ -145,6 +422,11 @@ export async function guardarContacto(db, contacto) {
     // Se recorta: es para volver sobre el último mensaje, no para
     // guardarse conversaciones enteras en cada fila.
     String(contacto.ultima_respuesta || "").slice(0, MAX_ULTIMA_RESPUESTA),
+    JSON.stringify((contacto.ultimos_productos || []).slice(0, 10)),
+    // La conversación entera. Quien llama la trae ya con lo de este turno
+    // añadido (ver conLoDicho); si no la trae, se respeta la que hay en la
+    // base — igual que con los campos del perfil.
+    contacto.conversacion ? JSON.stringify(contacto.conversacion.slice(-TURNOS_GUARDADOS)) : "",
   ];
 
   // Los tres campos del perfil NUNCA se borran desde aquí: si el que llama
@@ -154,8 +436,8 @@ export async function guardarContacto(db, contacto) {
   const guardar = () =>
     db
       .prepare(
-        `INSERT INTO contactos (id, nombre, nombre_completo, usuario, historial, pausado_hasta, mids_enviados, ultimo_envio, mostrados, ultima_respuesta)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO contactos (id, nombre, nombre_completo, usuario, historial, pausado_hasta, mids_enviados, ultimo_envio, mostrados, ultima_respuesta, ultimos_productos, conversacion)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            nombre = COALESCE(NULLIF(excluded.nombre, ''), contactos.nombre),
            nombre_completo = COALESCE(NULLIF(excluded.nombre_completo, ''), contactos.nombre_completo),
@@ -165,7 +447,9 @@ export async function guardarContacto(db, contacto) {
            mids_enviados = excluded.mids_enviados,
            ultimo_envio = excluded.ultimo_envio,
            mostrados = excluded.mostrados,
-           ultima_respuesta = excluded.ultima_respuesta`
+           ultima_respuesta = excluded.ultima_respuesta,
+           ultimos_productos = excluded.ultimos_productos,
+           conversacion = COALESCE(NULLIF(excluded.conversacion, ''), contactos.conversacion)`
       )
       .bind(...datos)
       .run();
@@ -226,6 +510,18 @@ const MAX_ULTIMA_RESPUESTA = 1000;
 
 const COLUMNAS_SOLAS = [
   ["mostrados", "TEXT NOT NULL DEFAULT '[]'"],
+  // LA CONVERSACIÓN DE VERDAD, TURNO POR TURNO.
+  //
+  // Hasta hoy la memoria del bot era el "historial": un RESUMEN de 200
+  // caracteres que escribía el propio modelo ("Pidió un Samsung. Ya
+  // busqué: Samsung."). Con eso se pierde casi todo — el tono, lo que ya
+  // le dijiste, lo que descartó, el nombre que dio, para quién es el
+  // equipo, cuánto quería gastar— y el bot repite preguntas que ya hizo.
+  //
+  // Aquí se guarda lo que de verdad se dijeron, en orden: cada línea del
+  // cliente y cada respuesta del bot. Es lo que le permite leer el chat
+  // entero, de arriba abajo, en vez de un apunte.
+  ["conversacion", "TEXT NOT NULL DEFAULT '[]'"],
   ["nombre_completo", "TEXT NOT NULL DEFAULT ''"],
   ["usuario", "TEXT NOT NULL DEFAULT ''"],
   // LO ÚLTIMO QUE EL BOT LE DIJO A ESTE CLIENTE, palabra por palabra.
@@ -239,6 +535,22 @@ const COLUMNAS_SOLAS = [
   // Con el mensaje literal se puede volver sobre él y sacar los modelos
   // que nombró, que es exactamente lo que el cliente está pidiendo ver.
   ["ultima_respuesta", "TEXT NOT NULL DEFAULT ''"],
+  // LOS TÍTULOS DEL ÚLTIMO CARRUSEL QUE SE LE MANDÓ.
+  //
+  // "¿Y en divisas?" no nombra ningún equipo: habla de los que acaba de
+  // ver. Sin esta lista había que volver a adivinar el término de
+  // búsqueda, y el bot terminaba mandándolo al asesor o enseñando otra
+  // cosa. Con ella se le vuelven a mostrar LOS MISMOS, con el otro precio.
+  ["ultimos_productos", "TEXT NOT NULL DEFAULT '[]'"],
+  // Las huellas de los últimos textos que mandó el bot, para reconocer su
+  // propio eco aunque el mid no cuadre (ver esEcoPorTexto).
+  ["ultimos_textos", "TEXT NOT NULL DEFAULT '[]'"],
+  // LA PUBLICACIÓN DEL FEED QUE ACABA DE COMPARTIR.
+  //
+  // Compartir y preguntar son dos mensajes, y llegan como dos webhooks en
+  // paralelo. Aquí es donde el uno se entera del otro: sin esto, los dos
+  // contestan y el cliente recibe el mismo mensaje dos veces.
+  ["publicacion", "TEXT NOT NULL DEFAULT ''"],
 ];
 
 // Una vez por instancia del Worker basta: después de la primera revisión,
@@ -381,6 +693,9 @@ const COLUMNAS = [
   ["mostrados", "0003_mostrados"],
   ["nombre_completo", "se crea sola"],
   ["usuario", "se crea sola"],
+  ["ultimos_productos", "se crea sola"],
+  ["ultimos_textos", "se crea sola"],
+  ["publicacion", "se crea sola"],
 ];
 
 // Las que el propio Worker crea en cuanto atiende un mensaje (ver

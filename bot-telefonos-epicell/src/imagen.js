@@ -25,7 +25,7 @@ const MAXIMO_MB = 15;
 //   "video"     la historia es un vídeo: no se puede mirar, pero se atiende
 //   "caducada"  el enlace ya no sirve
 //   "otro"      cualquier otra cosa
-export async function comoDataUri(env, url, { silencioso = false } = {}) {
+export async function comoDataUri(env, url) {
   const enlace = String(url || "").trim();
 
   // Si ya viene en data URI, no hay nada que traer. Va primero: un data URI
@@ -70,18 +70,22 @@ export async function comoDataUri(env, url, { silencioso = false } = {}) {
     return { uri: "", motivo: esVideo ? "video" : "otro" };
   }
 
-  const datos = await respuesta.arrayBuffer();
+  // La descarga también tiene tope (ver traer): si se corta a mitad, es una
+  // foto que no se pudo ver, no un fallo del bot. Se sigue con el texto.
+  let datos;
+  try {
+    datos = await respuesta.arrayBuffer();
+  } catch (error) {
+    console.error(`La imagen no terminó de bajar a tiempo: ${error?.message || error}`);
+    return { uri: "", motivo: "otro" };
+  }
   const mb = datos.byteLength / (1024 * 1024);
   if (mb > MAXIMO_MB) {
     console.error(`La imagen pesa ${mb.toFixed(1)} MB, más del límite de ${MAXIMO_MB}.`);
     return { uri: "", motivo: "otro" };
   }
 
-  // Las del catálogo se bajan de diez en diez y llenarían el registro sin
-  // decir nada: la que importa es la del cliente.
-  if (!silencioso) {
-    console.log(`Imagen descargada: ${tipo}, ${Math.round(datos.byteLength / 1024)} KB`);
-  }
+  console.log(`Imagen descargada: ${tipo}, ${Math.round(datos.byteLength / 1024)} KB`);
   return { uri: `data:${tipo};base64,${aBase64(datos)}`, motivo: "" };
 }
 
@@ -97,7 +101,9 @@ async function traer(url, token) {
   if (token) cabeceras.authorization = `Bearer ${token}`;
 
   try {
-    return await fetch(url, { headers: cabeceras, redirect: "follow" });
+    // Con tope: una foto que no baja en 8 s no va a bajar, y el turno
+    // tiene 30 s para todo (ver index.js).
+    return await fetch(url, { headers: cabeceras, redirect: "follow", signal: AbortSignal.timeout(8000) });
   } catch (error) {
     console.error("No se pudo conectar con el CDN de la imagen:", error.message);
     return null;

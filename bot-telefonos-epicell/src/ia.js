@@ -16,10 +16,6 @@
 import promptTexto from "./prompts/texto.txt";
 import listaCatalogo from "./prompts/catalogo.txt";
 import promptVision from "./prompts/vision.txt";
-import promptIndexar from "./prompts/indexar.txt";
-import promptCotejo from "./prompts/cotejo.txt";
-import { urlPequena } from "./sheets.js";
-import { comoDataUri } from "./imagen.js";
 
 // La lista de nombres vive en un archivo aparte (prompts/catalogo.txt) y se
 // pega dentro de texto.txt al arrancar, donde dice {{CATALOGO}}. Así hay UN
@@ -36,8 +32,77 @@ const SIN_CATALOGO = `(Todavía no está cargada la lista de nombres de la
 tienda. Busca con lo que diga el cliente, tal cual: la hoja es la que
 manda y la búsqueda funciona igual sin esta lista.)`;
 
-function textoConCatalogo() {
-  if (promptTextoArmado) return promptTextoArmado;
+// Lo que va donde antes iba la lista fija.
+const LA_LISTA_ES_LA_DEL_MENSAJE = `(La lista de lo que hay HOY te llega
+en cada mensaje, en el bloque "CATÁLOGO ACTUAL DE LA TIENDA". Esa es la
+única que vale: lo que no esté ahí no está disponible ahora, aunque lo
+hayas visto en otro mensaje.)`;
+
+// LOS HORARIOS: UN DATO QUE EL MODELO NO PUEDE SABER (26-sep-2026).
+//
+// EL FALLO QUE ESTO ARREGLA. En el prompt había escrito, tal cual:
+//
+//   Horarios: {{TUS HORARIOS}}
+//
+// Un marcador de la plantilla que nadie rellenó. El modelo lo leía como si
+// fuera el horario de la tienda, y a quien preguntaba "¿a qué hora abren?"
+// le contestaba con esas llaves — o, peor, se inventaba un horario, que es
+// lo que hace un modelo cuando le falta un dato y nadie le dijo qué hacer.
+// Un horario inventado es un cliente en la puerta de un local cerrado.
+//
+// Ahora el horario se pone en wrangler.toml (HORARIOS) y entra aquí. Y si
+// está vacío, no queda ningún hueco: entra una frase que manda la pregunta
+// al asesor, que es la verdad mientras no haya horario cargado.
+const SIN_HORARIOS =
+  "NO SABES el horario de la tienda (no está cargado). Si lo preguntan, " +
+  "dile que se lo confirma un asesor en un momento. NUNCA te inventes una " +
+  "hora ni un día";
+
+// LAS FORMAS DE PAGO, IGUAL QUE EL HORARIO (29-sep-2026).
+//
+// Si preguntan SOLO eso, contesta el código con METODOS_PAGO tal cual (ver
+// datos.js). Pero "¿el A57 lo puedo pagar con Zelle?" nombra un equipo y
+// va por el modelo: ahí el modelo tiene que saber cuáles son, o se los
+// inventa. Entra la misma lista, y si no está cargada, que no la sabe.
+const SIN_METODOS_PAGO =
+  "NO SABES las formas de pago (no están cargadas). Si las preguntan, " +
+  "dile que se las confirma un asesor. NUNCA digas que aceptas una";
+
+// DIRECCIÓN, ENVÍOS, DELIVERY Y TASA, cuando estén cargados (30-sep-2026).
+// Si preguntan SOLO eso, contesta el código (datos.js). Esto es para cuando
+// viene mezclado con un equipo —"¿tienen el A57 y dónde quedan?"—: la IA
+// tiene que saberlo, o lo manda al asesor teniendo el dato.
+const SIN_OTROS_DATOS =
+  "(Dirección, envíos, delivery y tasa: no están cargados. Si los preguntan, " +
+  "los confirma un asesor. NUNCA los inventes)";
+
+function otrosDatosDeLaTienda(env) {
+  const limpio = (v) => {
+    const t = String(v || "").replace(/\\n/g, " ").replace(/\s+/g, " ").trim();
+    return /^$|CAMBIA-ESTO|PENDIENTE|PON_AQUI|ejemplo\.com/i.test(t) ? "" : t;
+  };
+  return [
+    limpio(env?.DIRECCION) && `Dirección: ${limpio(env.DIRECCION)}`,
+    limpio(env?.MAPS_URL) && `Google Maps: ${limpio(env.MAPS_URL)}`,
+    limpio(env?.ENVIOS) && `Envíos: ${limpio(env.ENVIOS)}`,
+    limpio(env?.DELIVERY) && `Delivery: ${limpio(env.DELIVERY)}`,
+    limpio(env?.TASA) && `Tasa: ${limpio(env.TASA)}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+// El prompt armado y los datos con los que se armó: si cambian (un
+// despliegue nuevo), hay que volver a armarlo.
+let horariosArmados = null;
+
+function textoConCatalogo(env) {
+  const horarios = String(env?.HORARIOS || "").trim();
+  const metodosPago = String(env?.METODOS_PAGO || "").replace(/\\n/g, "\n").trim();
+  const otrosDatos = otrosDatosDeLaTienda(env);
+  const llave = `${horarios}\u0000${metodosPago}\u0000${otrosDatos}`;
+
+  if (promptTextoArmado && horariosArmados === llave) return promptTextoArmado;
 
   // Fuera los comentarios del archivo: son para quien lo mantiene, no
   // para el modelo, y ocupan tokens en cada mensaje.
@@ -47,11 +112,43 @@ function textoConCatalogo() {
     .join("\n")
     .trim();
 
-  promptTextoArmado = promptTexto.replace("{{CATALOGO}}", lista || SIN_CATALOGO);
+  // EL CATÁLOGO FIJO YA NO ENTRA EN EL PROMPT (29-sep-2026).
+  //
+  // Aquí se pegaba catalogo.txt: una lista escrita a mano con TODOS los
+  // nombres, agotados incluidos. Y en cada mensaje llega además la lista
+  // EN VIVO de la hoja (ver listaDeTitulos), sin los que tienen Cantidad
+  // 0. El modelo veía las dos: el Redmi 17 en una y no en la otra. Con
+  // eso delante, un modelo pequeño ofrece lo que se agotó — que es justo
+  // lo que pasó en producción.
+  //
+  // La lista en vivo es la única que dice la verdad, y ya va en cada
+  // mensaje. La fija sobraba: eran mil tokens de datos que podían estar
+  // viejos. catalogo.txt se queda en el proyecto porque comprobar-prompt.py
+  // la usa para vigilar que los ejemplos del prompt hablen de productos
+  // reales.
+  void lista;
+  promptTextoArmado = promptTexto
+    .replace("{{CATALOGO}}", LA_LISTA_ES_LA_DEL_MENSAJE)
+    .replaceAll("{{TUS HORARIOS}}", horarios || SIN_HORARIOS)
+    .replaceAll("{{METODOS DE PAGO}}", metodosPago || SIN_METODOS_PAGO)
+    .replaceAll("{{OTROS DATOS}}", otrosDatos || SIN_OTROS_DATOS);
+
+  horariosArmados = llave;
+
+  if (!horarios) {
+    console.log(
+      "HORARIOS sin poner en wrangler.toml: el bot manda esa pregunta al " +
+        "asesor en vez de inventarse una hora."
+    );
+  }
+
   return promptTextoArmado;
 }
 
 const API = "https://api.openai.com/v1/chat/completions";
+
+// Ver llamar(): baja = se ciñe a lo que tiene delante.
+const TEMPERATURA_POR_DEFECTO = 0.3;
 
 // Se puede cambiar desde wrangler.toml sin tocar el código.
 const MODELO_POR_DEFECTO = "gpt-4o-mini";
@@ -59,52 +156,6 @@ const MODELO_POR_DEFECTO = "gpt-4o-mini";
 // La identificación corre en un modelo aparte, normalmente más fuerte que
 // el de texto: ya no tiene que redactar nada, solo mirar bien la foto.
 const MODELO_VISION_POR_DEFECTO = "gpt-4o";
-
-// Con el que se cataloga la hoja. Son decenas de fotos, así que va el
-// mini: su cupo por minuto es mucho más alto y para una foto de producto
-// limpia, sobre fondo liso, alcanza de sobra.
-const MODELO_INDICE_POR_DEFECTO = "gpt-4o-mini";
-
-// HASTA CUÁNDO NO VALE LA PENA VOLVER A PEDIRLE NADA A UN MODELO.
-//
-// OpenAI limita los tokens por minuto (TPM) de cada modelo POR SEPARADO,
-// no de la cuenta entera: gpt-4o anda justo y gpt-4o-mini tiene mucho
-// más. Con un número compartido, un 429 del grande apagaba también al
-// chico sin motivo.
-//
-// Solo lo consulta lo que puede esperar: la indexación y el barrido del
-// cotejo. Identificar la foto del cliente y redactar su respuesta se
-// intentan SIEMPRE — mejor un 429 en una de ellas que dejarlo sin
-// respuesta por prudencia.
-const limitados = new Map();
-
-export function estaLimitado(modelo) {
-  return Date.now() < (limitados.get(modelo) || 0);
-}
-
-// Espera a que vuelva el cupo, hasta un máximo. Devuelve true si al salir
-// hay cupo. Lo usa la indexación, que no tiene a nadie esperando.
-export async function esperarCupo(modelo, maximoMs = 25000) {
-  const hasta = limitados.get(modelo) || 0;
-  const falta = hasta - Date.now();
-
-  if (falta <= 0) return true;
-  if (falta > maximoMs) return false;
-
-  console.log(`Espero ${Math.ceil(falta / 1000)}s a que vuelva el cupo de ${modelo}`);
-  await new Promise((seguir) => setTimeout(seguir, falta + 250));
-  return true;
-}
-
-// Los nombres de modelo en un solo sitio, para que quien pregunta por el
-// límite pregunte por el mismo modelo con el que después va a llamar.
-export function modeloDeVision(env) {
-  return env.OPENAI_MODELO_VISION || MODELO_VISION_POR_DEFECTO;
-}
-
-export function modeloDeIndice(env) {
-  return env.OPENAI_MODELO_INDICE || MODELO_INDICE_POR_DEFECTO;
-}
 
 // SCHEMA ESTRICTO PARA LA IDENTIFICACIÓN.
 //
@@ -130,20 +181,51 @@ const ESQUEMA_IDENTIFICACION = {
   },
 };
 
+// CUÁNTO SE LE ESPERA A OPENAI (30-sep-2026).
+//
+// Cloudflare le da a cada mensaje 30 segundos en total y al llegar corta
+// sin avisar. OpenAI a veces tarda —gpt-4o con una foto, o un pico de
+// uso—, y sin tope se comía ese tiempo: el turno moría con el cliente sin
+// respuesta, o con el texto enviado y las fotos no. index.js le pasa a
+// cada llamada lo que queda del turno; esto es el máximo.
+const ESPERA_OPENAI_MS = 15000;
+
 async function llamar(
   env,
   sistema,
   contenido,
-  { maxTokens = 1024, json = true, schema = null, modelo = "", alFallar = null } = {}
+  { maxTokens = 1024, json = true, schema = null, modelo = "", esperaMs = ESPERA_OPENAI_MS } = {}
 ) {
+  const elModelo = modelo || env.OPENAI_MODELO || MODELO_POR_DEFECTO;
+
   const cuerpo = {
-    model: modelo || env.OPENAI_MODELO || MODELO_POR_DEFECTO,
+    model: elModelo,
     max_completion_tokens: maxTokens,
     messages: [
       { role: "system", content: sistema },
       { role: "user", content: contenido },
     ],
   };
+
+  // LA TEMPERATURA (29-sep-2026).
+  //
+  // No se mandaba, y entonces OpenAI usa 1.0: el modo más "creativo" que
+  // tiene. Para escribir un cuento está bien; para un vendedor que tiene
+  // que decir lo que hay y nada más, es invitarlo a improvisar. De ahí
+  // salen las respuestas raras que no vienen de ningún sitio —"no tengo
+  // langostas"—: el modelo rellenando con lo primero que se le ocurre.
+  //
+  // Con 0.3 sigue sonando natural y variado, pero se ciñe a lo que tiene
+  // delante. Se puede cambiar en wrangler.toml (OPENAI_TEMPERATURA).
+  //
+  // Solo a los modelos gpt-4 y gpt-3: los de razonamiento (o1, o3, gpt-5)
+  // rechazan el parámetro, y mandárselo tumbaría la llamada.
+  if (/^gpt-(4|3)/i.test(elModelo)) {
+    const pedida = Number(env.OPENAI_TEMPERATURA);
+    cuerpo.temperature = Number.isFinite(pedida) && env.OPENAI_TEMPERATURA !== undefined && env.OPENAI_TEMPERATURA !== ""
+      ? pedida
+      : TEMPERATURA_POR_DEFECTO;
+  }
 
   // "schema" (json_schema + strict) manda sobre "json" (json_object) — es
   // la versión que además obliga la FORMA exacta, no solo que sea JSON
@@ -167,19 +249,22 @@ async function llamar(
         authorization: `Bearer ${env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify(cuerpo),
+      signal: AbortSignal.timeout(esperaMs),
     });
   } catch (error) {
-    console.error("No se pudo llamar al modelo:", error.message);
+    if (error?.name === "TimeoutError" || error?.name === "AbortError") {
+      console.error(
+        `OpenAI (${cuerpo.model}) no contestó en ${Math.round(esperaMs / 1000)}s: corto aquí para ` +
+          "que el turno no pase del límite de 30 s de Cloudflare y el cliente reciba algo."
+      );
+    } else {
+      console.error("No se pudo llamar al modelo:", error.message);
+    }
     return null;
   }
 
   if (!respuesta.ok) {
     const detalle = await respuesta.text();
-
-    // Se avisa del MOTIVO a quien llamó, para que pueda reaccionar: el
-    // cotejo necesita distinguir "no es ninguno" de "OpenAI no me dejó
-    // mirar", y las dos cosas devuelven null.
-    if (typeof alFallar === "function") alFallar({ estado: respuesta.status });
 
     // 429 = se acabó el cupo de tokens por minuto de la cuenta de OpenAI.
     // No es un fallo del código ni de la petición, y conviene que se lea
@@ -192,12 +277,6 @@ async function llamar(
     if (respuesta.status === 429) {
       const cupo = /Limit \d+[^.]*/i.exec(detalle)?.[0] || "";
       const segundos = /try again in ([\d.]+)s/i.exec(detalle)?.[1] || "";
-
-      // Se apunta HASTA CUÁNDO no vale la pena insistir con ESTE modelo.
-      // Sin esto, estaLimitado() no sabría nada y el barrido seguiría
-      // mandando llamadas que ya se sabe que van a fallar.
-      const espera = Math.min(Math.ceil(Number(segundos) || 20), 60);
-      limitados.set(cuerpo.model, Date.now() + espera * 1000);
       console.error(
         `OpenAI se quedó sin cupo por minuto (${cuerpo.model})` +
           (cupo ? ` · ${cupo}` : "") +
@@ -210,7 +289,15 @@ async function llamar(
     return null;
   }
 
-  const datos = await respuesta.json();
+  // Leer la respuesta también cae dentro del tope de espera: si se corta
+  // aquí, es lo mismo que no haber contestado.
+  let datos;
+  try {
+    datos = await respuesta.json();
+  } catch (error) {
+    console.error(`La respuesta de OpenAI llegó cortada: ${error?.message || error}`);
+    return null;
+  }
   return datos.choices?.[0]?.message?.content || null;
 }
 
@@ -222,9 +309,8 @@ const ESQUEMA_RESPUESTA = {
     type: "object",
     properties: {
       // PIENSA ANTES DE RESPONDER. Va PRIMERO a propósito: el modelo escribe
-      // en orden, así que primero razona de qué equipo le hablan y qué le
-      // preguntan, y recién después redacta. El cliente nunca lo ve; queda
-      // en el registro.
+      // en orden, así que primero mira qué le piden y si ESTÁ en la hoja, y
+      // recién después redacta. El cliente nunca lo ve; queda en el registro.
       pienso: { type: "string" },
       // CÓMO RESPONDE: solo texto, texto con fichas, o fichas con un texto
       // corto. Si ya vio esos equipos y pregunta algo de ellos, no se le
@@ -239,8 +325,9 @@ const ESQUEMA_RESPUESTA = {
   },
 };
 
-export async function responderTexto(env, entrada) {
-  const salida = await llamar(env, textoConCatalogo(), [{ type: "text", text: entrada }], {
+export async function responderTexto(env, entrada, { esperaMs } = {}) {
+  const salida = await llamar(env, textoConCatalogo(env), [{ type: "text", text: entrada }], {
+    esperaMs,
     schema: ESQUEMA_RESPUESTA,
   });
   return normalizar(salida);
@@ -252,13 +339,33 @@ export async function responderTexto(env, entrada) {
 // "catalogo" es la misma lista de listaDeTitulos() (sheets.js) que ya
 // recibe la IA de texto: sin ella, la IA de visión no sabría qué modelos
 // existen de verdad y podría nombrar uno que la tienda no vende.
-export async function identificarEnImagen(env, urlImagen, catalogo = "") {
+export async function identificarEnImagen(
+  env,
+  urlImagen,
+  catalogo = "",
+  { esPublicacion = false, esperaMs } = {}
+) {
+  // UNA PUBLICACIÓN NUESTRA NO ES UNA FOTO DE UN CLIENTE.
+  //
+  // Es un montaje de publicidad, y casi siempre trae el nombre del equipo
+  // ESCRITO encima, con su capacidad. Leerlo es infinitamente más seguro
+  // que deducir el modelo por las cámaras, que es para lo que está hecho
+  // el resto del prompt de visión.
+  const encabezado = esPublicacion
+    ? "Esta imagen es una PUBLICACIÓN DE NUESTRO PROPIO FEED que el cliente " +
+      "compartió por el chat, no una foto suya.\n" +
+      "Es un arte promocional: si el nombre del equipo está ESCRITO en la " +
+      "imagen, léelo y ponlo en \"buscar\" tal cual, sin deducir nada por las " +
+      "cámaras. Solo si no hay ningún nombre escrito, identifícalo mirando.\n\n" +
+      "Identifica el equipo de esta publicación."
+    : "Identifica el equipo de esta foto.";
+
   const texto = catalogo
-    ? "Identifica el equipo de esta foto.\n\n" +
+    ? `${encabezado}\n\n` +
       "───────── CATÁLOGO ACTUAL DE LA TIENDA ─────────\n" +
       `${catalogo}\n` +
       "─────────────────────────────────────────────────"
-    : "Identifica el equipo de esta foto.";
+    : encabezado;
 
   const salida = await llamar(
     env,
@@ -273,6 +380,7 @@ export async function identificarEnImagen(env, urlImagen, catalogo = "") {
     {
       schema: ESQUEMA_IDENTIFICACION,
       modelo: env.OPENAI_MODELO_VISION || MODELO_VISION_POR_DEFECTO,
+      esperaMs,
     }
   );
 
@@ -329,194 +437,4 @@ function normalizar(salida) {
     buscar: String(datos.buscar || "NADA").trim(),
     historial: String(datos.historial || "").trim(),
   };
-}
-
-/* ── Catalogar la hoja y cotejar contra ella ────────────────────────── */
-
-// SCHEMA ESTRICTO PARA EL COTEJO VISUAL.
-//
-// Se elige por NÚMERO, no por título. Si se le pidiera devolver el
-// nombre, el modelo lo parafrasearía ("Redmi Note 14 Pro Plus" por
-// "REDMI NOTE 14 PRO+ 8/256") y después habría que adivinar a cuál se
-// refería. Con un índice no hay nada que interpretar: o es uno de los
-// que se le mandaron, o es 0.
-const ESQUEMA_COTEJO = {
-  name: "cotejo_catalogo",
-  strict: true,
-  schema: {
-    type: "object",
-    properties: {
-      eleccion: { type: "integer" },
-      confianza: { type: "string", enum: ["alta", "media", "baja"] },
-      porque: { type: "string" },
-    },
-    required: ["eleccion", "confianza", "porque"],
-    additionalProperties: false,
-  },
-};
-
-// Mira UNA foto de producto de la hoja y devuelve la frase con lo que se
-// ve. Es lo que se guarda en el índice (ver indice.js).
-//
-// Usa su propio prompt, corto, no el de visión entero: para catalogar no
-// hacen falta las reglas de venta ni la escalera de confianza, y mandarlas
-// multiplicaba por diez el gasto de cada foto.
-export async function describirProducto(env, urlImagen, { modelo = "" } = {}) {
-  if (!urlImagen) return null;
-
-  const salida = await llamar(
-    env,
-    promptIndexar,
-    [
-      // En baja: son fotos de producto limpias y lo que hay que leer —el
-      // número de cámaras, la muesca, el acabado— se ve igual.
-      { type: "image_url", image_url: { url: urlPequena(urlImagen), detail: "low" } },
-      { type: "text", text: "Cataloga este producto." },
-    ],
-    { maxTokens: 200, schema: ESQUEMA_IDENTIFICACION, modelo: modelo || modeloDeIndice(env) }
-  );
-
-  const datos = extraerJson(salida);
-  if (!datos) return null;
-
-  const visto = String(datos.visto || "").trim();
-  return visto ? { visto } : null;
-}
-
-// Le pone al modelo la foto del cliente al lado de las fotos reales del
-// catálogo y le pregunta cuál es el mismo equipo. Devuelve el producto
-// elegido, o null si no lo tiene claro.
-//
-// "informe" es opcional: si se pasa, sale con sinCupo = true cuando OpenAI
-// rechazó la llamada por falta de cupo (429). Hace falta para no confundir
-// "el modelo miró y dijo que ninguno es" con "el modelo no llegó a mirar"
-// — las dos cosas devuelven null. Ver cotejar() en cotejo.js.
-export async function cotejarConCatalogo(env, foto, candidatos, textoCliente, informe = null) {
-  if (!foto || !candidatos?.length) return null;
-
-  const contenido = [
-    // La del cliente en alta: es la que hay que leer al detalle, y suele
-    // venir con filtros, lejos o con stickers encima.
-    { type: "image_url", image_url: { url: foto, detail: "high" } },
-    { type: "text", text: "↑ ESTA es la foto del cliente. Abajo, el catálogo:" },
-  ];
-
-  // LAS FOTOS DEL CATÁLOGO VIAJAN DENTRO DE LA LLAMADA.
-  //
-  // Antes se le pasaba a OpenAI la URL de Drive y ERA ELLA quien tenía que
-  // descargarla. Eso se rompía con un 400 "invalid_image_url", y cuando
-  // pasa no falla una foto: falla la llamada entera y se pierden todos los
-  // candidatos de esa ronda.
-  //
-  // Ahora las baja el Worker y las manda ya convertidas. OpenAI no sale a
-  // Internet a buscar nada, así que ese error desaparece de raíz — y de
-  // paso deja de importar si Drive va lento ese día.
-  const fotos = await Promise.all(
-    candidatos.map((producto) => fotoDelCatalogo(env, producto.imagen))
-  );
-
-  const conFoto = [];
-  candidatos.forEach((producto, i) => {
-    // Una foto que no se pudo bajar se queda fuera, y ya está.
-    if (!fotos[i]) return;
-    conFoto.push(producto);
-    contenido.push({ type: "text", text: `${conFoto.length}. ${producto.titulo}` });
-    contenido.push({ type: "image_url", image_url: { url: fotos[i], detail: "low" } });
-  });
-
-  if (!conFoto.length) {
-    console.error(
-      "Cotejo visual: no pude bajar NINGUNA foto del catálogo. " +
-        "¿Están las de Drive en \"Cualquiera con el enlace\"?"
-    );
-    return null;
-  }
-
-  if (conFoto.length < candidatos.length) {
-    console.log(
-      `Cotejo visual: ${candidatos.length - conFoto.length} foto(s) no se pudieron bajar; ` +
-        `sigo con las otras ${conFoto.length}`
-    );
-  }
-
-  candidatos = conFoto;
-
-  contenido.push({
-    type: "text",
-    text: `El cliente escribió: ${textoCliente ? `"${textoCliente}"` : "(nada, solo mandó la foto)"}`,
-  });
-
-  const salida = await llamar(env, promptCotejo, contenido, {
-    maxTokens: 300,
-    schema: ESQUEMA_COTEJO,
-    modelo: modeloDeVision(env),
-    alFallar: ({ estado }) => {
-      if (estado === 429 && informe) informe.sinCupo = true;
-    },
-  });
-
-  const datos = extraerJson(salida);
-  if (!datos) {
-    // Si fue el cupo, ya se avisó arriba con el motivo real. Repetirlo por
-    // cada lote esconde la causa.
-    if (!estaLimitado(modeloDeVision(env))) {
-      console.error("El cotejo visual no devolvió JSON válido");
-    }
-    return null;
-  }
-
-  const indice = Number(datos.eleccion);
-  const confianza = String(datos.confianza || "").toLowerCase();
-  const porque = String(datos.porque || "").slice(0, 200);
-
-  if (!indice) {
-    console.log(`Cotejo visual: ninguno del catálogo es el de la foto (${porque})`);
-    return null;
-  }
-
-  if (!Number.isInteger(indice) || indice < 1 || indice > candidatos.length) {
-    console.error(`Cotejo visual: índice fuera de rango (${datos.eleccion})`);
-    return null;
-  }
-
-  const elegido = candidatos[indice - 1];
-
-  // SOLO "ALTA" LLEGA AL CLIENTE. Lo que sale de aquí se convierte en una
-  // ficha con precio y botón de compra; con una corazonada no se manda.
-  if (confianza !== "alta") {
-    console.log(
-      `Cotejo visual: "${elegido.titulo}" con confianza ${confianza} — no lo uso (${porque})`
-    );
-    return null;
-  }
-
-  console.log(`Cotejo visual: la foto es "${elegido.titulo}" (${porque})`);
-  return elegido;
-}
-
-
-// Las fotos del catálogo, bajadas una sola vez. El mismo producto sale en
-// varias rondas y en varios mensajes, y su foto no cambia.
-const MAXIMO_FOTOS_GUARDADAS = 40;
-const fotosDelCatalogo = new Map();
-
-async function fotoDelCatalogo(env, url) {
-  if (!url) return "";
-  if (fotosDelCatalogo.has(url)) return fotosDelCatalogo.get(url);
-
-  const { uri } = await comoDataUri(env, urlPequena(url), { silencioso: true });
-
-  // SOLO SE GUARDAN LAS QUE SÍ BAJARON.
-  //
-  // La primera versión guardaba también el fallo, para no reintentar. Pero
-  // un tropiezo de un momento —el CDN lento, un corte de red— dejaba ese
-  // producto fuera del cotejo durante toda la vida del Worker, que son
-  // minutos y muchos clientes. Reintentar una descarga que falla rápido
-  // cuesta mucho menos que perder un producto del catálogo.
-  if (uri) {
-    if (fotosDelCatalogo.size >= MAXIMO_FOTOS_GUARDADAS) fotosDelCatalogo.clear();
-    fotosDelCatalogo.set(url, uri);
-  }
-
-  return uri;
 }

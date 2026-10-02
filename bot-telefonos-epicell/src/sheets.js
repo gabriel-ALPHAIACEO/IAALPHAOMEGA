@@ -13,8 +13,6 @@
 // con el precio. Si algo no cuadra, abre /probar-hoja en tu Worker: te dice
 // exactamente qué columnas encontró y qué entendió.
 
-import { resumenDeMarcas } from "./disponible.js";
-
 // La respuesta se guarda en caché unos minutos: si no, cada mensaje de cada
 // cliente se descargaría la hoja entera.
 const MINUTOS_DE_CACHE = 5;
@@ -34,6 +32,14 @@ const SINONIMOS = {
     "precio", "precios", "pvp", "valor", "costo", "coste", "monto",
     "preciousd", "preciodolares", "precioventa", "venta", "preciodivisas",
   ],
+  // LA MARCA, cuando la hoja la trae en su propia columna.
+  //
+  // Sin ella la marca se adivinaba con la PRIMERA PALABRA del título, y en
+  // un inventario de verdad eso da pena: "Reloj", "Cargador", "Base",
+  // "Fan", "Ex141/" salían ofrecidos al cliente como si fueran marcas,
+  // mientras que Xiaomi —que en los títulos está como "Redmi" y "Poco"— no
+  // salía nunca. Con la columna, las marcas son las de verdad.
+  marca: ["marca", "marcas", "fabricante", "brand"],
   // La segunda moneda del precio en divisas: "$150 · Bs 5.400". Si tu hoja
   // no tiene esta columna, no pasa nada, el precio sale solo en la primera.
   precioLocal: [
@@ -60,21 +66,31 @@ const SINONIMOS = {
   stock: ["stock", "cantidad", "existencia", "existencias", "unidades", "inventario"],
 };
 
+import { tipoQuePide, tipoDelProducto } from "./tipos.js";
+import { resumenDeMarcas } from "./disponible.js";
+
 // Devuelve { productos, hayMas }. "hayMas" dice si había MÁS de los que se
 // devuelven: un carrusel de Instagram admite 10, y si de ese modelo hay 14,
 // el cliente tiene que saber que en el catálogo están los otros 4 (ver
 // index.js). Sin esto, "¿solo tienes esos?" no tiene respuesta honesta.
-export async function buscarProductos(env, termino, cuantos = 10) {
-  const palabras = palabrasDeBusqueda(termino).slice(0, 5);
-  if (!palabras.length) return { productos: [], hayMas: false };
+export async function buscarProductos(env, termino, cuantos = 10, opciones = {}) {
+  const pedidas = palabrasDeBusqueda(termino).slice(0, 5);
+  if (!pedidas.length) return { productos: [], hayMas: false };
 
   const { productos } = await leerHoja(env);
   if (!productos.length) return { productos: [], hayMas: false };
 
+  // Cada palabra, con las otras formas de decirla ("xiaomi" vale por
+  // "redmi" y por "poco"), y sin las que la hoja no conoce.
+  const grupos = comoLasDiceLaHoja(pedidas, productos);
+  const palabras = grupos.map((grupo) => grupo[0]);
+
+  if (!grupos.length) return { productos: [], hayMas: false };
+
   // TODAS las palabras del término tienen que estar en el título. Es más
   // estricto, pero evita que pedir un modelo concreto devuelva media tienda.
   let encontrados = productos.filter((p) =>
-    palabras.every((palabra) => coincide(palabra, p.busqueda))
+    grupos.every((grupo) => grupo.some((palabra) => coincide(palabra, p.busqueda)))
   );
 
   // RESCATE 1 — LAS PALABRAS PEGADAS O PARTIDAS.
@@ -138,17 +154,147 @@ export async function buscarProductos(env, termino, cuantos = 10) {
   // al cliente es peor que no encontrarlo.
   if (!encontrados.length) {
     encontrados = productos.filter((p) =>
-      palabras.every((palabra) => coincide(palabra, p.busqueda) || casiCoincide(palabra, p.busqueda))
+      grupos.every((grupo) =>
+        grupo.some((palabra) => coincide(palabra, p.busqueda) || casiCoincide(palabra, p.busqueda))
+      )
     );
     if (encontrados.length) {
       console.log(`Sin resultados exactos con "${palabras.join(" ")}": lo tomo como errata`);
     }
   }
 
+  encontrados = soloLoQuePidio(encontrados, termino, opciones);
+
   return {
     productos: encontrados.slice(0, cuantos).map(({ busqueda, ...producto }) => producto),
     hayMas: encontrados.length > cuantos,
   };
+}
+
+/* ── SOLO LO QUE PIDIÓ, NI UNA COSA MÁS ────────────────────────────
+
+   Dicho por el dueño (26-sep-2026): "que mande lo que el cliente
+   pregunta, no de todo, solo lo que está pidiendo el cliente".
+
+   Dos formas de mandar lo que no pidió, y las dos pasaban:
+
+   1. PIDE UN TIPO QUE NO HAY. "Forro para el Samsung A57" en una tienda
+      sin forros: como "forro" no está en ningún título se ignoraba, y lo
+      que quedaba —"samsung a57"— es el TELÉFONO. El cliente pedía un
+      forro de ocho dólares y recibía un equipo de trescientos. Ahora, si
+      nombró un tipo, solo salen cosas de ese tipo; y si no hay ninguna,
+      sale vacío y el bot le dice que no hay.
+
+   2. PIDE UN MODELO Y SALE MEZCLADO. "Redmi Note 17" trae el teléfono y
+      también su forro y su vidrio. Quien pregunta por un modelo pregunta
+      por el equipo: los accesorios son otra conversación.
+
+   La excepción es el comentario en una publicación, que sí los quiere
+   juntos (es el único mensaje que Instagram deja mandar, así que ahí va
+   la información completa del modelo). Eso se pide con conAccesorios.
+   ───────────────────────────────────────────────────────────────── */
+function soloLoQuePidio(encontrados, termino, { tipo, conAccesorios } = {}) {
+  if (!encontrados.length) return encontrados;
+
+  const pedido = tipo !== undefined ? tipo : tipoQuePide(termino);
+
+  if (pedido) {
+    const suyos = encontrados.filter((p) => tipoDelProducto(p.titulo) === pedido);
+
+    if (suyos.length !== encontrados.length) {
+      console.log(
+        `Pidió ${pedido}: dejo ${suyos.length} de ${encontrados.length} ` +
+          "(lo de otro tipo no es lo que pidió)"
+      );
+    }
+    return suyos;
+  }
+
+  if (conAccesorios) return encontrados;
+
+  // No nombró ningún tipo: pidió un modelo. Si salen equipos y accesorios
+  // mezclados, el equipo es la respuesta.
+  const equipos = encontrados.filter((p) => tipoDelProducto(p.titulo) === "telefono");
+  if (equipos.length && equipos.length !== encontrados.length) {
+    console.log(
+      `Preguntó por un modelo: dejo los ${equipos.length} equipo(s) y aparto ` +
+        `${encontrados.length - equipos.length} accesorio(s)`
+    );
+    return equipos;
+  }
+
+  return encontrados;
+}
+
+/* ── LA MARCA QUE DICE EL CLIENTE NO ES LA QUE DICE LA HOJA ────────
+
+   EL FALLO QUE ESTO ARREGLA (26-sep-2026). En la hoja los teléfonos de
+   Xiaomi están como "Redmi Note 17" y "Poco X8 pro": la palabra "Xiaomi"
+   no aparece en NINGÚN título. Así que:
+
+     "xiaomi"        → NADA
+     "xiaomi note"   → NADA
+
+   El cliente pregunta por la marca con la que le vendieron el teléfono y
+   el bot le dice que no tiene ninguno, con la tienda llena de Xiaomi.
+
+   Son submarcas de la misma casa, y el cliente no tiene por qué saberlo.
+   Aquí se dice una vez y vale para el chat, para los comentarios y para
+   las listas.
+   ───────────────────────────────────────────────────────────────── */
+//
+// OJO CON LA DIRECCIÓN. "Xiaomi" es la casa y abarca a Redmi y a Poco, así
+// que quien pide un Xiaomi acepta los dos. Al revés NO: quien pide un Poco
+// quiere un Poco, no todo lo de la casa. Ampliar "poco" a "xiaomi" hacía
+// que "¿tienen el Poco F7?" ofreciera un Redmi A7 como lo más parecido.
+const OTRAS_FORMAS = new Map([
+  ["xiaomi", ["xiaomi", "redmi", "poco"]],
+  ["apple", ["apple", "iphone"]],
+  ["iphone", ["iphone", "apple"]],
+  ["samsung", ["samsung", "galaxy"]],
+  ["galaxy", ["galaxy", "samsung"]],
+]);
+
+// Palabras que el cliente usa para decir "teléfono" y que no nombran
+// ningún producto de la hoja. No se buscan, pero tampoco tumban la
+// búsqueda: "celulares note" tiene que encontrar los Note igual.
+function comoLasDiceLaHoja(pedidas, productos) {
+  const grupos = [];
+
+  for (const palabra of pedidas) {
+    const formas = OTRAS_FORMAS.get(palabra) || [palabra];
+
+    // "La hoja la conoce" incluye las erratas y las palabras metidas
+    // dentro de otra ("dophin" dentro de "Skydolphing"): si no, una
+    // palabra bien escrita de otra manera se daría por desconocida y se
+    // tiraría, que es justo lo contrario de lo que hace falta.
+    const sirve = formas.filter((forma) =>
+      productos.some((p) => coincide(forma, p.busqueda) || casiCoincide(forma, p.busqueda))
+    );
+
+    if (sirve.length) {
+      grupos.push(sirve);
+      continue;
+    }
+
+    // NINGUNA FORMA DE ESA PALABRA ESTÁ EN LA HOJA.
+    //
+    // Si lleva números, se respeta y la búsqueda vuelve vacía: pedir un
+    // "Note 20" que no existe TIENE que dar vacío, para que el bot diga
+    // que ese no lo tiene en vez de enseñar los Note que sí hay como si
+    // fueran el que pidió. Un número equivocado es el equipo equivocado.
+    if (/\d/.test(palabra)) {
+      grupos.push([palabra]);
+      continue;
+    }
+
+    // Sin números es una palabra de relleno —"celulares", "telefonos",
+    // "equipos", "marca"— o algo que esta tienda no maneja. Exigirla
+    // dejaba la búsqueda en cero y al cliente sin respuesta.
+    console.log(`"${palabra}" no está en ningún título de la hoja: no la exijo`);
+  }
+
+  return grupos;
 }
 
 // CÓMO SE COMPARA UNA PALABRA CON UN TÍTULO (crítico en teléfonos).
@@ -244,7 +390,42 @@ function partirEnDos(palabra) {
 function casiCoincide(palabra, { piezas }) {
   const margen = erratasQueSePerdonan(palabra);
   if (!margen) return false;
-  return piezas.some((pieza) => pieza.length >= 4 && seParecen(palabra, pieza, margen));
+  return piezas.some(
+    (pieza) =>
+      (pieza.length >= 4 && seParecen(palabra, pieza, margen)) ||
+      casiDentro(palabra, pieza, margen)
+  );
+}
+
+// LA PALABRA VA DENTRO DE OTRA MÁS LARGA (24-sep-2026).
+//
+// EL CASO REAL. El cliente escribió "precio de los cables dophin" y no
+// encontró nada, teniendo seis en la tienda: en la hoja se llaman
+// "Skydolphing". Ni el prefijo servía —"skydolphing" no empieza por
+// "dophin"— ni el parecido entre palabras enteras, que son de 6 y 11
+// letras.
+//
+// Pero "dolphin" SÍ está dentro de "skydolphing", y lo que el cliente
+// escribió se parece a eso con una letra de diferencia. Así que se compara
+// contra los TROZOS de la palabra larga, del tamaño del término, con el
+// mismo margen de erratas de siempre.
+//
+// Solo con palabras de 5 letras o más: con menos, cualquier cosa está
+// dentro de cualquier cosa y la búsqueda devolvería media tienda.
+const MINIMO_PARA_BUSCAR_DENTRO = 5;
+
+function casiDentro(palabra, pieza, margen) {
+  if (palabra.length < MINIMO_PARA_BUSCAR_DENTRO) return false;
+  if (pieza.length <= palabra.length) return false;
+
+  for (let largo = palabra.length - margen; largo <= palabra.length + margen; largo++) {
+    if (largo < MINIMO_PARA_BUSCAR_DENTRO) continue;
+    for (let desde = 0; desde + largo <= pieza.length; desde++) {
+      if (seParecen(palabra, pieza.slice(desde, desde + largo), margen)) return true;
+    }
+  }
+
+  return false;
 }
 
 // ¿Se llega de "a" a "b" con "margen" deslices o menos? Cuenta como uno:
@@ -372,10 +553,9 @@ function otrasColumnas(fila, encabezados, indices) {
 // los títulos son cortos o largos.
 //
 // 2-oct-2026: de 6000 a 16000. El dueño: "debe saber TODO lo que está
-// disponible en el sheet". Con 6000 una hoja grande se cortaba y la IA no
-// veía el final. 16000 letras son unos 4000 tokens: menos de una décima de
-// centavo por mensaje con gpt-4o-mini. Y aunque se corte, el resumen de
-// marcas de arriba se cuenta con la hoja ENTERA (ver disponible.js).
+// disponible en el sheet". 16000 letras son unos 4000 tokens: menos de una
+// décima de centavo por mensaje con gpt-4o-mini. Y aunque se corte, el
+// resumen de marcas de arriba se cuenta con la hoja ENTERA (disponible.js).
 const MAXIMO_CARACTERES_CATALOGO = 16000;
 
 // TODO el catálogo, sin buscar nada.
@@ -555,6 +735,9 @@ async function leerHojaDeVerdad(env) {
   try {
     respuesta = await fetch(url, {
       cf: { cacheTtl: MINUTOS_DE_CACHE * 60, cacheEverything: true },
+      // Google casi siempre contesta en un segundo. Si un día no, el turno
+      // no puede quedarse esperándolo: hay 30 s para todo (ver index.js).
+      signal: AbortSignal.timeout(8000),
     });
   } catch (error) {
     const aviso = `no se pudo conectar con Google: ${error.message}`;
@@ -642,6 +825,7 @@ function convertir(filas, env) {
 
   const columnas = {
     titulo: nombreDe(indices.titulo),
+    marca: nombreDe(indices.marca),
     precio: nombreDe(indices.precio),
     precioLocal: nombreDe(indices.precioLocal),
     precioCashea: nombreDe(indices.precioCashea),
@@ -681,6 +865,9 @@ function convertir(filas, env) {
 
     productos.push({
       titulo,
+      // Tal como la escribió quien cargó el inventario. Puede venir vacía:
+      // quien la use tiene que aguantar que no esté (ver lista.js).
+      marca: indices.marca === -1 ? "" : String(fila[indices.marca] || "").trim(),
       // El precio "en divisas": si hay una segunda moneda en la hoja, las
       // dos se muestran juntas. En la ficha sale solo cuando el cliente
       // pregunta por divisas o por Cashea (ver precioParaMostrar en
@@ -735,6 +922,7 @@ function ubicarColumnas(fila) {
 
   return {
     titulo: buscar("titulo"),
+    marca: buscar("marca"),
     precio: buscar("precio"),
     precioLocal: buscar("precioLocal"),
     precioCashea: buscar("precioCashea"),
@@ -860,34 +1048,4 @@ function columnasExtra(productos) {
     "muestre en la ficha):",
     `  ${[...nombres].join(" | ")}`,
   ];
-}
-
-// LA MISMA FOTO, PERO MÁS PEQUEÑA, SOLO PARA MANDÁRSELA AL MODELO.
-//
-// enlaceDeImagen() pide =w1000, que está bien para una ficha que ve una
-// persona. Pero al cotejar se le mandan hasta 10 fotos a OpenAI en una
-// sola llamada, y tiene que descargarlas TODAS antes de mirar nada. Si
-// tarda, la llamada entera falla con "invalid_image_url" y se pierden los
-// 10 candidatos, no solo el que pesaba. Pasó en el bot de calzado.
-//
-// A 512px y en "detail: low" el modelo no ve ni un pixel menos: a esa
-// resolución la imagen se reescala igual antes de mirarla.
-//
-// No cambia lo que se guarda en el índice a propósito: la clave sigue
-// siendo la URL de la ficha, y esto se aplica solo al mandarla. Así el
-// arreglo no obliga a reindexar nada.
-const ANCHO_PARA_EL_MODELO = 512;
-
-export function urlPequena(url) {
-  const limpia = String(url || "");
-  if (!limpia) return "";
-
-  // Las de Google Drive llevan el ancho pegado al final con "=w".
-  if (/lh3\.googleusercontent\.com/i.test(limpia)) {
-    return limpia.replace(/=w\d+(-h\d+)?$/i, "") + `=w${ANCHO_PARA_EL_MODELO}`;
-  }
-
-  // Cualquier otra cosa se devuelve tal cual: mejor una foto grande que
-  // una URL rota.
-  return limpia;
 }
