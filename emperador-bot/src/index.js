@@ -120,7 +120,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (24) · /privacidad y /eliminar-datos para publicar la app de Meta";
+const VERSION = "2026-10-02 (25) · indice: con Drive se indexa la carpeta entera (no solo 600) y /indexar-catalogo dice Drive";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -737,7 +737,13 @@ async function atenderPeticion(request, env, ctx) {
         : 0;
 
       return texto200(
-        `Catálogo en Shopify: ${r.catalogo} productos\n` +
+        `Catálogo en ${r.fuente}: ${r.catalogo} productos\n` +
+          (r.carpetasTotal
+            ? `  carpetas de Drive leídas: ${r.carpetasLeidas} de ${r.carpetasTotal}` +
+              (r.carpetasLeidas < r.carpetasTotal
+                ? " — TODAVÍA LEYENDO la carpeta: lo que falte entra solo (o abre /probar-drive)\n"
+                : " (completa)\n")
+            : "") +
           (r.sinFoto
             ? `  de los cuales ${r.sinFoto} NO tienen foto y no se pueden indexar\n` +
               `  (el cotejo compara imágenes). Quedan ${r.indexables} indexables.\n`
@@ -755,14 +761,17 @@ async function atenderPeticion(request, env, ctx) {
           (r.refrescados
             ? `Precio, enlace o título actualizados: ${r.refrescados} (sin mirar ninguna foto)\n`
             : "") +
-          (r.quitados ? `Quitados del índice (ya no están en Shopify): ${r.quitados}\n` : "") +
+          (r.quitados ? `Quitados del índice (ya no están en ${r.fuente}): ${r.quitados}\n` : "") +
           "\n" +
           (r.faltan > 0
             ? `FALTAN ${r.faltan} de ${r.indexables} (${hecho}% hecho).\n\n` +
               "NO HACE FALTA QUE HAGAS NADA: el cron indexa lo que queda\n" +
               "solo, en las próximas pasadas (ver [triggers] en\n" +
               "wrangler.toml). Recarga esta dirección solo si tienes prisa.\n"
-            : "LISTO: el catálogo está indexado entero.\n\n" +
+            : r.carpetasTotal && r.carpetasLeidas < r.carpetasTotal
+              ? "Indexado todo lo que se ha leído de Drive hasta ahora. Falta leer\n" +
+                "parte de la carpeta: el cron lo lee y lo indexa solo.\n\n"
+              : "LISTO: el catálogo está indexado entero.\n\n" +
               "Los productos nuevos los recoge el cron solo. Esta dirección\n" +
               "queda para mirar cómo va o para forzar una pasada.\n")
       );

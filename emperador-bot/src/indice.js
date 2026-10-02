@@ -24,6 +24,7 @@
 // ya están no se vuelven a mirar, así que reindexar es barato.
 
 import { caben, quedan as quedanAhora } from "./presupuesto.js";
+import { usaDrive, catalogoDeDrive } from "./drive.js";
 import { RASGOS_CLAVE } from "./identificar.js";
 import { modeloDeIndice, rasgosDeProducto, esperarCupo, quienAtiende } from "./ia.js";
 import { traerCatalogoCompleto } from "./shopify.js";
@@ -512,7 +513,14 @@ const CONEXIONES_POR_PRODUCTO = 2;
 export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) {
   if (!env.DB) return { ok: false, error: "No hay base de datos conectada, y el índice vive ahí." };
 
-  const { productos } = await traerCatalogoCompleto(env, Number(env.COTEJO_MAXIMO) || 600);
+  // CON DRIVE SE INDEXA LA CARPETA ENTERA (2-oct-2026). COTEJO_MAXIMO
+  // (600) es el tope del BARRIDO a ciegas, no del índice: con él, la página
+  // decía "600 de 600, LISTO" y lo que pasaba de 600 en la carpeta nunca se
+  // indexaba. El índice no cuesta nada por mensaje (se compara en código),
+  // así que cuanto más grande, mejor.
+  const tope = usaDrive(env) ? Number(env.INDICE_MAXIMO) || 5000 : Number(env.COTEJO_MAXIMO) || 600;
+  const { productos } = await traerCatalogoCompleto(env, tope);
+  const drive = usaDrive(env) ? await catalogoDeDrive(env) : null;
   if (!productos.length) return { ok: false, error: "Shopify no devolvió productos." };
 
   const indice = await leerIndice(env.DB);
@@ -652,6 +660,9 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
     // color. El cotejo los usa igual mientras tanto (ver puntosDeColor).
     sinColor,
     intentados: tanda.length,
+    fuente: drive ? "Google Drive" : "Shopify",
+    carpetasLeidas: drive?.carpetasLeidas || 0,
+    carpetasTotal: drive?.carpetasTotal || 0,
     sinConexiones,
     indexados: indexados.length,
     fallados,

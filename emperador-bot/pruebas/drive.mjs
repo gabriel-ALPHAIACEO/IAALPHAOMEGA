@@ -252,6 +252,35 @@ titulo("las CATEGORÍAS de la carpeta (CATALOGO › CNTND 1 (30/6/26) › CALZAD
   }
 }
 
+titulo("el índice con Drive mira la carpeta ENTERA, no solo 600");
+{
+  const { baseDeMentira } = await import("./ayuda.mjs");
+  const I = await src.cargar("indice.js");
+  const R = "1RaizSeiscientosXXXXXX";
+  const e = (id, nombre) => `<div class="flip-entry" id="entry-${id}"><a href="https://drive.google.com/file/d/${id}"><div class="flip-entry-title">${nombre}</div></a></div>`;
+  const pagina = `<div class="flip-entries">${Array.from({ length: 650 }, (_, i) => e(`1Foto${String(i).padStart(15, "0")}`, `Producto ${i} 20$.jpg`)).join("")}</div>`;
+  const real = globalThis.fetch, log = console.log, err = console.error;
+  globalThis.fetch = async (url, op = {}) => {
+    const u = String(url);
+    if (u.startsWith("https://drive.google.com/embeddedfolderview")) return new Response(pagina, { status: 200 });
+    if (u.startsWith("https://api.deepseek.com/")) {
+      const rasgos = Object.fromEntries(["camaraAireTalon","camaraAireCompleta","suelaTransparente","suelaRedondeadaSinAire","suelaPlanaPlacaDura","muescaLateralArco","suelaNubesHuecas","mallaPlasticaCuadros","alasPlasticasCordones","jumpman","swooshGrandeRecto","piezaMetalicaOjal","tresFranjas","punteraGamuzaT","punteraGomaConcha"].map((k) => [k, false]));
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ visto: "x", rasgos, buscar: "x", color: "negro", variosProductos: false, pedirNombreExacto: false }) } }] }), { status: 200 });
+    }
+    return new Response(new Uint8Array([0xff, 0xd8, 0xff]), { status: 200, headers: { "content-type": "image/jpeg" } });
+  };
+  console.log = () => {}; console.error = () => {};
+  D.olvidarCatalogoDeDrive();
+  let r;
+  try {
+    r = await I.indexarTanda({ DB: baseDeMentira().DB, CATALOGO: "drive", DRIVE_CARPETA: R, DEEPSEEK_API_KEY: "x", COTEJO_MAXIMO: "600" }, { cuantos: 2 });
+  } finally {
+    globalThis.fetch = real; console.log = log; console.error = err;
+  }
+  ok(r.ok && r.catalogo === 650, "las 650 fotos de la carpeta entran al índice (COTEJO_MAXIMO = 600 ya no lo corta)", `${r.catalogo}`);
+  ok(r.fuente === "Google Drive" && r.carpetasTotal === 1 && r.carpetasLeidas === 1, "y la página dice Google Drive, con las carpetas leídas", `${r.fuente} ${r.carpetasLeidas}/${r.carpetasTotal}`);
+}
+
 titulo("sin CATALOGO = drive, sigue siendo Shopify");
 ok(!D.usaDrive({}) && D.usaDrive({ CATALOGO: "drive" }), "solo con CATALOGO = \"drive\"");
 
