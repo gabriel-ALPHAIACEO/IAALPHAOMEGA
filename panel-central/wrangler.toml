@@ -1,18 +1,26 @@
-name = "panel-central"
+name = "panel"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
-# Para poder hablar con las tiendas que están en ESTA MISMA cuenta de
-# Cloudflare (Invictus): sin esto, Cloudflare corta la llamada de un Worker
-# a otro de la misma cuenta por workers.dev (error 1042).
-compatibility_flags = ["global_fetch_strictly_public"]
 
-# ── EL PANEL CENTRAL ──────────────────────────────────────────────────
+# ── EL PANEL CENTRAL DE ALPHA IA ──────────────────────────────────────
 # Este Worker NO atiende clientes: solo mira todas las tiendas y las junta
 # en un solo sitio (mensajes en vivo, alertas, métricas, ganadores, gastos,
 # errores y sus bases de datos). Cada tienda sigue siendo su propio Worker.
 #
-# Va en el plan pagado de Workers (US$5/mes, 10 millones de peticiones al
-# mes): le sobra. Las tiendas pueden seguir en el gratis.
+# VA EN LA CUENTA DE CLOUDFLARE DE ALPHA IA, no en la de ninguna tienda
+# (decidido el 2-oct-2026). Dos motivos:
+#   · Cloudflare no deja que un Worker llame por workers.dev a otro de la
+#     MISMA cuenta (error 1042): en la cuenta de Invictus no podía leerlo.
+#   · La dirección queda a nombre de la empresa:
+#     https://panel.<subdominio de ALPHA IA>.workers.dev
+#
+# El plan gratis le alcanza con pocas tiendas (100.000 peticiones al día).
+#
+# account_id: el de la cuenta de ALPHA IA (sale en el panel de Cloudflare,
+# a la derecha de "Workers & Pages"). No es secreto. Con él, wrangler
+# despliega SIEMPRE aquí, aunque tu usuario tenga acceso a varias cuentas:
+# así es imposible subir el panel a la cuenta de Invictus por error.
+account_id = "PEGA_AQUI_EL_ACCOUNT_ID_DE_ALPHA_IA"
 
 # --- Su propia base (alertas, estado de las tiendas, intentos de entrar) ---
 # Una vez, antes del primer despliegue:

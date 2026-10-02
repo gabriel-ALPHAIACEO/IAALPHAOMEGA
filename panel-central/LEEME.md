@@ -42,6 +42,15 @@ La **consola SQL** sirve para lo que no se puede hacer con el formulario:
 
 Un SQL queda anotado en el historial, pero **no se deshace solo**. Revisa bien antes de ejecutar.
 
+## En qué cuenta de Cloudflare va
+
+**En la de ALPHA IA, nunca en la de una tienda.** Cloudflare no deja que un Worker llame por `workers.dev`
+a otro de su misma cuenta (error 1042): cuando el panel estaba en la cuenta de Invictus, no podía leer a Invictus.
+En su propia cuenta, además, la dirección queda a nombre de la empresa: `https://panel.<subdominio>.workers.dev`.
+
+`wrangler.toml` lleva el `account_id` de la cuenta de ALPHA IA, así wrangler despliega siempre ahí aunque tu
+usuario tenga acceso a varias cuentas.
+
 ## Ponerlo en marcha (una vez)
 
 En Windows PowerShell es `npx.cmd`, no `npx`. **Los secretos nunca van en archivos:**
@@ -85,7 +94,7 @@ npx.cmd wrangler secret put CLAVE_EPICELL
 npx.cmd wrangler deploy
 ```
 
-Apunta la dirección que imprime. Será algo como `https://panel-central.TU-SUBDOMINIO.workers.dev`.
+Apunta la dirección que imprime. Será algo como `https://panel.alphaia.workers.dev`.
 
 ### 4. Conectar cada tienda
 

@@ -69,7 +69,7 @@ export async function pedir(env, tienda, ruta, { metodo = "GET", cuerpo = null, 
       // invictusshoes.workers.dev) y parecía "versión vieja".
       const misma = /\b1042\b/.test(texto) || /error code: 1042/i.test(texto);
       const motivo = misma
-        ? "Cloudflare no deja que dos Workers de la misma cuenta se hablen por workers.dev (error 1042): añade compatibility_flags = [\"global_fetch_strictly_public\"] al wrangler.toml del panel y despliégalo"
+        ? "Cloudflare no deja que dos Workers de la misma cuenta se hablen por workers.dev (error 1042): el panel tiene que estar en otra cuenta de Cloudflare (la de ALPHA IA), no en la de esta tienda"
         : r.status === 401
           ? "la clave no coincide con la PANEL_API_CLAVE de la tienda"
           : r.status === 403

@@ -415,7 +415,7 @@ titulo("una tienda en la misma cuenta de Cloudflare (error 1042)");
 {
   caida1042 = true;
   const r = await abrir("/t/caida");
-  ok(r.estado === 200 && /error 1042/.test(r.html) && /global_fetch_strictly_public/.test(r.html), "lo dice claro y con el arreglo (no 'versión vieja')");
+  ok(r.estado === 200 && /error 1042/.test(r.html) && /otra cuenta de Cloudflare/.test(r.html), "lo dice claro y con el arreglo (no 'versión vieja')");
   caida1042 = false;
 }
 
