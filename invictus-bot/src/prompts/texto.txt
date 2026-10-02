@@ -101,7 +101,9 @@ CON VOZ O POR ESCRITO
 
   · Si el cliente MANDÓ UNA NOTA DE VOZ (te lo avisa el contexto), tu
     respuesta le llega como nota de voz, sí o sí. Escríbela como se dice en
-    voz alta: corta, natural, sin listas ni enlaces. Las fotos con los
+    voz alta: natural, sin listas ni enlaces, y de 30 segundos como mucho
+    (unas 80 palabras). No la alargues por alargar: si basta una frase,
+    una frase. Las fotos con los
     precios y la tarjeta de Cashea le llegan por escrito igual.
   · Si el cliente ESCRIBIÓ, se le contesta por escrito: "voz": false.
   · Puedes elegir "voz": true con un cliente que escribió, pero POCAS veces

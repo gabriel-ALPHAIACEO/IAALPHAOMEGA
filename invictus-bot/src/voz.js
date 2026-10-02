@@ -80,7 +80,8 @@ export function notaDeVoz() {
     "[EL CLIENTE MANDÓ UNA NOTA DE VOZ: su mensaje es la transcripción. Si una " +
     "palabra no cuadra, es un error al transcribir: entiende lo que quiso decir " +
     "(como con quien escribe mal) y NO le digas que no se entiende. Tu respuesta " +
-    "le llega como NOTA DE VOZ: escríbela como se dice en voz alta, corta y sin enlaces]"
+    "le llega como NOTA DE VOZ: escríbela como se dice en voz alta, sin listas ni enlaces, " +
+    "y de 30 segundos como mucho (unas 80 palabras)]"
   );
 }
 
@@ -237,14 +238,48 @@ export async function transcribirAudio(env, url, { anotar = null } = {}) {
 const API_VOZ = "https://api.openai.com/v1/audio/speech";
 const MODELO_VOZ_POR_DEFECTO = "gpt-4o-mini-tts";
 const VOZ_POR_DEFECTO = "nova";
-const INSTRUCCIONES_VOZ =
+
+// LAS VOCES Y EL TONO (2-oct-2026). Se cambian en wrangler.toml, sin tocar
+// código:
+//   OPENAI_VOZ = "coral"                    la voz (una de VOCES)
+//   VOZ_TONO   = "Tono serio y elegante…"   cómo habla
+// Para oírlas antes de elegir: /probar-voz?voz=coral&tono=...
+export const VOCES = {
+  nova: "mujer, joven y alegre (la de siempre)",
+  coral: "mujer, cálida y cercana",
+  shimmer: "mujer, suave y tranquila",
+  sage: "mujer, serena",
+  marin: "mujer, natural, de las más nuevas",
+  ballad: "hombre, suave y expresivo",
+  ash: "hombre, claro y cercano",
+  echo: "hombre, tranquilo",
+  onyx: "hombre, voz grave",
+  verse: "hombre, expresivo",
+  cedar: "hombre, natural, de las más nuevas",
+  alloy: "neutra",
+  fable: "neutra, de narrador",
+};
+
+export const TONO_POR_DEFECTO =
   "Habla en español latinoamericano, con acento venezolano suave y neutro. " +
   "Tono cálido, alegre y cercano, como una vendedora amable de una tienda de zapatos. " +
   "Ritmo natural, sin prisa, como una nota de voz de WhatsApp.";
 
-// Lo que va por voz: sin emojis, sin enlaces, y corto (una nota de voz de
-// 20 segundos como mucho).
-const MAXIMO_LETRAS_VOZ = 350;
+export function vozElegida(env = {}, cambio = "") {
+  const v = String(cambio || env.OPENAI_VOZ || "").trim().toLowerCase();
+  return VOCES[v] ? v : VOZ_POR_DEFECTO;
+}
+
+export function tonoElegido(env = {}, cambio = "") {
+  return String(cambio || env.VOZ_TONO || "").trim() || TONO_POR_DEFECTO;
+}
+
+// Lo que va por voz: sin emojis, sin enlaces, y de 30 SEGUNDOS como mucho
+// (pedido del dueño, 2-oct-2026). Hablando en español salen unas 16 letras
+// por segundo: 30 s ≈ 480 letras, unas 80 palabras.
+export const MAXIMO_SEGUNDOS_VOZ = 30;
+const LETRAS_POR_SEGUNDO = 16;
+const MAXIMO_LETRAS_VOZ = MAXIMO_SEGUNDOS_VOZ * LETRAS_POR_SEGUNDO;
 
 function limpiarParaVoz(texto) {
   return String(texto || "")
@@ -264,7 +299,9 @@ export function textoParaVoz(texto) {
   return (fin > 80 ? corte.slice(0, fin + 1) : corte).trim();
 }
 
-export async function sintetizarVoz(env, texto) {
+// "cambios" solo lo usa /probar-voz, para oír otra voz u otro tono sin
+// desplegar.
+export async function sintetizarVoz(env, texto, cambios = {}) {
   const decir = textoParaVoz(texto);
   if (!decir || !env.OPENAI_API_KEY) return null;
   let respuesta;
@@ -274,9 +311,9 @@ export async function sintetizarVoz(env, texto) {
       headers: { "content-type": "application/json", authorization: `Bearer ${env.OPENAI_API_KEY}` },
       body: JSON.stringify({
         model: env.OPENAI_MODELO_VOZ || MODELO_VOZ_POR_DEFECTO,
-        voice: env.OPENAI_VOZ || VOZ_POR_DEFECTO,
+        voice: vozElegida(env, cambios.voz),
         input: decir,
-        instructions: INSTRUCCIONES_VOZ,
+        instructions: tonoElegido(env, cambios.tono),
         // AAC por defecto (2-oct-2026): el WAV pesaba ~10 veces más y servirlo
         // pasaba el límite de CPU de Cloudflare ("Exceeded CPU Limit"), así
         // que Instagram no lo podía bajar. VOZ_FORMATO lo cambia si hiciera

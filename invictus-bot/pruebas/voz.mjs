@@ -143,7 +143,20 @@ titulo("lo que se lee en voz: sin emojis, sin enlaces, corto");
   const V = await src.cargar("voz.js");
   ok(V.textoParaVoz("¡Hola! 😊 Mira 👇 https://tienda.test/p") === "¡Hola! Mira", "fuera emojis y enlaces", V.textoParaVoz("¡Hola! 😊 Mira 👇 https://tienda.test/p"));
   const largo = "Esta es una frase bastante larga para una nota de voz. ".repeat(12);
-  ok(V.textoParaVoz(largo).length <= 350 && /\.$/.test(V.textoParaVoz(largo)), "y como mucho unos 20 segundos, cortando en una frase completa");
+  const dicho = V.textoParaVoz(largo);
+  ok(dicho.length > 400 && dicho.length <= 480 && /\.$/.test(dicho), "notas de hasta 30 segundos (unas 480 letras), cortando en una frase completa", dicho.length);
+  ok(V.cabeEnLaVoz("Esta frase de unas cuantas palabras cabe sin problema. ".repeat(7)), "una respuesta de ~25 segundos va entera por voz");
+
+  titulo("la voz y el tono se eligen en wrangler.toml");
+  ok(V.vozElegida({}) === "nova" && V.vozElegida({ OPENAI_VOZ: "Coral" }) === "coral", "OPENAI_VOZ elige la voz");
+  ok(V.vozElegida({ OPENAI_VOZ: "inventada" }) === "nova", "una voz que no existe → la de siempre (no se rompe)");
+  ok(V.tonoElegido({ VOZ_TONO: "Tono serio" }) === "Tono serio" && V.tonoElegido({}) === V.TONO_POR_DEFECTO, "VOZ_TONO cambia el tono");
+  const real = globalThis.fetch;
+  let pedido = null;
+  globalThis.fetch = async (u, op) => { pedido = JSON.parse(op.body); return new Response(new Uint8Array([1, 2]), { status: 200 }); };
+  await V.sintetizarVoz({ OPENAI_API_KEY: "x", OPENAI_VOZ: "coral", VOZ_TONO: "Tono serio y elegante" }, "Hola");
+  globalThis.fetch = real;
+  ok(pedido?.voice === "coral" && pedido?.instructions === "Tono serio y elegante", "y eso es lo que se le pide a OpenAI", JSON.stringify(pedido));
   src.limpiar();
 }
 

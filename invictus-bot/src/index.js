@@ -70,6 +70,9 @@ import {
   guardarNotaDeVoz,
   leerNotaDeVoz,
   leQuedanNotasDeVoz,
+  VOCES,
+  vozElegida,
+  tonoElegido,
   notaDeVozDeLaIA,
   cabeEnLaVoz,
 } from "./voz.js";
@@ -135,7 +138,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (48) · voz si le hablan con voz (la IA puede elegirla 3 veces por cliente) y el precio esta en cada foto";
+const VERSION = "2026-10-02 (49) · notas de voz de hasta 30 segundos, y la voz y el tono se eligen en wrangler.toml";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -581,6 +584,8 @@ export default {
           `  Escuchar             ${env.OPENAI_MODELO_AUDIO || "gpt-4o-mini-transcribe (por defecto)"}   (el audio del cliente se pasa a texto)`,
           `  Contestar con voz    ${env.OPENAI_MODELO_VOZ || "gpt-4o-mini-tts (por defecto)"}, voz ${env.OPENAI_VOZ || "nova"}   (solo si el cliente habló con voz)`,
           "  Para oír cómo suena: /probar-voz?texto=Hola, sí tengo las Jordan 4",
+          `  Voz: ${vozElegida(env)} (OPENAI_VOZ) · todas las voces: /probar-voz?lista`,
+          `  Tono: ${env.VOZ_TONO ? "el de VOZ_TONO" : "el de siempre (vendedora cálida)"} · notas de 30 s como mucho`,
           "",
           "CONFIGURACIÓN (wrangler.toml)",
           `  META_MODO           ${env.META_MODO || "todo (por defecto)"}`,
@@ -760,7 +765,26 @@ export default {
     //   /probar-voz?texto=¡Hola! Sí tengo las Jordan 4, ¿te las muestro?
     if (url.pathname === "/probar-voz") {
       const texto = (url.searchParams.get("texto") || "¡Hola! Soy la asistente virtual de Invictus Shoes. Sí tengo las Jordan cuatro, ¿te las muestro?").trim();
-      const voz = await sintetizarVoz(env, texto);
+      // /probar-voz?lista → las voces que hay, con un enlace para oír cada una.
+      if (url.searchParams.has("lista")) {
+        return texto200(
+          [
+            "VOCES (se elige con OPENAI_VOZ en wrangler.toml)",
+            "",
+            ...Object.entries(VOCES).map(
+              ([v, como]) => `  ${v.padEnd(8)} ${como}${v === vozElegida(env) ? "   <- LA QUE USA HOY" : ""}\n           ${url.origin}/probar-voz?voz=${v}`
+            ),
+            "",
+            "EL TONO (VOZ_TONO en wrangler.toml). Hoy:",
+            `  ${tonoElegido(env)}`,
+            "",
+            "Para oír otro tono sin desplegar, añade &tono=... al enlace. Ejemplo:",
+            `  ${url.origin}/probar-voz?voz=coral&tono=Tono serio y elegante, pausado, de asesora de confianza`,
+            "",
+          ].join("\n")
+        );
+      }
+      const voz = await sintetizarVoz(env, texto, { voz: url.searchParams.get("voz"), tono: url.searchParams.get("tono") });
       if (!voz) return texto200("No se pudo generar la voz. Revisa OPENAI_API_KEY y `wrangler tail`.\n");
       return new Response(voz.datos, { status: 200, headers: { "content-type": voz.tipo } });
     }
