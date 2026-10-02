@@ -139,7 +139,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-02 (18) · tu version + notas de voz (las escucha), piensa, 3 formas de responder, marcas que hay, y siempre manda las fotos que promete";
+const VERSION = "2026-10-02 (19) · horario y metodos de pago de verdad en wrangler.toml (se ven en /estado)";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -1108,6 +1108,8 @@ export default {
           `  SHEET_NOMBRE        ${env.SHEET_NOMBRE || "FALTA"}`,
           `  URL_CATALOGO        ${env.URL_CATALOGO && !/CAMBIA-ESTO/i.test(env.URL_CATALOGO) ? env.URL_CATALOGO : "FALTA"}`,
           `  WHATSAPP            ${String(env.WHATSAPP || "").replace(/\D/g, "") ? "puesto" : "sin poner (no sale el botón Comprar)"}`,
+          `  HORARIOS            ${String(env.HORARIOS || "").trim() || "sin poner (lo confirma un asesor)"}`,
+          `  METODOS_PAGO        ${String(env.METODOS_PAGO || "").trim() ? `puestos (${(String(env.METODOS_PAGO).replace(/\\n/g, "\n").match(/🔹|•/g) || []).length} métodos)` : "sin poner (lo confirma un asesor)"}`,
           `  PAUSA_HORAS         ${env.PAUSA_HORAS || `${PAUSA_HORAS_POR_DEFECTO} (por defecto)`}`,
           `  PAUSA_VUELVE_MIN    ${minutosParaVolver(env)} min   (si el asesor calla ese rato y el cliente escribe, el bot retoma)`,
           `  FRASE_DESPAUSAR     "${fraseDespausar(env)}"   (el asesor la manda en el chat y el bot vuelve)`,

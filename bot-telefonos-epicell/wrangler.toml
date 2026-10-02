@@ -85,7 +85,8 @@ SHEET_NOMBRE = "INVENTARIO AL 050926"
 # asesor. Antes de esto el prompt llevaba escrito "{{TUS HORARIOS}}" sin
 # rellenar, y el modelo contestaba con esas llaves o con una hora inventada
 # — que es un cliente en la puerta de un local cerrado.
-HORARIOS = "Estamos abiertos de 9am a 7pm 🕘 Domingos y feriados, de 10am a 5pm"
+# 2-oct-2026, dado por el dueño: lunes a sábado de 10:30am a 6:30pm.
+HORARIOS = "Abrimos de lunes a sábado, de 10:30am a 6:30pm 🕘"
 
 # --- LAS FORMAS DE PAGO ------------------------------------------------
 #
@@ -98,7 +99,8 @@ HORARIOS = "Estamos abiertos de 9am a 7pm 🕘 Domingos y feriados, de 10am a 5p
 # propia respuesta, con los niveles (PAGOS_CASHEA en src/index.js).
 #
 # Si se deja vacío, esa pregunta la confirma un asesor.
-METODOS_PAGO = "Aceptamos los siguientes métodos de pago:\n• Pago Móvil\n• Transferencia bancaria\n\n🌎 Internacional:\n• Zelle\n• PayPal\n• Binance (USDT)"
+# 2-oct-2026, dados por el dueño.
+METODOS_PAGO = "Estos son nuestros métodos de pago 👇\n\n🇻🇪 Nacionales:\n🔹 Pago Móvil\n🔹 Transferencia bancaria\n\n🌎 Internacionales:\n🔹 PayPal\n🔹 Zelle\n🔹 Binance"
 
 # --- LOS DEMÁS DATOS DE LA TIENDA -------------------------------------
 #
