@@ -27,6 +27,10 @@ SECRETOS = {
     "ADS_TOKEN",
     # La clave del panel de la tienda (/panel). Sin ella el panel no abre.
     "PANEL_CLAVE",
+    # La clave que comparte con el panel central (ver panel.js, /api/central).
+    "PANEL_API_CLAVE", "PANEL_CENTRAL_URL",
+    # Opcional: el central reconoce la tienda por su clave.
+    "TIENDA_ID",
 }
 
 if not os.path.exists(ARCHIVO):

@@ -14,6 +14,7 @@
 //      mismo tono que usa siempre. Ver marcarIdentificacion() en index.js.
 
 import promptTexto from "./prompts/texto.txt";
+import { anotarGasto } from "./gasto.js";
 import listaCatalogo from "./prompts/catalogo.txt";
 import promptVision from "./prompts/vision.txt";
 import promptRedactar from "./prompts/redactar.txt";
@@ -300,6 +301,17 @@ async function llamar(
   } catch (error) {
     console.error(`La respuesta de OpenAI llegó cortada: ${error?.message || error}`);
     return null;
+  }
+
+  // LO QUE COSTÓ, ANOTADO (2-oct-2026, gasto.js, igual que en Invictus):
+  // es lo que el panel central enseña como "gasto del mes".
+  if (datos?.usage) {
+    await anotarGasto(env, {
+      modelo: cuerpo.model,
+      entrada: datos.usage.prompt_tokens || 0,
+      cacheadas: datos.usage.prompt_tokens_details?.cached_tokens || 0,
+      salida: datos.usage.completion_tokens || 0,
+    });
   }
   return datos.choices?.[0]?.message?.content || null;
 }

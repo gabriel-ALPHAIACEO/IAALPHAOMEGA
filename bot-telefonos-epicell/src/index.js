@@ -30,7 +30,14 @@
 
 import { responderTexto, identificarEnImagen, redactarConResultados } from "./ia.js";
 import { transcribirAudio, notaDeVoz, PEDIR_QUE_ESCRIBA } from "./voz.js";
-import { atenderPanel, anotarTurno } from "./panel.js";
+import { atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
+import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
+import { revisarTurno } from "./revisor.js";
+import { anotarGasto } from "./gasto.js";
+
+// Lo que el bot escribe como error queda guardado para el panel central
+// (ver registro.js), además de salir en el registro como siempre.
+vigilarErrores();
 import { revisarTono } from "./tono.js";
 import { revisarPrecio } from "./precio.js";
 import { revisarDisponibilidad, marcasNombradas, marcasQueHay, fraseDeMarcaQueNoHay } from "./disponible.js";
@@ -148,7 +155,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-02 (22) · panel de la tienda en /panel: conversaciones y lo que penso la IA";
+const VERSION = "2026-10-02 (23) · panel central: errores, avisos, metricas, ganadores, revisor, mensajes en vivo y despausar desde la lista";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -998,6 +1005,19 @@ const trabajador = {
     // EL PANEL DE LA TIENDA (2-oct-2026, ver panel.js): las conversaciones,
     // lo que pensó la IA en cada respuesta, los anuncios y el estado. Con
     // clave (PANEL_CLAVE).
+    // LA PUERTA DEL PANEL CENTRAL (2-oct-2026, ver panel.js): los datos de
+    // esta tienda para el Worker del dueño que junta todas. Con clave
+    // (PANEL_API_CLAVE).
+    if (url.pathname.startsWith("/api/central")) {
+      return atenderApiCentral(request, env, {
+        tienda: String(env.TIENDA_NOMBRE || "EPICELL"),
+        version: VERSION,
+        horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
+        conAnuncios: true,
+        verTexto: async (ruta) => (await trabajador.fetch(new Request(new URL(ruta, url)), env, ctx)).text(),
+      });
+    }
+
     if (url.pathname === "/panel" || url.pathname.startsWith("/panel/")) {
       return atenderPanel(request, env, {
         tienda: String(env.TIENDA_NOMBRE || "EPICELL"),
@@ -1121,6 +1141,8 @@ const trabajador = {
           `  IG_TOKEN            ${secreto("IG_TOKEN")}`,
           `  ADS_TOKEN           ${secreto("ADS_TOKEN")}   (leer tus anuncios — el panel completo está en /anuncios)`,
           `  PANEL_CLAVE         ${secreto("PANEL_CLAVE")}   (la clave del panel de la tienda: /panel)`,
+          `  PANEL_API_CLAVE     ${secreto("PANEL_API_CLAVE")}   (la del panel central: la misma va en tu Worker panel-central)`,
+          `  PANEL_CENTRAL_URL   ${env.PANEL_CENTRAL_URL ? "puesto (avisos en tiempo real al panel central)" : "sin poner (sin avisos en tiempo real)"}`,
           "",
           "CONFIGURACIÓN (wrangler.toml)",
           `  META_MODO           ${env.META_MODO || "todo (por defecto)"}`,
@@ -1494,6 +1516,13 @@ async function atenderConRed(env, mensaje, llegoEn = Date.now()) {
       await atenderMeta(env, mensaje, rastro);
     }
 
+    // ¿Contestó bien? Con todo ya enviado: el cliente no espera esto. Solo
+    // si queda tiempo de los 30 s (ver revisor.js).
+    if (rastro.turno?.id && Date.now() - llegoEn < LIMITE_DEL_TURNO_MS - 10000) {
+      await revisarTurno(env, rastro.turno);
+    }
+    await guardarErrores(env.DB, env);
+
     // CUÁNTO TARDÓ. Un turno que se acerca a los 30 s es uno que otro día,
     // con OpenAI un poco más lento, se corta a medias. Con esta línea se ve
     // antes de que pase.
@@ -1508,7 +1537,6 @@ async function atenderConRed(env, mensaje, llegoEn = Date.now()) {
   } catch (error) {
     const detalle = error?.stack || error?.message || String(error);
     console.error(`ATENDER FALLÓ para ${mensaje.igsid}:`, detalle);
-
     // Un eco es un mensaje NUESTRO que nos rebota: el cliente no escribió
     // nada y no está esperando respuesta. Si falla el manejo del eco, lo
     // último que hay que hacer es escribirle "se me trabó el sistema" de la
@@ -1522,6 +1550,17 @@ async function atenderConRed(env, mensaje, llegoEn = Date.now()) {
       } catch (otro) {
         console.error("Tampoco se pudo avisar al cliente:", otro?.message || otro);
       }
+    }
+
+    // ❌ en el panel: el turno que se cayó. DESPUÉS de escribirle al cliente:
+    // avisar al panel central puede tardar (hasta 4 s si está caído) y el
+    // cliente no tiene por qué esperar eso.
+    if (mensaje.tipo !== "eco" && mensaje.tipo !== "comentario") {
+      await anotarTurno(
+        env.DB,
+        { igsid: mensaje.igsid, cliente: mensaje.texto || "", respuesta: rastro.respondio ? "(se le respondió, pero algo falló después)" : "(EL BOT NO PUDO RESPONDER)", marca: "error", motivo: String(error?.message || error).slice(0, 200) },
+        env
+      ).catch(() => {});
     }
 
     // El nombre, si ya lo teníamos. Si la base es justo lo que falló, el
@@ -1540,6 +1579,7 @@ async function atenderConRed(env, mensaje, llegoEn = Date.now()) {
       motivo: "FALLO TÉCNICO",
       historial: detalle.slice(0, 400),
     }).catch((otro) => console.error("Ni el aviso salió:", otro?.message || otro));
+    await guardarErrores(env.DB, env);
   }
 }
 
@@ -2042,6 +2082,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     }
     enviadoEn = Date.now();
     await marcarEnvio(env.DB, mensaje.igsid, mids, enviadoEn, textos, conversacion);
+    if (texto) await anotarMensaje(env.DB, mensaje.igsid, "bot", texto);
     return mid;
   };
   // El eco de un mensaje que salió de la cuenta: el nuestro (el bot
@@ -2081,6 +2122,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     if (esFraseDeDespausar(env, mensaje.texto)) {
       await new Promise((seguir) => setTimeout(seguir, ESPERA_ANTES_DE_PAUSAR_MS + 1000));
       await despausar(env.DB, mensaje.igsid, NOTA_DESPAUSADO);
+      await anotarMensaje(env.DB, mensaje.igsid, "asesor", mensaje.texto);
       console.log(`El asesor le devolvió ${mensaje.igsid} al bot: vuelvo a atender`);
       return;
     }
@@ -2144,6 +2186,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
     const horas = Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO;
     await pausar(env.DB, mensaje.igsid, horas);
+    // Lo que escribió el asesor también sale en los paneles.
+    await anotarMensaje(env.DB, mensaje.igsid, "asesor", mensaje.texto || "(mandó algo que no es texto)");
 
     // CON EL TEXTO DELANTE. Una pausa que no se explica son treinta minutos
     // de suposiciones cuando el dueno dice "el bot no responde"; con esta
@@ -2200,6 +2244,31 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   textos = contacto.ultimos_textos;
 
+  // LO QUE ESCRIBIÓ, PARA EL PANEL Y EL PANEL CENTRAL (ver panel.js). Antes
+  // de mirar la pausa: el dueño tiene que verlo aunque el bot no conteste.
+  // Una nota de voz se guarda ya transcrita, más abajo.
+  if (!mensaje.audio || estaPausado(contacto)) {
+    await anotarMensaje(
+      env.DB,
+      mensaje.igsid,
+      "cliente",
+      mensaje.audio
+        ? "🎤 (mandó una nota de voz)"
+        : mensaje.texto ||
+            (mensaje.tipo === "imagen"
+              ? "(mandó una foto)"
+              : mensaje.tipo === "publicacion"
+                ? "(compartió una publicación)"
+                : mensaje.tipo === "historia"
+                  ? "(respondió a una historia)"
+                  : mensaje.anuncio
+                    ? "(llegó desde un anuncio)"
+                    : "")
+    );
+    // ¿Se está quejando de la respuesta? Al panel central, en el momento.
+    await vigilarQueja(env, mensaje.igsid, mensaje.texto);
+  }
+
   if (estaPausado(contacto)) {
     // ¿SIGUE HABIENDO ALGUIEN DEL OTRO LADO?
     //
@@ -2244,7 +2313,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // no se puede escuchar, se le pide con amabilidad que escriba.
   let notaVoz = "";
   if (mensaje.audio) {
-    const oido = await transcribirAudio(env, mensaje.audio);
+    const oido = await transcribirAudio(env, mensaje.audio, { anotar: (d) => anotarGasto(env, d) });
     if (!oido.texto) {
       console.error(`Voz: no pude transcribir la nota de ${mensaje.igsid}: ${oido.error}`);
       await mandar(() => enviarTexto(env, mensaje.igsid, PEDIR_QUE_ESCRIBA), PEDIR_QUE_ESCRIBA);
@@ -2261,6 +2330,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     console.log(`Voz: el cliente dijo (${oido.modelo}): ${JSON.stringify(oido.texto.slice(0, 200))}`);
     mensaje.texto = [mensaje.texto, oido.texto].filter(Boolean).join(" ");
     conversacion = conLoDicho(conversacion, "cliente", `(nota de voz) ${oido.texto}`);
+    await anotarMensaje(env.DB, mensaje.igsid, "cliente", `🎤 ${oido.texto}`);
+    await vigilarQueja(env, mensaje.igsid, oido.texto);
     notaVoz = notaDeVoz();
   }
 
@@ -2964,6 +3035,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       motivo: "EL MODELO NO RESPONDIÓ",
       historia: esHistoria ? "respuesta a una historia" : "",
     });
+    // ❌ en el panel, y aviso al central en el momento.
+    await anotarTurno(
+      env.DB,
+      { igsid: mensaje.igsid, cliente: textoCliente, respuesta: FALLO_TECNICO, marca: "error", motivo: "La IA no respondió (OpenAI falló o tardó demasiado)" },
+      env
+    );
     return;
   }
 
@@ -3222,7 +3299,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   // LO QUE PENSÓ LA IA, PARA EL PANEL (2-oct-2026, ver panel.js): qué
   // entendió, qué buscó, qué fichas salieron y qué corrigieron las redes.
-  await anotarTurno(env.DB, {
+  const turnoDelPanel = {
     igsid: mensaje.igsid,
     cliente: notaVoz ? `🎤 ${mensaje.texto}` : textoCliente,
     pienso: salida.pienso,
@@ -3235,13 +3312,19 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       productoDelAnuncio && `viene del anuncio del ${productoDelAnuncio.titulo}`,
       revisionDeTono.corregido && "se quitó una grosería o un regaño",
       revisionDeDisponible.corregido && "habló de una marca que no hay: se corrigió",
-      revisionDePrecio.corregido && "preguntó '¿quieres el precio?': se cambió",
+      revisionDePrecio.corregido && "ofrecía el precio: se cambió por 'está en cada foto'",
       respuestaCliente !== String(salida.respuesta || "").trim() && !revisionDeTono.corregido && !revisionDeDisponible.corregido && !revisionDePrecio.corregido &&
         `su borrador era: "${String(salida.respuesta || "").slice(0, 140)}"`,
       preguntarMarca && "prometió fotos sin buscar: se le preguntó la marca",
       sinSaberQueEs && "no se supo de qué equipo era la publicación",
     ],
-  });
+  };
+  // El revisor lo mira cuando todo ya salió (ver atenderConRed y revisor.js).
+  rastro.turno = {
+    ...turnoDelPanel,
+    id: await anotarTurno(env.DB, turnoDelPanel, env),
+    fichas: paraMostrar.map((p) => `${p.titulo}${p.precio ? ` · ${p.precio}` : ""}`),
+  };
 
   // El segundo mensaje de la tabla de pagos (Krece). Sale detrás del
   // primero, nunca solo, y nunca cuando no sabemos de qué equipo hablamos.

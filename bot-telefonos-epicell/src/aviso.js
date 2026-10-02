@@ -5,10 +5,16 @@
 // puede publicar en tu canal, así que no conviene que viaje en un archivo.
 //   npx wrangler secret put SLACK_WEBHOOK
 
+import { anotarAviso } from "./registro.js";
+
 export async function avisarAsesor(
   env,
   { nombre, igsid, mensaje, respuesta, motivo, historial, productos, historia, busco }
 ) {
+  // Queda guardado aunque no haya Slack: el panel central lo cuenta (ver
+  // registro.js). Es de donde salen los productos ganadores.
+  await anotarAviso(env.DB, { igsid, motivo, mensaje, busco, productos });
+
   if (!env.SLACK_WEBHOOK) {
     console.error("No hay SLACK_WEBHOOK cargado: el aviso no sale.");
     return "FALLO - no hay SLACK_WEBHOOK cargado en el Worker";

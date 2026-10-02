@@ -130,6 +130,24 @@ TRABAJO = ""
 # El nombre que sale arriba del panel.
 TIENDA_NOMBRE = "EPICELL"
 
+# --- EL PANEL CENTRAL (2-oct-2026) --------------------------------------
+# Tu Worker "panel-central" junta todas las tiendas en un solo sitio. Esta
+# tienda le da sus datos por /api/central (con la clave PANEL_API_CLAVE,
+# que va como secreto, ver al final) y le avisa EN EL MOMENTO de cada error,
+# respuesta indebida o queja de un cliente.
+#
+# La conexión son DOS SECRETOS (ver al final): PANEL_API_CLAVE y
+# PANEL_CENTRAL_URL (la dirección de tu panel central, para los avisos en
+# tiempo real).
+
+# EL REVISOR (ver src/revisor.js): después de cada respuesta, ya enviada,
+# una IA barata la revisa y la marca 🔴 si alucinó, fue incoherente o no
+# contestó lo que le preguntaron. Unos $0,0002 por respuesta.
+#   "si"  revisa cada respuesta   <- recomendado
+#   "no"  no revisa
+REVISOR_IA = "si"
+REVISOR_MODELO = "gpt-4o-mini"
+
 # --- LOS ANUNCIOS (2-oct-2026) ------------------------------------------
 # El panel completo está en https://TU-WORKER/anuncios : si el ADS_TOKEN
 # sirve, todos tus anuncios activos, qué equipo manda el bot en cada uno,
@@ -327,6 +345,8 @@ FRASE_DESPAUSAR = "te dejo con la asistente|ya puedes seguir con la asistente"
 #   npx wrangler secret put IG_TOKEN            el token de acceso de Instagram
 #   npx wrangler secret put ADS_TOKEN           para leer tus anuncios (opcional)
 #   npx wrangler secret put PANEL_CLAVE         la clave para entrar a /panel (6 letras o más)
+#   npx wrangler secret put PANEL_API_CLAVE     la que comparte con tu panel central (16 letras o más)
+#   npx wrangler secret put PANEL_CENTRAL_URL   https://panel-central.TU-SUBDOMINIO.workers.dev
 #
 # OJO CON META_APP_SECRET_IG: Meta tiene DOS claves y las dos miden 32
 # caracteres, asi que no se distinguen a ojo. La que sirve es la del
