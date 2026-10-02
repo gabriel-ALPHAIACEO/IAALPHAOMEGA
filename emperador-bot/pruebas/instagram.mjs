@@ -157,5 +157,17 @@ titulo("el rastro nunca rompe al bot");
   ok(R.hace(0) === "nunca" && R.hace(Date.now() - 3 * 3600e3) === "hace 3 h", "y las horas se leen bien");
 }
 
+titulo("las páginas que Meta pide para publicar la app");
+{
+  const m = instagramDeMentira();
+  const env = { ...entorno(), WHATSAPP: "+584224848573", PROVEEDOR: "deepseek" };
+  const priv = await llamar(env, "/privacidad", {}, m);
+  ok(priv.estado === 200 && /Política de privacidad/.test(priv.texto) && /El Emperador/.test(priv.texto), "/privacidad responde 200 con la política");
+  ok(/\+584224848573/.test(priv.texto) && /DeepSeek/.test(priv.texto) && /Cloudflare/.test(priv.texto), "con el WhatsApp de la tienda y quién procesa los datos");
+  ok(!/\bRIF\b|\bJ-\d|Invictus/i.test(priv.texto), "sin datos inventados (ni RIF ni otra tienda)");
+  const elim = await llamar(env, "/eliminar-datos", {}, m);
+  ok(elim.estado === 200 && /Quiero eliminar mis datos/.test(elim.texto), "/eliminar-datos explica cómo pedir que se borren");
+}
+
 src.limpiar();
 terminar();

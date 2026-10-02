@@ -73,6 +73,7 @@ import { usaDrive, catalogoDeDrive, idDeCarpeta, leerUnTrozoDeDrive } from "./dr
 import { avisarAsesor } from "./aviso.js";
 import { anotar, leerRastro, hace } from "./rastro.js";
 import { conPresupuesto, limiteDeSubpeticiones } from "./presupuesto.js";
+import { paginaDePrivacidad, paginaDeEliminacion, html200 } from "./legal.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo, corregirBusquedaDeBotas } from "./catalogo.js";
 import { alternativasPara } from "./parecidos.js";
@@ -119,7 +120,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-01 (23) · drive: la carpeta se lee por partes y se guarda en D1 (sin Too many subrequests)";
+const VERSION = "2026-10-02 (24) · /privacidad y /eliminar-datos para publicar la app de Meta";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -832,6 +833,10 @@ async function atenderPeticion(request, env, ctx) {
     // POR QUÉ NO RESPONDE EN INSTAGRAM (1-oct-2026).
     //   /probar-instagram              revisa todo y dice qué hacer
     //   /probar-instagram?suscribir=si suscribe la cuenta al webhook
+    // LAS DOS PÁGINAS QUE META PIDE PARA PUBLICAR LA APP (ver legal.js).
+    if (url.pathname === "/privacidad") return html200(paginaDePrivacidad(env));
+    if (url.pathname === "/eliminar-datos") return html200(paginaDeEliminacion(env));
+
     if (url.pathname === "/probar-instagram") {
       return texto200(await diagnosticoDeInstagram(env, url));
     }
