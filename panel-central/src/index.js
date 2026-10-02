@@ -57,7 +57,7 @@ import {
   vistaEnPausa,
 } from "./vistas.js";
 
-const VERSION = "2026-10-02 (2) · ALPHA IA: el nombre de la empresa en el panel";
+const VERSION = "2026-10-02 (3) · ALPHA IA: arreglada la entrada (decía No con la clave buena)";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");

@@ -110,6 +110,18 @@ await pedir("/panel/devolver", { metodo: "POST", cookie, cuerpo: id2, origen: "h
 r = await pedir("/panel/c/123", { cookie });
 ok(/Pausar el bot 1 h/.test(r.texto), "y devolverle la conversación");
 
+// Como lo manda Chrome de verdad (Origin "null" + Sec-Fetch-Site): el
+// 2-oct los botones decían "No" por esto.
+{
+  const f = new FormData(); f.set("id", "123");
+  const real = await callado(() => worker.fetch(new Request("https://bot.test/panel/pausar", { method: "POST", headers: { cookie, origin: "null", "sec-fetch-site": "same-origin" }, body: f }), ENV, { waitUntil() {} }));
+  ok(real.status === 303 && (await E.estaPausado(await E.cargarContacto(DB, "123"))), "pausar como lo manda Chrome (Origin null) funciona", String(real.status));
+  const g = new FormData(); g.set("id", "123");
+  const ajeno = await callado(() => worker.fetch(new Request("https://bot.test/panel/devolver", { method: "POST", headers: { cookie, origin: "null", "sec-fetch-site": "cross-site" }, body: g }), ENV, { waitUntil() {} }));
+  ok(ajeno.status === 403, "pero desde otra web (cross-site), no");
+  await E.despausar(DB, "123");
+}
+
 // Despausar desde la LISTA, sin abrir la conversación.
 await pedir("/panel/pausar", { metodo: "POST", cookie, cuerpo: id, origen: "https://bot.test" });
 r = await pedir("/panel?f=pausados", { cookie });
@@ -168,7 +180,7 @@ titulo("la puerta del panel central (/api/central)");
   ok((await api("resumen", { clave: "" })).estado === 401, "sin clave, no");
 
   const res = (await api("resumen")).datos;
-  ok(res?.tienda === "Invictus Shoes" && /\(51\)/.test(res.version), "resumen: la tienda y su versión", JSON.stringify(res).slice(0, 120));
+  ok(res?.tienda === "Invictus Shoes" && /\(\d+\)/.test(res.version), "resumen: la tienda y su versión", JSON.stringify(res).slice(0, 120));
   ok(res.hoy.clientes === 1 && res.hoy.mensajes >= 1 && res.hoy.respuestas >= 1, "resumen: clientes, mensajes y respuestas de hoy", JSON.stringify(res.hoy));
   ok(res.hoy.ventas === 1, "resumen: 1 venta por cerrar");
   ok(res.semana.errores >= 1, "resumen: los errores guardados se cuentan", JSON.stringify(res.semana));

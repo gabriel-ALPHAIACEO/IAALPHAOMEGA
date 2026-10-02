@@ -145,7 +145,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (51) · panel central: errores, avisos, metricas, ganadores, mensajes en vivo y despausar desde la lista";
+const VERSION = "2026-10-02 (52) · arreglado: pausar y devolver al bot desde el panel decían No";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo

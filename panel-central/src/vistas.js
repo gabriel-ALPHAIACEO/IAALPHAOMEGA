@@ -181,7 +181,7 @@ export function pagina(titulo, cuerpo, { conMenu = true, vivo = false, sinLeer =
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
         "x-frame-options": "DENY",
-        "referrer-policy": "no-referrer",
+        "referrer-policy": "same-origin",
         "x-content-type-options": "nosniff",
         // Nada de fuera: ni scripts, ni imágenes, ni a dónde mandar datos.
         "content-security-policy":

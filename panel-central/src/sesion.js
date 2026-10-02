@@ -46,12 +46,16 @@ export async function sesionValida(request, env) {
 }
 
 // ¿El formulario salió de una página de este mismo panel?
+// Sec-Fetch-Site lo dice el navegador y una web no lo puede falsificar. Si
+// no viene (navegadores viejos), se mira el Origin. OJO: Chrome manda
+// Origin "null" en formularios de páginas sin referrer; eso NO es otra web
+// (por eso falló la entrada el 2-oct: el formulario propio salía como ajeno).
 export function vieneDelPanel(request) {
-  const url = new URL(request.url);
-  const origen = request.headers.get("origin");
-  if (origen) return origen === url.origin;
   const sitio = request.headers.get("sec-fetch-site");
-  return !sitio || sitio === "same-origin" || sitio === "none";
+  if (sitio) return sitio === "same-origin" || sitio === "none";
+  const origen = request.headers.get("origin");
+  if (origen && origen !== "null") return origen === new URL(request.url).origin;
+  return true;
 }
 
 /* ── El freno a los intentos ─────────────────────────────────────── */

@@ -78,9 +78,14 @@ async function sesionValida(request, env) {
 
 // Las acciones (pausar, devolver) solo valen si vienen de una página del
 // propio panel: así otra web no puede mandarlas en nombre del dueño.
+// Sec-Fetch-Site lo pone el navegador y otra web no lo puede falsificar.
+// Si no viene, se mira el Origin, pero "null" (lo que manda Chrome desde una
+// página sin referrer) no es otra web: por eso el 2-oct los botones decían "No".
 function vieneDelPanel(request, url) {
+  const sitio = request.headers.get("sec-fetch-site");
+  if (sitio) return sitio === "same-origin" || sitio === "none";
   const origen = request.headers.get("origin") || "";
-  return !origen || origen === url.origin;
+  return !origen || origen === "null" || origen === url.origin;
 }
 
 /* ── Los mensajes, uno a uno ───────────────────────────────────────── */
@@ -266,7 +271,7 @@ function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnunc
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
         "x-frame-options": "DENY",
-        "referrer-policy": "no-referrer",
+        "referrer-policy": "same-origin",
       },
     }
   );

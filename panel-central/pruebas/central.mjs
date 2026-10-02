@@ -152,6 +152,13 @@ titulo("entrar");
   const frenado = await abrir("/entrar", { metodo: "POST", form: { clave: CLAVE }, ip: "6.6.6.6" });
   ok(/Demasiadas/.test(frenado.html) && !frenado.r.headers.get("set-cookie"), "tras 8 claves equivocadas, ni la buena entra durante 15 minutos");
 
+  // Lo que manda Chrome de verdad desde la página de entrada (sin referrer):
+  // Origin "null" y Sec-Fetch-Site same-origin. El 2-oct esto decía "No".
+  const comoChrome = await callado(() => central.fetch(new Request("https://central.test/entrar", { method: "POST", headers: { origin: "null", "sec-fetch-site": "same-origin", "content-type": "application/x-www-form-urlencoded", "cf-connecting-ip": "2.2.2.2" }, body: `clave=${encodeURIComponent(CLAVE)}` }), ENV_C, ctx));
+  ok(comoChrome.status === 303 && /central=/.test(comoChrome.headers.get("set-cookie") || ""), "entrar como lo hace Chrome (Origin null, same-origin) funciona", String(comoChrome.status));
+  const cruzada = await callado(() => central.fetch(new Request("https://central.test/entrar", { method: "POST", headers: { origin: "null", "sec-fetch-site": "cross-site", "content-type": "application/x-www-form-urlencoded" }, body: `clave=${encodeURIComponent(CLAVE)}` }), ENV_C, ctx));
+  ok(cruzada.status === 403, "pero desde otra web (cross-site), no");
+
   const ajena = await abrir("/entrar", { metodo: "POST", form: { clave: CLAVE }, origen: "https://malo.test" });
   ok(ajena.estado === 403, "entrar desde otra web: no");
 
