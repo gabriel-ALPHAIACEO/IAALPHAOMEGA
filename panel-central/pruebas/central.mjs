@@ -62,6 +62,7 @@ const ENV_C = {
 };
 
 let caidaViva = false;
+let caidaVieja = false; // la tienda con la versión vieja: a todo responde 200 "ok"
 let modelo = { pienso: "", mostrar: "texto", voz: false, respuesta: "Hola", buscar: "NADA", historial: "" };
 const tareas = [];
 const ctx = { waitUntil: (p) => tareas.push(p) };
@@ -72,6 +73,7 @@ globalThis.fetch = async (url, op = {}) => {
   if (u.host === "invictus.test") return W1.fetch(pedido(), ENV1, ctx);
   if (u.host === "otra.test") return W2.fetch(pedido(), ENV2, ctx);
   if (u.host === "caida.test") {
+    if (caidaVieja) return new Response("ok", { status: 200 });
     if (!caidaViva) throw new TypeError("fetch failed");
     return new Response(JSON.stringify({ ok: true, version: "2026-10-02 (9) · volvió" }), { status: 200 });
   }
@@ -391,6 +393,20 @@ titulo("¿siguen vivas? (el cron de cada 2 minutos)");
   ok(/faltan claves: CLAVE_OTRA/.test(await sinClave.text()), "/estado avisa si falta la clave de una tienda");
   const equivocada = await callado(() => central.fetch(new Request("https://central.test/t/otra", { headers: { cookie: galleta } }), { ...ENV_C, CLAVE_OTRA: "otra-clave-que-no-es-la-buena" }, ctx));
   ok(/la clave no coincide/.test(await equivocada.text()), "con la clave equivocada, lo dice claro");
+}
+
+titulo("una tienda con la versión vieja (responde 200 'ok' a todo)");
+{
+  // Pasó el 2-oct: el panel entero dio error porque una tienda contestaba
+  // "ok" en vez de los datos. Ninguna página puede caerse por eso.
+  caidaVieja = true;
+  for (const ruta of ["/", "/gastos", "/metricas", "/ganadores", "/errores", "/en-pausa", "/en-vivo/datos?c=%7B%7D", "/t/caida", "/t/caida/chats", "/t/caida/metricas", "/t/caida/ganadores", "/t/caida/errores", "/t/caida/c/123", "/t/caida/bases", "/t/caida/cambios"]) {
+    const r = await abrir(ruta);
+    ok(r.estado === 200, `${ruta} no se cae`, String(r.estado));
+  }
+  const inicio = await abrir("/");
+  ok(/versión vieja/.test(inicio.html) && /Invictus/.test(inicio.html), "el inicio dice que esa tienda tiene la versión vieja, y enseña las demás");
+  caidaVieja = false;
 }
 
 fs.rmSync(copia, { recursive: true, force: true });

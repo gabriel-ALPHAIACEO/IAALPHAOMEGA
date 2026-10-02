@@ -70,6 +70,12 @@ export async function pedir(env, tienda, ruta, { metodo = "GET", cuerpo = null, 
               : datos?.error || `respondió ${r.status}`;
       return { ok: false, estado: r.status, error: motivo, datos };
     }
+    // Un 200 que no trae datos del panel (no es JSON) es una tienda con la
+    // versión vieja: su respuesta genérica sale como "ok". Antes eso tumbaba
+    // la página entera (2-oct); ahora se dice qué pasa.
+    if (datos === null || typeof datos !== "object") {
+      return { ok: false, estado: r.status, error: "la tienda respondió, pero sin los datos del panel: todavía tiene la versión vieja (despliega la nueva y mira su /estado)" };
+    }
     return { ok: true, estado: r.status, datos };
   } catch (error) {
     return { ok: false, error: /timeout|abort/i.test(String(error?.name || error)) ? "no respondió a tiempo" : String(error?.message || error) };

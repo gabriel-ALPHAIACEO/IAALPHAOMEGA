@@ -57,7 +57,7 @@ import {
   vistaEnPausa,
 } from "./vistas.js";
 
-const VERSION = "2026-10-02 (3) · ALPHA IA: arreglada la entrada (decía No con la clave buena)";
+const VERSION = "2026-10-02 (4) · ALPHA IA: una tienda con la versión vieja ya no tumba el panel";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");
@@ -75,6 +75,19 @@ function redirigir(a, cookie = "") {
 
 function dias(url, porDefecto) {
   return Math.min(Math.max(Number(url.searchParams.get("dias")) || porDefecto, 1), 90);
+}
+
+// El resumen de una tienda, comprobado: si le falta lo básico, se trata
+// como una tienda que no responde (nunca tumba la página).
+function resumenValido(r) {
+  if (r.ok && (!r.datos?.hoy || !r.datos?.semana)) {
+    return { ...r, ok: false, error: "la tienda respondió con un resumen incompleto: despliega su versión nueva" };
+  }
+  return r;
+}
+
+async function resumenes(env) {
+  return (await pedirATodas(env, "resumen")).map(resumenValido);
 }
 
 function nombres(env) {
@@ -276,20 +289,20 @@ function volverA(formulario, porDefecto) {
 
 async function atenderTienda(request, env, url, t, resto, opciones) {
   const p = (titulo, cuerpo, extra = {}) => pagina(`${titulo} · ${t.nombre}`, cuerpo, { ...opciones, ...extra });
-  const errorDe = (r) => `<div class="tarjeta mal">❌ ${esc(r.error)}</div>`;
+  const errorDe = (r) => `<div class="tarjeta mal">❌ ${esc(r.error || "la tienda mandó algo inesperado: despliega su versión nueva y mira su /estado")}</div>`;
   const esPost = request.method === "POST";
   if (esPost && !vieneDelPanel(request)) return new Response("No", { status: 403 });
   const formulario = esPost ? await request.formData().catch(() => null) : null;
 
   if (resto === "") {
-    return p("Resumen", vistaResumenTienda(t, await pedir(env, t, "resumen")), { vivo: true });
+    return p("Resumen", vistaResumenTienda(t, resumenValido(await pedir(env, t, "resumen"))), { vivo: true });
   }
 
   if (resto === "chats") {
     const q = url.searchParams.get("q") || "";
     const f = url.searchParams.get("f") || "";
     const r = await pedir(env, t, `chats?q=${encodeURIComponent(q)}&f=${encodeURIComponent(f)}`);
-    return p("Chats", r.ok ? vistaChats(t, r.datos, { q, f }) : pestanasDeTienda(t, "chats") + errorDe(r), { vivo: !q });
+    return p("Chats", r.ok && Array.isArray(r.datos) ? vistaChats(t, r.datos, { q, f }) : pestanasDeTienda(t, "chats") + errorDe(r), { vivo: !q });
   }
 
   if (resto === "en-vivo") return p("En vivo", vistaEnVivo([], { tienda: t }));
@@ -298,7 +311,7 @@ async function atenderTienda(request, env, url, t, resto, opciones) {
     const id = decodeURIComponent(resto.slice(2));
     const r = await pedir(env, t, `chat?id=${encodeURIComponent(id)}`);
     // Abierta, la conversación se pone al día sola cada 6 segundos.
-    return p("Conversación", r.ok ? vistaConversacion(t, r.datos) : errorDe(r), { vivo: 6000 });
+    return p("Conversación", r.ok && r.datos?.contacto ? vistaConversacion(t, r.datos) : errorDe(r), { vivo: 6000 });
   }
 
   if ((resto === "pausar" || resto === "devolver") && esPost) {
@@ -321,7 +334,7 @@ async function atenderTienda(request, env, url, t, resto, opciones) {
   if (resto === "metricas") {
     const n = dias(url, 14);
     const r = await pedir(env, t, `metricas?dias=${n}`, { espera: 15000 });
-    if (!r.ok) return p("Métricas", pestanasDeTienda(t, "metricas") + errorDe(r));
+    if (!r.ok || !Array.isArray(r.datos?.dias)) return p("Métricas", pestanasDeTienda(t, "metricas") + errorDe(r.ok ? { error: "la tienda no mandó sus métricas: despliega su versión nueva" } : r));
     return p("Métricas", vistaMetricas(`Últimos ${n} días`, r.datos.dias, r.datos, { conAnuncios: r.datos.dias.some((d) => d.anuncios > 0), cabecera: pestanasDeTienda(t, "metricas") }));
   }
 
@@ -329,14 +342,14 @@ async function atenderTienda(request, env, url, t, resto, opciones) {
     const n = dias(url, 30);
     const r = await pedir(env, t, `ganadores?dias=${n}`, { espera: 15000 });
     const cabecera = `${pestanasDeTienda(t, "ganadores")}<div class="suave">Ver: ${[7, 30, 90].map((x) => `<a href="?dias=${x}">${x} días</a>`).join(" · ")}</div>`;
-    return p("Ganadores", r.ok ? vistaGanadores(r.datos, { cabecera }) : cabecera + errorDe(r));
+    return p("Ganadores", r.ok && Array.isArray(r.datos) ? vistaGanadores(r.datos, { cabecera }) : cabecera + errorDe(r));
   }
 
   if (resto === "errores") {
     const n = Math.min(dias(url, 7), 30);
     const r = await pedir(env, t, `errores?dias=${n}`);
     const cabecera = pestanasDeTienda(t, "errores");
-    return p("Errores", r.ok ? vistaErrores(r.datos, cabecera, { soloErrores: url.searchParams.get("solo") === "1" }) : cabecera + errorDe(r));
+    return p("Errores", r.ok && Array.isArray(r.datos) ? vistaErrores(r.datos, cabecera, { soloErrores: url.searchParams.get("solo") === "1" }) : cabecera + errorDe(r));
   }
 
   if (resto === "alertas") {
@@ -352,7 +365,7 @@ async function atenderTienda(request, env, url, t, resto, opciones) {
 
   if (resto === "bases") {
     const r = await pedir(env, t, "tablas", { espera: 15000 });
-    return p("Bases de datos", r.ok ? vistaTablas(t, r.datos) : pestanasDeTienda(t, "bases") + errorDe(r));
+    return p("Bases de datos", r.ok && Array.isArray(r.datos) ? vistaTablas(t, r.datos) : pestanasDeTienda(t, "bases") + errorDe(r));
   }
 
   if (resto === "sql") {
@@ -365,7 +378,7 @@ async function atenderTienda(request, env, url, t, resto, opciones) {
 
   if (resto === "cambios") {
     const r = await pedir(env, t, "cambios");
-    return p("Historial", r.ok ? vistaCambios(t, r.datos) : pestanasDeTienda(t, "bases") + errorDe(r));
+    return p("Historial", r.ok && Array.isArray(r.datos) ? vistaCambios(t, r.datos) : pestanasDeTienda(t, "bases") + errorDe(r));
   }
 
   if (resto === "deshacer" && esPost) {
@@ -476,12 +489,12 @@ async function atender(request, env) {
   const tiendas = leerTiendas(env);
 
   if (url.pathname === "/") {
-    const respuestas = await pedirATodas(env, "resumen");
+    const respuestas = await resumenes(env);
     return pagina("Inicio", vistaInicio(respuestas, await listarAlertas(env.DB, { limite: 8 }), nombres(env)), { ...opciones, vivo: true });
   }
 
   if (url.pathname === "/en-vivo") return pagina("En vivo", vistaEnVivo(tiendas), opciones);
-  if (url.pathname === "/en-pausa") return pagina("En pausa", vistaEnPausa(await pedirATodas(env, "chats?f=pausados")), { ...opciones, vivo: true });
+  if (url.pathname === "/en-pausa") return pagina("En pausa", vistaEnPausa((await pedirATodas(env, "chats?f=pausados")).map((r) => (r.ok && !Array.isArray(r.datos) ? { ...r, ok: false, error: "respuesta rara de la tienda: despliega su versión nueva" } : r))), { ...opciones, vivo: true });
   if (url.pathname === "/en-vivo/datos") return enVivo(env, url);
 
   if (url.pathname === "/alertas") {
@@ -546,7 +559,7 @@ async function atender(request, env) {
   }
 
   if (url.pathname === "/gastos") {
-    return pagina("Gastos", vistaGastos(await pedirATodas(env, "resumen")), opciones);
+    return pagina("Gastos", vistaGastos(await resumenes(env)), opciones);
   }
 
   if (url.pathname === "/salud") {
