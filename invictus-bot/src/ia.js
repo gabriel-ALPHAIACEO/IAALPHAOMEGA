@@ -421,6 +421,10 @@ const ESQUEMA_RESPUESTA = {
       // razona de qué producto le hablan y qué le preguntan, y recién
       // después redacta. El cliente nunca lo ve; queda en el registro.
       pienso: { type: "string" },
+      // CÓMO RESPONDE (2-oct-2026): solo texto, texto con fotos, o fotos con
+      // un texto corto. Lo decide pensando: si ya vio esos zapatos y pregunta
+      // algo de ellos (Cashea, talla), no se le mandan las fotos otra vez.
+      mostrar: { type: "string", enum: ["texto", "texto_e_imagenes", "imagenes"] },
       // Lo que ve el cliente.
       respuesta: { type: "string" },
       // El término de búsqueda, o "NADA" si no hay que buscar.
@@ -428,7 +432,7 @@ const ESQUEMA_RESPUESTA = {
       // La memoria para el mensaje siguiente.
       historial: { type: "string" },
     },
-    required: ["pienso", "respuesta", "buscar", "historial"],
+    required: ["pienso", "mostrar", "respuesta", "buscar", "historial"],
     additionalProperties: false,
   },
 };
@@ -853,8 +857,10 @@ function normalizar(salida) {
   const pienso = String(datos.pienso || "").trim();
   if (pienso) console.log(`La IA pensó: ${pienso.slice(0, 300)}`);
 
+  const mostrar = ["texto", "texto_e_imagenes", "imagenes"].includes(datos.mostrar) ? datos.mostrar : "texto_e_imagenes";
   return {
     respuesta,
+    mostrar,
     buscar: String(datos.buscar || "NADA").trim(),
     historial: String(datos.historial || "").trim(),
   };

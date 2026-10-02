@@ -119,9 +119,19 @@ const PEDIR_MAS_EN_FRASE = [
 // Se usa para una sola cosa: activar el filtro de repetidos. Cuando da
 // false no se filtra nada, y eso es a propósito — "¿cuánto cuestan?" sobre
 // el mismo zapato TIENE que volver a mostrarlo, no decirle que ya lo vio.
+// "Mándamelos OTRA VEZ", "enséñamelos de nuevo": quiere volver a ver LOS
+// MISMOS, no otros (2-oct-2026). Sin esto, "otra" lo hacía pasar por "ver
+// más", se descartaban los ya vistos y le llegaba el catálogo en su lugar.
+const VOLVER_A_VER = /\b(otra\s+vez|de\s+nuevo|nuevamente|vuelve\s+a|vuelvelos|vuelvelas|repite|repitelos|reenvia\w*)\b/;
+
+export function pideVerOtraVez(texto) {
+  return VOLVER_A_VER.test(despejar(texto).join(" "));
+}
+
 export function pideMasVariedad(texto) {
   const palabras = despejar(texto);
   if (!palabras.length) return false;
+  if (pideVerOtraVez(texto)) return false;
 
   if (palabras.some((p) => PEDIR_MAS.has(p))) return true;
   return PEDIR_MAS_EN_FRASE.some((patron) => patron.test(palabras.join(" ")));

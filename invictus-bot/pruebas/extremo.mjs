@@ -320,6 +320,44 @@ titulo('"X cuanto me lo dejan en cashea soy level 6" después de ver los Jordan 
   sesion.src.limpiar();
 }
 
+titulo("los 3 casos: solo texto, texto con fotos, fotos con poco texto (2-oct)");
+{
+  const DIA = Date.parse("2026-10-02T12:00:00-04:00");
+  const J40 = [
+    { titulo: "Jordan 40 negro caballero", precio: 120, imagen: "https://cdn.test/j40n.jpg" },
+    { titulo: "Jordan 40 blanco caballero", precio: 120, imagen: "https://cdn.test/j40b.jpg" },
+  ];
+  const carrusel = (r) => r.textos.filter((t) => /"template_type":"generic"/.test(t)).length;
+  const sesion = nuevaSesion();
+
+  const primero = await conversar("tienes el jordan 40?", {
+    sesion, ahora: DIA, productos: J40,
+    respuestaModelo: { pienso: "Pide Jordan 40, no lo ha visto.", mostrar: "texto_e_imagenes", respuesta: "¡Sí tengo! Mira 👇", buscar: "Jordan 40", historial: "Pidió Jordan 40. Ya busqué: Jordan 40." },
+  });
+  ok(carrusel(primero) === 1 && /Sí tengo/.test(primero.todo), "TEXTO E IMÁGENES: algo nuevo → el texto y las fotos");
+
+  const cashea = await conversar("X cuanto me lo dejan en cashea soy level 6", {
+    sesion, ahora: DIA, productos: J40,
+    respuestaModelo: { pienso: "Ya vio el Jordan 40; Cashea nivel 6. Solo texto.", mostrar: "texto", respuesta: "¡Claro que sí! 🙌", buscar: "Jordan 40", historial: "Preguntó Cashea. Nivel Cashea: 6. Ya busqué: Jordan 40." },
+  });
+  ok(carrusel(cashea) === 0, "SOLO TEXTO: pregunta de Cashea sobre los Jordan que ya vio → NO se le mandan las fotos otra vez", cashea.todo.slice(0, 120));
+  ok(/Nivel 6/.test(cashea.todo) && /Jordan 40/.test(cashea.todo), "pero la tarjeta de Cashea sí sabe que es el Jordan 40");
+
+  const otraVez = await conversar("mandamelos otra vez porfa", {
+    sesion, ahora: DIA, productos: J40,
+    respuestaModelo: { pienso: "Quiere volver a verlos.", mostrar: "imagenes", respuesta: "¡Claro! Aquí los tienes otra vez 👇 Son los Jordan 40 en negro y en blanco, con su precio, y cualquiera de los dos te lo puedo apartar con un asesor si te decides hoy mismo.", buscar: "Jordan 40", historial: "Pidió verlos otra vez. Ya busqué: Jordan 40." },
+  });
+  const textoCorto = otraVez.textos.find((t) => !/template_type/.test(t)) || "";
+  ok(carrusel(otraVez) === 1 && textoCorto.length <= 60, "IMÁGENES: las fotos con un texto corto", textoCorto);
+  sesion.src.limpiar();
+
+  const contradiccion = await conversar("tienes jordan 40?", {
+    productos: J40,
+    respuestaModelo: { pienso: "x", mostrar: "texto", respuesta: "¡Sí! Mira estas 👇", buscar: "Jordan 40", historial: "x" },
+  });
+  ok(carrusel(contradiccion) === 1, "si dice 'mira estas 👇' de algo que no ha visto, las fotos van aunque haya marcado 'texto'");
+}
+
 titulo("la talla sigue yendo al asesor");
 {
   const r = await conversar("tienen talla 42?", {

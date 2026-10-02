@@ -121,7 +121,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (43) · cashea sin montos: el porcentaje y las cuotas si, el dinero lo confirma un asesor (con aviso)";
+const VERSION = "2026-10-02 (44) · 3 casos: solo texto, texto con fotos, fotos con poco texto (ya no reenvia las fotos que ya vio)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1628,7 +1628,34 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // Sin zapatos que enseñar, la tarjeta va en el MISMO mensaje que la frase
   // del modelo ("¡Claro que sí! Mira cómo te queda 👇"): un solo mensaje se
   // lee mejor que dos seguidos. Con zapatos, va detrás del carrusel.
-  if (tarjetaDeCashea && !productos.length && !buscoSinExito && !seAcabaron && !hayMasDelCatalogo) {
+  // CÓMO RESPONDE: SOLO TEXTO, TEXTO CON FOTOS, O FOTOS (2-oct-2026).
+  //
+  // Pedido del dueño: "que no muestre las fotos otra vez de los Jordan; si
+  // habla solo en texto, que hable en texto, y si tiene que enviar imágenes
+  // con texto, que las envíe — pero que piense esos casos". La IA elige en
+  // "mostrar" (ver texto.txt, CÓMO RESPONDES):
+  //   texto              sin fotos, aunque "buscar" haya encontrado algo
+  //                      (p. ej. la cuenta de Cashea de los Jordan que ya vio)
+  //   texto_e_imagenes   el texto y las fichas
+  //   imagenes           las fichas, con un texto corto
+  //
+  // "Solo texto" se respeta salvo dos casos: la foto o historia del cliente
+  // (ahí se le enseña lo que se encontró, siempre), y que el texto apunte a
+  // unas fotos que no ha visto ("mira estas 👇") — eso sería contradecirse.
+  const modo = salida?.mostrar || "texto_e_imagenes";
+  const yaLosVio = productos.length > 0 && productos.every((p) => yaLoVio(contacto.mostrados || [], p.titulo));
+  const apuntaAFotos = /👇|\bmira\s+(?:est|ac[aá]|aqu[ií])|\bte\s+(?:los?|las?)\s+muestro\b/i.test(respuestaCliente);
+  const soloTexto = modo === "texto" && productos.length > 0 && !imagenCruda && (yaLosVio || !apuntaAFotos);
+  if (soloTexto) {
+    console.log(`La IA eligió responder SOLO TEXTO: no le mando las ${productos.length} ficha(s)` + (yaLosVio ? " (ya las había visto)" : ""));
+  }
+  if (modo === "imagenes" && productos.length && respuestaCliente.length > 120) {
+    // Las fotos hablan: el texto va corto, la primera frase.
+    respuestaCliente = respuestaCliente.split(/(?<=[.!?👇😊🙌])\s+/)[0];
+  }
+  const fichas = soloTexto ? [] : productos;
+
+  if (tarjetaDeCashea && !fichas.length && !buscoSinExito && !seAcabaron && !hayMasDelCatalogo) {
     respuestaCliente = respuestaCliente ? `${respuestaCliente}\n\n${tarjetaDeCashea}` : tarjetaDeCashea;
     tarjetaDeCashea = "";
   }
@@ -1667,9 +1694,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     console.log("El cliente nombró el catálogo: va el botón debajo de la respuesta");
   }
 
-  if (productos.length) {
+  if (fichas.length) {
     await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
-    await mandar(() => enviarFichas(env, mensaje.igsid, productos));
+    await mandar(() => enviarFichas(env, mensaje.igsid, fichas));
+  } else if (soloTexto) {
+    // Habló de algo que ya está en la conversación: solo texto.
+    await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
   } else if (buscoSinExito || seAcabaron || hayMasDelCatalogo || mandarCatalogo) {
     // Tres motivos distintos, misma salida: el cliente quería ver algo y no
     // hay nada (más) que enseñarle en una ficha. Ahí el enlace de la tienda
@@ -1747,7 +1777,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     ultimo_envio: enviadoEn || contacto.ultimo_envio,
     // Lo que acaba de ver queda anotado para no volver a mandárselo cuando
     // pida más. Es lo que evita el "son los mismos".
-    mostrados: conProductosMostrados(contacto.mostrados, productos),
+    mostrados: conProductosMostrados(contacto.mostrados, fichas),
   });
 }
 
