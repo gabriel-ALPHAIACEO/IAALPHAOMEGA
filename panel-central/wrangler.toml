@@ -26,8 +26,8 @@ database_id = "PEGA_AQUI_EL_ID"
 crons = ["*/2 * * * *"]
 
 [vars]
-# El nombre que sale arriba en el panel.
-PANEL_NOMBRE = "Panel central"
+# El nombre de la empresa: sale arriba en el panel y en la pestaña.
+PANEL_NOMBRE = "ALPHA IA"
 
 # Las tiendas. Para añadir una: su id (minúsculas, sin espacios), su nombre
 # y la dirección de su Worker. Cada una necesita además su clave (abajo).

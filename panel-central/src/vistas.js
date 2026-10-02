@@ -59,7 +59,7 @@ const ESTILO = `
 a{color:var(--marca);text-decoration:none}
 header{position:sticky;top:0;background:var(--tarjeta);border-bottom:1px solid var(--borde);padding:10px 16px;z-index:5}
 header .fila{display:flex;gap:4px 14px;align-items:center;flex-wrap:wrap;max-width:1100px;margin:0 auto}
-header b{font-size:16px;margin-right:auto}
+header b{font-size:16px;margin-right:auto}.marca-nombre{letter-spacing:.04em}.marca-nombre .suave{font-weight:400;letter-spacing:0}
 .menu{display:flex;gap:14px;align-items:center;overflow-x:auto;white-space:nowrap;max-width:100%;padding:8px 14px 4px 0;scrollbar-width:none}
 .menu::-webkit-scrollbar{display:none}
 .campana{position:relative}.campana .n{position:absolute;top:-8px;right:-12px;background:var(--mal);color:#fff;border-radius:999px;font-size:11px;padding:0 6px;min-width:18px;text-align:center}
@@ -164,7 +164,7 @@ const VIVO = `
 })();
 </script>`;
 
-export function pagina(titulo, cuerpo, { conMenu = true, vivo = false, sinLeer = 0, nombre = "Panel central" } = {}) {
+export function pagina(titulo, cuerpo, { conMenu = true, vivo = false, sinLeer = 0, nombre = "ALPHA IA" } = {}) {
   const menu = conMenu
     ? `<nav class="menu"><a href="/">Inicio</a><a href="/en-vivo">🟢 En vivo</a><a class="campana" href="/alertas">🔔 Alertas<span class="n" id="sinleer" style="${sinLeer ? "" : "display:none"}">${sinLeer || ""}</span></a>
 <a href="/en-pausa">⏸️ En pausa</a><a href="/metricas">Métricas</a><a href="/ganadores">Ganadores</a><a href="/errores">Errores</a><a href="/gastos">Gastos</a><a href="/salud">Estado</a><a href="/como-funciona">Cómo funciona</a><a href="/salir">Salir</a>
@@ -173,7 +173,7 @@ export function pagina(titulo, cuerpo, { conMenu = true, vivo = false, sinLeer =
   return new Response(
     `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><title>${esc(titulo)} · ${esc(nombre)}</title><style>${ESTILO}</style></head>
-<body${vivo ? ` data-vivo="${typeof vivo === "number" ? vivo : 60000}"` : ""}><header><div class="fila"><b>${esc(nombre)}</b>${menu}</div></header>
+<body${vivo ? ` data-vivo="${typeof vivo === "number" ? vivo : 60000}"` : ""}><header><div class="fila"><b class="marca-nombre">${esc(nombre)} <span class="suave">· Panel central</span></b>${menu}</div></header>
 <main id="contenido">${cuerpo}</main>${conMenu ? VIVO : ""}</body></html>`,
     {
       status: 200,
@@ -195,7 +195,7 @@ export function entrada(nombre, error = "") {
   return pagina(
     "Entrar",
     `<div class="tarjeta" style="max-width:420px"><form method="post" action="/entrar">
-<p>Escribe la clave del panel central.</p>${error ? `<p class="mal">${esc(error)}</p>` : ""}
+<h2 style="margin-top:0">${esc(nombre)}</h2><p>Escribe la clave del panel central.</p>${error ? `<p class="mal">${esc(error)}</p>` : ""}
 <div class="acciones"><input type="password" name="clave" autocomplete="current-password" autofocus><button class="principal">Entrar</button></div></form></div>`,
     { conMenu: false, nombre }
   );

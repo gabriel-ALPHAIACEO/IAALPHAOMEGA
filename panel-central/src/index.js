@@ -57,10 +57,10 @@ import {
   vistaEnPausa,
 } from "./vistas.js";
 
-const VERSION = "2026-10-02 (1) · panel central: tiendas, alertas en tiempo real, métricas, ganadores, gastos, bases editables y diagrama";
+const VERSION = "2026-10-02 (2) · ALPHA IA: el nombre de la empresa en el panel";
 
 function nombreDelPanel(env) {
-  return String(env.PANEL_NOMBRE || "Panel central");
+  return String(env.PANEL_NOMBRE || "ALPHA IA");
 }
 
 function json(datos, estado = 200) {
