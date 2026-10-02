@@ -114,6 +114,19 @@ titulo("lo que se lee en voz: sin emojis, sin enlaces, corto");
   src.limpiar();
 }
 
+titulo("el formato del audio se mira en el archivo, no en lo que dice Instagram");
+{
+  const src = await prepararSrc();
+  const V = await src.cargar("voz.js");
+  const de = (bytes, tipo) => V.formatoDelAudio(new Uint8Array(bytes).buffer, tipo).extension;
+  ok(de([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41], "application/octet-stream") === "m4a", "un m4a que Instagram llama 'octet-stream' → m4a");
+  ok(de([0x4f, 0x67, 0x67, 0x53, 0], "video/mp4") === "ogg", "un ogg que dice 'video/mp4' → ogg");
+  ok(de([0x49, 0x44, 0x33, 3], "") === "mp3", "un mp3 → mp3");
+  ok(de([0x52, 0x49, 0x46, 0x46], "") === "wav", "un wav → wav");
+  ok(de([0x1a, 0x45, 0xdf, 0xa3], "") === "webm", "un webm → webm");
+  src.limpiar();
+}
+
 titulo("si no se puede escuchar, le pide que escriba (nunca se calla)");
 {
   const r = await mandarNota({ falla: true });

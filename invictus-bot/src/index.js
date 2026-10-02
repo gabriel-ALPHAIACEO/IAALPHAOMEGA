@@ -131,7 +131,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (45) · notas de voz: las escucha y contesta; si le hablan con voz, contesta tambien con voz";
+const VERSION = "2026-10-02 (46) · voz: el formato del audio se mira en el archivo, whisper-1 de respaldo y el motivo exacto en el registro";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
