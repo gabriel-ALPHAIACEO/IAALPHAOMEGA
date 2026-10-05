@@ -124,8 +124,15 @@ WHATSAPP = "+584224848573"
 # boton "MAPS/GOOGLE" que abre MAPS_URL, y si hay FOTO_LOCAL, la foto.
 # Vacio = el bot no la sabe y esa pregunta va a un asesor (no se inventa).
 # Para ver como queda antes de que la vea un cliente: /probar-ubicacion
-DIRECCION = ""
-MAPS_URL = ""
+# Dato del dueño (5-oct-2026).
+DIRECCION = "📍 Estamos ubicados en Porlamar, justo en el Boulevard Gómez, frente a la Cancha Frayn Elías."
+# PROVISIONAL: abre el Boulevard Gómez en el mapa, no el pin exacto de la
+# tienda. Cámbialo por el enlace del pin: Google Maps → busca la tienda (o
+# deja el dedo sobre el sitio) → Compartir → Copiar vínculo.
+MAPS_URL = "https://www.google.com/maps/search/?api=1&query=Boulevard+G%C3%B3mez+Porlamar+Nueva+Esparta"
+# La foto del local: súbela a Drive FUERA de la carpeta del catálogo (si no,
+# el bot la enseñaría como un producto), compártela como "Cualquier persona
+# con el enlace" y pega aquí ese enlace tal cual: el bot lo convierte solo.
 FOTO_LOCAL = ""
 
 # --- El limite de Cloudflare ---------------------------------------------
