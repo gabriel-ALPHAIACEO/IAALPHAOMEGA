@@ -125,7 +125,7 @@ WHATSAPP = "+584224848573"
 # Vacio = el bot no la sabe y esa pregunta va a un asesor (no se inventa).
 # Para ver como queda antes de que la vea un cliente: /probar-ubicacion
 # Dato del dueño (5-oct-2026).
-DIRECCION = "📍 Estamos ubicados en Porlamar, justo en el Boulevard Gómez, frente a la Cancha Frayn Elías."
+DIRECCION = "📍 Estamos ubicados en Porlamar, justo en el Boulevard Gómez, frente a la Cancha Fray Elías."
 # PROVISIONAL: abre el Boulevard Gómez en el mapa, no el pin exacto de la
 # tienda. Cámbialo por el enlace del pin: Google Maps → busca la tienda (o
 # deja el dedo sobre el sitio) → Compartir → Copiar vínculo.
