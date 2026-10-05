@@ -24,7 +24,8 @@ for (const [texto, esperada] of [
   ["franelas oversize", "camisa"],
   ["una chemise blanca", "camisa"],
   ["jean azul", "pantalon"],
-  ["shorts deportivos", "pantalon"],
+  ["shorts deportivos", "short"],
+  ["uniformes del madrid", "uniforme"],
   ["gorras new era", "gorra"],
   ["cachucha negra", "gorra"],
   ["quiero unas cholas", "calzado"],
@@ -37,10 +38,10 @@ for (const [texto, esperada] of [
 }
 
 titulo("la categoría de cada carpeta y de lo que ve la IA de visión");
-for (const [carpeta, esperada] of [["CALZADOS", "calzado"], ["BOLSOS", "bolso"], ["GORRAS", "gorra"], ["FRANELAS", "camisa"], ["CAMISAS", "camisa"], ["PANTALONES", "pantalon"], ["SHORTS", "pantalon"]]) {
+for (const [carpeta, esperada] of [["CALZADOS", "calzado"], ["BOLSOS", "bolso"], ["GORRAS", "gorra"], ["FRANELAS", "camisa"], ["CAMISAS", "camisa"], ["PANTALONES", "pantalon"], ["SHORT", "short"], ["UNIFORMES", "uniforme"]]) {
   ok(C.categoriaDeCarpeta(carpeta) === esperada, `carpeta ${carpeta} → ${esperada}`);
 }
-for (const [tipo, esperada] of [["franela", "camisa"], ["short", "pantalon"], ["uniforme", "camisa"], ["bolso", "bolso"], ["otro", ""]]) {
+for (const [tipo, esperada] of [["franela", "camisa"], ["short", "short"], ["uniforme", "uniforme"], ["bolso", "bolso"], ["otro", ""]]) {
   ok(C.categoriaDelTipo(tipo) === esperada, `la visión dice "${tipo}" → ${esperada || "ninguna"}`);
 }
 ok(C.quitarPalabrasDeCategoria("mochila Nike negra") === "Nike negra", '"mochila Nike negra" → "Nike negra" para buscar dentro de los bolsos');
@@ -58,13 +59,15 @@ const carpeta = (id, name) => ({ id, name, mimeType: "application/vnd.google-app
 const foto = (id, name) => ({ id, name, mimeType: "image/jpeg" });
 const ARCHIVOS = {
   [RAIZ]: [carpeta("lote", "CNTND 1 (30/6/26)")],
-  lote: [carpeta("cal", "CALZADOS"), carpeta("bol", "BOLSOS"), carpeta("gor", "GORRAS"), carpeta("fra", "FRANELAS"), carpeta("pan", "PANTALONES")],
+  lote: [carpeta("cal", "CALZADOS"), carpeta("bol", "BOLSOS"), carpeta("gor", "GORRAS"), carpeta("fra", "FRANELAS"), carpeta("pan", "PANTALONES"), carpeta("sho", "SHORT"), carpeta("uni", "UNIFORMES")],
   cal: [carpeta("calnike", "Nike"), foto("z3", "Adidas Campus gris 40$.jpg")],
   calnike: [foto("z1", "Nike Air Force One blanco 45$.jpg"), foto("z2", "Nike Dunk Low panda 50$.jpg")],
   bol: [foto("b1", "Nike Heritage negro 25$.jpg"), foto("b2", "Michael Kors Jet Set marrón 60$.jpg")],
   gor: [foto("g1", "Nike Jordan cap negra 15$.jpg"), foto("g2", "New Era Yankees azul 20$.jpg")],
   fra: [foto("f1", "Nike Sportswear blanca 18$.jpg")],
   pan: [foto("p1", "Jogger Nike Tech gris 35$.jpg"), foto("p2", "Jean Levis 501 azul 40$.jpg")],
+  sho: [foto("s1", "Nike Dri-Fit negro 20$.jpg")],
+  uni: [foto("u1", "Real Madrid local 2026 45$.jpg")],
 };
 function driveDeMentira(url) {
   const u = new URL(String(url));
@@ -105,6 +108,11 @@ titulo("la búsqueda respeta la categoría (antes de recortar)");
   const calzadoNike = await callado(() => S.buscarProductos(envDrive, "Nike", 10, { categoria: "calzado" }));
   ok(calzadoNike.productos.length === 2 && calzadoNike.productos.every((p) => C.categoriaDeProducto(p) === "calzado"), "'Nike' + calzado → solo los zapatos Nike", titulos(calzadoNike));
 
+  const shorts = await callado(() => S.buscarProductos(envDrive, "Nike", 10, { categoria: "short" }));
+  ok(shorts.productos.length === 1 && /Dri-Fit/.test(shorts.productos[0].titulo), "'Nike' + short → el short (carpeta SHORT), no el jogger de PANTALONES", titulos(shorts));
+  const uniformes = await callado(() => S.buscarProductos(envDrive, "uniformes", 10, { categoria: "uniforme" }));
+  ok(uniformes.productos.length === 1 && /Madrid/.test(uniformes.productos[0].titulo), "'uniformes' → lo de UNIFORMES", titulos(uniformes));
+
   const nada = await callado(() => S.buscarProductos(envDrive, "Gucci", 10, { categoria: "bolso" }));
   ok(nada.productos.length === 0, "'Gucci' + bolso → nada (no inventa)");
   ok(bolsos.productos[0].categoria === "BOLSOS", "cada ficha lleva su carpeta (categoría)");
@@ -120,7 +128,8 @@ const jpeg = () => new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]
 // tablas); cada conversación con un cliente distinto.
 const BASE = baseDeMentira();
 let cliente = 100;
-async function conversacion(mensaje, { texto, vision = null, cotejo = null }) {
+let llamadasAlRevisor = 0;
+async function conversacion(mensaje, { texto, vision = null, cotejo = null, revisor = null, extraEnv = {} }) {
   const base = BASE;
   const igsid = String(++cliente);
   const enviados = [];
@@ -129,6 +138,10 @@ async function conversacion(mensaje, { texto, vision = null, cotejo = null }) {
     if (u.startsWith("https://www.googleapis.com/")) return driveDeMentira(u);
     if (u.startsWith("https://api.deepseek.com/")) {
       const sistema = JSON.parse(op.body).messages[0].content;
+      if (/supervisor de calidad/.test(sistema)) {
+        llamadasAlRevisor++;
+        return json({ choices: [{ message: { content: JSON.stringify(revisor || { veredicto: "bien", explicacion: "ok" }) }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 5 } });
+      }
       const contenido = /"eleccion"/.test(sistema) ? cotejo || { eleccion: 0, confianza: "baja", porque: "ninguno es" } : /"pedirNombreExacto"/.test(sistema) ? vision : texto;
       return json({ choices: [{ message: { content: JSON.stringify(contenido) }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 5 } });
     }
@@ -143,6 +156,7 @@ async function conversacion(mensaje, { texto, vision = null, cotejo = null }) {
   const env = {
     ...envDrive, DB: base.DB, META_APP_SECRET: SECRETO, META_MODO: "todo", IG_TOKEN: "x", DEEPSEEK_API_KEY: "x",
     SLACK_WEBHOOK: "https://hooks.slack.com/x", URL_CATALOGO: "https://drive.test", COTEJO_BARRIDO: "no",
+    ...extraEnv,
   };
   const cuerpo = JSON.stringify({ object: "instagram", entry: [{ id: "999", time: Date.now(), messaging: [{ sender: { id: igsid }, recipient: { id: "999" }, timestamp: Date.now(), message: { mid: `m-${Math.random()}`, ...mensaje } }] }] });
   const firma = "sha256=" + crypto.createHmac("sha256", SECRETO).update(cuerpo).digest("hex");
@@ -229,6 +243,25 @@ titulo("calzado sigue igual que siempre");
   ok(r.textos.some((t) => t.includes("👟")), "con su 👟");
 }
 
+titulo("el revisor, con DeepSeek: apagado hasta que el dueño lo encienda");
+{
+  const antes = llamadasAlRevisor;
+  await conversacion({ text: "tienes air force?" }, {
+    texto: { pienso: "Air Force.", respuesta: "¡Claro! 👟👇", buscar: "Air Force", categoria: "calzado", historial: "Pidió Air Force." },
+    extraEnv: { PROVEEDOR: "deepseek", REVISOR_IA: "no" },
+  });
+  ok(llamadasAlRevisor === antes, 'con REVISOR_IA = "no" no se le pregunta a nadie (no gasta)');
+
+  await conversacion({ text: "cuanto cuesta el air force?" }, {
+    texto: { pienso: "Precio del Air Force.", respuesta: "Cuesta 10$ y viene con un regalo 🎁", buscar: "Air Force", categoria: "calzado", historial: "Preguntó el precio." },
+    revisor: { veredicto: "alucino", explicacion: "inventó un precio y un regalo" },
+    extraEnv: { PROVEEDOR: "deepseek", REVISOR_IA: "si", REVISOR_MODELO: "deepseek-flash" },
+  });
+  ok(llamadasAlRevisor === antes + 1, "encendido, revisa con DeepSeek después de responder");
+  const marcado = BASE.sql.prepare("SELECT marca, motivo FROM turnos WHERE pienso = 'Precio del Air Force.'").get();
+  ok(marcado?.marca === "indebida" && /Alucinó/.test(marcado.motivo), "y marca 🔴 la respuesta que alucinó, con el porqué", JSON.stringify(marcado));
+}
+
 titulo("el panel: mensajes, lo que pensó la IA y la puerta del panel central");
 {
   const mensajes = BASE.sql.prepare("SELECT de, texto FROM mensajes").all();
@@ -243,7 +276,7 @@ titulo("el panel: mensajes, lo que pensó la IA y la puerta del panel central");
     return { estado: r.status, datos: await r.json().catch(() => null) };
   };
   const ping = await api("ping");
-  ok(ping.estado === 200 && ping.datos.tienda === "El Emperador" && /\(30\)/.test(ping.datos.version), "/api/central/ping: la tienda y su versión", JSON.stringify(ping.datos));
+  ok(ping.estado === 200 && ping.datos.tienda === "El Emperador" && /\(\d+\)/.test(ping.datos.version), "/api/central/ping: la tienda y su versión", JSON.stringify(ping.datos));
   const resumen = await api("resumen");
   ok(resumen.datos?.hoy?.clientes >= 5 && resumen.datos.hoy.respuestas >= 5, "/api/central/resumen: los números de hoy", JSON.stringify(resumen.datos?.hoy));
   const sinClave = await callado(() => worker.fetch(new Request("https://bot.test/api/central/resumen"), env, { waitUntil() {} }));

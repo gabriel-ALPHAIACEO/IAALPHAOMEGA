@@ -19,11 +19,17 @@
 //
 // CUESTA unos $0,0002 por respuesta. Se apaga con REVISOR_IA = "no" en
 // wrangler.toml.
+//
+// CON DEEPSEEK (5-oct-2026, El Emperador): si la tienda va con DeepSeek
+// (PROVEEDOR = "deepseek"), el revisor también. Modelo: REVISOR_MODELO, o si
+// no el de las fotos (DEEPSEEK_MODELO_VISION), que es el barato. Sin pensar
+// de más: un veredicto de una línea no necesita razonar 20 segundos.
 
 import { anotarGasto } from "./gasto.js";
 import { marcarTurno, alertarCentral } from "./registro.js";
 
 const API = "https://api.openai.com/v1/chat/completions";
+const API_DEEPSEEK = "https://api.deepseek.com/chat/completions";
 
 const VEREDICTOS = {
   alucino: "Alucinó",
@@ -59,8 +65,44 @@ REGLAS PARA NO EQUIVOCARTE:
 Responde SOLO con este JSON:
 {"veredicto":"bien|alucino|incoherente|no_responde|tono","explicacion":"una frase corta en español"}`;
 
+function conDeepSeek(env) {
+  return String(env?.PROVEEDOR || "").toLowerCase() === "deepseek";
+}
+
 export function revisorActivo(env) {
-  return Boolean(env?.OPENAI_API_KEY) && !/^(no|off|false|0)$/i.test(String(env?.REVISOR_IA || "").trim());
+  if (/^(no|off|false|0)$/i.test(String(env?.REVISOR_IA || "").trim())) return false;
+  return conDeepSeek(env) ? Boolean(env?.DEEPSEEK_API_KEY) : Boolean(env?.OPENAI_API_KEY);
+}
+
+// La llamada, a OpenAI o a DeepSeek (las dos hablan igual). Devuelve el
+// JSON de la respuesta, o null.
+async function preguntar(env, modelo, mensajes) {
+  const deepseek = conDeepSeek(env);
+  const cuerpo = {
+    model: modelo,
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages: mensajes,
+    ...(deepseek ? { max_tokens: 150, thinking: { type: "disabled" } } : { max_completion_tokens: 150 }),
+  };
+  const enviar = (c) =>
+    fetch(deepseek ? API_DEEPSEEK : API, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${deepseek ? env.DEEPSEEK_API_KEY : env.OPENAI_API_KEY}` },
+      body: JSON.stringify(c),
+      signal: AbortSignal.timeout(8000),
+    });
+  let r = await enviar(cuerpo);
+  // Un modelo de DeepSeek que no entiende "thinking": sin él.
+  if (deepseek && r.status === 400) {
+    const { thinking, ...sinThinking } = cuerpo;
+    r = await enviar(sinThinking);
+  }
+  if (!r.ok) {
+    console.log(`REVISOR: ${deepseek ? "DeepSeek" : "OpenAI"} respondió ${r.status}, no reviso esta respuesta`);
+    return null;
+  }
+  return r.json();
 }
 
 async function conversacionReciente(db, igsid) {
@@ -93,29 +135,14 @@ export async function revisarTurno(env, turno) {
     `LO QUE SE LE ENSEÑÓ EN FICHAS: ${(turno.fichas || turno.productos || []).join(" | ") || "(nada)"}`,
   ].join("\n");
 
-  const modelo = env.REVISOR_MODELO || "gpt-4o-mini";
+  const modelo = env.REVISOR_MODELO || (conDeepSeek(env) ? env.DEEPSEEK_MODELO_VISION || "deepseek-chat" : "gpt-4o-mini");
   let datos;
   try {
-    const r = await fetch(API, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${env.OPENAI_API_KEY}` },
-      body: JSON.stringify({
-        model: modelo,
-        temperature: 0,
-        max_completion_tokens: 150,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: INSTRUCCIONES },
-          { role: "user", content: contenido },
-        ],
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!r.ok) {
-      console.log(`REVISOR: OpenAI respondió ${r.status}, no reviso esta respuesta`);
-      return null;
-    }
-    datos = await r.json();
+    datos = await preguntar(env, modelo, [
+      { role: "system", content: INSTRUCCIONES },
+      { role: "user", content: contenido },
+    ]);
+    if (!datos) return null;
   } catch (error) {
     console.log("REVISOR: no pude revisar esta respuesta:", error?.message || error);
     return null;
@@ -125,7 +152,7 @@ export async function revisarTurno(env, turno) {
     await anotarGasto(env, {
       modelo,
       entrada: datos.usage.prompt_tokens || 0,
-      cacheadas: datos.usage.prompt_tokens_details?.cached_tokens || 0,
+      cacheadas: datos.usage.prompt_cache_hit_tokens || datos.usage.prompt_tokens_details?.cached_tokens || 0,
       salida: datos.usage.completion_tokens || 0,
     });
   }

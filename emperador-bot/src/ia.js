@@ -217,7 +217,7 @@ function textoConCatalogo(env = {}) {
     // LO QUE VENDE (las carpetas de Drive) y LOS DATOS DE LA TIENDA (tienda.txt).
     promptTextoArmado = promptTextoArmado.replaceAll(
       "{{CATEGORIAS}}",
-      `Esta tienda vende cinco tipos de producto:\n\n${categoriasParaElPrompt()}` +
+      `Esta tienda vende estos tipos de producto:\n\n${categoriasParaElPrompt()}` +
         (categoriasDeLaTienda ? `\n\nLas carpetas de su catálogo ahora mismo:\n\n${categoriasDeLaTienda}` : "")
     );
     promptTextoArmado = promptTextoArmado.replaceAll("{{DATOS_TIENDA}}", datosParaElPrompt());
@@ -484,7 +484,7 @@ const ESQUEMA_RESPUESTA = {
       buscar: { type: "string" },
       // QUÉ TIPO de producto pide (5-oct-2026): la búsqueda solo enseña de
       // esa categoría. "ninguna" si no pidió producto o no se sabe.
-      categoria: { type: "string", enum: ["calzado", "bolso", "camisa", "pantalon", "gorra", "ninguna"] },
+      categoria: { type: "string", enum: ["calzado", "bolso", "camisa", "pantalon", "short", "uniforme", "gorra", "ninguna"] },
       // La memoria para el mensaje siguiente.
       historial: { type: "string" },
     },
@@ -986,7 +986,7 @@ function normalizar(salida) {
     respuesta,
     pienso,
     buscar: String(datos.buscar || "NADA").trim(),
-    // Vacío si no vino o no es una de las cinco: index.js la deduce entonces
+    // Vacío si no vino o no es una de las categorías: index.js la deduce entonces
     // de lo que escribió el cliente (categorias.js).
     categoria: esCategoria(categoria) ? categoria : "",
     historial: String(datos.historial || "").trim(),

@@ -1,4 +1,5 @@
-// LAS CINCO COSAS QUE VENDE EL EMPERADOR (5-oct-2026).
+// LO QUE VENDE EL EMPERADOR, POR CATEGORÍAS (5-oct-2026): calzado, bolsos,
+// camisas (FRANELAS), pantalones, shorts, uniformes y gorras.
 //
 // QUÉ SE PEDÍA. El dueño: "El Emperador tiene bolsos, camisas, pantalones,
 // gorras y zapatos. Que la IA identifique cuándo es cada cosa y mande bien
@@ -15,7 +16,7 @@
 //   · categoriaDeProducto(producto)             → por la carpeta de Drive
 //     (CALZADOS, BOLSOS…) o, si no, por el título
 //   · categoriaDelTipo("franela")               → "camisa" (lo que dice la
-//     IA de visión, llevado a las cinco del dueño)
+//     IA de visión, llevado a las categorías del dueño)
 //   · filtrarPorCategoria(productos, "bolso")   → solo los bolsos
 //
 // La búsqueda filtra por la categoría ANTES de recortar al carrusel (si no,
@@ -57,8 +58,8 @@ export const CATEGORIAS = {
     plural: "camisas",
     unidad: "camisa",
     emoji: "👕",
-    carpeta: /camis|franel|chemise|polo|su[eé]ter|hoodie|sudader|blusa|uniform|t-?shirt/i,
-    palabras: /\b(camis\w*|franel\w*|chemise\w*|polos?|sueter\w*|hoodies?|sudader\w*|blusas?|t-?shirts?|playeras?|remeras?|uniformes?)\b/,
+    carpeta: /camis|franel|chemise|polo|su[eé]ter|hoodie|sudader|blusa|t-?shirt/i,
+    palabras: /\b(camis\w*|franel\w*|chemise\w*|polos?|sueter\w*|hoodies?|sudader\w*|blusas?|t-?shirts?|playeras?|remeras?)\b/,
     tallas: "S, M, L, XL",
   },
   pantalon: {
@@ -66,9 +67,29 @@ export const CATEGORIAS = {
     plural: "pantalones",
     unidad: "pantalón",
     emoji: "👖",
-    carpeta: /pantal|jean|jogger|short|bermud|\bmonos?\b|leggin/i,
-    palabras: /\b(pantal\w*|jeans?|blue\s?jeans?|joggers?|shorts?|bermudas?|monos?|leggins?)\b/,
+    carpeta: /pantal|jean|jogger|\bmonos?\b|leggin/i,
+    palabras: /\b(pantal\w*|jeans?|blue\s?jeans?|joggers?|monos?|leggins?)\b/,
     tallas: "cintura o S, M, L, XL",
+  },
+  // Los shorts y los uniformes tienen su propia carpeta en el Drive del
+  // dueño (SHORT, UNIFORMES): son categorías aparte (5-oct-2026).
+  short: {
+    nombre: "short",
+    plural: "shorts",
+    unidad: "short",
+    emoji: "🩳",
+    carpeta: /short|bermud/i,
+    palabras: /\b(shorts?|bermudas?|pantalon(es)?\s+cortos?|pantaloneta\w*)\b/,
+    tallas: "S, M, L, XL",
+  },
+  uniforme: {
+    nombre: "uniforme",
+    plural: "uniformes",
+    unidad: "uniforme",
+    emoji: "👕",
+    carpeta: /uniform/i,
+    palabras: /\b(uniformes?|conjuntos?\s+deportivos?|equipaci\w*)\b/,
+    tallas: "S, M, L, XL",
   },
   gorra: {
     nombre: "gorra",
@@ -77,7 +98,8 @@ export const CATEGORIAS = {
     emoji: "🧢",
     carpeta: /gorr|cachucha|visera|snapback|trucker|\bcaps?\b|sombrer/i,
     palabras: /\b(gorras?|gorros?|cachuchas?|viseras?|snapbacks?|truckers?|caps?|sombreros?)\b/,
-    tallas: "",
+    // Dato del dueño (5-oct-2026): todas las gorras son ajustables.
+    tallas: "ajustables, una sola talla para todos",
   },
 };
 
@@ -87,17 +109,17 @@ export function esCategoria(valor) {
   return NOMBRES.includes(String(valor || ""));
 }
 
-// Lo que dice la IA de visión (tiene siete tipos, más finos) llevado a las
-// cinco del dueño. "short" es pantalón; "franela" y "uniforme", camisa.
+// Lo que dice la IA de visión llevado a las categorías del dueño
+// ("franela" es camisa; "short" y "uniforme" tienen la suya).
 const DEL_TIPO = {
   calzado: "calzado",
   bolso: "bolso",
   gorra: "gorra",
   franela: "camisa",
   camisa: "camisa",
-  uniforme: "camisa",
+  uniforme: "uniforme",
   pantalon: "pantalon",
-  short: "pantalon",
+  short: "short",
 };
 
 export function categoriaDelTipo(tipo) {

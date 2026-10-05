@@ -33,6 +33,11 @@ SECRETOS = {
     "TIENDA_ID",
 }
 
+# Las que lee una pieza COMPARTIDA con otras tiendas pero que aquí no se usan:
+# revisor.js es el mismo en Invictus, EPICELL y El Emperador, y solo El
+# Emperador va con DeepSeek. Sin PROVEEDOR = "deepseek", ni se miran.
+DE_OTRAS_TIENDAS = {"PROVEEDOR", "DEEPSEEK_API_KEY", "DEEPSEEK_MODELO_VISION"}
+
 if not os.path.exists(ARCHIVO):
     print(f"✗ No encuentro {ARCHIVO}. ¿Estás en la carpeta del bot?")
     sys.exit(1)
@@ -103,7 +108,7 @@ for archivo in os.listdir("src"):
         if archivo == "datos.js":
             leidos |= set(re.findall(r':\s*"([A-Z][A-Z0-9_]+)"', texto))
 
-faltan = sorted(leidos - set(variables) - bindings - SECRETOS)
+faltan = sorted(leidos - set(variables) - bindings - SECRETOS - DE_OTRAS_TIENDAS)
 sobran = sorted(set(variables) - leidos)
 pendientes = sorted(
     k for k, v in variables.items()

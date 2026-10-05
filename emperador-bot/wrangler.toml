@@ -170,8 +170,13 @@ FRASE_DESPAUSAR = "te dejo con la asistente"
 # en la tarjeta de la ubicación.
 TIENDA_NOMBRE = "El Emperador"
 
-# EL REVISOR (la IA que marca 🔴 una respuesta que alucinó) usa OpenAI, y El
-# Emperador va todo con DeepSeek: sin OPENAI_API_KEY queda apagado solo.
+# EL REVISOR (ver src/revisor.js): después de cada respuesta, ya enviada,
+# una segunda IA (DeepSeek, el modelo barato) la lee y la marca 🔴 en el
+# panel si alucinó, se contradijo o no contestó lo que le preguntaron. El
+# cliente no espera nada. APAGADO hasta que el dueño lo decida: "si" lo
+# enciende.
+REVISOR_IA = "no"
+REVISOR_MODELO = "deepseek-flash"
 
 # ------------------------------------------------------------------------
 # SECRETOS - NUNCA van en este archivo. Se cargan uno por uno, ESTANDO
