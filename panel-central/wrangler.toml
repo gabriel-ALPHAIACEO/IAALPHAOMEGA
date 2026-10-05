@@ -43,12 +43,11 @@ PANEL_NOMBRE = "ALPHA IA"
 
 # Las tiendas. Para añadir una: su id (minúsculas, sin espacios), su nombre
 # y la dirección de su Worker. Cada una necesita además su clave (abajo).
-# El Emperador no está porque está congelado; cuando se conecte, se añade:
-#   {"id":"emperador","nombre":"El Emperador","url":"https://emperador-bot.elemperadorca1992.workers.dev"}
 TIENDAS = '''
 [
   {"id": "invictus", "nombre": "Invictus", "url": "https://invictus-bot.invictusshoes.workers.dev"},
-  {"id": "epicell",  "nombre": "EPICELL",  "url": "https://bot-telefonos.arizatecnologia.workers.dev"}
+  {"id": "epicell",  "nombre": "EPICELL",  "url": "https://bot-telefonos.arizatecnologia.workers.dev"},
+  {"id": "emperador", "nombre": "El Emperador", "url": "https://emperador-bot.elemperadorca1992.workers.dev"}
 ]
 '''
 
@@ -56,5 +55,6 @@ TIENDAS = '''
 #   PANEL_CLAVE      la clave para entrar al panel (12 letras o más)
 #   CLAVE_INVICTUS   la misma que Invictus tiene en su PANEL_API_CLAVE
 #   CLAVE_EPICELL    la misma que EPICELL tiene en su PANEL_API_CLAVE
+#   CLAVE_EMPERADOR  la misma que El Emperador tiene en su PANEL_API_CLAVE
 # Cada tienda con una clave DISTINTA: por la clave se sabe de qué tienda
 # viene cada alerta.

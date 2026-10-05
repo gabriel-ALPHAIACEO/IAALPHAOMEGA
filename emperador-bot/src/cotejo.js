@@ -298,7 +298,9 @@ export async function cotejoPorImagen({
       console.log(`Sin resultados para "${termino}": cotejo la foto contra "${marca}"`);
       // Se piden más de los que caben: con el orden por color y rasgos,
       // los 8 que se le enseñan al modelo salen de un grupo más grande.
-      const { productos: deLaMarca } = await buscarProductos(env, marca, MAXIMO_CANDIDATOS * 3);
+      // Solo los del mismo tipo: con la foto de un bolso Nike, los zapatos
+      // Nike no son candidatos (5-oct-2026).
+      const deLaMarca = (await buscarProductos(env, marca, MAXIMO_CANDIDATOS * 3)).productos.filter(delTipo);
       const elegido = await cotejar(
         env,
         foto,

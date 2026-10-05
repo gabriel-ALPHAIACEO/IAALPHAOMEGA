@@ -166,6 +166,13 @@ PAUSA_HORAS = "1"
 #   "Te dejo con la asistente virtual, ella te sigue ayudando 😊"
 FRASE_DESPAUSAR = "te dejo con la asistente"
 
+# El nombre de la tienda: sale en su panel (/panel), en el panel central y
+# en la tarjeta de la ubicación.
+TIENDA_NOMBRE = "El Emperador"
+
+# EL REVISOR (la IA que marca 🔴 una respuesta que alucinó) usa OpenAI, y El
+# Emperador va todo con DeepSeek: sin OPENAI_API_KEY queda apagado solo.
+
 # ------------------------------------------------------------------------
 # SECRETOS - NUNCA van en este archivo. Se cargan uno por uno, ESTANDO
 # DENTRO DE LA CARPETA DE EL EMPERADOR (si no, se le cargan a Invictus):
@@ -179,6 +186,13 @@ FRASE_DESPAUSAR = "te dejo con la asistente"
 #   npx.cmd wrangler secret put META_APP_SECRET_IG <- el del producto Instagram
 #   npx.cmd wrangler secret put IG_TOKEN           <- PROPIO de esta tienda
 #   npx.cmd wrangler secret put SLACK_WEBHOOK      (puede ser el mismo)
+#   npx.cmd wrangler secret put PANEL_CLAVE        <- para entrar a /panel
+#                                                     (6 letras o mas)
+#   npx.cmd wrangler secret put PANEL_API_CLAVE    <- la que comparte con el
+#                                                     panel central (16 o mas;
+#                                                     alli va como CLAVE_EMPERADOR)
+#   npx.cmd wrangler secret put PANEL_CENTRAL_URL  <- la direccion del panel
+#                                                     central (alertas al momento)
 #
 # Si te quedaron cargadas claves de antes que ya no se usan, quitalas:
 #   npx.cmd wrangler secret delete GEMINI_API_KEY

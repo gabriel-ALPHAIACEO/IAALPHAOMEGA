@@ -5,6 +5,7 @@
 // entre asteriscos, que es el comodín de la búsqueda de Shopify.
 
 import { usaDrive, buscarEnDrive, catalogoCompletoDeDrive } from "./drive.js";
+import { esCategoria, categoriaDelTexto, filtrarPorCategoria, quitarPalabrasDeCategoria } from "./categorias.js";
 
 const VERSION_API = "2026-01";
 
@@ -14,6 +15,7 @@ const CONSULTA = `
       edges {
         node {
           title
+          productType
           onlineStoreUrl
           featuredImage { url }
           priceRangeV2 { minVariantPrice { amount currencyCode } }
@@ -49,6 +51,7 @@ const CONSULTA_TODO = `
       edges {
         node {
           title
+          productType
           onlineStoreUrl
           featuredImage { url }
           priceRangeV2 { minVariantPrice { amount currencyCode } }
@@ -97,7 +100,51 @@ export async function traerCatalogoCompleto(env, maximo = 1000) {
   return { productos, completo };
 }
 
-export async function buscarProductos(env, termino, cuantos = 10) {
+// LA BÚSQUEDA CON SU CATEGORÍA (5-oct-2026). El Emperador vende calzado,
+// bolsos, camisas, pantalones y gorras: "bolso Nike" no puede devolver
+// zapatos Nike. Con "categoria", el filtro corre ANTES de recortar al
+// carrusel (se piden más y se filtra), igual que el color: si se recortara
+// primero, los diez de arriba podían ser todos zapatos.
+//
+// Si con la frase entera no sale nada de esa categoría, se prueba sin la
+// palabra de la categoría ("mochila Nike" → "Nike" entre los bolsos): en la
+// carpeta los títulos casi nunca dicen "mochila". Y si la búsqueda es SOLO
+// la categoría ("bolsos"), salen los de esa categoría.
+export async function buscarProductos(env, termino, cuantos = 10, { categoria = "" } = {}) {
+  // Sin categoría dada, la de la propia búsqueda ("zapatos" → calzado): así
+  // "zapatos" encuentra la carpeta CALZADOS aunque ningún título lo diga.
+  const cat = esCategoria(categoria) ? categoria : categoriaDelTexto(termino);
+  if (!cat) return buscarSinCategoria(env, termino, cuantos);
+
+  const pedir = Math.max(cuantos * 4, 40);
+  const limpio = String(termino || "").trim();
+  let lista = limpio ? filtrarPorCategoria((await buscarSinCategoria(env, limpio, pedir)).productos, cat) : [];
+
+  if (!lista.length) {
+    const sinPalabra = quitarPalabrasDeCategoria(limpio);
+    if (sinPalabra && sinPalabra !== limpio) {
+      lista = filtrarPorCategoria((await buscarSinCategoria(env, sinPalabra, pedir)).productos, cat);
+    } else if (!sinPalabra) {
+      lista = await todosDeLaCategoria(env, cat, pedir);
+    }
+  }
+
+  return { productos: lista.slice(0, cuantos), hayMas: lista.length > cuantos };
+}
+
+// Todos los de una categoría (para "¿tienen gorras?" o "muéstrame bolsos").
+async function todosDeLaCategoria(env, categoria, maximo) {
+  if (usaDrive(env)) {
+    const { productos } = await catalogoCompletoDeDrive(env, 1000);
+    return filtrarPorCategoria(productos, categoria).slice(0, maximo);
+  }
+  // En Shopify se busca la palabra de la categoría en el título.
+  const palabra = { calzado: "zapato", bolso: "bolso", camisa: "camisa", pantalon: "pantalon", gorra: "gorra" }[categoria];
+  const { productos } = await buscarSinCategoria(env, palabra, maximo);
+  return filtrarPorCategoria(productos, categoria);
+}
+
+async function buscarSinCategoria(env, termino, cuantos = 10) {
   if (usaDrive(env)) return buscarEnDrive(env, termino, cuantos);
 
   const palabras = String(termino || "")
@@ -150,12 +197,7 @@ export async function buscarProductos(env, termino, cuantos = 10) {
     return { productos: [], hayMas: false };
   }
 
-  const productos = (datos.data?.products?.edges || []).map(({ node }) => ({
-    titulo: node.title,
-    precio: formatearPrecio(node.priceRangeV2?.minVariantPrice),
-    imagen: node.featuredImage?.url || "",
-    url: node.onlineStoreUrl || env.URL_CATALOGO,
-  }));
+  const productos = (datos.data?.products?.edges || []).map(aProducto(env));
 
   const filtrados = sinFalsosPositivos(productos, palabras);
   const hayMas = filtrados.length > cuantos;
@@ -252,6 +294,8 @@ function aProducto(env) {
     precio: formatearPrecio(node.priceRangeV2?.minVariantPrice),
     imagen: node.featuredImage?.url || "",
     url: node.onlineStoreUrl || env.URL_CATALOGO,
+    // El "tipo de producto" de Shopify hace de carpeta (ver categorias.js).
+    categoria: node.productType || "",
   });
 }
 

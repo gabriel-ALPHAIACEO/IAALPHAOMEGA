@@ -30,6 +30,7 @@ import { metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
 import { anotarGasto } from "./gasto.js";
 import { llamarDeepSeek, modeloDeDeepSeek } from "./deepseek.js";
 import { usaDrive, titulosDeDrive, categoriasDeDrive } from "./drive.js";
+import { esCategoria, categoriasParaElPrompt } from "./categorias.js";
 import { datosParaElPrompt } from "./datos.js";
 import { hayCashea, hayTablaCashea } from "./cashea.js";
 import { hayUbicacion, mensajeDeUbicacion } from "./ubicacion.js";
@@ -216,9 +217,8 @@ function textoConCatalogo(env = {}) {
     // LO QUE VENDE (las carpetas de Drive) y LOS DATOS DE LA TIENDA (tienda.txt).
     promptTextoArmado = promptTextoArmado.replaceAll(
       "{{CATEGORIAS}}",
-      categoriasDeLaTienda
-        ? `Esta tienda vende de todo esto (son las categorías de su catálogo):\n\n${categoriasDeLaTienda}`
-        : "Esta tienda vende calzado."
+      `Esta tienda vende cinco tipos de producto:\n\n${categoriasParaElPrompt()}` +
+        (categoriasDeLaTienda ? `\n\nLas carpetas de su catálogo ahora mismo:\n\n${categoriasDeLaTienda}` : "")
     );
     promptTextoArmado = promptTextoArmado.replaceAll("{{DATOS_TIENDA}}", datosParaElPrompt());
 
@@ -482,10 +482,13 @@ const ESQUEMA_RESPUESTA = {
       respuesta: { type: "string" },
       // El término de búsqueda, o "NADA" si no hay que buscar.
       buscar: { type: "string" },
+      // QUÉ TIPO de producto pide (5-oct-2026): la búsqueda solo enseña de
+      // esa categoría. "ninguna" si no pidió producto o no se sabe.
+      categoria: { type: "string", enum: ["calzado", "bolso", "camisa", "pantalon", "gorra", "ninguna"] },
       // La memoria para el mensaje siguiente.
       historial: { type: "string" },
     },
-    required: ["pienso", "respuesta", "buscar", "historial"],
+    required: ["pienso", "respuesta", "buscar", "categoria", "historial"],
     additionalProperties: false,
   },
 };
@@ -978,9 +981,14 @@ function normalizar(salida) {
   const pienso = String(datos.pienso || "").trim();
   if (pienso) console.log(`La IA pensó: ${pienso.slice(0, 300)}`);
 
+  const categoria = String(datos.categoria || "").toLowerCase().replace("pantalón", "pantalon");
   return {
     respuesta,
+    pienso,
     buscar: String(datos.buscar || "NADA").trim(),
+    // Vacío si no vino o no es una de las cinco: index.js la deduce entonces
+    // de lo que escribió el cliente (categorias.js).
+    categoria: esCategoria(categoria) ? categoria : "",
     historial: String(datos.historial || "").trim(),
   };
 }

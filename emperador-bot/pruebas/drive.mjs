@@ -89,7 +89,7 @@ titulo("buscar, igual que en Shopify");
   ok(r3.productos.length === 1, "por el código también encuentra");
   const r4 = await conDrive(() => S.buscarProductos(env, "retro 40", 10));
   ok(r4.productos.length === 0, '"retro 40" no encuentra el Retro 4 (el número es palabra completa)');
-  ok(Object.keys(r1.productos[0]).sort().join() === "imagen,precio,titulo,url", "la ficha tiene la misma forma que la de Shopify");
+  ok(Object.keys(r1.productos[0]).sort().join() === "categoria,imagen,precio,titulo,url", "la ficha tiene la misma forma que la de Shopify (con su categoría)");
   const r5 = await conDrive(() => S.buscarProductos(env, "jordan 4", 10));
   ok(r5.productos.length === 1 && /Retro 4/.test(r5.productos[0].titulo), '"jordan 4" encuentra el "Retro 4" (son la misma zapatilla)');
 }
@@ -173,7 +173,7 @@ titulo("SIN CLAVE: lee la carpeta pública, como cualquiera con el enlace");
   ok(rj.productos.length === 0, '"retro" no inventa: aquí no hay ninguna Jordan');
   const b = await conPublica(() => S.buscarProductos(envSinClave, "nike", 10));
   ok(b.productos.length === 1 && /Dunk/.test(b.productos[0].titulo), '"nike" encuentra lo de la subcarpeta Nike');
-  ok(Object.keys(b.productos[0]).sort().join() === "imagen,precio,titulo,url", "la ficha sigue con la forma de Shopify (sin el nombre interno)");
+  ok(Object.keys(b.productos[0]).sort().join() === "categoria,imagen,precio,titulo,url", "la ficha sigue con la forma de Shopify (sin el nombre interno, con su categoría)");
 }
 
 titulo("una clave de IA cargada NO se usa para Drive (Google la rechaza)");

@@ -25,6 +25,7 @@ const SUITES = [
   ["cotejo.mjs", "que llegue al modelo el zapato del color correcto"],
   ["config.mjs", "que el wrangler.toml esté completo: cron, DeepSeek con dos modelos"],
   ["drive.mjs", "el catálogo desde Google Drive: nombres, códigos, precios y búsqueda"],
+  ["categorias.mjs", "calzado, bolsos, camisas, pantalones y gorras: por texto y por foto llega lo que pidió"],
   ["instagram.mjs", "/probar-instagram: en qué paso se corta la respuesta y qué hacer"],
   ["cashea.mjs", "las cuentas de Cashea (con 0%), sus fechas, y la ubicación tal cual"],
   ["datos.mjs", "horario, envíos y delivery de El Emperador: que estén, que no se inventen"],

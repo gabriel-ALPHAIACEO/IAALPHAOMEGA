@@ -71,6 +71,14 @@ import {
 } from "./ubicacion.js";
 import { gastoDelMes } from "./gasto.js";
 import { buscarProductos } from "./shopify.js";
+import { categoriaDeLaBusqueda, CATEGORIAS, emojiDe } from "./categorias.js";
+import { atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
+import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
+import { revisarTurno } from "./revisor.js";
+
+// Los errores que salgan de aquí en adelante quedan guardados para el panel
+// central (ver registro.js).
+vigilarErrores();
 import { usaDrive, catalogoDeDrive, idDeCarpeta, leerUnTrozoDeDrive } from "./drive.js";
 import { avisarAsesor } from "./aviso.js";
 import { anotar, leerRastro, hace } from "./rastro.js";
@@ -122,7 +130,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-02 (29) · cashea sin montos: el porcentaje y las cuotas si, el dinero lo confirma un asesor (con aviso)";
+const VERSION = "2026-10-05 (30) · cinco categorías (calzado, bolsos, camisas, pantalones, gorras) por texto y por foto, y conectada al panel";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -130,6 +138,14 @@ const VERSION = "2026-10-02 (29) · cashea sin montos: el porcentaje y las cuota
 const SIN_RESULTADOS =
   "Déjame confirmarte ese modelo con un asesor y te escribo en un momento 😊 " +
   "Mientras, aquí tienes el catálogo completo";
+
+// Pidió algo concreto de una categoría ("bolsos Gucci") que no hay, pero sí
+// hay otros de esa categoría: se le enseñan, diciéndole la verdad.
+const OTROS_DE_LA_CATEGORIA = [
+  "De ese no tengo ahora mismo 😕 Pero mira estos {cosa} que sí tenemos {emoji}👇",
+  "Ese justo no me queda, pero te muestro los {cosa} que hay {emoji}👇",
+  "De ese no hay por ahora 😅 Échale un ojo a estos {cosa} {emoji}👇",
+];
 
 // La talla la confirma una persona: el catálogo no guarda qué tallas quedan.
 const SOLO_TALLA = "Eso te lo confirma un asesor en un momento 😊";
@@ -406,13 +422,26 @@ export default {
   },
 
   scheduled(evento, env, ctx) {
-    ctx.waitUntil(conPresupuesto(env, () => indexarLoQueFalte(env)));
+    ctx.waitUntil(conPresupuesto(env, () => indexarLoQueFalte(env)).finally(() => guardarErrores(env.DB, env)));
   },
 };
 
 async function atenderPeticion(request, env, ctx) {
   {
     const url = new URL(request.url);
+
+    // EL PANEL DE LA TIENDA (/panel) y LA PUERTA DEL PANEL CENTRAL
+    // (/api/central), 5-oct-2026: lo mismo que Invictus y EPICELL (ver
+    // panel.js). Con clave: PANEL_CLAVE y PANEL_API_CLAVE.
+    const datosDelPanel = {
+      tienda: String(env.TIENDA_NOMBRE || "El Emperador"),
+      version: VERSION,
+      horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
+      conAnuncios: false,
+      verTexto: async (ruta) => (await atenderPeticion(new Request(new URL(ruta, url)), env, ctx)).text(),
+    };
+    if (url.pathname.startsWith("/api/central")) return atenderApiCentral(request, env, datosDelPanel);
+    if (url.pathname === "/panel" || url.pathname.startsWith("/panel/")) return atenderPanel(request, env, datosDelPanel);
 
     // Dispara un aviso de prueba y enseña lo que respondió Slack. Sirve para
     // saber si el problema está en el aviso o en lo que pasa antes.
@@ -594,6 +623,9 @@ async function atenderPeticion(request, env, ctx) {
           `  META_APP_SECRET     ${secreto("META_APP_SECRET")}   (la de Facebook)`,
           `  META_APP_SECRET_IG  ${secreto("META_APP_SECRET_IG")}   (la de Instagram ← es esta)`,
           `  IG_TOKEN            ${secreto("IG_TOKEN")}`,
+          `  PANEL_CLAVE         ${secreto("PANEL_CLAVE")}   (la clave del panel de la tienda: /panel)`,
+          `  PANEL_API_CLAVE     ${secreto("PANEL_API_CLAVE")}   (la del panel central: la misma va en el panel como CLAVE_EMPERADOR)`,
+          `  PANEL_CENTRAL_URL   ${env.PANEL_CENTRAL_URL ? "puesto (avisos en tiempo real al panel central)" : "sin poner (sin avisos en tiempo real)"}`,
           "  ¿No responde en Instagram? Abre /probar-instagram: dice en qué paso se corta.",
           "",
           "CONFIGURACIÓN (wrangler.toml)",
@@ -1308,6 +1340,9 @@ async function atenderConRed(env, mensaje) {
 
   try {
     await atenderMeta(env, mensaje, rastro);
+    // ¿Contestó bien? Con todo ya enviado: el cliente no espera esto.
+    if (rastro.turno?.id) await revisarTurno(env, rastro.turno);
+    await guardarErrores(env.DB, env);
   } catch (error) {
     const detalle = error?.stack || error?.message || String(error);
     console.error(`ATENDER FALLÓ para ${mensaje.igsid}:`, detalle);
@@ -1322,6 +1357,16 @@ async function atenderConRed(env, mensaje) {
       } catch (otro) {
         console.error("Tampoco se pudo avisar al cliente:", otro?.message || otro);
       }
+    }
+
+    // ❌ en el panel: el turno que se cayó. DESPUÉS de escribirle al cliente:
+    // avisar al panel central puede tardar y el cliente no espera eso.
+    if (mensaje.tipo !== "eco") {
+      await anotarTurno(
+        env.DB,
+        { igsid: mensaje.igsid, cliente: mensaje.texto || "", respuesta: rastro.respondio ? "(se le respondió, pero algo falló después)" : "(EL BOT NO PUDO RESPONDER)", marca: "error", motivo: String(error?.message || error).slice(0, 200) },
+        env
+      ).catch(() => {});
     }
 
     // El nombre, si ya lo teníamos. Si la base es justo lo que falló, el
@@ -1368,7 +1413,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   let mids = [];
   let enviadoEn = 0;
 
-  const mandar = async (hacer) => {
+  // "texto" es lo que se le mandó, tal cual: va al panel (ver panel.js).
+  const mandar = async (hacer, texto = "") => {
     const mid = await hacer();
     if (!mid) return "";
 
@@ -1376,6 +1422,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     mids = agregarMid(mids, mid);
     enviadoEn = Date.now();
     await marcarEnvio(env.DB, mensaje.igsid, mids, enviadoEn);
+    if (texto) await anotarMensaje(env.DB, mensaje.igsid, "bot", texto);
     return mid;
   };
   // El eco de un mensaje que salió de la cuenta: el nuestro (el bot
@@ -1401,6 +1448,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     if (esFraseDeDespausar(env, mensaje.texto)) {
       await new Promise((seguir) => setTimeout(seguir, ESPERA_ANTES_DE_PAUSAR_MS + 1000));
       await despausar(env.DB, mensaje.igsid, NOTA_DESPAUSADO);
+      await anotarMensaje(env.DB, mensaje.igsid, "asesor", mensaje.texto);
       console.log(`El asesor le devolvió ${mensaje.igsid} al bot: vuelvo a atender`);
       return;
     }
@@ -1439,6 +1487,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     const horas = Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO;
     await pausar(env.DB, mensaje.igsid, horas);
     console.log(`Asesor humano le escribió a ${mensaje.igsid}: bot pausado ${horas}h`);
+    // Lo que escribió el asesor también sale en el panel.
+    await anotarMensaje(env.DB, mensaje.igsid, "asesor", mensaje.texto || "(mandó algo que no es texto)");
 
     // Sin aviso a Slack. Antes salía un "BOT EN PAUSA — la conversación es
     // tuya" con cada mensaje del asesor, y no le decía nada que no supiera:
@@ -1465,6 +1515,17 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // "TE ESTÁN ESPERANDO" también salga con nombre.
   const contacto = await asegurarPerfil(env, await cargarContacto(env.DB, mensaje.igsid));
   mids = contacto.mids_enviados;
+
+  // LO QUE ESCRIBIÓ, PARA EL PANEL (ver panel.js). Se guarda antes de mirar
+  // la pausa: el dueño tiene que verlo aunque el bot no conteste.
+  await anotarMensaje(
+    env.DB,
+    mensaje.igsid,
+    "cliente",
+    [mensaje.texto, mensaje.historia?.url ? "(respondió a una historia)" : mensaje.foto ? "(mandó una foto)" : ""].filter(Boolean).join(" ")
+  );
+  // ¿Se está quejando de la respuesta? Al panel central, en el momento.
+  await vigilarQueja(env, mensaje.igsid, mensaje.texto);
 
   if (estaPausado(contacto)) {
     console.log(`Bot pausado para ${mensaje.igsid}: no respondo`);
@@ -1501,7 +1562,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   });
   if (motivoDeRescate) {
     console.log(`Rescate: el cliente ${motivoDeRescate} → a un asesor, y el bot se aparta`);
-    await mandar(() => enviarTexto(env, mensaje.igsid, FRASE_DE_RESCATE));
+    await mandar(() => enviarTexto(env, mensaje.igsid, FRASE_DE_RESCATE), FRASE_DE_RESCATE);
     await avisarAsesor(env, {
       ...paraElAviso(contacto),
       igsid: mensaje.igsid,
@@ -1529,7 +1590,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (historialPrevio && !imagenCruda && esSoloSaludo(mensaje.texto)) {
     const respuesta = saludoDeVuelta(nombre, mensaje.texto);
     console.log(`Saludo de vuelta → ${JSON.stringify(respuesta)}`);
-    await mandar(() => enviarTexto(env, mensaje.igsid, respuesta));
+    await mandar(() => enviarTexto(env, mensaje.igsid, respuesta), respuesta);
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
@@ -1560,18 +1621,19 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       // letras); si no, va entera en un mensaje y la tarjeta —foto y botón—
       // detrás. Cortarla sería peor: el cliente leería media calle.
       const cabe = [...lugar.texto].length <= 78;
-      if (!cabe) await mandar(() => enviarTexto(env, mensaje.igsid, lugar.texto));
+      if (!cabe) await mandar(() => enviarTexto(env, mensaje.igsid, lugar.texto), lugar.texto);
       await mandar(() =>
         enviarTarjeta(env, mensaje.igsid, {
-          titulo: cabe ? `📍 ${lugar.texto}` : "📍 INVICTUS SHOES",
+          titulo: cabe ? `📍 ${lugar.texto}` : `📍 ${String(env.TIENDA_NOMBRE || "EL EMPERADOR").toUpperCase()}`,
           texto: lugar.texto,
           resumen: "Toca el botón y te abre el mapa 👇",
           imagen: lugar.foto,
           boton: { url: lugar.enlace, title: lugar.boton },
-        })
+        }),
+        `📍 ${lugar.texto}`
       );
     } else {
-      await mandar(() => enviarBotonEnlace(env, mensaje.igsid, lugar.texto, lugar.boton, lugar.enlace));
+      await mandar(() => enviarBotonEnlace(env, mensaje.igsid, lugar.texto, lugar.boton, lugar.enlace), `📍 ${lugar.texto}`);
     }
 
     if (soloPreguntaUbicacion(mensaje.texto)) {
@@ -1636,7 +1698,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     !queDatoPide(mensaje.texto)
   ) {
     console.log("Preguntó los métodos de pago: le mando la lista completa");
-    await mandar(() => enviarTexto(env, mensaje.igsid, listaDeMetodos()));
+    const metodos = listaDeMetodos();
+    await mandar(() => enviarTexto(env, mensaje.igsid, metodos), metodos);
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
@@ -1663,7 +1726,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (!imagenCruda && !PREGUNTA_TALLA.test(mensaje.texto) && pideElCatalogo(mensaje.texto)) {
     const respuesta = fraseDeCatalogo(nombre);
     console.log(`Pidió el catálogo → ${JSON.stringify(respuesta)}`);
-    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuesta));
+    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuesta), `${respuesta} [botón del catálogo]`);
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
@@ -1818,7 +1881,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (!salida && imagenCruda && !foto) {
     const frase = HISTORIA_SIN_VER[Math.floor(Math.random() * HISTORIA_SIN_VER.length)];
     console.log(`Historia sin ver (${porQueNo}) → pregunto: ${JSON.stringify(frase)}`);
-    await mandar(() => enviarTexto(env, mensaje.igsid, frase));
+    await mandar(() => enviarTexto(env, mensaje.igsid, frase), frase);
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
@@ -1829,7 +1892,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   }
 
   if (!salida) {
-    await mandar(() => enviarTexto(env, mensaje.igsid, FALLO_TECNICO));
+    await mandar(() => enviarTexto(env, mensaje.igsid, FALLO_TECNICO), FALLO_TECNICO);
     await guardarContacto(env.DB, {
       ...contacto,
       nombre,
@@ -1844,6 +1907,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       motivo: "EL MODELO NO RESPONDIÓ",
       historia: esHistoria ? "respuesta a una historia" : "",
     });
+    // ❌ en el panel, y aviso al central en el momento.
+    await anotarTurno(
+      env.DB,
+      { igsid: mensaje.igsid, cliente: textoCliente, respuesta: FALLO_TECNICO, marca: "error", motivo: "La IA no respondió (DeepSeek falló o tardó demasiado)" },
+      env
+    );
     return;
   }
 
@@ -1858,6 +1927,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     noReconociLaFoto,
     sinCupo,
     alternativa,
+    categoria,
   } = await decidir({
     env,
     salida,
@@ -2004,23 +2074,49 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // no con un "hola": solo estas respuestas mandan dos cosas. mandar()
   // guarda cada envío en el momento y cierra esa ventana.
   if (productos.length) {
-    await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
-    await mandar(() => enviarFichas(env, mensaje.igsid, productos));
+    await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente), respuestaCliente);
+    await mandar(() => enviarFichas(env, mensaje.igsid, productos), `📷 Fichas: ${productos.map((p) => p.titulo).join(" · ")}`);
   } else if (buscoSinExito || seAcabaron || hayMasDelCatalogo) {
     // Tres motivos distintos, misma salida: el cliente quería ver algo y no
     // hay nada (más) que enseñarle en una ficha. Ahí el enlace de la tienda
     // sí es una ayuda — incluido cuando SÍ hay más, pero no caben en un
     // carrusel de 10 (hayMasDelCatalogo, ver decidir()).
-    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente));
+    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuestaCliente), `${respuestaCliente} [botón del catálogo]`);
   } else {
     // Conversación: preguntas, dudas, cortesías. Texto limpio, sin botón.
-    await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente));
+    await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente), respuestaCliente);
   }
+
+  // LO QUE PENSÓ LA IA, PARA EL PANEL (ver panel.js): qué entendió, qué
+  // buscó, de qué categoría, qué fichas salieron y qué corrigieron las redes.
+  const turnoDelPanel = {
+    igsid: mensaje.igsid,
+    cliente: textoCliente,
+    pienso: salida.pienso,
+    buscar: salida.buscar,
+    mostrar: productos.length ? "texto_e_imagenes" : "texto",
+    respuesta: respuestaCliente,
+    productos: productos.map((p) => p.titulo),
+    notas: [
+      categoria && `categoría: ${categoria}`,
+      revisionDeTono.corregido && "se quitó una grosería o un regaño",
+      revisionDeCashea.corregido && "Cashea: se corrigió lo que escribió",
+      revisionDePagos.corregido && "iba a dar datos de pago: se corrigió",
+      tarjetaDeCashea && "fue la tarjeta de Cashea",
+      (buscoSinExito || seAcabaron || hayMasDelCatalogo) && "fue el botón del catálogo",
+    ],
+  };
+  // El revisor lo mira cuando todo ya salió (ver atenderConRed y revisor.js).
+  rastro.turno = {
+    ...turnoDelPanel,
+    id: await anotarTurno(env.DB, turnoDelPanel, env),
+    fichas: productos.map((p) => `${p.titulo}${p.precio ? ` · ${p.precio}` : ""}`),
+  };
 
   // La tarjeta de Cashea, cuando no fue dentro del mensaje de arriba: va
   // DETRÁS de los zapatos, que es donde se lee "y con tu nivel, esto".
   if (tarjetaDeCashea) {
-    await mandar(() => enviarTexto(env, mensaje.igsid, tarjetaDeCashea));
+    await mandar(() => enviarTexto(env, mensaje.igsid, tarjetaDeCashea), tarjetaDeCashea);
   }
 
   // Cashea fuera de fecha avisa SIEMPRE, aunque se le hayan enseñado
@@ -2060,7 +2156,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
           ? `QUIERE PAGAR CON CASHEA${nivelCashea ? ` (NIVEL ${nivelCashea})` : ""}: CONFIRMARLE LA INICIAL`
         : pidioDatos && !preguntoTalla
           ? "PIDE LOS DATOS PARA PAGAR"
-          : motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo }),
+          : motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo, categoria }),
       historial: salida.historial,
       busco: termino,
       productos,
@@ -2112,7 +2208,8 @@ async function avisarQueYaLoAtienden(env, mensaje, contacto, mandar) {
 
   // mandar() ya lo anota en D1 en el momento: el eco de este mismo aviso
   // no puede volver y parecer el mensaje de otro asesor.
-  await mandar(() => enviarTexto(env, mensaje.igsid, alAzar(YA_TE_ATIENDEN)));
+  const yaTeAtienden = alAzar(YA_TE_ATIENDEN);
+  await mandar(() => enviarTexto(env, mensaje.igsid, yaTeAtienden), yaTeAtienden);
 
   const silencio = Date.now() - ultimoDelAsesor;
   if (silencio < ASESOR_CALLADO_MS) return;
@@ -2412,6 +2509,11 @@ async function decidir({
   }
 
   const termino = salida.buscar.toUpperCase() === "NADA" ? "" : sinTalla(salida.buscar);
+
+  // QUÉ TIPO DE PRODUCTO (5-oct-2026): calzado, bolso, camisa, pantalón o
+  // gorra. Solo se enseñan de ese tipo. Ver categoriaDeLaBusqueda().
+  const categoria = categoriaDeLaBusqueda({ salida, texto, tipoFoto, termino });
+  if (categoria) console.log(`Categoría de la búsqueda: ${categoria}`);
   if (salida.buscar !== termino && termino) {
     console.log(`Quité la talla del término: "${salida.buscar}" -> "${termino}"`);
   }
@@ -2456,7 +2558,7 @@ async function decidir({
     // pide un grupo grande, se filtra por color, y lo que quede se recorta
     // después al tamaño del carrusel.
     const cuantosPedir = colores.length && sinColor ? CUANTOS_PARA_FILTRAR : undefined;
-    const resultado = await buscarProductos(env, aBuscar, cuantosPedir);
+    const resultado = await buscarProductos(env, aBuscar, cuantosPedir, { categoria });
     productos = resultado.productos;
     habiaDelModelo = productos.length;
 
@@ -2481,6 +2583,24 @@ async function decidir({
         ? `Busqué "${aBuscar}": ${productos.length} resultado(s)`
         : `Sin resultados para "${aBuscar}"`
     );
+  }
+
+  // NO HAY DE ESO, PERO SÍ DE ESA CATEGORÍA (5-oct-2026). "Bolsos Gucci" sin
+  // ningún bolso Gucci: un vendedor no dice "no hay" y se cruza de brazos,
+  // saca los bolsos que sí tiene. Solo por texto (con una foto manda el
+  // cotejo) y solo si lo pedido era más que la categoría.
+  let otrosDeLaCategoria = false;
+  if (!foto && categoria && aBuscar && !productos.length) {
+    const deLaCategoria = await buscarProductos(env, "", MAXIMO_EN_CARRUSEL, { categoria });
+    if (deLaCategoria.productos.length) {
+      productos = deLaCategoria.productos;
+      otrosDeLaCategoria = true;
+      hayMasEnCatalogo = deLaCategoria.hayMas;
+      const k = CATEGORIAS[categoria];
+      salida.respuesta = alAzar(OTROS_DE_LA_CATEGORIA).replaceAll("{cosa}", k.plural).replaceAll("{emoji}", k.emoji);
+      salida.historial = conNota(salida.historial || historialPrevio, `No había "${aBuscar}"; le enseñé otros de ${k.nombre}.`);
+      console.log(`No había "${aBuscar}": le enseño ${productos.length} de la categoría ${categoria}`);
+    }
   }
 
   // COTEJO VISUAL (solo si esto vino de una foto).
@@ -2596,7 +2716,7 @@ async function decidir({
     salida.respuesta = alAzar(NO_SE_CUAL_ES);
     salida.historial = conNota(
       salida.historial,
-      "No se reconoció el calzado de la foto; le pasé el catálogo completo."
+      `No se reconoció ${categoria && categoria !== "calzado" ? `el/la ${CATEGORIAS[categoria].nombre}` : "el calzado"} de la foto; le pasé el catálogo completo.`
     );
     console.log("No reconocí la foto: aviso al asesor y le mando el catálogo completo");
 
@@ -2618,7 +2738,8 @@ async function decidir({
       // saber antes de contestar "no lo tenemos".
       sinCupo: Boolean(informeCotejo.sinCupo),
       alternativa: "",
-      respuestaCliente: salida.respuesta,
+      categoria,
+      respuestaCliente: conEmojiDe(salida.respuesta, categoria),
     };
   }
 
@@ -2665,7 +2786,7 @@ async function decidir({
       console.log(`Ya vio los ${productos.length} de "${aBuscar}"; busco parecidos`);
 
       for (const otro of alternativasPara(aBuscar).slice(0, MAXIMO_ALTERNATIVAS)) {
-        const encontrados = await buscarProductos(env, otro);
+        const encontrados = await buscarProductos(env, otro, undefined, { categoria });
         const sinVer = encontrados.productos.filter((p) => !yaLoVio(mostrados, p.titulo));
         if (sinVer.length) {
           productos = sinVer;
@@ -2730,9 +2851,16 @@ async function decidir({
     seAcabaron,
     hayMasDelCatalogo,
     noReconociLaFoto: false,
-    alternativa,
-    respuestaCliente,
+    alternativa: alternativa || (otrosDeLaCategoria ? categoria : ""),
+    categoria,
+    respuestaCliente: conEmojiDe(respuestaCliente, categoria),
   };
+}
+
+// Las frases fijas nacieron para zapatos (👟). Con un bolso, 👜.
+function conEmojiDe(frase, categoria) {
+  if (!frase || !categoria || categoria === "calzado") return frase;
+  return String(frase).replaceAll("👟", emojiDe(categoria));
 }
 
 // Se avisa en dos situaciones, y solo en esas dos.
@@ -2765,12 +2893,13 @@ function hayEscalada({ respuesta, productos, preguntoTalla, buscoSinExito, noRec
 
 // Primera línea de la notificación: le dice al asesor qué tiene que
 // contestar antes de abrir la conversación.
-function motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo = false }) {
+function motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo = false, categoria = "" }) {
+  const queEs = categoria ? CATEGORIAS[categoria]?.nombre.toUpperCase() : "PRODUCTO";
   if (preguntoTalla) return "PREGUNTO POR TALLAS";
   if (noReconociLaFoto && sinCupo) {
     return "MANDO UNA FOTO Y NO LA PUDE COMPARAR CON TODO EL CATALOGO (SIN CUPO O SIN CONEXIONES) — PUEDE QUE SI LO TENGAMOS";
   }
-  if (noReconociLaFoto) return "MANDO UNA FOTO Y NO SUPE QUE CALZADO ES";
+  if (noReconociLaFoto) return `MANDO UNA FOTO Y NO SUPE QUE ${queEs || "PRODUCTO"} ES`;
   return "QUIERE CERRAR LA COMPRA";
 }
 

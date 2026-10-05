@@ -18,7 +18,7 @@ Como los archivos se pegan a mano, **cada entrega sube la constante `VERSION` de
 | Carpeta | Qué es |
 |---|---|
 | `invictus-bot/` | **LA DE PRODUCCIÓN.** Es el código que atiende clientes hoy. Todo cambio para Invictus se hace acá. |
-| `emperador-bot/` | **El Emperador** (calzado, Shopify). Copia al día de Invictus con sus propios prompts: calidad doble A / triple A en vez de 1.1. **Le falta el catálogo** — ver su `EMPEZAR-AQUI.md`. |
+| `emperador-bot/` | **El Emperador** (DeepSeek + catálogo en Google Drive). Vende **calzado, bolsos, camisas, pantalones y gorras** (5-oct-2026): `src/categorias.js` decide la categoría por texto y por foto, y la búsqueda filtra por ella. Calidad doble A / triple A en vez de 1.1. Conectada al panel central (`panel.js`, `registro.js`, `revisor.js` iguales a Invictus). Ver su `EMPEZAR-AQUI.md`. |
 | `kit-meta/` | Las piezas de Meta directo (`instagram.js`, `estado.js`, `imagen.js` + migraciones), copiadas de producción sin cambios, con `GUIA.md` para portarlas a otro bot. **Decisión del dueño (22-sep): todos los bots van a Meta directo, ManyChat se retira de todos.** |
 | `bot-telefonos-epicell/` | **EPICELL** (teléfonos, Google Sheets). Meta directo, completo. Ver su `PENDIENTE.md`. |
 | `panel-central/` | **El panel central del dueño** (2-oct-2026). Un Worker suyo que NO atiende clientes: mira todas las tiendas por su `/api/central` y lo junta (en vivo, alertas, métricas, ganadores, gastos, en pausa, bases editables, diagrama). Su `src/` es SOLO suyo, no se pega en las tiendas. Ver su `LEEME.md`. Pruebas: `node pruebas/central.mjs` (usa `invictus-bot/` como tienda de verdad). |

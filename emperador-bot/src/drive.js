@@ -39,6 +39,7 @@
 // precio (y el bot lo manda al asesor si se lo preguntan).
 
 import { quedan as quedanConexiones } from "./presupuesto.js";
+import { categoriaDelTipo, categoriaDeCarpeta } from "./categorias.js";
 
 const API = "https://www.googleapis.com/drive/v3/files";
 const CARPETA_MIME = "application/vnd.google-apps.folder";
@@ -567,8 +568,13 @@ const CARPETA_DEL_TIPO = {
   uniforme: /uniform/i,
 };
 
-// ¿La carpeta (categoría) es de ese tipo?
+// ¿La carpeta (categoría) es de ese tipo? Con las cinco del dueño (ver
+// categorias.js): una foto de "short" vale contra la carpeta PANTALONES y
+// una de "franela" contra CAMISAS. Si el tipo no es de los cinco ("otro"),
+// se usa el patrón fino de aquí.
 export function carpetaDelTipo(categoria, tipo) {
+  const cinco = categoriaDelTipo(tipo);
+  if (cinco) return categoriaDeCarpeta(categoria) === cinco;
   const patron = CARPETA_DEL_TIPO[tipo];
   return Boolean(patron && patron.test(String(categoria || "")));
 }
@@ -594,33 +600,14 @@ function despejar(texto) {
 // "jordan 4"; en la carpeta de Drive pueden llamarse "Jordan 4". Pasó el
 // 1-oct: "tienes jordan?" → buscó "Retro" → 0. Ahora una vale por la otra.
 //
-// Y las CATEGORÍAS con las palabras de la gente: "zapatos" o "tenis" son lo
-// que en la carpeta se llama CALZADOS; "camisas", FRANELAS.
+// LAS CATEGORÍAS ("zapatos" = CALZADOS, "camisas" = FRANELAS…) ya NO van
+// aquí (5-oct-2026): con ellas, "jean" valía por toda la carpeta PANTALONES
+// y traía joggers. Ahora lo hace categorias.js: la búsqueda se filtra por la
+// categoría, y si con la palabra no sale nada, se buscan todos los de esa
+// categoría (ver buscarProductos en shopify.js).
 const SINONIMOS = {
   retro: ["retro", "jordan"],
   jordan: ["jordan", "retro"],
-  zapato: ["zapato", "calzado"],
-  zapatos: ["zapato", "calzado"],
-  tenis: ["tenis", "calzado"],
-  zapatilla: ["zapatilla", "calzado"],
-  zapatillas: ["zapatilla", "calzado"],
-  calzado: ["calzado"],
-  camisa: ["camisa", "franela"],
-  camisas: ["camisa", "franela"],
-  camiseta: ["camiseta", "franela"],
-  camisetas: ["camiseta", "franela"],
-  franela: ["franela"],
-  cartera: ["cartera", "bolso"],
-  carteras: ["cartera", "bolso"],
-  morral: ["morral", "bolso"],
-  morrales: ["morral", "bolso"],
-  gorro: ["gorro", "gorra"],
-  gorros: ["gorro", "gorra"],
-  pantalon: ["pantalon"],
-  jean: ["jean", "pantalon"],
-  jeans: ["jean", "pantalon"],
-  bermuda: ["bermuda", "short"],
-  bermudas: ["bermuda", "short"],
 };
 
 // La palabra, sus sinónimos, y su singular ("shorts" → "short", "bolsos" →
@@ -683,8 +670,10 @@ export async function categoriasDeDrive(env) {
   return [...cuenta.entries()].map(([nombre, cuantos]) => ({ nombre, cuantos }));
 }
 
-function sinInternos({ titulo, precio, imagen, url }) {
-  return { titulo, precio, imagen, url };
+// La carpeta viaja con el producto: es lo que dice si es un bolso o un
+// zapato (ver categorias.js).
+function sinInternos({ titulo, precio, imagen, url, categoria = "" }) {
+  return { titulo, precio, imagen, url, categoria };
 }
 
 // Solo para las pruebas: olvidar lo leído.
