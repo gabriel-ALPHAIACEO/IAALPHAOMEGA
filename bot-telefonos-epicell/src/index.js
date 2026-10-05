@@ -30,7 +30,7 @@
 
 import { responderTexto, identificarEnImagen, redactarConResultados } from "./ia.js";
 import { transcribirAudio, notaDeVoz, PEDIR_QUE_ESCRIBA } from "./voz.js";
-import { estadoDeLaClaveApi, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
+import { estadoDeLaClaveApi, esTextoDelBot, pausadoAhora, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
 import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDelRevisor } from "./revisor.js";
 import { anotarGasto } from "./gasto.js";
@@ -2075,6 +2075,14 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // "adjuntos": las fichas que se mandaron, para verlas en el panel como
   // carrusel (ver alpha.js). No entran en la memoria de la conversación.
   const mandar = async (hacer, texto = "", adjuntos = null) => {
+    // CALLADO SI EL ASESOR ENTRÓ (5-oct-2026). El turno empezó sin pausa;
+    // si mientras la IA pensaba un asesor escribió (y el bot quedó
+    // pausado), no se manda nada más: ni el texto, ni las fichas, ni nada.
+    if (await pausadoAhora(env.DB, mensaje.igsid)) {
+      if (!rastro.calladoPorAsesor) console.log(`El asesor tomó la conversación con ${mensaje.igsid} a mitad del turno: no mando nada más`);
+      rastro.calladoPorAsesor = true;
+      return "";
+    }
     const mid = await hacer();
     if (!mid) return "";
 

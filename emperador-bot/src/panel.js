@@ -153,6 +153,52 @@ export async function anotarMensaje(db, igsid, de, texto, adjuntos = null) {
   }
 }
 
+// ¿ESTE TEXTO LO MANDÓ EL BOT? (5-oct-2026, para las tres tiendas)
+//
+// El dueño: "la IA responde mientras está hablando el asesor; que se quede
+// 100% callada". Para reconocer al asesor se miraba el reloj: si el bot
+// había mandado algo hace menos de 90 segundos, cualquier mensaje que salía
+// de la cuenta se tomaba por suyo. Y el asesor entra justo ahí, segundos
+// después de una respuesta del bot: no se pausaba, y el bot seguía
+// hablando por encima de él. (EPICCELL ya lo había arreglado el 29-sep.)
+//
+// Ahora se compara el TEXTO con lo que el bot mandó a ese cliente en los
+// últimos minutos (la tabla de mensajes del panel). Si no es suyo, lo
+// escribió una persona, por muy seguido que haya sido.
+const normalDelEco = (t) => String(t || "").replace(/\s+/g, " ").trim().toLowerCase();
+
+export async function esTextoDelBot(db, igsid, texto, ventanaMs = 10 * 60 * 1000) {
+  const suyo = normalDelEco(texto);
+  if (!db || !igsid || !suyo) return false;
+  try {
+    await asegurarMensajes(db);
+    const r = await db
+      .prepare("SELECT texto FROM mensajes WHERE igsid = ? AND de = 'bot' AND cuando > ? ORDER BY id DESC LIMIT 12")
+      .bind(String(igsid), Date.now() - ventanaMs)
+      .all();
+    return (r?.results || []).some((f) => {
+      const guardado = normalDelEco(f.texto);
+      return Boolean(guardado) && (guardado === suyo || (suyo.length >= 12 && guardado.includes(suyo)) || (guardado.length >= 12 && suyo.includes(guardado)));
+    });
+  } catch {
+    // Sin poder mirar, se toma por una persona: callarse de más es mejor
+    // que hablar por encima del asesor.
+    return false;
+  }
+}
+
+// ¿Está pausado AHORA MISMO? Se mira justo antes de cada envío: si un
+// asesor escribió mientras la IA pensaba, el bot no manda nada más.
+export async function pausadoAhora(db, igsid) {
+  if (!db || !igsid) return false;
+  try {
+    const f = await db.prepare("SELECT pausado_hasta FROM contactos WHERE id = ?").bind(String(igsid)).first();
+    return Number(f?.pausado_hasta) > Date.now();
+  } catch {
+    return false;
+  }
+}
+
 async function mensajesDe(db, igsid) {
   try {
     await asegurarMensajes(db);

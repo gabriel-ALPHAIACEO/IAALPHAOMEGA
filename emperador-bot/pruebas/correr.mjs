@@ -17,6 +17,7 @@ const AQUI = import.meta.dirname;
 const SRC = path.join(AQUI, "..", "src");
 
 const SUITES = [
+  ["asesor.mjs", "la IA se calla cuando habla el asesor (también a mitad del turno)"],
   ["pagos.mjs", "los métodos de pago, la tasa y el guardián de los datos"],
   ["gasto.mjs", "la medición del gasto de OpenAI"],
   ["prompt.mjs", "que los prompts se armen y las reglas sigan escritas"],

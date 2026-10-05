@@ -73,7 +73,7 @@ import {
 import { gastoDelMes } from "./gasto.js";
 import { buscarProductos } from "./shopify.js";
 import { categoriaDeLaBusqueda, CATEGORIAS, emojiDe, categoriasParaElPrompt } from "./categorias.js";
-import { estadoDeLaClaveApi, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
+import { estadoDeLaClaveApi, esTextoDelBot, pausadoAhora, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
 import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDelRevisor } from "./revisor.js";
 
@@ -1420,6 +1420,14 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // "adjuntos": las fichas que se mandaron, para verlas en el panel como
   // carrusel (ver alpha.js).
   const mandar = async (hacer, texto = "", adjuntos = null) => {
+    // CALLADO SI EL ASESOR ENTRÓ (5-oct-2026). El turno empezó sin pausa;
+    // si mientras la IA pensaba un asesor escribió (y el bot quedó
+    // pausado), no se manda nada más: ni el texto, ni las fichas, ni nada.
+    if (await pausadoAhora(env.DB, mensaje.igsid)) {
+      if (!rastro.calladoPorAsesor) console.log(`El asesor tomó la conversación con ${mensaje.igsid} a mitad del turno: no mando nada más`);
+      rastro.calladoPorAsesor = true;
+      return "";
+    }
     const mid = await hacer();
     if (!mid) return "";
 
@@ -1462,10 +1470,14 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     // que ganó la carrera contra el guardado. Pausar aquí sería dejar al
     // cliente sin atención durante horas por un mensaje que mandamos
     // nosotros — pasó en producción, ver estado.js.
-    if (envioReciente(contacto)) {
+    // EL RELOJ SOLO DECIDE CUANDO NO HAY TEXTO (5-oct-2026, ver
+    // esTextoDelBot en panel.js). Un eco CON letras se compara con lo que
+    // mandó el bot, más abajo; uno sin letras (el carrusel de fichas, una
+    // nota de voz) no tiene nada que comparar y ahí sí vale el reloj.
+    if (!mensaje.texto && envioReciente(contacto)) {
       console.log(
-        `Eco sin mid conocido de ${mensaje.igsid}, pero el bot envió hace ` +
-          "un momento: lo cuento como propio, no pauso."
+        `Eco sin texto de ${mensaje.igsid} justo después de un envío del bot: ` +
+          "lo cuento como propio, no pauso."
       );
       return;
     }
@@ -1482,7 +1494,10 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     await new Promise((seguir) => setTimeout(seguir, ESPERA_ANTES_DE_PAUSAR_MS));
     const alSegundoVistazo = await cargarContacto(env.DB, mensaje.igsid);
 
-    if (esEcoPropio(alSegundoVistazo, mensaje.mid) || envioReciente(alSegundoVistazo)) {
+    const delBot =
+      esEcoPropio(alSegundoVistazo, mensaje.mid) ||
+      (mensaje.texto ? await esTextoDelBot(env.DB, mensaje.igsid, mensaje.texto) : envioReciente(alSegundoVistazo));
+    if (delBot) {
       console.log(
         `Eco de ${mensaje.igsid}: al segundo vistazo era del propio bot, no pauso.`
       );
