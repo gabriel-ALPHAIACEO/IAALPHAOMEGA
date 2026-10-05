@@ -127,7 +127,7 @@ for (const dicho of ["En imágenes", "Mandalos", "Mándalos", "Ahora muéstrame,
   comprobar("con fichas: sale lo que redactó viendo el resultado", textos(r.enviados)[0], "¡Sí! El Samsung A57 de 12/512 es de lo mejor que tengo 👇 ¿Es para ti o para regalo?");
   const pedido = r.alModelo.find((x) => x.redaccion);
   const lo = JSON.stringify(pedido?.messages || []);
-  comprobar("la IA recibe lo que se le va a enseñar, con su precio", /- Samsung A57 · precio en divisas: \$310 · precio con Cashea: \$95/.test(lo), true);
+  comprobar("la IA recibe lo que se le va a enseñar, con UN precio (el de Cashea)", /- Samsung A57 · Precio con Cashea \(el ÚNICO que dices\): \$95/.test(lo) && !/\$310/.test(lo), true);
   comprobar("y la conversación y su borrador", /LO QUE PIDE AHORA: tienes el samsung a57/.test(lo) && /TU BORRADOR: Déjame revisar/.test(lo), true);
 
   r = await turno({ ...base, redaccion: "Uy, ese no lo tengo 😅" });
@@ -156,8 +156,8 @@ for (const dicho of ["En imágenes", "Mandalos", "Mándalos", "Ahora muéstrame,
   });
   const lo = JSON.stringify(r.alModelo.find((x) => !x.redaccion)?.messages || []);
   comprobar("la IA sabe que viene del anuncio del A57", /LLEGÓ POR UN ANUNCIO DEL SAMSUNG A57/.test(lo), true);
-  comprobar("y tiene sus precios reales", /Precio en divisas: \$310/.test(lo) && /Precio con Cashea: \$95/.test(lo), true);
-  comprobar("si dice el precio de verdad, se queda", textos(r.enviados).some((t) => /\$310 en divisas/.test(t)), true);
+  comprobar("y tiene su precio real: SOLO el de Cashea (el de divisas no lo ve)", /Precio con Cashea \(el ÚNICO que dices\): \$95/.test(lo) && !/\$310/.test(lo), true);
+  comprobar("si aun así dice los DOS precios, no sale ninguno de los dos", textos(r.enviados).some((t) => /\$310|\$95/.test(t)), false);
   comprobar("y la ficha del A57 va debajo", titulos(r.enviados), ["Samsung A57"]);
 
   const AYER = JSON.stringify({ titulo: ANUNCIO.titulo, descripcion: "", cuando: Date.now() - 20 * 60 * 60 * 1000, atendida: true, deAnuncio: true, equipo: "Samsung A57" });

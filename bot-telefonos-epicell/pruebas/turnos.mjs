@@ -45,6 +45,33 @@ comprobar("sin preguntar divisas, sin etiqueta", fichas(r.enviados)[0].subtitle.
 comprobar("y las fichas no llevan «Ver producto»", fichas(r.enviados)[0].buttons.map((b) => b.title), ["Comprar"]);
 comprobar("no sale el mensaje del catálogo debajo", textos(r.enviados).some((t) => /cat[aá]logo/i.test(t)), false);
 
+// ── 4b. UN SOLO PRECIO (5-oct-2026, regla del dueño) ────────────
+// Por defecto, solo el de Cashea; en divisas, solo si lo pide; nunca los dos.
+r = await turno({
+  texto: "tienes el samsung a57?",
+  respuestaDelModelo: { respuesta: "¡Sí! Mira 👇", buscar: "Samsung A57" },
+  fila: { historial: "Ya di la bienvenida." },
+});
+comprobar("por defecto la ficha lleva SOLO el precio de Cashea", /\$95/.test(fichas(r.enviados)[0].subtitle) && !/310/.test(fichas(r.enviados)[0].subtitle), true);
+r = await turno({
+  texto: "cuanto sale el samsung a57 con cashea?",
+  respuestaDelModelo: { respuesta: "¡Claro! Mira 👇", buscar: "Samsung A57" },
+  fila: { historial: "Ya di la bienvenida." },
+});
+comprobar("preguntando por Cashea: solo el de Cashea (antes salían los dos)", /\$95/.test(fichas(r.enviados)[0].subtitle) && !/310/.test(fichas(r.enviados)[0].subtitle), true);
+r = await turno({
+  texto: "y en dolares cuanto es el samsung a57?",
+  respuestaDelModelo: { respuesta: "¡Claro! Mira 👇", buscar: "Samsung A57" },
+  fila: { historial: "Ya di la bienvenida." },
+});
+comprobar("pidiendo dólares: solo el de divisas", /310 · Precio DIVISA/.test(fichas(r.enviados)[0].subtitle) && !/95/.test(fichas(r.enviados)[0].subtitle), true);
+r = await turno({
+  texto: "tienes el samsung a57?",
+  respuestaDelModelo: { respuesta: "Sí, está en $310 en divisas o $95 con Cashea 👇", buscar: "Samsung A57" },
+  fila: { historial: "Ya di la bienvenida." },
+});
+comprobar("si la IA escribe el de divisas sin que lo pidan: esa respuesta no sale", textos(r.enviados).some((t) => /\$310/.test(t)), false);
+
 // ── 5. La lista, con sus botones ────────────────────────────────
 r = await turno({ texto: "mandame la lista de samsung", fila: { historial: "Ya di la bienvenida." } });
 const conBotones = r.enviados.find((m) => m.quick_replies);

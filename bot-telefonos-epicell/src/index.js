@@ -2983,7 +2983,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       : null;
   const hojaDelAnuncio = pubDelAnuncio ? await catalogoCompleto(env) : [];
   const productoDelAnuncio = pubDelAnuncio ? equipoDelAnuncio(pubDelAnuncio, hojaDelAnuncio) : null;
-  const notaDelAnuncio = productoDelAnuncio ? marcaDelAnuncio(productoDelAnuncio, pubDelAnuncio) : "";
+  const notaDelAnuncio = productoDelAnuncio ? marcaDelAnuncio(productoDelAnuncio, pubDelAnuncio, { divisas: PREGUNTA_DIVISAS.test(mensaje.texto) }) : "";
   if (productoDelAnuncio) {
     console.log(`Viene del anuncio del "${productoDelAnuncio.titulo}": la IA lo sabe, con sus precios`);
     // Se guarda qué equipo era: la próxima vez no hay que volver a deducirlo.
@@ -3221,7 +3221,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
         // Sin su última línea: va aparte, en "lo que pide ahora".
         conversacion: conversacion.slice(0, -1),
         texto: textoCliente,
-        // Los de la hoja, con sus dos precios (la ficha lleva solo uno).
+        // Los de la hoja; a la IA le llega UN precio, el que toca (ver precioParaLaIa).
         productos: productos.filter((p) => paraMostrar.some((f) => f.titulo === p.titulo)),
         anuncio: notaDelAnuncio,
         queMostrar: soloTexto ? "texto" : modo,
@@ -3238,7 +3238,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       let revisada = revisarTono(redactada).respuesta;
       revisada = revisarDisponibilidad(revisada, enLaHojaAhora).respuesta;
       const conPrecioDeVerdad = productoDelAnuncio ? [...productos, productoDelAnuncio] : productos;
-      revisada = sinCerrarLaPuerta(sinPreciosInventados(revisada, conPrecioDeVerdad), paraMostrar);
+      revisada = sinCerrarLaPuerta(sinPreciosInventados(revisada, conPrecioDeVerdad, { divisas: PREGUNTA_DIVISAS.test(mensaje.texto) }), paraMostrar);
       revisada = revisarPrecio(revisada, { hayFichas: paraMostrar.length > 0, yaLasVio: soloTexto }).respuesta;
       if (historialPrevio) revisada = sinBienvenida(revisada);
       // Sin fichas debajo, una flecha que apunta a nada no puede salir.
@@ -3835,12 +3835,19 @@ function equipoDelAnuncio(pub, hoja) {
 }
 
 // Lo que lee la IA: el equipo del anuncio con sus datos de verdad.
-function marcaDelAnuncio(producto, pub) {
+// UN SOLO PRECIO: a la IA solo le llega el que puede decir en este mensaje
+// (el de Cashea, o el de divisas si lo pidió). El otro no lo ve, así que no
+// puede decirlo.
+function precioParaLaIa(producto, divisas) {
+  if (divisas) return `Precio en divisas (lo pidió; es el ÚNICO que dices): ${producto.precio ? conMoneda(producto.precio) : "no está en la hoja, lo confirma un asesor"}`;
+  return `Precio con Cashea (el ÚNICO que dices): ${producto.precioCashea ? conMoneda(producto.precioCashea) : "no está en la hoja, lo confirma un asesor"}`;
+}
+
+function marcaDelAnuncio(producto, pub, { divisas = false } = {}) {
   const datos = [
     `Nombre: ${producto.titulo}`,
     producto.capacidad && `Capacidad: ${producto.capacidad}`,
-    producto.precio && `Precio en divisas: ${conMoneda(producto.precio)}`,
-    producto.precioCashea && `Precio con Cashea: ${conMoneda(producto.precioCashea)}`,
+    precioParaLaIa(producto, divisas),
   ].filter(Boolean);
   const dice = [pub.titulo, pub.descripcion].filter(Boolean).join(" · ").slice(0, 200);
   return [
@@ -3874,8 +3881,7 @@ function contextoParaRedactar({ conversacion = [], texto, productos, anuncio = "
         .map(
           (p) =>
             `- ${p.titulo}${p.capacidad ? ` (${p.capacidad})` : ""}` +
-            `${p.precio ? ` · precio en divisas: ${conMoneda(p.precio)}` : ""}` +
-            `${p.precioCashea ? ` · precio con Cashea: ${conMoneda(p.precioCashea)}` : ""}`
+            ` · ${precioParaLaIa(p, PREGUNTA_DIVISAS.test(texto))}`
         )
         .join("\n")
     : queMostrar === "texto"
@@ -3995,13 +4001,15 @@ function cifrasDeDinero(texto) {
   return halladas.filter((n) => Number.isFinite(n));
 }
 
-// Todos los precios verdaderos de lo que se le va a mandar. Se admiten los
-// dos —el de divisas y el de Cashea— porque los dos son ciertos.
-function preciosDeVerdad(productos) {
+// Los precios que se pueden decir en ESTE mensaje: SOLO los de Cashea, o
+// SOLO los de divisas si el cliente los pidió (5-oct-2026, un solo precio).
+// El otro existe en la hoja, pero si el modelo lo escribe cuenta como un
+// precio que no va, y la respuesta se cambia: así nunca salen los dos.
+function preciosDeVerdad(productos, { divisas = false } = {}) {
   const buenos = new Set();
 
   for (const producto of productos) {
-    for (const precio of [producto.precio, producto.precioCashea]) {
+    for (const precio of [divisas ? producto.precio : producto.precioCashea]) {
       for (const numero of cifrasDeDinero(precio)) buenos.add(numero);
       // El precio puede venir sin símbolo en la hoja ("310"), y entonces
       // no lo reconoce el patrón de dinero: se toma el número tal cual.
@@ -4013,11 +4021,11 @@ function preciosDeVerdad(productos) {
   return buenos;
 }
 
-function sinPreciosInventados(texto, productos) {
+function sinPreciosInventados(texto, productos, { divisas = false } = {}) {
   const dichas = cifrasDeDinero(texto);
   if (!dichas.length) return texto;
 
-  const verdaderos = preciosDeVerdad(productos);
+  const verdaderos = preciosDeVerdad(productos, { divisas });
   const inventadas = dichas.filter((cifra) => !verdaderos.has(cifra));
 
   if (!inventadas.length) return texto;
@@ -4951,7 +4959,7 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
   const sinInventos = sinCerrarLaPuerta(
     // Los precios del equipo del anuncio también son de verdad: la IA los
     // tiene delante y puede decirlos.
-    sinPreciosInventados(salida.respuesta, productoAnuncio ? [...productos, productoAnuncio] : productos),
+    sinPreciosInventados(salida.respuesta, productoAnuncio ? [...productos, productoAnuncio] : productos, { divisas: PREGUNTA_DIVISAS.test(texto) }),
     productos
   );
 
@@ -5048,50 +5056,31 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
   };
 }
 
-// Decide qué precio va en la ficha, según lo que haya preguntado el cliente.
+// UN SOLO PRECIO (5-oct-2026, decisión del dueño: "solo da 1 precio, el de
+// Cashea; en divisas solo si lo preguntan; no asumas cosas que no sabes").
 //
-//   · Preguntó por Cashea → precio en divisas y precio Cashea, los dos
-//     juntos (así ve la diferencia sin tener que preguntar dos veces).
-//   · Preguntó el precio "en divisas" / "dólares" → SOLO ese precio.
-//   · Ninguna de las dos → precio Cashea solo, que es el que se muestra
-//     primero por defecto. Si el producto no tiene precio Cashea cargado en
-//     la hoja, se usa el de divisas para no dejar la ficha sin precio.
-// La etiqueta que va PEGADA al monto cuando el cliente pidió divisas.
-// Sin ella son dos cifras sueltas —la de la hoja y la de Cashea— y el
-// cliente no sabe cuál acaba de pedir.
+//   · Por defecto → SOLO el precio con Cashea.
+//   · Pidió el precio en divisas / dólares → SOLO el de divisas.
+//   · NUNCA los dos juntos (antes, al preguntar por Cashea, salían los dos).
+//   · Si el precio que toca no está en la hoja → "te lo confirma un asesor".
+//     Nunca el otro en su lugar: sería dar un precio que no pidió.
+// "conCashea" se acepta y no cambia nada: así ningún camino viejo puede
+// volver a sacar los dos.
+// La etiqueta que va PEGADA al monto cuando el cliente pidió divisas: sin
+// ella, el cliente no sabe que es el precio que acaba de pedir.
 const ETIQUETA_DIVISA = "Precio DIVISA";
+const SIN_PRECIO = "Precio: te lo confirma un asesor";
+const SIN_PRECIO_DIVISA = "Precio en divisas: te lo confirma un asesor";
 
 function precioParaMostrar(producto, conCashea, conDivisas) {
-  // EL SÍMBOLO LO PONE EL BOT, NO LA HOJA (28-sep-2026).
-  //
-  // En el inventario real los precios son números pelados: la columna se
-  // llama "Precio Divisas ($)" y dentro dice 170. Debajo de una foto, un
-  // "170" a secas no dice si son dólares, bolívares o cuotas. Se le pone
-  // aquí, en el único sitio por donde pasan todos los precios que ve un
-  // cliente: las fichas, las listas y el privado de los comentarios.
-  //
-  // Si algún día la hoja trae el símbolo puesto ("$170" o "170 Bs"), se
-  // respeta tal cual y no se toca nada.
-  const enDivisas = conMoneda(producto.precio);
-  const enCashea = conMoneda(producto.precioCashea);
-
+  // EL SÍMBOLO LO PONE EL BOT, NO LA HOJA (28-sep-2026): en la hoja los
+  // precios son números pelados ("170"); debajo de una foto, "$170". Si
+  // algún día la hoja trae el símbolo, se respeta tal cual.
   if (conDivisas) {
-    return enDivisas ? `${enDivisas} · ${ETIQUETA_DIVISA}` : "Precio: consúltalo";
+    const enDivisas = conMoneda(producto?.precio);
+    return enDivisas ? `${enDivisas} · ${ETIQUETA_DIVISA}` : SIN_PRECIO_DIVISA;
   }
-
-  // Los DOS precios juntos: aquí sí van con su nombre. Sin etiqueta
-  // serían dos cifras seguidas y el cliente no sabría cuál es cuál —
-  // justo cuando preguntó para comparar.
-  if (conCashea && producto.precioCashea) {
-    return `${enDivisas || "Precio: consúltalo"} en divisas · ${enCashea} con Cashea`;
-  }
-
-  // El precio de siempre, solo. Sin el "Con Cashea:" delante: es el que
-  // se muestra por defecto, así que decirlo en cada ficha no aporta y le
-  // roba espacio al título, que es lo que el cliente está leyendo.
-  if (enCashea) return enCashea;
-
-  return enDivisas || "";
+  return conMoneda(producto?.precioCashea) || SIN_PRECIO;
 }
 
 // El texto que va bajo el título de la ficha: la capacidad delante del
