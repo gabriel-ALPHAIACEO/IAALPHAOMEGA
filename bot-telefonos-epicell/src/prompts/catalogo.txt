@@ -1,4 +1,4 @@
-# Los nombres de los productos de EPICELL, como están escritos en la hoja.
+# Los nombres de los productos de EPICCELL, como están escritos en la hoja.
 #
 # ESTE ES EL ÚNICO LUGAR DONDE VIVE LA LISTA. ia.js la mete en el prompt
 # al arrancar, donde texto.txt dice {{CATALOGO}}.

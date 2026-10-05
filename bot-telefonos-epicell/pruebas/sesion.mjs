@@ -152,7 +152,7 @@ for (const dicho of ["En imágenes", "Mandalos", "Mándalos", "Ahora muéstrame,
   let r = await turno({
     texto: "precio?",
     mensaje: { anuncio: ANUNCIO },
-    respuestaDelModelo: { respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 El Samsung A57 está en $310 en divisas, o $95 con Cashea 📱", buscar: "Samsung A57" },
+    respuestaDelModelo: { respuesta: "¡Hola! Soy la asistente virtual de EPICCELL 👋 El Samsung A57 está en $310 en divisas, o $95 con Cashea 📱", buscar: "Samsung A57" },
   });
   const lo = JSON.stringify(r.alModelo.find((x) => !x.redaccion)?.messages || []);
   comprobar("la IA sabe que viene del anuncio del A57", /LLEGÓ POR UN ANUNCIO DEL SAMSUNG A57/.test(lo), true);

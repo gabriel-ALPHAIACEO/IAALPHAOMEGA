@@ -1,6 +1,6 @@
 // LO QUE HAY Y LO QUE NO HAY, SACADO DE LA HOJA (2-oct-2026).
 //
-// QUÉ PASÓ. EPICELL no tiene iPhone. El dueño le mandó una nota de voz
+// QUÉ PASÓ. EPICCELL no tiene iPhone. El dueño le mandó una nota de voz
 // preguntando por uno, y la IA le habló como si hubiera. El dueño: "debe
 // saber todo lo que está disponible en el sheet, debe pensar antes de
 // hablar".
@@ -105,7 +105,7 @@ function frases(texto) {
 export function fraseDeMarcaQueNoHay(ausentes, productos = []) {
   const hay = [...marcasQueHay(productos, { soloTelefonos: true }).entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n).slice(0, 3);
   const nombres = (lista) => (lista.length > 1 ? `${lista.slice(0, -1).join(", ")} y ${lista.at(-1)}` : lista[0]);
-  // Como dice el prompt de EPICELL: es tecnología, así que nunca "no
+  // Como dice el prompt de EPICCELL: es tecnología, así que nunca "no
   // vendemos", sino "ahora mismo no lo tengo", y un asesor confirma si se
   // puede conseguir.
   const base = `Ahora mismo no tengo ${nombres(ausentes)} disponible 😊 Un asesor te confirma si podemos conseguirlo.`;

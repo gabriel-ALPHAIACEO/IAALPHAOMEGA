@@ -6,7 +6,7 @@
 // con la clave que solo conocen los dos.
 //
 //   En wrangler.toml (TIENDAS):
-//     [{"id":"epicell","nombre":"EPICELL","url":"https://bot-telefonos.xxx.workers.dev"}, …]
+//     [{"id":"epicell","nombre":"EPICCELL","url":"https://bot-telefonos.xxx.workers.dev"}, …]
 //   Y una clave por tienda, como secreto:
 //     npx.cmd wrangler secret put CLAVE_EPICELL
 //   (la misma que esa tienda tiene en su PANEL_API_CLAVE)

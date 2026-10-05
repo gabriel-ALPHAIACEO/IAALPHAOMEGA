@@ -73,7 +73,7 @@ const TIPOS = [
        puede conseguirse, y ahí la respuesta correcta es que HOY no está
        disponible y que un asesor confirma (ver NO_HAY_DE_ESE_TIPO).
 
-     · "¿Tienen neveras?" — EPICELL es una tienda de tecnología. Contestar
+     · "¿Tienen neveras?" — EPICCELL es una tienda de tecnología. Contestar
        "ahora mismo no la tengo disponible, un asesor te confirma si
        podemos conseguirla" es absurdo: no es que se haya agotado, es que
        no es lo que se vende. El cliente se queda esperando una llamada

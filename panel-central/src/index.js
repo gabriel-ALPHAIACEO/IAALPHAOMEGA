@@ -58,7 +58,7 @@ import {
   vistaEnPausa,
 } from "./vistas.js";
 
-const VERSION = "2026-10-05 (10) · ALPHA IA: diseño nuevo con el logo, fotos y carrusel de fichas";
+const VERSION = "2026-10-05 (11) · EPICCELL con su nombre bien escrito";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");

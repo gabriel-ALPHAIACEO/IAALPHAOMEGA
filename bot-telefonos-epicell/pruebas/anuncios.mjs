@@ -47,7 +47,7 @@ comprobar("un 'visto' se sigue ignorando", leerMensaje({ entry: [{ messaging: [{
 // ── El turno completo ──────────────────────────────────────────
 let r = await turno({
   mensaje: { tipo: "anuncio", texto: "", anuncio: { fuente: "ADS", id: "120", titulo: "Samsung A57 — llévatelo hoy", foto: "", publicacion: "" } },
-  respuestaDelModelo: { buscar: "Samsung A57", respuesta: "¡Hola! Soy la asistente de EPICELL 👋 Te muestro 👇" },
+  respuestaDelModelo: { buscar: "Samsung A57", respuesta: "¡Hola! Soy la asistente de EPICCELL 👋 Te muestro 👇" },
 });
 comprobar("le contesta al que viene del anuncio", r.enviados.length > 0, true);
 comprobar("y con el equipo del anuncio", fichas(r.enviados).includes("Samsung A57"), true);
@@ -72,14 +72,14 @@ const anuncioDelX8 = {
 r = await turno({
   texto: "¡Hola! Quiero más información",
   mensaje: { anuncio: anuncioDelX8 },
-  respuestaDelModelo: { buscar: "Poco", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Mira 👇" },
+  respuestaDelModelo: { buscar: "Poco", respuesta: "¡Hola! Soy la asistente virtual de EPICCELL 👋 Mira 👇" },
 });
 comprobar("del anuncio del Poco X8 sale el Poco X8, no todos los Poco", fichas(r.enviados), ["Poco X8 pro 5G"]);
 
 r = await turno({
   texto: "precio?",
   mensaje: { anuncio: anuncioDelX8 },
-  respuestaDelModelo: { buscar: "NADA", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 ¿Qué equipo buscas?" },
+  respuestaDelModelo: { buscar: "NADA", respuesta: "¡Hola! Soy la asistente virtual de EPICCELL 👋 ¿Qué equipo buscas?" },
 });
 comprobar("aunque el modelo no busque nada, sale el del anuncio", fichas(r.enviados), ["Poco X8 pro 5G"]);
 comprobar("y no le pregunta qué equipo busca", /qu[eé] equipo buscas/i.test(textos(r.enviados)), false);
@@ -88,7 +88,7 @@ comprobar("y no le pregunta qué equipo busca", /qu[eé] equipo buscas/i.test(te
 r = await turno({
   texto: "tienes el samsung a57?",
   mensaje: { anuncio: anuncioDelX8 },
-  respuestaDelModelo: { buscar: "Samsung A57", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Déjame revisar 👇" },
+  respuestaDelModelo: { buscar: "Samsung A57", respuesta: "¡Hola! Soy la asistente virtual de EPICCELL 👋 Déjame revisar 👇" },
 });
 comprobar("si pide otro equipo, sale el que pidió", fichas(r.enviados), ["Samsung A57"]);
 
@@ -98,26 +98,26 @@ r = await turno({
   texto: "info",
   hoja: sinElX8,
   mensaje: { anuncio: anuncioDelX8 },
-  respuestaDelModelo: { buscar: "Poco X8 pro 5G", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Déjame revisar 👇" },
+  respuestaDelModelo: { buscar: "Poco X8 pro 5G", respuesta: "¡Hola! Soy la asistente virtual de EPICCELL 👋 Déjame revisar 👇" },
 });
 comprobar("agotado el del anuncio, no sale como si estuviera", fichas(r.enviados).includes("Poco X8 pro 5G"), false);
 comprobar("y le muestra otros Poco", fichas(r.enviados).some((t) => /^Poco/.test(t)), true);
 comprobar("diciéndole que ESE no está, por su nombre", /Poco X8 Pro 5G/i.test(textos(r.enviados)) && /no\b/i.test(textos(r.enviados)), true);
 comprobar("sin decirle que lo tiene", /aqu[ií] lo tienes|s[ií] lo tengo|este es/i.test(textos(r.enviados)), false);
-comprobar("y con la bienvenida, que es su primer mensaje", /asistente virtual de EPICELL/.test(textos(r.enviados)), true);
+comprobar("y con la bienvenida, que es su primer mensaje", /asistente virtual de EPICCELL/.test(textos(r.enviados)), true);
 
 // Un anuncio que nombra DOS equipos no señala uno: no se impone ninguno.
 r = await turno({
   texto: "info",
   mensaje: { anuncio: { ...anuncioDelX8, titulo: "Samsung A57 y Samsung A17 con Cashea" } },
-  respuestaDelModelo: { buscar: "Samsung", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Mira 👇" },
+  respuestaDelModelo: { buscar: "Samsung", respuesta: "¡Hola! Soy la asistente virtual de EPICCELL 👋 Mira 👇" },
 });
 comprobar("anuncio de dos equipos: salen los dos", ["Samsung A57", "Samsung A17"].every((t) => fichas(r.enviados).includes(t)), true);
 
 // Y el que escribe el nombre completo, con "5G", no es "otro modelo".
 r = await turno({
   texto: "tienes el poco x8 pro 5g?",
-  respuestaDelModelo: { buscar: "Poco X8 pro 5G", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Déjame revisar 👇" },
+  respuestaDelModelo: { buscar: "Poco X8 pro 5G", respuesta: "¡Hola! Soy la asistente virtual de EPICCELL 👋 Déjame revisar 👇" },
 });
 comprobar("\"poco x8 pro 5g\" en la hoja: no le dice que no está", /no (lo )?tengo|no est[aá]/i.test(textos(r.enviados)), false);
 comprobar("y sale el X8", fichas(r.enviados)[0], "Poco X8 pro 5G");
@@ -132,7 +132,7 @@ const largo = {
 r = await turno({
   texto: "¡Hola! Quiero más información",
   mensaje: { anuncio: largo },
-  respuestaDelModelo: { buscar: "Poco", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Mira 👇" },
+  respuestaDelModelo: { buscar: "Poco", respuesta: "¡Hola! Soy la asistente virtual de EPICCELL 👋 Mira 👇" },
 });
 comprobar("anuncio largo con precio y cuotas: sale el Poco X8", fichas(r.enviados), ["Poco X8 pro 5G"]);
 comprobar("y no le dice que no está", /no (lo )?tengo|no me queda|no est[aá]/i.test(textos(r.enviados)), false);
@@ -143,7 +143,7 @@ r = await turno({
   texto: "precio?",
   hoja: hojaConCargador,
   mensaje: { anuncio: { ...anuncioDelX8, titulo: "Cargador Samsung original de 45W, carga súper rápida ⚡" } },
-  respuestaDelModelo: { buscar: "cargador", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Mira 👇" },
+  respuestaDelModelo: { buscar: "cargador", respuesta: "¡Hola! Soy la asistente virtual de EPICCELL 👋 Mira 👇" },
 });
 comprobar("anuncio de un cargador: sale ese cargador", fichas(r.enviados), ["Samsung Cargador original 45w Samsung"]);
 
@@ -153,7 +153,7 @@ r = await turno({
   env: { ADS_TOKEN: "t" },
   apis: { "graph.facebook.com": { creative: { title: "Samsung A17 al mejor precio", image_url: "https://cdn/a17.jpg" } } },
   mensaje: { anuncio: { fuente: "ADS", id: "555", titulo: "", foto: "https://cdn/foto-del-anuncio.jpg", publicacion: "" } },
-  respuestaDelModelo: { buscar: "Samsung", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Mira 👇" },
+  respuestaDelModelo: { buscar: "Samsung", respuesta: "¡Hola! Soy la asistente virtual de EPICCELL 👋 Mira 👇" },
 });
 comprobar("con foto y sin título, lee el anuncio y manda el A17", fichas(r.enviados), ["Samsung A17"]);
 
@@ -161,7 +161,7 @@ comprobar("con foto y sin título, lee el anuncio y manda el A17", fichas(r.envi
 r = await turno({
   texto: "hola, tienes otros modelos?",
   mensaje: { anuncio: anuncioDelX8 },
-  respuestaDelModelo: { buscar: "Poco", respuesta: "¡Hola! Soy la asistente virtual de EPICELL 👋 Mira estos 👇" },
+  respuestaDelModelo: { buscar: "Poco", respuesta: "¡Hola! Soy la asistente virtual de EPICCELL 👋 Mira estos 👇" },
 });
 comprobar("pide otros: no se queda solo con el del anuncio", fichas(r.enviados).length > 1, true);
 

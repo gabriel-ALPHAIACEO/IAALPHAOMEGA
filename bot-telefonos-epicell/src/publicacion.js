@@ -7,9 +7,9 @@
 //
 //     [publicación del SAMSUNG A57 5G]
 //     Feliz noche, precio?
-//     → "¡Hola! Soy la asistente virtual de EPICELL 👋 ¿Qué equipo estás
+//     → "¡Hola! Soy la asistente virtual de EPICCELL 👋 ¿Qué equipo estás
 //        buscando?"
-//     → "¡Hola! Soy la asistente virtual de EPICELL 👋 ¿Qué equipo estás
+//     → "¡Hola! Soy la asistente virtual de EPICCELL 👋 ¿Qué equipo estás
 //        buscando?"
 //
 // Dos veces la misma bienvenida, y preguntándole qué busca a quien acababa

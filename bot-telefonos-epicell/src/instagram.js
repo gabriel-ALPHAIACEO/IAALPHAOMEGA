@@ -232,7 +232,7 @@ function ficha(env, p, sinFoto) {
 
   // EL BOTÓN "VER PRODUCTO" ESTÁ APAGADO (24-sep-2026, decisión del dueño).
   //
-  // Llevaba al cliente a la ficha del producto, y EPICELL no tiene tienda
+  // Llevaba al cliente a la ficha del producto, y EPICCELL no tiene tienda
   // online: ese botón no lleva a ninguna parte. Un botón que no cumple lo
   // que promete cuesta más que no tener botón.
   //
@@ -293,7 +293,7 @@ function listaEscrita(lista) {
 //
 // URL_CATALOGO viene con un marcador de relleno en el wrangler.toml
 // ("https://CAMBIA-ESTO.com"). Si nadie lo cambió —que es el caso de
-// EPICELL, que no tiene tienda online— el bot estaba mandando a sus
+// EPICCELL, que no tiene tienda online— el bot estaba mandando a sus
 // clientes un botón "Ver catálogo" que abre una página inventada.
 //
 // Así que el botón sale SOLO si hay una dirección de verdad. Si no, se

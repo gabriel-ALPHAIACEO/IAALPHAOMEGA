@@ -1,4 +1,4 @@
-// Cerebro del bot de ventas de EPICELL por Instagram.
+// Cerebro del bot de ventas de EPICCELL por Instagram.
 //
 // El catálogo vive en una hoja de Google Sheets: se lee, se filtra y se
 // muestra. No hace falta Shopify.
@@ -155,7 +155,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-05 (29) · tope mensual del revisor, y su gasto en /estado";
+const VERSION = "2026-10-05 (30) · el nombre de la tienda es EPICCELL";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -328,7 +328,7 @@ const HAY_MAS_EN_CATALOGO =
 // dueño).
 //
 // Iba pegado debajo del carrusel —"Tengo más de ese modelo 😊 En el
-// catálogo los ves todos 👇"— y manda a una tienda que EPICELL no tiene.
+// catálogo los ves todos 👇"— y manda a una tienda que EPICCELL no tiene.
 // No se sustituye por otra frase: se quita. Un tercer mensaje detrás de
 // las fotos es una notificación más para no decir nada.
 //
@@ -359,7 +359,7 @@ const SIN_RESULTADOS_SIN_CATALOGO = HOY_NO_DISPONIBLE;
 // modelo con un asesor" no lo es, porque no se trataba de ningún modelo.
 //
 // SE HABLA DE DISPONIBILIDAD, NUNCA DE LO QUE LA TIENDA VENDE (28-sep-2026,
-// el dueño). EPICELL es una tienda de tecnología: lo que hoy no está puede
+// el dueño). EPICCELL es una tienda de tecnología: lo que hoy no está puede
 // conseguirse, entrar la semana que viene o estar en el otro local. Un "no
 // manejamos eso" le cierra la puerta al cliente con un dato que el bot no
 // tiene, y encima suele ser mentira. "Hoy no lo tengo disponible" es la
@@ -688,8 +688,8 @@ const ES_DE_OTRO_NEGOCIO = [
 // dejar sin contestar: la tienda pagó por ese clic. Se le saluda y se le
 // pregunta, que es lo que haría cualquiera en el mostrador.
 const BIENVENIDA_DESDE_ANUNCIO = [
-  "¡Hola! 😊 Soy la asistente de EPICELL. Vi que vienes de nuestra publicidad. ¿Qué equipo estás buscando?",
-  "¡Hola! 👋 Bienvenido a EPICELL. ¿Qué equipo viste en la publicidad? Dime el modelo y te paso el precio",
+  "¡Hola! 😊 Soy la asistente de EPICCELL. Vi que vienes de nuestra publicidad. ¿Qué equipo estás buscando?",
+  "¡Hola! 👋 Bienvenido a EPICCELL. ¿Qué equipo viste en la publicidad? Dime el modelo y te paso el precio",
   "¡Hola! 😊 Gracias por escribirnos. ¿Qué estás buscando? Dime el equipo y te muestro lo que tengo",
 ];
 
@@ -1010,7 +1010,7 @@ const trabajador = {
     // (PANEL_API_CLAVE).
     if (url.pathname.startsWith("/api/central")) {
       return atenderApiCentral(request, env, {
-        tienda: String(env.TIENDA_NOMBRE || "EPICELL"),
+        tienda: String(env.TIENDA_NOMBRE || "EPICCELL"),
         version: VERSION,
         horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
         conAnuncios: true,
@@ -1020,7 +1020,7 @@ const trabajador = {
 
     if (url.pathname === "/panel" || url.pathname.startsWith("/panel/")) {
       return atenderPanel(request, env, {
-        tienda: String(env.TIENDA_NOMBRE || "EPICELL"),
+        tienda: String(env.TIENDA_NOMBRE || "EPICCELL"),
         horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
         verTexto: async (ruta) => (await trabajador.fetch(new Request(new URL(ruta, url)), env, ctx)).text(),
       });
@@ -2318,7 +2318,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   }
 
   // UNA NOTA DE VOZ SE ESCUCHA Y SE ATIENDE COMO TEXTO (2-oct-2026, ver
-  // voz.js). Se le contesta POR ESCRITO: EPICELL no manda notas de voz. Si
+  // voz.js). Se le contesta POR ESCRITO: EPICCELL no manda notas de voz. Si
   // no se puede escuchar, se le pide con amabilidad que escriba.
   let notaVoz = "";
   if (mensaje.audio) {
@@ -3072,7 +3072,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (revisionDeTono.corregido) respuestaCliente = revisionDeTono.respuesta;
 
   // LO QUE NO HAY EN LA HOJA NO SE OFRECE (2-oct-2026, ver disponible.js).
-  // Caso real: EPICELL no tiene iPhone, preguntaron por uno con una nota de
+  // Caso real: EPICCELL no tiene iPhone, preguntaron por uno con una nota de
   // voz y la IA habló como si hubiera.
   const enLaHojaAhora = await catalogoCompleto(env);
   const revisionDeDisponible = revisarDisponibilidad(respuestaCliente, enLaHojaAhora);
@@ -4468,7 +4468,7 @@ const PRESENTACION =
   /^\s*[¡!]*\s*hola\b[^\n]{0,25}?\bsoy\s+(la|el)\s+asistente(\s+virtual)?(\s+de\s+[^\n]{0,30}?)?\s*[👋😊🙌]*\s*[.!,]*\s*/i;
 
 // La bienvenida ENTERA, para conservarla: "¡Hola María! Soy la asistente
-// virtual de EPICELL 👋". (PRESENTACION sirve para quitarla, pero corta en
+// virtual de EPICCELL 👋". (PRESENTACION sirve para quitarla, pero corta en
 // "de" y se deja fuera el nombre de la tienda.)
 const SU_BIENVENIDA =
   /^\s*[¡!]*\s*hola\b[^\n]{0,25}?\bsoy\s+(la|el)\s+asistente(\s+virtual)?(\s+de\s+(?:la\s+tienda|[\p{L}\d]+))?[\s.!,]*[👋😊🙌]?/iu;

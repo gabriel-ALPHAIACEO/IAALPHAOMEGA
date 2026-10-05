@@ -9,7 +9,7 @@
 // cuenta no lo tiene, whisper-1). Lo transcrito entra al bot como si el
 // cliente lo hubiera escrito: busca, enseña fichas, Cashea, todo igual.
 //
-// SOLO ESCUCHA, NO HABLA (decisión del dueño, 2-oct-2026). En EPICELL el
+// SOLO ESCUCHA, NO HABLA (decisión del dueño, 2-oct-2026). En EPICCELL el
 // bot transcribe las notas de voz pero contesta SIEMPRE por escrito: no
 // manda notas de voz. (Invictus sí; aquí ese código no existe.)
 //
@@ -28,7 +28,7 @@ const MAXIMO_MB = 20;
 // Las palabras de la tienda, para que la transcripción no escriba "Aifon"
 // o "Kashea": se le pasan como pista.
 const PISTA =
-  "Cliente de una tienda de teléfonos en Venezuela (EPICELL). Marcas y palabras: " +
+  "Cliente de una tienda de teléfonos en Venezuela (EPICCELL). Marcas y palabras: " +
   "iPhone, Pro Max, Samsung, Galaxy, Xiaomi, Redmi, Poco, Infinix, Tecno, Honor, " +
   "Motorola, Realme, Cashea, Krece, gigas, GB, RAM, 128, 256, precio, divisas.";
 

@@ -57,6 +57,15 @@ def main():
     prompt = leer(PROMPT)
     catalogo = leer(CATALOGO).lower()
 
+    # 0. EL NOMBRE DE LA TIENDA ES "EPICCELL", con dos C (5-oct-2026, el
+    #    dueño). Con una sola C, en todo lo que lee el cliente, está mal.
+    import glob
+    for ruta in sorted(glob.glob(os.path.join(AQUI, "src", "prompts", "*.txt"))) + [os.path.join(AQUI, "wrangler.toml")]:
+        if re.search(r"\bEPICELL\b", leer(ruta)):
+            problemas.append(f'{os.path.relpath(ruta, AQUI)}: dice "EPICELL" (con una C); el nombre es "EPICCELL"')
+    if "EPICCELL" not in prompt:
+        problemas.append('el prompt no nombra a la tienda como "EPICCELL"')
+
     # 1. Huecos de la plantilla sin rellenar.
     for marcador in sorted(set(re.findall(r"\{\{[^}]{0,80}\}\}", prompt))):
         if marcador not in MARCADORES_QUE_SE_RELLENAN:

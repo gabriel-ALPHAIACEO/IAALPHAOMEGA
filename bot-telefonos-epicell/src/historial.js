@@ -160,7 +160,7 @@ export function contextoParaElModelo({
     // en ese.
     if (noDiceQue && (viejo || esHistoriaNueva) && !esPublicacionNueva) {
       partes.push(
-        // (Sin "ofrécele el catálogo": EPICELL no tiene tienda online, y
+        // (Sin "ofrécele el catálogo": EPICCELL no tiene tienda online, y
         // el modelo le ofrecía un catálogo que no existe.)
         "[SU MENSAJE NO DICE DE QUÉ PRODUCTO HABLA. No lo adivines con lo de",
         "arriba: PREGÚNTASELO con amabilidad (\"¿de cuál equipo me hablas?\").",
@@ -205,7 +205,7 @@ export function contextoParaElModelo({
       // catálogo", y el prompt dice "si se parece a algo, búscalo; el
       // sistema dice si no está". Dos órdenes opuestas en cada mensaje, y
       // el modelo elegía una al azar: de ahí buena parte de las respuestas
-      // incoherentes. Y el catálogo que ofrecía no existe: EPICELL no
+      // incoherentes. Y el catálogo que ofrecía no existe: EPICCELL no
       // tiene tienda online.
       "Esto es lo que hay disponible HOY. En \"buscar\" usa las palabras de",
       "esta lista. Si lo que pide SE PARECE a algo de aquí (aunque lo escriba",

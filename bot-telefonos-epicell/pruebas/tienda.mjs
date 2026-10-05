@@ -30,7 +30,7 @@ function d1() {
 
 const DB = d1();
 const CLAVE = "clave-secreta-123";
-const ENV = { DB, PANEL_CLAVE: CLAVE, TIENDA_NOMBRE: "EPICELL", PAUSA_HORAS: "1", SHEET_ID: "abc" };
+const ENV = { DB, PANEL_CLAVE: CLAVE, TIENDA_NOMBRE: "EPICCELL", PAUSA_HORAS: "1", SHEET_ID: "abc" };
 
 // Una conversación de verdad, con lo que pensó la IA.
 const silencio = (fn) => async (...a) => { const [l, e] = [console.log, console.error]; console.log = console.error = () => {}; try { return await fn(...a); } finally { console.log = l; console.error = e; } };

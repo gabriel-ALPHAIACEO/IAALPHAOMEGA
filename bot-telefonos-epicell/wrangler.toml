@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════
-#  EPICELL — configuracion del Worker.  YA ESTA TODO PUESTO.
+#  EPICCELL — configuracion del Worker.  YA ESTA TODO PUESTO.
 #
 #  Este archivo mezcla los datos reales de la cuenta (la base D1, la hoja
 #  de inventario, el WhatsApp, el token de Meta) con las cosas nuevas que
@@ -128,7 +128,7 @@ TRABAJO = ""
 # estado. Se abre con la clave del secreto PANEL_CLAVE (ver al final).
 #
 # El nombre que sale arriba del panel.
-TIENDA_NOMBRE = "EPICELL"
+TIENDA_NOMBRE = "EPICCELL"
 
 # --- EL PANEL CENTRAL (2-oct-2026) --------------------------------------
 # Tu Worker "panel-central" junta todas las tiendas en un solo sitio. Esta
@@ -167,7 +167,7 @@ ANUNCIOS_EQUIPOS = ""
 ADS_CUENTA = ""
 
 # --- LA TIENDA ---------------------------------------------------------
-# Enlace del catalogo online. EPICELL no tiene tienda web, asi que va
+# Enlace del catalogo online. EPICCELL no tiene tienda web, asi que va
 # vacio A PROPOSITO: con esto el bot no manda el boton "Ver catalogo" ni
 # nombra ningun catalogo en sus respuestas. Tampoco salen las fichas con
 # el boton "Ver producto" (eso esta apagado en el codigo, en

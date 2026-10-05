@@ -17,14 +17,14 @@ const ANUNCIOS = [
   { id: "444", name: "Poco a mano", campaign: { name: "Octubre" }, creative: { title: "Mira esto", body: "" } },
 ];
 
-function meta({ token = "ok", cuentas = [{ account_id: "999", name: "EPICELL", account_status: 1 }] } = {}) {
+function meta({ token = "ok", cuentas = [{ account_id: "999", name: "EPICCELL", account_status: 1 }] } = {}) {
   return async (url) => {
     const u = String(url);
     if (u.includes("docs.google.com")) return { ok: true, status: 200, text: async () => HOJA };
     if (u.includes("graph.facebook.com")) {
       const json = (d, ok = true) => ({ ok, status: ok ? 200 : 400, json: async () => d });
       if (token === "vencido") return json({ error: { code: 190, message: "Error validating access token: Session has expired" } }, false);
-      if (u.includes("/me?")) return json({ id: "1", name: "Bot EPICELL" });
+      if (u.includes("/me?")) return json({ id: "1", name: "Bot EPICCELL" });
       if (u.includes("/me/permissions")) return json({ data: token === "sin-permiso" ? [{ permission: "pages_show_list", status: "granted" }] : [{ permission: "ads_read", status: "granted" }] });
       if (u.includes("/me/adaccounts")) return json({ data: cuentas });
       if (u.includes("/act_999/ads")) return json({ data: ANUNCIOS });
@@ -46,8 +46,8 @@ async function panel(env = {}, opciones = {}) {
 }
 
 let t = await panel({ ANUNCIOS_EQUIPOS: "444=Poco X8 pro 5G" });
-comprobar("el token funciona", /✓ funciona \(Bot EPICELL\)/.test(t), true);
-comprobar("ve la cuenta publicitaria", /act_999\s+EPICELL \(activa\)/.test(t), true);
+comprobar("el token funciona", /✓ funciona \(Bot EPICCELL\)/.test(t), true);
+comprobar("ve la cuenta publicitaria", /act_999\s+EPICCELL \(activa\)/.test(t), true);
 comprobar("los 4 anuncios activos", /ANUNCIOS ACTIVOS \(4\)/.test(t), true);
 comprobar("el del A57: manda el A57", /✓ manda el Samsung A57/.test(t), true);
 comprobar("el del Poco X99 (no está): avisa que está AGOTADO", /trae gente al .*X99.*AGOTADO/i.test(t), true);
