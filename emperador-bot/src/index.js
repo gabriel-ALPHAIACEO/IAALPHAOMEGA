@@ -73,7 +73,7 @@ import {
 import { gastoDelMes } from "./gasto.js";
 import { buscarProductos } from "./shopify.js";
 import { categoriaDeLaBusqueda, CATEGORIAS, emojiDe, categoriasParaElPrompt } from "./categorias.js";
-import { atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
+import { estadoDeLaClaveApi, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
 import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDelRevisor } from "./revisor.js";
 
@@ -131,7 +131,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-05 (40) · tope mensual del revisor (y rastro de Instagram más liviano)";
+const VERSION = "2026-10-05 (41) · la llave del panel central: sin espacios, y /estado dice su largo";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -626,7 +626,7 @@ async function atenderPeticion(request, env, ctx) {
           `  META_APP_SECRET_IG  ${secreto("META_APP_SECRET_IG")}   (la de Instagram ← es esta)`,
           `  IG_TOKEN            ${secreto("IG_TOKEN")}`,
           `  PANEL_CLAVE         ${secreto("PANEL_CLAVE")}   (la clave del panel de la tienda: /panel)`,
-          `  PANEL_API_CLAVE     ${secreto("PANEL_API_CLAVE")}   (la del panel central: la misma va en el panel como CLAVE_EMPERADOR)`,
+          `  PANEL_API_CLAVE     ${estadoDeLaClaveApi(env)}   (la del panel central: la misma va en el panel como CLAVE_EMPERADOR)`,
           `  PANEL_CENTRAL_URL   ${env.PANEL_CENTRAL_URL ? "puesto (avisos en tiempo real al panel central)" : "sin poner (sin avisos en tiempo real)"}`,
           "  ¿No responde en Instagram? Abre /probar-instagram: dice en qué paso se corta.",
           "",

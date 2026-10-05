@@ -860,14 +860,32 @@ function json(datos, estado = 200) {
   });
 }
 
+// LA LLAVE DEL PANEL CENTRAL (PANEL_API_CLAVE). Sin espacios ni saltos de
+// línea a los lados (5-oct-2026): al pegarla en Cloudflare o en wrangler se
+// colaba uno y "no coincidía" sin que se viera por qué.
+function claveApi(env) {
+  return String(env?.PANEL_API_CLAVE || "").trim();
+}
+
 export function apiCentralActiva(env) {
-  return String(env?.PANEL_API_CLAVE || "").length >= 16;
+  return claveApi(env).length >= 16;
+}
+
+function claveDada(request) {
+  return (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
 }
 
 function autorizadoCentral(request, env) {
   if (!apiCentralActiva(env)) return false;
-  const dada = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
-  return mismoTexto(dada, env.PANEL_API_CLAVE);
+  return mismoTexto(claveDada(request), claveApi(env));
+}
+
+// Para /estado: si está, y cuántas letras tiene (nunca la clave).
+export function estadoDeLaClaveApi(env) {
+  const n = claveApi(env).length;
+  if (!n) return "FALTA";
+  if (n < 16) return `MUY CORTA (${n} letras; necesita 16 o más: el panel central no entra)`;
+  return `puesto (${n} letras)`;
 }
 
 async function filasDesde(db, crear, consulta, desde) {
@@ -1241,10 +1259,25 @@ async function apiBases(ruta, request, env, url) {
 }
 
 export async function atenderApiCentral(request, env, opciones = {}) {
-  if (!apiCentralActiva(env)) return json({ error: "La puerta del panel central está cerrada: falta PANEL_API_CLAVE (16 letras o más)." }, 403);
+  if (!apiCentralActiva(env)) {
+    return json({ error: "La puerta del panel central está cerrada: falta PANEL_API_CLAVE (16 letras o más).", largo: claveApi(env).length }, 403);
+  }
   if (!autorizadoCentral(request, env)) {
     console.error("API CENTRAL: alguien probó una clave equivocada");
-    return json({ error: "Clave equivocada" }, 401);
+    // Para que el panel central diga QUÉ está mal (5-oct-2026), sin decir
+    // la clave: cuántas letras tiene la de aquí, y si lo que mandó es la
+    // contraseña para ENTRAR al panel de la tienda (la confusión de siempre:
+    // son dos claves distintas). Eso último no da más de lo que ya da la
+    // pantalla de entrada del panel.
+    const dada = claveDada(request);
+    return json(
+      {
+        error: "Clave equivocada",
+        largo: claveApi(env).length,
+        esLaDeEntrar: Boolean(dada) && mismoTexto(dada, String(env.PANEL_CLAVE || "").trim()),
+      },
+      401
+    );
   }
 
   const url = new URL(request.url);

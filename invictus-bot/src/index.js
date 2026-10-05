@@ -65,7 +65,7 @@ import {
 import { hayQueRescatar, FRASE_DE_RESCATE, MOTIVO_DE_RESCATE } from "./rescate.js";
 import { revisarTono } from "./tono.js";
 import { revisarPrecio } from "./precio.js";
-import { atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
+import { estadoDeLaClaveApi, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
 import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDelRevisor } from "./revisor.js";
 import { anotar, leerRastro, hace } from "./rastro.js";
@@ -153,7 +153,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-05 (58) · revisor con los datos de la tienda y tope mensual, y /probar-instagram";
+const VERSION = "2026-10-05 (59) · la llave del panel central: sin espacios, y /estado dice su largo";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -634,7 +634,7 @@ const trabajador = {
           "SECRETOS",
           `  OPENAI_API_KEY      ${secreto("OPENAI_API_KEY")}`,
           `  PANEL_CLAVE         ${secreto("PANEL_CLAVE")}   (la clave del panel de la tienda: /panel)`,
-          `  PANEL_API_CLAVE     ${secreto("PANEL_API_CLAVE")}   (la del panel central: la misma va en tu Worker panel-central)`,
+          `  PANEL_API_CLAVE     ${estadoDeLaClaveApi(env)}   (la del panel central: la misma va en tu Worker panel-central)`,
           `  PANEL_CENTRAL_URL   ${env.PANEL_CENTRAL_URL ? "puesto (avisos en tiempo real al panel central)" : "sin poner (sin avisos en tiempo real)"}`,
           `  SHOPIFY_TOKEN       ${secreto("SHOPIFY_TOKEN")}`,
           `  SLACK_WEBHOOK       ${secreto("SLACK_WEBHOOK")}`,

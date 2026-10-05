@@ -58,7 +58,7 @@ import {
   vistaEnPausa,
 } from "./vistas.js";
 
-const VERSION = "2026-10-05 (11) · EPICCELL con su nombre bien escrito";
+const VERSION = "2026-10-05 (12) · dice en claro por qué no coincide la llave de una tienda";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");
@@ -98,7 +98,7 @@ function nombres(env) {
 /* ── Las alertas que llegan de las tiendas ───────────────────────── */
 
 async function recibirAlerta(request, env) {
-  const clave = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  const clave = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
   // La tienda se reconoce por SU clave, no por lo que diga el mensaje.
   const tienda = clave ? tiendaDeLaClave(env, clave) : null;
   if (!tienda) {

@@ -29,7 +29,8 @@ export function leerTiendas(env) {
 }
 
 export function claveDe(env, id) {
-  return String(env?.[`CLAVE_${String(id).toUpperCase().replace(/-/g, "_")}`] || "");
+  // Sin espacios ni saltos de línea a los lados: al pegarla se colaba uno.
+  return String(env?.[`CLAVE_${String(id).toUpperCase().replace(/-/g, "_")}`] || "").trim();
 }
 
 export function mismoTexto(a, b) {
@@ -71,9 +72,11 @@ export async function pedir(env, tienda, ruta, { metodo = "GET", cuerpo = null, 
       const motivo = misma
         ? "Cloudflare no deja que dos Workers de la misma cuenta se hablen por workers.dev (error 1042): el panel tiene que estar en otra cuenta de Cloudflare (la de ALPHA IA), no en la de esta tienda"
         : r.status === 401
-          ? "la clave no coincide con la PANEL_API_CLAVE de la tienda"
+          ? porQueNoCoincide(tienda, clave, datos)
           : r.status === 403
-            ? "la tienda no tiene puesta su PANEL_API_CLAVE"
+            ? datos?.largo
+              ? `la PANEL_API_CLAVE de la tienda tiene ${datos.largo} letras y necesita 16 o más (ponle una más larga, y la misma en CLAVE_${nombreDeClave(tienda)} aquí)`
+              : "la tienda no tiene puesta su PANEL_API_CLAVE (o tiene la versión de antes: mira su /estado)"
             : r.status === 404 && !datos
               ? "la tienda no tiene la versión con el panel central (despliega la nueva)"
               : datos?.error || `respondió ${r.status}`;
@@ -89,6 +92,26 @@ export async function pedir(env, tienda, ruta, { metodo = "GET", cuerpo = null, 
   } catch (error) {
     return { ok: false, error: /timeout|abort/i.test(String(error?.name || error)) ? "no respondió a tiempo" : String(error?.message || error) };
   }
+}
+
+function nombreDeClave(tienda) {
+  return String(tienda.id).toUpperCase().replace(/-/g, "_");
+}
+
+// "NO COINCIDE", EN CLARO (5-oct-2026). La tienda dice cuántas letras tiene
+// su llave y si lo que le llegó es su contraseña para ENTRAR al panel: con
+// eso se sabe qué pasó sin ver ninguna clave.
+function porQueNoCoincide(tienda, clave, datos) {
+  const nombre = `CLAVE_${nombreDeClave(tienda)}`;
+  if (datos?.esLaDeEntrar) {
+    return `en ${nombre} pusiste la contraseña para ENTRAR al panel de la tienda (su PANEL_CLAVE). Tiene que ir otra: la PANEL_API_CLAVE de la tienda, la misma en los dos lados`;
+  }
+  if (Number.isFinite(datos?.largo)) {
+    return datos.largo === clave.length
+      ? `la PANEL_API_CLAVE de la tienda y ${nombre} tienen las mismas letras (${clave.length}) pero no son iguales: vuelve a pegar la misma en los dos lados`
+      : `no son la misma: la PANEL_API_CLAVE de la tienda tiene ${datos.largo} letras y ${nombre} aquí tiene ${clave.length}. Pon la misma en los dos lados`;
+  }
+  return `la clave no coincide con la PANEL_API_CLAVE de la tienda (${nombre} aquí tiene ${clave.length} letras)`;
 }
 
 // La misma pregunta a todas las tiendas a la vez.

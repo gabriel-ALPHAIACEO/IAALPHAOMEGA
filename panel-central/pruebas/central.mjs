@@ -472,7 +472,38 @@ titulo("¿siguen vivas? (el cron de cada 2 minutos)");
   const sinClave = await callado(() => central.fetch(new Request("https://central.test/estado"), { ...ENV_C, CLAVE_OTRA: "" }, ctx));
   ok(/faltan claves: CLAVE_OTRA/.test(await sinClave.text()), "/estado avisa si falta la clave de una tienda");
   const equivocada = await callado(() => central.fetch(new Request("https://central.test/t/otra", { headers: { cookie: galleta } }), { ...ENV_C, CLAVE_OTRA: "otra-clave-que-no-es-la-buena" }, ctx));
-  ok(/la clave no coincide/.test(await equivocada.text()), "con la clave equivocada, lo dice claro");
+  ok(/no son la misma: la PANEL_API_CLAVE de la tienda tiene \d+ letras y CLAVE_OTRA aquí tiene \d+/.test(await equivocada.text()), "con la clave equivocada, lo dice claro (con el largo de cada una)");
+}
+
+titulo("las llaves: espacios al pegar, la contraseña equivocada y el largo (5-oct-2026)");
+{
+  const T = await import(pathToFileURL(path.join(copia, "tiendas.js")).href);
+  const inv = { id: "invictus", nombre: "Invictus", url: "https://invictus.test" };
+  const ping = (envC) => callado(() => T.pedir(envC, inv, "ping"));
+
+  let r = await ping({ ...ENV_C, CLAVE_INVICTUS: K1 + "\n" });
+  ok(r.ok, "pegada con un salto de línea al final, entra igual");
+  const antes = ENV1.PANEL_API_CLAVE;
+  ENV1.PANEL_API_CLAVE = "  " + K1 + " \n";
+  r = await ping(ENV_C);
+  ok(r.ok, "y si el espacio se coló del lado de la tienda, también");
+  ENV1.PANEL_API_CLAVE = antes;
+
+  ENV1.PANEL_CLAVE = "clave-para-entrar-al-panel";
+  r = await ping({ ...ENV_C, CLAVE_INVICTUS: "clave-para-entrar-al-panel" });
+  ok(!r.ok && /contraseña para ENTRAR/.test(r.error) && /CLAVE_INVICTUS/.test(r.error) && !/clave-para-entrar/.test(r.error),
+     "con la contraseña de ENTRAR al panel puesta en el central: lo dice así (sin enseñarla)", r.error);
+  delete ENV1.PANEL_CLAVE;
+
+  r = await ping({ ...ENV_C, CLAVE_INVICTUS: "otra-clave-cualquiera" });
+  ok(!r.ok && new RegExp(`tiene ${K1.length} letras`).test(r.error) && /aquí tiene 21/.test(r.error), "con otra clave: dice cuántas letras tiene cada una", r.error);
+  r = await ping({ ...ENV_C, CLAVE_INVICTUS: "x".repeat(K1.length) });
+  ok(!r.ok && /mismas letras/.test(r.error), "mismo largo pero distinta: lo dice", r.error);
+
+  ENV1.PANEL_API_CLAVE = "corta-12345";
+  r = await ping(ENV_C);
+  ok(!r.ok && /tiene 11 letras y necesita 16/.test(r.error), "la llave de la tienda muy corta: lo dice con el número", r.error);
+  ENV1.PANEL_API_CLAVE = antes;
 }
 
 titulo("una tienda con la versión vieja (responde 200 'ok' a todo)");

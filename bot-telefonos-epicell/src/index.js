@@ -30,7 +30,7 @@
 
 import { responderTexto, identificarEnImagen, redactarConResultados } from "./ia.js";
 import { transcribirAudio, notaDeVoz, PEDIR_QUE_ESCRIBA } from "./voz.js";
-import { atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
+import { estadoDeLaClaveApi, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
 import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDelRevisor } from "./revisor.js";
 import { anotarGasto } from "./gasto.js";
@@ -155,7 +155,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-05 (30) · el nombre de la tienda es EPICCELL";
+const VERSION = "2026-10-05 (31) · la llave del panel central: sin espacios, y /estado dice su largo";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -1142,7 +1142,7 @@ const trabajador = {
           `  IG_TOKEN            ${secreto("IG_TOKEN")}`,
           `  ADS_TOKEN           ${secreto("ADS_TOKEN")}   (leer tus anuncios — el panel completo está en /anuncios)`,
           `  PANEL_CLAVE         ${secreto("PANEL_CLAVE")}   (la clave del panel de la tienda: /panel)`,
-          `  PANEL_API_CLAVE     ${secreto("PANEL_API_CLAVE")}   (la del panel central: la misma va en tu Worker panel-central)`,
+          `  PANEL_API_CLAVE     ${estadoDeLaClaveApi(env)}   (la del panel central: la misma va en tu Worker panel-central)`,
           `  PANEL_CENTRAL_URL   ${env.PANEL_CENTRAL_URL ? "puesto (avisos en tiempo real al panel central)" : "sin poner (sin avisos en tiempo real)"}`,
           "",
           "CONFIGURACIÓN (wrangler.toml)",

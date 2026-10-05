@@ -301,7 +301,7 @@ export async function vigilarQueja(env, igsid, texto) {
 }
 
 export function centralConectado(env) {
-  return /^https:\/\//i.test(String(env?.PANEL_CENTRAL_URL || "")) && String(env?.PANEL_API_CLAVE || "").length >= 16;
+  return /^https:\/\//i.test(String(env?.PANEL_CENTRAL_URL || "")) && String(env?.PANEL_API_CLAVE || "").trim().length >= 16;
 }
 
 // Le manda al panel central lo que acaba de pasar. Nunca lanza, y nunca
@@ -312,7 +312,7 @@ export async function alertarCentral(env, alertas = []) {
   try {
     const r = await fetch(`${String(env.PANEL_CENTRAL_URL).replace(/\/+$/, "")}/api/alerta`, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${env.PANEL_API_CLAVE}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${String(env.PANEL_API_CLAVE).trim()}` },
       body: JSON.stringify({ tienda: String(env.TIENDA_ID || ""), alertas }),
       signal: AbortSignal.timeout(4000),
     });
