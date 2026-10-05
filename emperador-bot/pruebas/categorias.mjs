@@ -129,6 +129,7 @@ const jpeg = () => new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]
 const BASE = baseDeMentira();
 let cliente = 100;
 let llamadasAlRevisor = 0;
+let ultimoAlRevisor = null;
 async function conversacion(mensaje, { texto, vision = null, cotejo = null, revisor = null, extraEnv = {} }) {
   const base = BASE;
   const igsid = String(++cliente);
@@ -140,6 +141,7 @@ async function conversacion(mensaje, { texto, vision = null, cotejo = null, revi
       const sistema = JSON.parse(op.body).messages[0].content;
       if (/supervisor de calidad/.test(sistema)) {
         llamadasAlRevisor++;
+        ultimoAlRevisor = JSON.parse(op.body);
         return json({ choices: [{ message: { content: JSON.stringify(revisor || { veredicto: "bien", explicacion: "ok" }) }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 5 } });
       }
       const contenido = /"eleccion"/.test(sistema) ? cotejo || { eleccion: 0, confianza: "baja", porque: "ninguno es" } : /"pedirNombreExacto"/.test(sistema) ? vision : texto;
@@ -263,6 +265,32 @@ titulo("el revisor, con DeepSeek: apagado hasta que el dueño lo encienda");
   ok(llamadasAlRevisor === antes + 1, "encendido, revisa con DeepSeek después de responder");
   const marcado = BASE.sql.prepare("SELECT marca, motivo FROM turnos WHERE pienso = 'Precio del Air Force.'").get();
   ok(marcado?.marca === "indebida" && /Alucinó/.test(marcado.motivo), "y marca 🔴 la respuesta que alucinó, con el porqué", JSON.stringify(marcado));
+  ok(ultimoAlRevisor?.model === "deepseek-flash" && ultimoAlRevisor.thinking?.type === "disabled", "con el modelo de REVISOR_MODELO y sin 'pensar' de más");
+
+  const lo = JSON.stringify(ultimoAlRevisor?.messages?.[1]?.content || "");
+  ok(/LAS FICHAS|FICHAS: .*Air Force.*\$45/.test(lo), "el revisor ve las fichas con su precio ($45)", lo.slice(0, 200));
+  ok(/LA CATEGORÍA QUE PIDIÓ: calzado/.test(lo), "y la categoría que pidió");
+  ok(/LOS DATOS DE LA TIENDA/.test(lo) && /Horario|horario/.test(lo) && /Ubicación/.test(lo), "y los datos de la tienda (horario, ubicación, pagos): así atrapa un horario o un envío inventados");
+  const sistema = ultimoAlRevisor?.messages?.[0]?.content || "";
+  ok(/"confianza"/.test(sistema) && /"cita"/.test(sistema) && /"pienso"/.test(sistema), "piensa antes de decidir, dice su confianza y cita la frase");
+
+  // Con dudas (confianza media) NO se marca: preciso, sin falsas alarmas.
+  await conversacion({ text: "y esas cholas son comodas?" }, {
+    texto: { pienso: "Pregunta comodidad.", respuesta: "¡Sí, son súper cómodas! 😊", buscar: "NADA", categoria: "calzado", historial: "Preguntó comodidad." },
+    revisor: { pienso: "Dice que son cómodas sin dato.", veredicto: "alucino", confianza: "media", cita: "son súper cómodas", explicacion: "afirma comodidad sin dato" },
+    extraEnv: { PROVEEDOR: "deepseek", REVISOR_IA: "si" },
+  });
+  const dudoso = BASE.sql.prepare("SELECT marca FROM turnos WHERE pienso = 'Pregunta comodidad.'").get();
+  ok(dudoso && dudoso.marca === "", "con confianza media no se marca (REVISOR_CONFIANZA = alta por defecto)", JSON.stringify(dudoso));
+
+  // Seguro: se marca, con la frase exacta en el motivo.
+  await conversacion({ text: "tienen descuento en los air force?" }, {
+    texto: { pienso: "Pregunta descuento.", respuesta: "¡Sí! Esta semana tienen 20% de descuento 🔥", buscar: "Air Force", categoria: "calzado", historial: "Preguntó descuento." },
+    revisor: { pienso: "Ni las fichas ni los datos hablan de descuentos.", veredicto: "alucino", confianza: "alta", cita: "Esta semana tienen 20% de descuento", explicacion: "inventó un descuento" },
+    extraEnv: { PROVEEDOR: "deepseek", REVISOR_IA: "si" },
+  });
+  const descuento = BASE.sql.prepare("SELECT marca, motivo FROM turnos WHERE pienso = 'Pregunta descuento.'").get();
+  ok(descuento?.marca === "indebida" && /«Esta semana tienen 20% de descuento»/.test(descuento.motivo), "seguro: 🔴 con la frase exacta que estaba mal", JSON.stringify(descuento));
 }
 
 titulo("el panel: mensajes, lo que pensó la IA y la puerta del panel central");

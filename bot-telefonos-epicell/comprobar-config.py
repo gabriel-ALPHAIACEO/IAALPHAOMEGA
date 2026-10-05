@@ -36,7 +36,9 @@ SECRETOS = {
 # Las que lee una pieza COMPARTIDA con otras tiendas pero que aquí no se usan:
 # revisor.js es el mismo en Invictus, EPICELL y El Emperador, y solo El
 # Emperador va con DeepSeek. Sin PROVEEDOR = "deepseek", ni se miran.
-DE_OTRAS_TIENDAS = {"PROVEEDOR", "DEEPSEEK_API_KEY", "DEEPSEEK_MODELO_VISION"}
+DE_OTRAS_TIENDAS = {"PROVEEDOR", "DEEPSEEK_API_KEY", "DEEPSEEK_MODELO_VISION",
+                    # Opcional del revisor: sin ella, solo marca lo seguro.
+                    "REVISOR_CONFIANZA"}
 
 if not os.path.exists(ARCHIVO):
     print(f"✗ No encuentro {ARCHIVO}. ¿Estás en la carpeta del bot?")

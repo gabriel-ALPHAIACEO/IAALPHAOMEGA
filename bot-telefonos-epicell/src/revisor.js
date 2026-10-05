@@ -20,6 +20,13 @@
 // CUESTA unos $0,0002 por respuesta. Se apaga con REVISOR_IA = "no" en
 // wrangler.toml.
 //
+// MÁS PRECISO (5-oct-2026): piensa antes de decidir (compara cada dato de
+// la respuesta contra las fichas, la conversación y los datos de la tienda),
+// dice qué tan seguro está y cita la frase exacta. Solo marca 🔴 con
+// confianza "alta" (REVISOR_CONFIANZA = "media" para marcar también las
+// dudas). Si la tienda le pasa sus datos (turno.contexto) y la categoría
+// pedida, atrapa también horarios, envíos o categorías equivocadas.
+//
 // CON DEEPSEEK (5-oct-2026, El Emperador): si la tienda va con DeepSeek
 // (PROVEEDOR = "deepseek"), el revisor también. Modelo: REVISOR_MODELO, o si
 // no el de las fotos (DEEPSEEK_MODELO_VISION), que es el barato. Sin pensar
@@ -40,30 +47,62 @@ const VEREDICTOS = {
 
 const INSTRUCCIONES = `Eres el supervisor de calidad de una asistente virtual de ventas por Instagram.
 Revisas UNA respuesta que ya se le mandó a un cliente y dices si estuvo bien.
+Tu trabajo es ser PRECISO: marcar lo que de verdad está mal y nada más. Una
+falsa alarma le hace perder tiempo al dueño; un error real que dejas pasar,
+le cuesta un cliente.
 
-Te llegan: la conversación reciente, lo que escribió el cliente, lo que pensó la
-asistente antes de responder, lo que respondió, y los productos que se le
-enseñaron en fichas (con su precio) debajo de la respuesta.
+TE LLEGA:
+  · LA CONVERSACIÓN RECIENTE (los últimos mensajes).
+  · LO QUE ESCRIBIÓ EL CLIENTE en este mensaje.
+  · LO QUE PENSÓ LA ASISTENTE antes de responder.
+  · LO QUE RESPONDIÓ.
+  · LAS FICHAS que se le enseñaron debajo (título y precio). Si no hay
+    fichas, no se le enseñó ningún producto.
+  · A veces, LA CATEGORÍA que pidió (calzado, bolso, gorra…) y LOS DATOS DE
+    LA TIENDA (horario, envíos, ubicación, pagos, tallas). Esos datos son
+    la verdad: lo que los contradiga, está mal.
 
-Veredictos posibles:
-- "bien": la respuesta es razonable para lo que pidió. ESTE ES EL NORMAL.
-- "alucino": afirma algo concreto que no sale de ningún lado: un precio,
-  modelo, talla, color, stock o política que no está en las fichas ni en la
-  conversación, o dice que hay algo cuando las fichas muestran otra cosa.
-- "incoherente": se contradice, contradice lo que pensó, o habla de un
-  producto distinto del que el cliente está preguntando.
-- "no_responde": ignora la pregunta concreta del cliente y contesta otra cosa.
-- "tono": grosera, burlona, regañona o fuera de lugar con el cliente.
+CÓMO REVISAS (en "pienso", antes de decidir):
+  1. ¿Qué preguntó o pidió el cliente, exactamente?
+  2. Toma CADA dato concreto de la respuesta —precio, talla, color, stock,
+     modelo, horario, envío, dirección, regalo, descuento, plazo— y busca
+     de dónde sale: las fichas, la conversación o los datos de la tienda.
+     Un dato que no sale de ningún lado es inventado.
+  3. ¿Contesta lo que preguntó? ¿Se contradice? ¿El tono es respetuoso?
+  4. Decide, y di qué tan seguro estás.
 
-REGLAS PARA NO EQUIVOCARTE:
-- Los datos fijos de la tienda (horario, dirección, métodos de pago, Cashea,
-  envíos) los pone el sistema y son correctos: NO los marques.
-- "Te lo confirma un asesor" es una respuesta correcta, no la marques.
-- Decir que los precios están en las fotos es correcto.
-- Si dudas, es "bien". Solo marcas lo que está CLARAMENTE mal.
+VEREDICTOS:
+  · "bien": razonable para lo que pidió. ES EL NORMAL.
+  · "alucino": afirma un dato concreto que no sale de ningún lado, o que
+    contradice las fichas o los datos de la tienda (un precio distinto al
+    de la ficha, un regalo, un descuento, un envío que la tienda no hace,
+    un horario distinto, una talla o un color que nadie confirmó, "sí hay"
+    de algo que no se le enseñó).
+  · "incoherente": se contradice, contradice lo que pensó, habla de otro
+    producto, o le enseña algo de OTRA categoría (pidió bolsos y le salen
+    zapatos).
+  · "no_responde": ignora la pregunta concreta y contesta otra cosa.
+  · "tono": grosera, burlona, regañona o fuera de lugar.
+
+ESTO ESTÁ BIEN (no lo marques nunca):
+  · "Eso te lo confirma un asesor en un momento 😊" (o parecido).
+  · Decir que el precio está en la foto o en la ficha.
+  · Un saludo, una despedida, una pregunta para entender qué busca.
+  · "De ese no tengo, pero mira estos 👇" con fichas de lo que sí hay.
+  · El botón del catálogo cuando no se encontró lo que pidió.
+  · Los datos de la tienda dichos con otras palabras (mismo contenido).
+  · Ofrecer pasarlo con un asesor, o decir que un asesor lo atiende.
+  · Una respuesta corta o sencilla: corta no es mala.
+
+CONFIANZA:
+  · "alta": lo puedes señalar con el dedo (citas la frase y sabes por qué
+    está mal).
+  · "media": te parece mal, pero podría estar bien con algo que no ves.
+  · "baja": dudas.
+Si es "bien", la confianza da igual.
 
 Responde SOLO con este JSON:
-{"veredicto":"bien|alucino|incoherente|no_responde|tono","explicacion":"una frase corta en español"}`;
+{"pienso":"2 o 3 frases: qué pidió, qué datos dio y de dónde salen","veredicto":"bien|alucino|incoherente|no_responde|tono","confianza":"alta|media|baja","cita":"la frase EXACTA de la respuesta que está mal (vacío si está bien)","explicacion":"una frase corta en español: qué está mal y por qué"}`;
 
 function conDeepSeek(env) {
   return String(env?.PROVEEDOR || "").toLowerCase() === "deepseek";
@@ -83,14 +122,14 @@ async function preguntar(env, modelo, mensajes) {
     temperature: 0,
     response_format: { type: "json_object" },
     messages: mensajes,
-    ...(deepseek ? { max_tokens: 150, thinking: { type: "disabled" } } : { max_completion_tokens: 150 }),
+    ...(deepseek ? { max_tokens: 400, thinking: { type: "disabled" } } : { max_completion_tokens: 400 }),
   };
   const enviar = (c) =>
     fetch(deepseek ? API_DEEPSEEK : API, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${deepseek ? env.DEEPSEEK_API_KEY : env.OPENAI_API_KEY}` },
       body: JSON.stringify(c),
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(12000),
     });
   let r = await enviar(cuerpo);
   // Un modelo de DeepSeek que no entiende "thinking": sin él.
@@ -120,7 +159,8 @@ async function conversacionReciente(db, igsid) {
   }
 }
 
-// turno: { id, igsid, cliente, pienso, respuesta, productos: [títulos], fichas: [líneas con precio] }
+// turno: { id, igsid, cliente, pienso, respuesta, productos: [títulos], fichas: [líneas con precio],
+//          categoria?: "bolso"…, contexto?: los datos de la tienda (horario, envíos, ubicación, pagos) }
 export async function revisarTurno(env, turno) {
   if (!revisorActivo(env) || !turno?.id || !String(turno.respuesta || "").trim()) return null;
 
@@ -133,7 +173,11 @@ export async function revisarTurno(env, turno) {
     `LO QUE PENSÓ LA ASISTENTE: ${turno.pienso || "(nada)"}`,
     `LO QUE RESPONDIÓ: ${turno.respuesta}`,
     `LO QUE SE LE ENSEÑÓ EN FICHAS: ${(turno.fichas || turno.productos || []).join(" | ") || "(nada)"}`,
-  ].join("\n");
+    turno.categoria ? `LA CATEGORÍA QUE PIDIÓ: ${turno.categoria}` : "",
+    turno.contexto ? `\nLOS DATOS DE LA TIENDA (la verdad):\n${String(turno.contexto).slice(0, 3000)}` : "",
+  ]
+    .filter((linea) => linea !== "")
+    .join("\n");
 
   const modelo = env.REVISOR_MODELO || (conDeepSeek(env) ? env.DEEPSEEK_MODELO_VISION || "deepseek-chat" : "gpt-4o-mini");
   let datos;
@@ -166,16 +210,36 @@ export async function revisarTurno(env, turno) {
 
   const clave = String(veredicto?.veredicto || "bien").toLowerCase();
   const explicacion = String(veredicto?.explicacion || "").slice(0, 240);
+  const cita = String(veredicto?.cita || "").trim().slice(0, 160);
+  // Sin "confianza" (un modelo que no la mandó): se toma como segura, que es
+  // como funcionaba antes de pedirla.
+  const confianza = ["alta", "media", "baja"].includes(String(veredicto?.confianza || "").toLowerCase())
+    ? String(veredicto.confianza).toLowerCase()
+    : "alta";
+  if (veredicto?.pienso) console.log(`REVISOR pensó: ${String(veredicto.pienso).slice(0, 300)}`);
   if (!VEREDICTOS[clave]) {
     console.log(`REVISOR: bien${explicacion ? ` (${explicacion})` : ""}`);
     return { veredicto: "bien", explicacion };
   }
+  // PRECISO: solo se marca lo que está seguro. Con REVISOR_CONFIANZA =
+  // "media" se marcan también las dudas razonables (más avisos, más falsas
+  // alarmas). Lo que no llega, queda en el registro igual.
+  if (!confianzaSuficiente(confianza, env.REVISOR_CONFIANZA)) {
+    console.log(`REVISOR: posible ${clave} con confianza ${confianza}, no lo marco: ${explicacion}`);
+    return { veredicto: "bien", explicacion, dudoso: clave, confianza };
+  }
 
-  const motivo = `${VEREDICTOS[clave]}${explicacion ? ` — ${explicacion}` : ""}`;
+  const motivo = `${VEREDICTOS[clave]}${explicacion ? ` — ${explicacion}` : ""}${cita ? ` · «${cita}»` : ""}`;
   console.log(`REVISOR: 🔴 ${motivo}`);
   await marcarTurno(env.DB, turno.id, "indebida", motivo);
   await alertarCentral(env, [
     { tipo: "indebida", texto: `${motivo}\nRespondió: "${String(turno.respuesta).slice(0, 200)}"`, igsid: turno.igsid },
   ]);
-  return { veredicto: clave, explicacion };
+  return { veredicto: clave, explicacion, cita, confianza };
+}
+
+const NIVELES = { baja: 0, media: 1, alta: 2 };
+function confianzaSuficiente(confianza, minima) {
+  const piso = NIVELES[String(minima || "alta").toLowerCase()] ?? NIVELES.alta;
+  return (NIVELES[confianza] ?? NIVELES.alta) >= piso;
 }

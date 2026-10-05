@@ -59,6 +59,7 @@ import {
   nombraUnProducto,
   revisarDatoDeLaTienda,
   notaDeDatoDeLaTienda,
+  datosParaElPrompt,
 } from "./datos.js";
 import { hayQueRescatar, FRASE_DE_RESCATE, MOTIVO_DE_RESCATE } from "./rescate.js";
 import { revisarTono } from "./tono.js";
@@ -71,7 +72,7 @@ import {
 } from "./ubicacion.js";
 import { gastoDelMes } from "./gasto.js";
 import { buscarProductos } from "./shopify.js";
-import { categoriaDeLaBusqueda, CATEGORIAS, emojiDe } from "./categorias.js";
+import { categoriaDeLaBusqueda, CATEGORIAS, emojiDe, categoriasParaElPrompt } from "./categorias.js";
 import { atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
 import { revisarTurno } from "./revisor.js";
@@ -130,7 +131,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-05 (34) · la ubicacion: frente a la Cancha Fray Elias";
+const VERSION = "2026-10-05 (35) · revisor encendido y mas preciso: piensa, compara con los datos de la tienda, cita la frase y solo marca lo seguro";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -2111,6 +2112,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     ...turnoDelPanel,
     id: await anotarTurno(env.DB, turnoDelPanel, env),
     fichas: productos.map((p) => `${p.titulo}${p.precio ? ` · ${p.precio}` : ""}`),
+    // Para el revisor: con qué comparar lo que dijo (ver revisor.js).
+    categoria,
+    contexto: datosParaElRevisor(env),
   };
 
   // La tarjeta de Cashea, cuando no fue dentro del mensaje de arriba: va
@@ -2855,6 +2859,26 @@ async function decidir({
     categoria,
     respuestaCliente: conEmojiDe(respuestaCliente, categoria),
   };
+}
+
+// LO QUE ES VERDAD EN ESTA TIENDA, para que el revisor compare (ver
+// revisor.js): si el bot dice otro horario, un envío que no hay u otra
+// dirección, el revisor lo atrapa.
+function datosParaElRevisor(env) {
+  const lugar = mensajeDeUbicacion(env);
+  let pagos = "";
+  try {
+    pagos = listaDeMetodos();
+  } catch {}
+  return [
+    datosParaElPrompt(),
+    `📍 Ubicación: ${lugar.texto || "(no cargada: la confirma un asesor)"}`,
+    pagos ? `💳 Métodos de pago:\n${pagos}` : "",
+    `Lo que vende, y cómo van las tallas (que haya una talla concreta lo confirma un asesor; las gorras SÍ se puede decir que son ajustables):\n${categoriasParaElPrompt()}`,
+    "Calidad: doble A y triple A según el par; la de un par concreto la confirma un asesor.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 // Las frases fijas nacieron para zapatos (👟). Con un bolso, 👜.

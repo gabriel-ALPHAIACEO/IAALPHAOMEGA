@@ -178,12 +178,18 @@ FRASE_DESPAUSAR = "te dejo con la asistente"
 TIENDA_NOMBRE = "El Emperador"
 
 # EL REVISOR (ver src/revisor.js): después de cada respuesta, ya enviada,
-# una segunda IA (DeepSeek, el modelo barato) la lee y la marca 🔴 en el
-# panel si alucinó, se contradijo o no contestó lo que le preguntaron. El
-# cliente no espera nada. APAGADO hasta que el dueño lo decida: "si" lo
-# enciende.
-REVISOR_IA = "no"
-REVISOR_MODELO = "deepseek-flash"
+# una segunda IA la lee, compara cada dato con las fichas, la conversación
+# y los datos de la tienda, y la marca 🔴 en el panel (con la frase exacta)
+# si alucinó, se contradijo, no contestó lo que le preguntaron o tuvo mal
+# tono. El cliente no espera nada. Encendido por el dueño (5-oct-2026).
+#   REVISOR_IA         "si" lo enciende, "no" lo apaga
+#   REVISOR_MODELO     el más listo (el mismo que conversa). Para gastar
+#                      ~4 veces menos: "deepseek-flash"
+#   REVISOR_CONFIANZA  "alta": solo marca lo que está seguro (pocas falsas
+#                      alarmas). "media": marca también las dudas.
+REVISOR_IA = "si"
+REVISOR_MODELO = "deepseek-v4-pro"
+REVISOR_CONFIANZA = "alta"
 
 # ------------------------------------------------------------------------
 # SECRETOS - NUNCA van en este archivo. Se cargan uno por uno, ESTANDO
