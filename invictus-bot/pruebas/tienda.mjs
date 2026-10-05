@@ -291,6 +291,33 @@ titulo("ALPHA IA: el logo, las fotos y las fichas (5-oct-2026)");
   await DB.prepare("DELETE FROM mensajes WHERE igsid = '777'").run();
 }
 
+titulo("el revisor compara con los datos de la tienda (traído de El Emperador)");
+{
+  const cuerpos = [];
+  const base = falso({ pienso: "Pregunta el horario.", mostrar: "texto", voz: false, respuesta: "Abrimos de lunes a sábado de 8 a 9 😊", buscar: "NADA", historial: "Horario." });
+  const cuerpo = JSON.stringify({ object: "instagram", entry: [{ id: "999", time: Date.now(), messaging: [{ sender: { id: "555" }, recipient: { id: "999" }, timestamp: Date.now(), message: { mid: `m-${Math.random()}`, text: "y que modelos de jordan tienen?" } }] }] });
+  const firma = "sha256=" + crypto.createHmac("sha256", SECRETO).update(cuerpo).digest("hex");
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, op = {}) => {
+    if (String(url).includes("api.openai.com")) cuerpos.push(String(op.body || ""));
+    return base(url, op);
+  };
+  const tareas = [];
+  try {
+    await callado(async () => {
+      await worker.fetch(new Request("https://bot.test/webhook", { method: "POST", headers: { "x-hub-signature-256": firma }, body: cuerpo }), ENV, { waitUntil: (p) => tareas.push(p) });
+      await Promise.all(tareas);
+    });
+  } finally {
+    globalThis.fetch = real;
+  }
+  const delRevisor = cuerpos.find((c) => /LOS DATOS DE LA TIENDA/.test(c));
+  ok(delRevisor && /Lunes a viernes/.test(delRevisor) && /ZOOM y MRW/.test(delRevisor), "el revisor recibe el horario, los envíos y el delivery de verdad", delRevisor ? "" : `${cuerpos.length} llamadas, ninguna del revisor con datos`);
+  await DB.prepare("DELETE FROM mensajes WHERE igsid = '555'").run();
+  await DB.prepare("DELETE FROM turnos WHERE igsid = '555'").run();
+  await DB.prepare("DELETE FROM contactos WHERE id = '555'").run();
+}
+
 titulo("seguridad y el resto");
 r = await pedir("/panel/c/%3Cscript%3E", { cookie });
 ok(!/Id <script>/.test(r.texto) && /Id &lt;script&gt;/.test(r.texto), "lo que viene en la URL se escapa");
@@ -371,6 +398,20 @@ titulo("las respuestas señaladas: 🔴 ❌ 👎 (y el revisor)");
   globalThis.fetch = real;
   ok(bien?.veredicto === "bien", "una respuesta bien no se marca");
   ok(V.revisorActivo({ OPENAI_API_KEY: "x", REVISOR_IA: "no" }) === false, "REVISOR_IA = no lo apaga");
+
+  // EL TOPE DEL MES: lo que gastó se anota aparte ("(revisor)") y al llegar
+  // al tope deja de revisar (el bot sigue respondiendo igual).
+  const filaGasto = await DB.prepare("SELECT modelo, dolares FROM gasto WHERE instr(modelo, '(revisor)') > 0").first();
+  ok(filaGasto?.modelo === "gpt-4o-mini (revisor)" && filaGasto.dolares > 0, "lo que gasta el revisor se anota aparte, con la tarifa de su modelo", JSON.stringify(filaGasto));
+  ok(V.topeDelRevisor({}) === 10 && V.topeDelRevisor({ REVISOR_TOPE_MES: "25" }) === 25 && V.topeDelRevisor({ REVISOR_TOPE_MES: "$7,5" }) === 7.5 && V.topeDelRevisor({ REVISOR_TOPE_MES: "no" }) === Infinity, "el tope: 10 por defecto, el que se ponga, o sin tope");
+  let llamadas = 0;
+  globalThis.fetch = async () => { llamadas++; return new Response(JSON.stringify({ choices: [{ message: { content: '{"veredicto":"bien"}' } }] }), { status: 200 }); };
+  const conTope = await callado(() => V.revisarTurno({ DB, OPENAI_API_KEY: "x", REVISOR_TOPE_MES: "0.000001" }, { id: fila.id, igsid: "123", cliente: "x", respuesta: "y" }));
+  const sinTope = await callado(() => V.revisarTurno({ DB, OPENAI_API_KEY: "x", REVISOR_TOPE_MES: "no" }, { id: fila.id, igsid: "123", cliente: "x", respuesta: "y" }));
+  globalThis.fetch = real;
+  ok(conTope === null && sinTope?.veredicto === "bien" && llamadas === 1, "llegado el tope no llama a la IA; sin tope, sí", `llamadas: ${llamadas}`);
+  r = await pedir("/estado");
+  ok(/REVISOR_IA\s+si, con gpt-4o-mini/.test(r.texto) && /este mes \$\d+\.\d\d de un tope de \$10/.test(r.texto), "/estado dice cuánto lleva gastado el revisor y su tope", (r.texto.match(/REVISOR_IA.*/) || [""])[0]);
 
   r = await pedir("/panel/c/123", { cookie });
   ok(/🔴 <|🔴 Respuesta indebida/.test(r.texto) && /dijo que había Jordan 4/.test(r.texto), "en el panel sale el 🔴 con el motivo");

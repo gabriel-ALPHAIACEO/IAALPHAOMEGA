@@ -1,4 +1,4 @@
-// QUE RESPONDA EN INSTAGRAM: /probar-instagram tiene que decir en qué paso
+// QUE RESPONDA EN INSTAGRAM (traído de El Emperador, 5-oct-2026): /probar-instagram tiene que decir en qué paso
 // se corta el camino —token, suscripción, llegada, firma, envío— y qué hacer.
 //
 // Instagram es de mentira (se cambia fetch). Lo que se prueba es lo nuestro:
@@ -24,7 +24,7 @@ function instagramDeMentira({ tokenMalo = false, suscrita = true, envioMalo = fa
     if (u.hostname !== "graph.instagram.com") return new Response("{}", { status: 200 });
     if (tokenMalo) return new Response(JSON.stringify({ error: { message: "Invalid OAuth access token", code: 190 } }), { status: 400 });
     if (u.pathname.endsWith("/me") && metodo === "GET")
-      return Response.json({ user_id: CUENTA, username: "elemperador", name: "El Emperador", account_type: "BUSINESS", id: "999" });
+      return Response.json({ user_id: CUENTA, username: "invictus_shoes", name: "Invictus Shoes", account_type: "BUSINESS", id: "999" });
     if (u.pathname.endsWith("/me/subscribed_apps")) {
       if (metodo === "POST") { estado.suscrita = true; return Response.json({ success: true }); }
       return Response.json({ data: estado.suscrita ? [{ subscribed_fields: ["messages", "messaging_postbacks"] }] : [] });
@@ -51,7 +51,7 @@ async function llamar(env, ruta, { metodo = "GET", cuerpo, firma } = {}, mentira
   const pendientes = [];
   try {
     const headers = firma ? { "x-hub-signature-256": firma } : {};
-    const r = await worker.fetch(new Request(`https://emperador.test${ruta}`, { method: metodo, body: cuerpo, headers }), env, { waitUntil: (p) => pendientes.push(p) });
+    const r = await worker.fetch(new Request(`https://invictus.test${ruta}`, { method: metodo, body: cuerpo, headers }), env, { waitUntil: (p) => pendientes.push(p) });
     const texto = await r.text();
     await Promise.allSettled(pendientes);
     return { estado: r.status, texto };
@@ -60,7 +60,7 @@ async function llamar(env, ruta, { metodo = "GET", cuerpo, firma } = {}, mentira
 
 function entorno(extra = {}) {
   R.olvidarTabla();
-  return { DB: baseDeMentira().DB, IG_TOKEN: "token", META_APP_SECRET_IG: SECRETO, META_VERIFY_TOKEN: "emperador2026", META_MODO: "todo", ...extra };
+  return { DB: baseDeMentira().DB, IG_TOKEN: "token", META_APP_SECRET_IG: SECRETO, META_VERIFY_TOKEN: "invictus2026", TIENDA_NOMBRE: "Invictus Shoes", META_MODO: "todo", ...extra };
 }
 
 const visto = JSON.stringify({ object: "instagram", entry: [{ id: CUENTA, messaging: [{ sender: { id: "1" }, recipient: { id: CUENTA }, read: { mid: "x" } }] }] });
@@ -83,10 +83,10 @@ titulo("token bueno: enseña de qué cuenta es");
 {
   const m = instagramDeMentira();
   const { texto } = await llamar(entorno(), "/probar-instagram", {}, m);
-  ok(/@elemperador/.test(texto) && texto.includes(CUENTA), "sale el @ y el id de la cuenta");
+  ok(/@invictus_shoes/.test(texto) && texto.includes(CUENTA), "sale el @ y el id de la cuenta");
   ok(/suscrita a: messages/.test(texto), "y que está suscrita a los mensajes");
-  ok(/todavía NO ha mandado nada/.test(texto) && /emperador\.test\/webhook/.test(texto) && /modo Live/.test(texto),
-     "si Meta no ha mandado nada: la URL exacta del webhook y lo del modo Live");
+  ok(/todavía NO ha mandado nada/.test(texto) && /invictus\.test\/webhook/.test(texto) && !/invictus2026/.test(texto),
+     "si Meta no ha mandado nada: la URL exacta del webhook (y el token de verificación no se enseña)");
 }
 
 titulo("cuenta sin suscribir: lo detecta y ?suscribir=si la suscribe");
@@ -166,18 +166,6 @@ titulo("avisos falsos en ráfaga: una escritura cada 10 s por paso, como mucho")
   for (let i = 0; i < 50; i++) await R.anotar({ DB: contada }, "llegada", `aviso ${i}`);
   await R.anotar({ DB: contada }, "firma_mala", "x");
   ok(escrituras === 2, "50 avisos seguidos = 1 escritura (y otro paso, la suya)", `escrituras: ${escrituras}`);
-}
-
-titulo("las páginas que Meta pide para publicar la app");
-{
-  const m = instagramDeMentira();
-  const env = { ...entorno(), WHATSAPP: "+584224848573", PROVEEDOR: "deepseek" };
-  const priv = await llamar(env, "/privacidad", {}, m);
-  ok(priv.estado === 200 && /Política de privacidad/.test(priv.texto) && /El Emperador/.test(priv.texto), "/privacidad responde 200 con la política");
-  ok(/\+584224848573/.test(priv.texto) && /DeepSeek/.test(priv.texto) && /Cloudflare/.test(priv.texto), "con el WhatsApp de la tienda y quién procesa los datos");
-  ok(!/\bRIF\b|\bJ-\d|Invictus/i.test(priv.texto), "sin datos inventados (ni RIF ni otra tienda)");
-  const elim = await llamar(env, "/eliminar-datos", {}, m);
-  ok(elim.estado === 200 && /Quiero eliminar mis datos/.test(elim.texto), "/eliminar-datos explica cómo pedir que se borren");
 }
 
 src.limpiar();

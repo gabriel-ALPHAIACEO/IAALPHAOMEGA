@@ -32,7 +32,7 @@ import { responderTexto, identificarEnImagen, redactarConResultados } from "./ia
 import { transcribirAudio, notaDeVoz, PEDIR_QUE_ESCRIBA } from "./voz.js";
 import { atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
-import { revisarTurno } from "./revisor.js";
+import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDelRevisor } from "./revisor.js";
 import { anotarGasto } from "./gasto.js";
 
 // Lo que el bot escribe como error queda guardado para el panel central
@@ -155,7 +155,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-05 (28) · ALPHA IA: diseño nuevo, logo, fotos y carrusel en el panel";
+const VERSION = "2026-10-05 (29) · tope mensual del revisor, y su gasto en /estado";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -1120,6 +1120,7 @@ const trabajador = {
         return valor ? `cargado (${String(valor).length} caracteres)` : "FALTA";
       };
 
+      const delRevisor = await gastoDelRevisor(env.DB);
       const base = await revisarBase(env.DB, {
         fraseDespausar: fraseDespausar(env),
         // Para que los comandos que imprime se puedan copiar tal cual:
@@ -1146,6 +1147,7 @@ const trabajador = {
           "",
           "CONFIGURACIÓN (wrangler.toml)",
           `  META_MODO           ${env.META_MODO || "todo (por defecto)"}`,
+          `  REVISOR_IA          ${revisorActivo(env) ? `si, con ${modeloDelRevisor(env)} · confianza ${env.REVISOR_CONFIANZA || "alta"} · este mes $${delRevisor.toFixed(2)} de un tope de ${topeDelRevisor(env) === Infinity ? "sin tope" : `$${topeDelRevisor(env)}`}` : "no (apagado)"}   (revisa cada respuesta ya enviada: 🔴 en el panel si alucinó)`,
           `  META_VERIFY_TOKEN   ${env.META_VERIFY_TOKEN ? "puesto" : "FALTA"}`,
           `  SHEET_ID            ${env.SHEET_ID && !/PEGA_AQUI/i.test(env.SHEET_ID) ? "puesto" : "FALTA"}`,
           `  SHEET_NOMBRE        ${env.SHEET_NOMBRE || "FALTA"}`,

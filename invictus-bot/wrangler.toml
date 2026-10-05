@@ -146,6 +146,25 @@ COTEJO_MAXIMO = "600"
 # OPENAI_MODELO_VISION.
 OPENAI_MODELO_INDICE = "gpt-4o-mini"
 
+# EL REVISOR (ver src/revisor.js): después de cada respuesta, ya enviada,
+# una segunda IA la lee, compara cada dato con las fichas, la conversación
+# y los datos de la tienda (horario, envíos, delivery, ubicación, pagos,
+# Cashea), y la marca 🔴 en el panel (con la frase exacta) si alucinó, se
+# contradijo, no contestó lo que le preguntaron o tuvo mal tono. El cliente
+# no espera nada: ya le llegó la respuesta.
+#   REVISOR_IA         "si" lo enciende, "no" lo apaga
+#   REVISOR_MODELO     "gpt-4o-mini": ~$0,0004 por respuesta. "gpt-4o" es
+#                      más fino pero ~15 veces más caro (~$0,006).
+#   REVISOR_CONFIANZA  "alta": solo marca lo que está seguro (pocas falsas
+#                      alarmas). "media": marca también las dudas.
+#   REVISOR_TOPE_MES   cuántos dólares al mes puede gastar como mucho; al
+#                      llegar, deja de revisar hasta el mes siguiente (el bot
+#                      sigue respondiendo igual). "no" = sin tope.
+REVISOR_IA = "si"
+REVISOR_MODELO = "gpt-4o-mini"
+REVISOR_CONFIANZA = "alta"
+REVISOR_TOPE_MES = "10"
+
 # Cuantas horas se calla el bot despues de que un asesor le escribe a un
 # cliente a mano desde la app de Instagram (para no hablar por encima).
 #

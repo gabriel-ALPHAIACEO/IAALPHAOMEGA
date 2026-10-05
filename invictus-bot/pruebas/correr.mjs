@@ -32,6 +32,7 @@ const SUITES = [
   ["rescate.mjs", "que un \"no es ese\" pase a una persona en vez de seguir adivinando"],
   ["extremo.mjs", "de punta a punta: lo que de verdad le llega al cliente"],
   ["tienda.mjs", "el panel /panel: la clave, los mensajes, lo que pensó la IA, pausar y devolver"],
+  ["instagram.mjs", "/probar-instagram: en qué paso se corta (token, suscripción, firma, envío)"],
   ["cupo.mjs", "que sin cupo de OpenAI no se cuente como \"miré y no está\""],
 ];
 

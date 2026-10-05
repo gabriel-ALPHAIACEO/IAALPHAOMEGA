@@ -75,7 +75,7 @@ import { buscarProductos } from "./shopify.js";
 import { categoriaDeLaBusqueda, CATEGORIAS, emojiDe, categoriasParaElPrompt } from "./categorias.js";
 import { atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
-import { revisarTurno } from "./revisor.js";
+import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDelRevisor } from "./revisor.js";
 
 // Los errores que salgan de aquí en adelante quedan guardados para el panel
 // central (ver registro.js).
@@ -131,7 +131,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-05 (39) · ALPHA IA: diseño nuevo, logo, fotos y carrusel en el panel (y precios de Drive con talla 40-45)";
+const VERSION = "2026-10-05 (40) · tope mensual del revisor (y rastro de Instagram más liviano)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -607,6 +607,7 @@ async function atenderPeticion(request, env, ctx) {
       const deFotos = quienAtiende(env, "vision").proveedor;
 
       const gasto = await gastoDelMes(env);
+      const delRevisor = await gastoDelRevisor(env.DB);
 
       return texto200(
         [
@@ -631,6 +632,7 @@ async function atenderPeticion(request, env, ctx) {
           "",
           "CONFIGURACIÓN (wrangler.toml)",
           `  META_MODO           ${env.META_MODO || "todo (por defecto)"}`,
+          `  REVISOR_IA          ${revisorActivo(env) ? `si, con ${modeloDelRevisor(env)} · confianza ${env.REVISOR_CONFIANZA || "alta"} · este mes $${delRevisor.toFixed(2)} de un tope de ${topeDelRevisor(env) === Infinity ? "sin tope" : `$${topeDelRevisor(env)}`}` : "no (apagado)"}   (revisa cada respuesta ya enviada: 🔴 en el panel si alucinó)`,
           `  META_VERIFY_TOKEN   ${env.META_VERIFY_TOKEN ? "puesto" : "FALTA"}`,
           `  SHOPIFY_TIENDA      ${env.SHOPIFY_TIENDA || "FALTA"}`,
           `  URL_CATALOGO        ${env.URL_CATALOGO || "FALTA"}`,

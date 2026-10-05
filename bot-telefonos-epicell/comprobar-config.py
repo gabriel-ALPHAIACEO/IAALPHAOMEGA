@@ -38,7 +38,7 @@ SECRETOS = {
 # Emperador va con DeepSeek. Sin PROVEEDOR = "deepseek", ni se miran.
 DE_OTRAS_TIENDAS = {"PROVEEDOR", "DEEPSEEK_API_KEY", "DEEPSEEK_MODELO_VISION",
                     # Opcional del revisor: sin ella, solo marca lo seguro.
-                    "REVISOR_CONFIANZA"}
+                    "REVISOR_CONFIANZA", "REVISOR_TOPE_MES"}
 
 if not os.path.exists(ARCHIVO):
     print(f"✗ No encuentro {ARCHIVO}. ¿Estás en la carpeta del bot?")

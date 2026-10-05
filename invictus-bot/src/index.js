@@ -58,13 +58,17 @@ import {
   nombraUnProducto,
   revisarDatoDeLaTienda,
   notaDeDatoDeLaTienda,
+  HORARIOS,
+  ENVIOS,
+  DELIVERY,
 } from "./datos.js";
 import { hayQueRescatar, FRASE_DE_RESCATE, MOTIVO_DE_RESCATE } from "./rescate.js";
 import { revisarTono } from "./tono.js";
 import { revisarPrecio } from "./precio.js";
 import { atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
-import { revisarTurno } from "./revisor.js";
+import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDelRevisor } from "./revisor.js";
+import { anotar, leerRastro, hace } from "./rastro.js";
 
 // Lo que el bot escribe como error queda guardado para el panel central
 // (ver registro.js), además de salir en el registro como siempre.
@@ -132,6 +136,10 @@ import {
   leerMensaje,
   enviarTexto,
   enviarFichas,
+  cuentaDelToken,
+  suscripcionDeLaCuenta,
+  suscribirLaCuenta,
+  CAMPOS_DEL_WEBHOOK,
   enviarBotonCatalogo,
   enviarBotonEnlace,
   enviarAudio,
@@ -145,7 +153,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-05 (57) · ALPHA IA: diseño nuevo, logo, fotos y carrusel en el panel";
+const VERSION = "2026-10-05 (58) · revisor con los datos de la tienda y tope mensual, y /probar-instagram";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -475,6 +483,13 @@ const trabajador = {
 
     // Meta comprueba que la URL es tuya antes de mandarte nada: te pide el
     // token que pusiste en el panel y espera que le devuelvas su desafío.
+    // POR QUÉ NO RESPONDE EN INSTAGRAM (traído de El Emperador, 5-oct-2026).
+    //   /probar-instagram              revisa todo y dice qué hacer
+    //   /probar-instagram?suscribir=si suscribe la cuenta al webhook
+    if (url.pathname === "/probar-instagram") {
+      return texto200(await diagnosticoDeInstagram(env, url));
+    }
+
     if (url.pathname === "/webhook" && request.method === "GET") {
       const modo = url.searchParams.get("hub.mode");
       const token = url.searchParams.get("hub.verify_token");
@@ -482,6 +497,7 @@ const trabajador = {
 
       if (modo === "subscribe" && token && token === env.META_VERIFY_TOKEN) {
         console.log("Meta verificó el webhook");
+        ctx.waitUntil(anotar(env, "verificado", desafio === "PRUEBA12345" ? "prueba a mano" : "Meta"));
         return new Response(desafio || "", { status: 200 });
       }
       console.error("Meta intentó verificar con un token que no coincide");
@@ -494,6 +510,8 @@ const trabajador = {
       const crudo = await request.text();
 
       const cabecera = request.headers.get("x-hub-signature-256");
+      // El rastro de /probar-instagram (ver rastro.js): qué llegó y cuándo.
+      ctx.waitUntil(anotar(env, "llegada", queTraia(crudo)));
 
       // Meta tiene DOS claves secretas y las dos miden 32 caracteres, así
       // que no se distinguen a ojo:
@@ -526,6 +544,9 @@ const trabajador = {
         //
         // El mensaje se descarta igual: no se mira, no se responde. Solo se
         // le quita a Meta el motivo para insistir.
+        ctx.waitUntil(
+          anotar(env, "firma_mala", !claves.length ? "no hay ninguna clave cargada" : !cabecera ? "sin cabecera de firma" : `no firma ninguna: ${claves.map(([n]) => n).join(", ")}`)
+        );
         console.error(
           "Webhook con firma inválida: lo ignoro. " +
             (!claves.length
@@ -550,6 +571,11 @@ const trabajador = {
       // día que no necesitan respuesta, y esto hace que cada uno cueste
       // exactamente cero: ni OpenAI, ni Shopify, ni un envío.
       const mensaje = queAtender(env, crudo);
+      ctx.waitUntil(
+        mensaje
+          ? anotar(env, "atendido", `${mensaje.tipo} de ${mensaje.igsid} (firma: ${cualFuncionó})`)
+          : anotar(env, "descartado", `${queTraia(crudo)} (META_MODO: ${env.META_MODO || "todo"})`)
+      );
 
       // A Meta se le responde 200 siempre y rápido. Si tarda o falla, lo
       // reintenta y el cliente acaba recibiendo la misma respuesta varias
@@ -597,6 +623,7 @@ const trabajador = {
       }
 
       const gasto = await gastoDelMes(env);
+      const delRevisor = await gastoDelRevisor(env.DB);
 
       return texto200(
         [
@@ -614,6 +641,7 @@ const trabajador = {
           `  META_APP_SECRET     ${secreto("META_APP_SECRET")}   (la de Facebook)`,
           `  META_APP_SECRET_IG  ${secreto("META_APP_SECRET_IG")}   (la de Instagram ← es esta)`,
           `  IG_TOKEN            ${secreto("IG_TOKEN")}`,
+          "  ¿No responde en Instagram? Abre /probar-instagram: dice en qué paso se corta.",
           "",
           "NOTAS DE VOZ",
           `  Escuchar             ${env.OPENAI_MODELO_AUDIO || "gpt-4o-mini-transcribe (por defecto)"}   (el audio del cliente se pasa a texto)`,
@@ -633,6 +661,7 @@ const trabajador = {
           `  OPENAI_MODELO       ${env.OPENAI_MODELO || "gpt-4o-mini (por defecto)"}   (el que redacta las respuestas)`,
           `  OPENAI_MODELO_VISION ${env.OPENAI_MODELO_VISION || "gpt-4o (por defecto)"}   (el que identifica las fotos)`,
           `  COTEJO_BARRIDO      ${env.COTEJO_BARRIDO === "no" ? "no (apagado)" : "si"}   (mirar el catálogo cuando el nombre no acierta)`,
+          `  REVISOR_IA          ${revisorActivo(env) ? `si, con ${modeloDelRevisor(env)} · confianza ${env.REVISOR_CONFIANZA || "alta"} · este mes $${delRevisor.toFixed(2)} de un tope de ${topeDelRevisor(env) === Infinity ? "sin tope" : `$${topeDelRevisor(env)}`}` : "no (apagado)"}   (revisa cada respuesta ya enviada: 🔴 en el panel si alucinó)`,
           "",
           "GASTO DE OPENAI ESTE MES — medido, no estimado",
           ...(gasto
@@ -1038,6 +1067,156 @@ async function indexarLoQueFalte(env) {
 //   "todo"  (por defecto) atiende texto, fotos, historias y ecos — el bot
 //           completo, sin ningún otro sistema de por medio.
 //   "off"   nada; el webhook queda desactivado.
+// LO QUE ES VERDAD EN ESTA TIENDA, para que el revisor compare (ver
+// revisor.js): si el bot dice otro horario, un envío que no hay, otra
+// dirección u otro método de pago, el revisor lo atrapa (traído de El
+// Emperador, 5-oct-2026).
+function datosParaElRevisor(env) {
+  const lugar = mensajeDeUbicacion(env);
+  let pagos = "";
+  try {
+    pagos = listaDeMetodos();
+  } catch {}
+  return [
+    HORARIOS,
+    ENVIOS,
+    DELIVERY,
+    `📍 Ubicación: ${lugar.texto || "(no cargada: la confirma un asesor)"}`,
+    pagos ? `💳 Métodos de pago:\n${pagos}` : "",
+    hayCashea() ? `Cashea: ${casheaVigente() ? "hay promoción vigente" : "la promoción NO está vigente hoy: lo de Cashea lo confirma un asesor"}` : "",
+    "Las tallas que quedan de un modelo concreto las confirma un asesor (el catálogo no las sabe).",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+// LA PÁGINA /probar-instagram. Recorre el camino de un mensaje —token,
+// suscripción, llegada, firma, envío— y dice el PRIMER paso que falla, con
+// lo que hay que hacer. Ver rastro.js.
+export async function diagnosticoDeInstagram(env, url) {
+  const tienda = env.TIENDA_NOMBRE || "la tienda";
+  const lineas = ["INSTAGRAM — por qué responde o no responde", `Código: ${VERSION}`, ""];
+  const hacer = [];
+
+  // 1. El token.
+  let cuentaId = "";
+  lineas.push("1. EL TOKEN (IG_TOKEN)");
+  if (!env.IG_TOKEN) {
+    lineas.push("   ✘ NO está cargado.");
+    hacer.push(`Carga el token de la cuenta de ${tienda}: npx.cmd wrangler secret put IG_TOKEN`);
+  } else {
+    const yo = await cuentaDelToken(env);
+    if (yo.ok && yo.datos) {
+      cuentaId = String(yo.datos.user_id || yo.datos.id || "");
+      lineas.push(
+        `   ✔ es de @${yo.datos.username || "?"}${yo.datos.name ? ` (${yo.datos.name})` : ""}, ` +
+          `cuenta ${yo.datos.account_type || "?"}, id ${cuentaId || "?"}`,
+        `     ¿Es la cuenta de ${tienda}? Si es la de otra tienda, el token está cambiado.`
+      );
+    } else {
+      lineas.push(`   ✘ Instagram lo rechaza (${yo.estado}): ${yo.texto}`);
+      hacer.push(
+        "El IG_TOKEN no sirve (caducado, o de otra app). Genera uno nuevo en Meta → tu app → " +
+          "Instagram → Configuración de la API con inicio de sesión de Instagram → " +
+          `Generar token (con la cuenta de ${tienda}) y cárgalo: npx.cmd wrangler secret put IG_TOKEN`
+      );
+    }
+  }
+  lineas.push("");
+
+  // 2. La suscripción de la cuenta (sin ella Meta no manda nada).
+  lineas.push("2. LA CUENTA, SUSCRITA AL WEBHOOK");
+  if (env.IG_TOKEN) {
+    if (url.searchParams.get("suscribir") === "si") {
+      const r = await suscribirLaCuenta(env);
+      lineas.push(r.ok ? `   → La suscribí ahora (${CAMPOS_DEL_WEBHOOK}).` : `   ✘ No pude suscribirla (${r.estado}): ${r.texto}`);
+    }
+    const sub = await suscripcionDeLaCuenta(env);
+    const campos = sub.ok ? [...new Set((sub.datos?.data || []).flatMap((d) => d.subscribed_fields || []))] : [];
+    if (!sub.ok) {
+      lineas.push(`   ? No pude preguntarlo (${sub.estado}): ${sub.texto}`);
+    } else if (campos.includes("messages")) {
+      lineas.push(`   ✔ suscrita a: ${campos.join(", ")}`);
+    } else {
+      lineas.push(`   ✘ NO está suscrita a los mensajes${campos.length ? ` (solo a: ${campos.join(", ")})` : ""}.`);
+      hacer.push(`Abre ${url.origin}/probar-instagram?suscribir=si (suscribe la cuenta; se hace una sola vez).`);
+    }
+  } else {
+    lineas.push("   (sin IG_TOKEN no se puede mirar)");
+  }
+  lineas.push("");
+
+  // 3. Lo que pasó de verdad, según el rastro.
+  const r = await leerRastro(env);
+  const fila = (paso, nombre) =>
+    `   ${nombre.padEnd(30)} ${hace(r[paso]?.cuando)}${r[paso]?.detalle ? ` — ${r[paso].detalle}` : ""}`;
+  lineas.push(
+    "3. LO ÚLTIMO QUE PASÓ (se apunta solo)",
+    fila("verificado", "Webhook verificado"),
+    fila("llegada", "Último aviso de Meta"),
+    fila("firma_mala", "Firma que NO cuadró"),
+    fila("descartado", "Descartado (no era mensaje)"),
+    fila("atendido", "Mensaje atendido"),
+    fila("envio_ok", "Respuesta enviada"),
+    fila("envio_fallido", "Envío RECHAZADO"),
+    ""
+  );
+
+  const despues = (a, b) => (r[a]?.cuando || 0) > (r[b]?.cuando || 0);
+  if (!r.llegada) {
+    hacer.push(
+      "Desde que se desplegó esta versión, Meta todavía NO ha mandado nada a este Worker. Escríbele a la " +
+        "cuenta desde otro perfil y recarga. Si sigue sin llegar: en developers.facebook.com → tu app → " +
+        `Instagram → Webhooks, la URL tiene que ser ${url.origin}/webhook (con el token de verificación ` +
+        'que está en META_VERIFY_TOKEN del wrangler.toml) y el campo "messages" activado.'
+    );
+  } else {
+    const deOtra = (r.llegada.detalle.match(/cuenta (\d+)/) || [])[1];
+    if (deOtra && cuentaId && deOtra !== cuentaId) {
+      hacer.push(`Los avisos llegan de la cuenta ${deOtra} pero el IG_TOKEN es de la ${cuentaId}: el token es de otra cuenta.`);
+    }
+    if (despues("firma_mala", "atendido") && despues("firma_mala", "descartado")) {
+      hacer.push(
+        "Llegan avisos pero la firma no cuadra: carga la clave del producto Instagram " +
+          "(Meta → Instagram → Configuración de la API con inicio de sesión → Clave secreta de la app de Instagram): " +
+          "npx.cmd wrangler secret put META_APP_SECRET_IG"
+      );
+    }
+    if (r.descartado && !r.atendido && /META_MODO: off/.test(r.descartado.detalle)) {
+      hacer.push('META_MODO está en "off": ponlo en "todo" en wrangler.toml.');
+    }
+  }
+  if (despues("envio_fallido", "envio_ok")) {
+    hacer.push(`Se atiende pero Instagram rechaza la respuesta: ${r.envio_fallido.detalle.slice(0, 200)}. Casi siempre es el IG_TOKEN.`);
+  }
+
+  lineas.push("4. QUÉ HACER");
+  if (hacer.length) hacer.forEach((h, i) => lineas.push(`   ${i + 1}. ${h}`, ""));
+  else lineas.push("   Nada: el camino está completo.", "");
+  return lineas.join("\n");
+}
+
+// En pocas palabras, qué mandó Meta (para el rastro, sin el texto del cliente).
+function queTraia(crudo) {
+  try {
+    const cuerpo = JSON.parse(crudo);
+    const entrada = cuerpo?.entry?.[0] || {};
+    const evento = entrada.messaging?.[0] || {};
+    const que = entrada.changes
+      ? `cambio "${entrada.changes[0]?.field || "?"}"`
+      : evento.message
+        ? evento.message.is_echo
+          ? "eco de un mensaje enviado"
+          : evento.message.attachments
+            ? `mensaje con ${evento.message.attachments.map((a) => a?.type).join(", ")}`
+            : "mensaje de texto"
+        : Object.keys(evento).filter((k) => !["sender", "recipient", "timestamp"].includes(k)).join(", ") || "evento vacío";
+    return `${cuerpo.object || "?"}: ${que} · cuenta ${entrada.id || "?"}`;
+  } catch {
+    return "algo que no es JSON";
+  }
+}
+
 function queAtender(env, crudo) {
   const modo = (env.META_MODO || "todo").toLowerCase();
   if (modo === "off") return null;
@@ -1966,6 +2145,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     ...turnoDelPanel,
     id: await anotarTurno(env.DB, turnoDelPanel, env),
     fichas: fichas.map((p) => `${p.titulo}${p.precio ? ` · ${p.precio}` : ""}`),
+    // Para el revisor: con qué comparar lo que dijo (ver revisor.js).
+    contexto: datosParaElRevisor(env),
   };
 
   // La tarjeta de Cashea, cuando no fue dentro del mensaje de arriba: va

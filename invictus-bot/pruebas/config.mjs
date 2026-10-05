@@ -75,7 +75,7 @@ titulo("ninguna variable de más ni de menos");
 
 // Lo que lee el código: env.ALGO en cualquier .js de src/.
 const leidas = new Set();
-for (const f of listaDeFuentes()) for (const m of fuente(f).matchAll(/env\.([A-Z][A-Z0-9_]+)/g)) leidas.add(m[1]);
+for (const f of listaDeFuentes()) for (const m of fuente(f).matchAll(/env\??\.([A-Z][A-Z0-9_]+)/g)) leidas.add(m[1]);
 const SECRETOS = new Set(["OPENAI_API_KEY", "SHOPIFY_TOKEN", "SLACK_WEBHOOK", "META_APP_SECRET_IG", "META_APP_SECRET", "IG_TOKEN"]);
 
 const sobran = [...vars.keys()].filter((v) => !leidas.has(v));

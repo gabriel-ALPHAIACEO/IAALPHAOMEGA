@@ -108,6 +108,40 @@ function conDeepSeek(env) {
   return String(env?.PROVEEDOR || "").toLowerCase() === "deepseek";
 }
 
+// EL TOPE DEL MES (5-oct-2026). El dueño: "si esto no nos va a gastar
+// todo". REVISOR_TOPE_MES, en dólares (por defecto 10): cuando lo que gastó
+// el revisor este mes llega ahí, deja de revisar hasta el mes que viene. El
+// bot sigue respondiendo igual; solo se apaga la segunda opinión. Con "no"
+// no hay tope.
+const TOPE_POR_DEFECTO = 10;
+
+export function topeDelRevisor(env) {
+  const valor = String(env?.REVISOR_TOPE_MES ?? "").trim().toLowerCase();
+  if (!valor) return TOPE_POR_DEFECTO;
+  if (/^(no|sin tope|ninguno)$/.test(valor)) return Infinity;
+  const n = Number(valor.replace(",", ".").replace(/[$\s]/g, ""));
+  return Number.isFinite(n) && n >= 0 ? n : TOPE_POR_DEFECTO;
+}
+
+// Lo que gastó el revisor este mes: sus filas en la tabla gasto llevan
+// "(revisor)" detrás del modelo (ver más abajo). Sin tabla, cero.
+export async function gastoDelRevisor(db) {
+  if (!db) return 0;
+  try {
+    const fila = await db
+      .prepare("SELECT COALESCE(SUM(dolares), 0) AS d FROM gasto WHERE mes = ? AND instr(modelo, '(revisor)') > 0")
+      .bind(new Date().toISOString().slice(0, 7))
+      .first();
+    return Number(fila?.d) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function modeloDelRevisor(env) {
+  return env?.REVISOR_MODELO || (conDeepSeek(env) ? env?.DEEPSEEK_MODELO_VISION || "deepseek-chat" : "gpt-4o-mini");
+}
+
 export function revisorActivo(env) {
   if (/^(no|off|false|0)$/i.test(String(env?.REVISOR_IA || "").trim())) return false;
   return conDeepSeek(env) ? Boolean(env?.DEEPSEEK_API_KEY) : Boolean(env?.OPENAI_API_KEY);
@@ -163,6 +197,14 @@ async function conversacionReciente(db, igsid) {
 //          categoria?: "bolso"…, contexto?: los datos de la tienda (horario, envíos, ubicación, pagos) }
 export async function revisarTurno(env, turno) {
   if (!revisorActivo(env) || !turno?.id || !String(turno.respuesta || "").trim()) return null;
+  const tope = topeDelRevisor(env);
+  if (tope !== Infinity) {
+    const gastado = await gastoDelRevisor(env.DB);
+    if (gastado >= tope) {
+      console.log(`REVISOR: llegó al tope del mes ($${gastado.toFixed(2)} de $${tope}): no reviso hasta el mes que viene`);
+      return null;
+    }
+  }
 
   const charla = await conversacionReciente(env.DB, turno.igsid);
   const contenido = [
@@ -179,7 +221,7 @@ export async function revisarTurno(env, turno) {
     .filter((linea) => linea !== "")
     .join("\n");
 
-  const modelo = env.REVISOR_MODELO || (conDeepSeek(env) ? env.DEEPSEEK_MODELO_VISION || "deepseek-chat" : "gpt-4o-mini");
+  const modelo = modeloDelRevisor(env);
   let datos;
   try {
     datos = await preguntar(env, modelo, [
@@ -194,7 +236,9 @@ export async function revisarTurno(env, turno) {
 
   if (datos?.usage) {
     await anotarGasto(env, {
-      modelo,
+      // Aparte del que conversa: así se ve en /estado y cuenta para el tope.
+      // (La tarifa se busca por el comienzo del nombre: es la del modelo.)
+      modelo: `${modelo} (revisor)`,
       entrada: datos.usage.prompt_tokens || 0,
       cacheadas: datos.usage.prompt_cache_hit_tokens || datos.usage.prompt_tokens_details?.cached_tokens || 0,
       salida: datos.usage.completion_tokens || 0,
