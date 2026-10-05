@@ -1,5 +1,42 @@
 # EPICELL — estado y lo que falta (22-sep-2026)
 
+## Hecho: un solo precio, el de Cashea (5-oct-2026)
+
+Decisión del dueño: "la IA solo da precio de Cashea, no de divisas. Un
+solo precio". En fichas, listas, comentarios y texto sale UN precio, el de
+la columna "Precio Cashea ($)". "¿Y en divisas?" → "El precio en divisas
+te lo confirma un asesor" (y se le avisa). Si a un producto le falta el
+precio Cashea, sale "Precio: consúltalo" — nunca el de divisas.
+
+"¿Precio?" después de ver las fichas: ya no se reenvían las fotos con "el
+precio lo tengo aquí 👇". Se le escribe el precio de cada equipo. Y si la
+IA escribe "el precio está en la imagen", el código cambia la frase.
+
+## Revisión del inventario (INVENTARIO AL 050926, 5-oct-2026)
+
+119 filas, 93 con cantidad > 0 (las que ve el bot). Todas tienen precio
+Cashea. Lo que confundía al bot ya se arregló en el código (el teclado,
+el hub, las bases, el TV stick, el OTG y la afeitadora pasaban por
+teléfonos; "¿qué tienen de Yookie?" daba 2 de 11). Lo que conviene
+acomodar EN LA HOJA:
+
+1. **Poner la marca al principio del Nombre** en los que no la llevan:
+   "Auriculares Tipo C YTL09" → "Yookie Auriculares Tipo C YTL09"; igual
+   con los de Yookie, "Ex141/ Router Ax1500" → "TP-Link Router Ax1500
+   Ex141", "Mr62x/ Router Ax1500" → "Mercusys Router Ax1500 MR62X",
+   "Cargador para carro Gar241" y "Powerbank 20.000mAh GAr 158" (1hora),
+   "Sheaver afeitadora" (está como Xiaomi).
+2. **Foto a los dos routers** (INV-044 y INV-045): no tienen.
+3. **Fotos de Drive compartidas** como "Cualquier persona con el enlace".
+   Si no, Instagram no las descarga (el registro dirá cuál).
+4. **Almacenamiento siempre igual**: "6GB / 256GB" (hay "6GB/ 256GB" y
+   "8GB/ 512GB"). En accesorios, vacío.
+5. **El nombre de la pestaña**: hoy es "INVENTARIO AL 050926" y está
+   copiado en SHEET_NOMBRE. El día que se renombre, el bot se queda sin
+   productos. Mejor llamarla "INVENTARIO" para siempre y poner
+   SHEET_NOMBRE = "INVENTARIO".
+6. Para esconder un producto, Cantidad en 0 (no borrar la fila).
+
 ## Hecho: revisión de "aquí está" sin foto, lentitud y confusiones (30-sep-2026)
 
 **"Aquí lo tienes 👇" y ninguna foto.** Dos causas:

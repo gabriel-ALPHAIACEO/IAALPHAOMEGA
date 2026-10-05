@@ -63,10 +63,9 @@ comprobar("lo rescató por la marca y el A57 está en el carrusel", fichas(r.env
 comprobar("así que NO le dice que no lo maneja", /no lo manejo|no me queda|no lo tengo/i.test(textos(r.enviados).join(" ")), false);
 comprobar("le dice que sí", /claro|s[ií] lo tengo|por supuesto/i.test(textos(r.enviados).join(" ")), true);
 
-/* ── 3. "¿Y EN DIVISAS?" ES DE LO MISMO; "¿Y LOS CABLES?" NO ───────
-   El atajo de divisas vuelve a mandar el último carrusel. Si el cliente
-   nombra otra cosa de la hoja, eso ya no es "lo mismo con otro precio":
-   es otro producto, y hay que buscarlo.
+/* ── 3. "¿Y LOS CABLES?" ES OTRA COSA ─────────────────────────────
+   Si el cliente nombra otra cosa de la hoja, eso es otro producto y hay
+   que buscarlo, no repetirle lo de antes.
    ───────────────────────────────────────────────────────────────── */
 const yaVioElA57 = {
   historial: "Ya di la bienvenida.",
@@ -74,9 +73,9 @@ const yaVioElA57 = {
   ultima_respuesta: "Aquí lo tienes 👇",
 };
 
+// (5-oct-2026) El precio en divisas ya no se da: lo confirma un asesor.
 r = await turno({ texto: "y en divisas?", fila: yaVioElA57 });
-comprobar("«¿y en divisas?»: los mismos equipos otra vez", fichas(r.enviados), ["Samsung A57"]);
-comprobar("con el precio en divisas anunciado", /divisa/i.test(textos(r.enviados).join(" ")), true);
+comprobar("«¿y en divisas?»: no se da ese precio, lo confirma un asesor", /asesor/.test(textos(r.enviados).join(" ")), true);
 
 r = await turno({
   texto: "y los cables en divisas?",

@@ -48,13 +48,28 @@ const TIPOS = [
   ["corneta", ["corneta", "cornetas", "bocina", "bocinas", "parlante", "parlantes",
     "speaker", "speakers"]],
 
-  ["soporte", ["soporte", "soportes", "tripode", "tripodes", "holder", "selfie"]],
+  // "base": las bases para carro, para moto y de escritorio del
+  // inventario. Sin ella pasaban por teléfono (5-oct-2026).
+  ["soporte", ["soporte", "soportes", "tripode", "tripodes", "holder", "selfie",
+    "base", "bases"]],
 
   ["microfono", ["microfono", "microfonos"]],
 
   ["camara", ["camara", "camaras", "webcam"]],
 
   ["router", ["router", "routers", "modem", "repetidor"]],
+  // LO QUE PASABA POR TELÉFONO (5-oct-2026, revisando el inventario real).
+  // Un título sin ninguna palabra de esta tabla se toma por teléfono —los
+  // teléfonos se llaman "Samsung A57", sin decir qué son—, así que todo
+  // accesorio de la hoja tiene que tener aquí su palabra. Faltaban estas:
+  // el teclado de Yookie salía como teléfono, y al preguntar "¿qué tienen
+  // de Yookie?" el bot escondía los once accesorios y dejaba el teclado.
+  ["computacion", ["teclado", "teclados", "mouse", "raton", "ratones"]],
+  ["adaptador", ["hub", "hubs", "multipuerto", "otg"]],
+  ["tv", ["tv", "firestick", "roku", "chromecast"]],
+  ["cuidado personal", ["afeitadora", "afeitadoras", "sheaver", "shaver", "rasuradora",
+    "secador", "plancha"]],
+  ["ventilador", ["cooler", "coolers", "ventilador", "ventiladores"]],
 
   // El teléfono es el tipo por defecto de esta tienda, pero también se
   // nombra: "¿qué celulares tienen?", "teléfonos Xiaomi". Nombrarlo sirve

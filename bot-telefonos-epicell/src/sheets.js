@@ -828,7 +828,10 @@ function convertir(filas, env) {
   const productos = [];
 
   for (const fila of filas.slice(filaEncabezados + 1)) {
-    const titulo = String(fila[indices.titulo] || "").trim();
+    // Sin espacios dobles ni sobrantes (5-oct-2026): en la hoja hay
+    // "Auriculares Tipo C  YTL09" y "Skydolphing  cable 4 en 1  S40E", y
+    // así le llegaban al cliente en la ficha.
+    const titulo = String(fila[indices.titulo] || "").replace(/\s+/g, " ").trim();
     if (!titulo) continue;
 
     // Solo se esconde con un NO explícito: una celda vacía se toma como

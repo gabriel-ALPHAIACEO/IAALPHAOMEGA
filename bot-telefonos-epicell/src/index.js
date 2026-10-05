@@ -608,13 +608,24 @@ function noEsePeroMira(termino, productos, porCategoria = "") {
     .replaceAll("{marca}", marca);
 }
 
-// Lo que se le dice cuando vuelve a pedir lo mismo en divisas. No hace
-// falta buscar nada: son los equipos que acaba de ver.
-const PRECIOS_EN_DIVISAS = [
-  "¡Claro que sí! 💵 Estos son los precios en divisas 👇",
-  "¡Con gusto! 💵 Aquí te van en divisas 👇",
-  "¡Por supuesto! Te los paso en divisas 💵 👇",
+// "¿Y EN DIVISAS?" (5-oct-2026, decisión del dueño: "solo precio de
+// Cashea, no de precio divisas ni nada de eso"). El bot no da ese otro
+// precio: lo confirma un asesor, y se le avisa.
+const DIVISAS_LO_CONFIRMA_UN_ASESOR = "El precio en divisas te lo confirma un asesor en un momento 😊";
+
+// "¿PRECIO?" DE LO QUE ACABA DE VER (5-oct-2026).
+//
+// EL FALLO: el bot le mandaba las fichas, el cliente preguntaba "¿precio?"
+// y el bot le volvía a mandar las MISMAS fichas con un "¡Claro! El precio
+// lo tengo aquí 👇" — señalándole una imagen que ya tenía delante. Si
+// pregunta el precio otra vez es que lo quiere escrito: se le escribe, uno
+// por equipo (el de Cashea), y no se le repiten las fotos.
+const LOS_PRECIOS_ESCRITOS = [
+  "¡Claro que sí! 😊",
+  "¡Con gusto! 😊",
+  "¡Por supuesto! 😊",
 ];
+const Y_DESPUES_DE_LOS_PRECIOS = "¿Cuál te interesa?";
 
 // Compartió una publicación y no hay forma de saber qué equipo es: ni la
 // imagen, ni su pie de foto, ni lo que escribió el cliente lo nombran.
@@ -677,13 +688,55 @@ const PUBLICACION_SIN_IDENTIFICAR = [
   "¡Por supuesto! 😊 Dime el nombre del equipo que viste ahí y te doy toda la información",
 ];
 
-// La plataforma de compra a crédito. Cuando el cliente la nombra, se le
-// muestra el precio Cashea de la ficha junto al precio normal.
-const PREGUNTA_CASHEA = /\bcashea\b/i;
+// El cliente nombra las divisas o los dólares. Junto con una pregunta de
+// precio, es pedir el precio en divisas: eso lo confirma un asesor.
+const PREGUNTA_DIVISAS = /\b(divisas?|d[oó]lares?|usd|efectivo|de\s+contado|al\s+contado)\b/i;
 
-// El precio en divisas solo sale cuando el cliente lo pide con estas
-// palabras; por defecto la ficha muestra el precio Cashea.
-const PREGUNTA_DIVISAS = /\b(divisas?|d[oó]lares?|usd)\b/i;
+// Una pregunta de precio. "cuántos" NO entra (es "¿cuántos gigas?").
+const PIDE_PRECIO = /\b(precios?|cu[aá]nto|cuesta|cuestan|vale|valen|costo|sale|salen)\b/i;
+
+// "¿Aceptan dólares?", "¿puedo pagar en efectivo?": eso es una forma de
+// pago, no un precio. Sigue su camino.
+const HABLA_DE_PAGAR = /\b(acept\w*|pag\w*|recib\w*|transfer\w*)\b/i;
+
+// Lo de cuotas tiene su propia respuesta: "¿cuánto es la inicial?" no es
+// pedir el precio otra vez.
+const HABLA_DE_CUOTAS =
+  /\b(cashea|casea|cachea|krece|crece|cuotas?|inicial|nivel|niveles|cr[ée]dito|financ\w*)\b/i;
+
+function preguntaElPrecioEnDivisas(texto) {
+  const limpio = String(texto || "");
+  if (!PREGUNTA_DIVISAS.test(limpio) || HABLA_DE_PAGAR.test(limpio)) return false;
+  // "¿y en divisas?" a secas, justo después de ver un precio, también.
+  return PIDE_PRECIO.test(limpio) || despejar(limpio).split(" ").length <= 4;
+}
+
+// "¿Precio?", "¿cuánto cuesta?", "¿y cuánto vale?": corto, y sin nada más
+// que haya que contestar aparte.
+function preguntaSoloElPrecio(texto) {
+  const limpio = String(texto || "");
+  return (
+    PIDE_PRECIO.test(limpio) &&
+    despejar(limpio).split(" ").length <= 6 &&
+    !HABLA_DE_CUOTAS.test(limpio) &&
+    !PREGUNTA_DIVISAS.test(limpio) &&
+    !CONSULTA_DE_ASESOR.test(limpio)
+  );
+}
+
+// Lo que acaba de ver: los del último carrusel (guardados en D1) o, si la
+// conversación es de antes de que eso se guardara, los que nombró el
+// último mensaje del bot.
+function loQueAcabaDeVer(contacto, enElCatalogo) {
+  const guardados = enElCatalogo.filter((p) =>
+    (contacto.ultimos_productos || []).some((titulo) => despejar(titulo) === despejar(p.titulo))
+  );
+  return guardados.length ? guardados : productosRecomendados(enElCatalogo, contacto.ultima_respuesta);
+}
+
+// "Lo que acaba de ver" vale un día: pasado eso, "¿precio?" ya no habla
+// de aquellas fichas.
+const LO_QUE_VIO_VALE_MS = 24 * 60 * 60 * 1000;
 
 // ¿PIDIÓ EL PRECIO EN DIVISAS DE LO MISMO, O DE OTRA COSA?
 //
@@ -1549,7 +1602,7 @@ function conMoneda(precio) {
 }
 
 function unaLinea(producto) {
-  const precio = conMoneda(precioParaMostrar(producto, false, false));
+  const precio = precioParaMostrar(producto);
   const capacidad = capacidadDe(producto);
 
   // Si el título ya dice los gigas, repetirlos al lado sobra.
@@ -1849,7 +1902,7 @@ async function atenderComentario(env, comentario, rastro = {}) {
       if (productos.length) {
         const fichas = productos.map((producto) => ({
           ...producto,
-          precio: subtituloDeFicha(producto, false, false),
+          precio: subtituloDeFicha(producto),
         }));
 
         const mid = await enviarFichas(env, igsid, fichas);
@@ -2284,7 +2337,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
         enviarFichas(
           env,
           mensaje.igsid,
-          previos.map((p) => ({ ...p, precio: subtituloDeFicha(p, false, false) }))
+          previos.map((p) => ({ ...p, precio: subtituloDeFicha(p) }))
         )
       );
 
@@ -2441,12 +2494,10 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     });
 
     if (deLaMarca.length) {
-      const conCasheaAhora = PREGUNTA_CASHEA.test(mensaje.texto);
-      const conDivisasAhora = PREGUNTA_DIVISAS.test(mensaje.texto);
 
       const { mensajes, puestas, faltan } = mensajesDeLista(deLaMarca, {
         cabecera: `Estos son los ${marca} que tenemos 👇`,
-        precioDe: (producto) => precioParaMostrar(producto, conCasheaAhora, conDivisasAhora),
+        precioDe: (producto) => precioParaMostrar(producto),
       });
 
       console.log(
@@ -2557,7 +2608,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       const respuesta = alAzar(AQUI_LOS_TIENES);
       const fichas = recomendados.map((p) => ({
         ...p,
-        precio: subtituloDeFicha(p, false, false),
+        precio: subtituloDeFicha(p),
       }));
 
       await mandar(() => enviarTexto(env, mensaje.igsid, respuesta), respuesta);
@@ -2586,96 +2637,70 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     );
   }
 
-  // "¿Y EN DIVISAS?" — LOS MISMOS EQUIPOS, CON EL OTRO PRECIO.
+  // "¿Y EN DIVISAS?" — UN SOLO PRECIO, EL DE CASHEA (5-oct-2026).
   //
-  // EL FALLO QUE ESTO ARREGLA (24-sep-2026). El bot le mostró dos Samsung
-  // A57, el cliente preguntó "Precio en divisas?" y recibió "Eso te lo
-  // confirma un asesor en un momento 😊". Ni buscó ni mostró nada: ese
-  // mensaje no nombra ningún equipo, así que no había término de búsqueda,
-  // y el modelo —que no tenía nada dicho sobre divisas— tiró por el asesor.
+  // Antes esto le volvía a mandar las fichas con el precio en divisas. El
+  // dueño lo quiere al revés: el bot da UN precio, el de Cashea, y el de
+  // divisas lo confirma un asesor. Va antes del modelo para que no haya
+  // forma de que se le escape una cifra.
+  if (!imagenCruda && (!publicacion || publicacion.soloContexto) && preguntaElPrecioEnDivisas(mensaje.texto)) {
+    const respuesta = DIVISAS_LO_CONFIRMA_UN_ASESOR;
+    console.log("Preguntó el precio en divisas: lo confirma un asesor (el bot solo da el de Cashea)");
+
+    await mandar(() => enviarTexto(env, mensaje.igsid, respuesta), respuesta);
+    await guardarContacto(env.DB, {
+      ...contacto,
+      nombre,
+      historial: conNota(historialPrevio, "Preguntó el precio en divisas: lo confirma un asesor."),
+      mids_enviados: mids,
+      ultimo_envio: enviadoEn || Date.now(),
+      ultima_respuesta: respuesta,
+      conversacion,
+    });
+    await avisarAsesor(env, {
+      ...paraElAviso(contacto),
+      igsid: mensaje.igsid,
+      mensaje: mensaje.texto,
+      respuesta,
+      motivo: "PREGUNTA EL PRECIO EN DIVISAS",
+    });
+    return;
+  }
+
+  // "¿PRECIO?" DE LO QUE ACABA DE VER: ESCRITO, NO OTRA VEZ LAS FOTOS.
   //
-  // Pero el dato sí lo tenemos: los precios de la hoja YA están en divisas.
-  // Lo único que faltaba era saber DE QUÉ equipos habla, y eso no hay que
-  // adivinarlo: son los del último carrusel, guardados en D1.
-  //
-  // Va antes del modelo, como "muéstrame esos", por la misma razón: no hay
-  // nada que redactar ni que buscar, hay que volver a enseñar lo mismo.
-  if (!imagenCruda && !publicacion && PREGUNTA_DIVISAS.test(mensaje.texto)) {
+  // Solo si no nombra otra cosa ("¿y el cargador cuánto?" es otra
+  // búsqueda) y si lo que vio es reciente.
+  if (!imagenCruda && (!publicacion || publicacion.soloContexto) && preguntaSoloElPrecio(mensaje.texto)) {
     const enElCatalogo = await catalogoCompleto(env);
+    const nombraOtraCosa =
+      nombraAlgoDeLaHoja(mensaje.texto, enElCatalogo) || nombraDelCatalogo(mensaje.texto, enElCatalogo);
+    const reciente = Date.now() - (Number(contacto.ultimo_envio) || 0) < LO_QUE_VIO_VALE_MS;
+    const previos = !nombraOtraCosa && reciente ? loQueAcabaDeVer(contacto, enElCatalogo) : [];
 
-    // Si nombra un equipo —"¿cuánto es el iPhone 15 en divisas?"— no está
-    // hablando de los de antes: que siga el camino normal y se busque lo
-    // que pidió. La ficha saldrá en divisas igual.
-    const nombraProducto = nombraAlgoDeLaHoja(mensaje.texto, enElCatalogo);
+    if (previos.length) {
+      const respuesta = [
+        alAzar(LOS_PRECIOS_ESCRITOS),
+        previos.slice(0, 8).map(unaLinea).join("\n"),
+        Y_DESPUES_DE_LOS_PRECIOS,
+      ].join("\n\n");
+      console.log(`Preguntó el precio de lo que acaba de ver: se lo escribo (${previos.length})`);
 
-    if (nombraProducto) {
-      console.log(
-        "Pidió divisas pero nombró algo de la hoja que no es lo que acaba " +
-          "de ver: lo busco en vez de repetirle el último carrusel"
-      );
-    }
-
-    if (!nombraProducto && !nombraDelCatalogo(mensaje.texto, enElCatalogo)) {
-      // DE DÓNDE SALE "LO QUE ACABA DE VER". Dos caminos, y hacen falta
-      // los dos:
-      //
-      //   1. La columna "ultimos_productos", que es exacta.
-      //   2. El último mensaje del bot, leyendo de él los títulos del
-      //      catálogo que nombró (lo mismo que hace "muéstrame esos").
-      //
-      // El segundo existe porque el primero empieza vacío: una conversación
-      // que venía de antes de que existiera esa columna —o que recibió su
-      // carrusel con la versión anterior del bot— no tiene nada guardado, y
-      // entonces esto no se disparaba y el cliente se quedaba sin su
-      // respuesta. Con el segundo camino, funciona desde el primer día.
-      const guardados = enElCatalogo.filter((p) =>
-        contacto.ultimos_productos.some((titulo) => despejar(titulo) === despejar(p.titulo))
-      );
-
-      const previos = guardados.length
-        ? guardados
-        : productosRecomendados(enElCatalogo, contacto.ultima_respuesta);
-
-      if (previos.length) {
-        if (!guardados.length) {
-          console.log(
-            "Pidió divisas y no había lista guardada: saco los equipos del " +
-              "último mensaje que le mandé"
-          );
-        }
-        const respuesta = alAzar(PRECIOS_EN_DIVISAS);
-        console.log(
-          `Pidió divisas: le repito ${previos.map((p) => p.titulo).join(", ")} con el precio en divisas`
-        );
-
-        await mandar(() => enviarTexto(env, mensaje.igsid, respuesta), respuesta);
-        await mandar(() =>
-          enviarFichas(
-            env,
-            mensaje.igsid,
-            previos.map((p) => ({ ...p, precio: subtituloDeFicha(p, false, true) }))
-          )
-        );
-
-        await guardarContacto(env.DB, {
-          ...contacto,
-          nombre,
-          historial: conNota(
-            historialPrevio,
-            `Le repetí en divisas: ${previos.map((p) => p.titulo).join(", ")}.`
-          ),
-          mids_enviados: mids,
-          ultimo_envio: enviadoEn || Date.now(),
-          ultima_respuesta: respuesta,
-          ultimos_productos: previos.map((p) => p.titulo),
-        });
-        return;
-      }
-
-      console.log(
-        "Pidió divisas, pero no sé de qué equipos habla (ni lista guardada " +
-          "ni nombres en el último mensaje): sigo por el camino normal."
-      );
+      await mandar(() => enviarTexto(env, mensaje.igsid, respuesta), respuesta);
+      await guardarContacto(env.DB, {
+        ...contacto,
+        nombre,
+        historial: conNota(
+          historialPrevio,
+          `Le escribí el precio de: ${previos.slice(0, 8).map((p) => p.titulo).join(", ")}.`
+        ),
+        mids_enviados: mids,
+        ultimo_envio: enviadoEn || Date.now(),
+        ultima_respuesta: respuesta,
+        ultimos_productos: previos.map((p) => p.titulo),
+        conversacion,
+      });
+      return;
     }
   }
 
@@ -2883,15 +2908,11 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     porCategoria,
   } = await decidir({ env, salida, texto: mensaje.texto, historialPrevio, senalado: equipoSenalado });
 
-  // El precio que va en cada ficha depende de lo que preguntó el cliente
-  // (Cashea, divisas, o el de por defecto). Se resuelve ACÁ y las fichas
-  // salen con el precio ya escrito: así instagram.js no necesita saber
-  // nada de Cashea y sigue sirviendo igual para cualquier tienda.
-  const conCashea = PREGUNTA_CASHEA.test(mensaje.texto);
-  const conDivisas = PREGUNTA_DIVISAS.test(mensaje.texto);
+  // Las fichas salen con su precio ya escrito —uno solo, el de Cashea (ver
+  // precioParaMostrar)—: así instagram.js no necesita saber nada de Cashea.
   const fichas = productos.map((p) => ({
     ...p,
-    precio: subtituloDeFicha(p, conCashea, conDivisas),
+    precio: subtituloDeFicha(p),
   }));
 
   // NO SABEMOS QUÉ EQUIPO ES EL DE LA PUBLICACIÓN: SE PREGUNTA (crítico).
@@ -3500,13 +3521,15 @@ function cifrasDeDinero(texto) {
   return halladas.filter((n) => Number.isFinite(n));
 }
 
-// Todos los precios verdaderos de lo que se le va a mandar. Se admiten los
-// dos —el de divisas y el de Cashea— porque los dos son ciertos.
+// Los precios verdaderos de lo que se le va a mandar: SOLO el de Cashea
+// (5-oct-2026). Antes se admitía también el de divisas, y entonces el
+// modelo podía escribir "$135" —el precio en divisas, que es real— y la
+// red lo dejaba pasar. El único precio que el cliente ve es el de Cashea.
 function preciosDeVerdad(productos) {
   const buenos = new Set();
 
   for (const producto of productos) {
-    for (const precio of [producto.precio, producto.precioCashea]) {
+    for (const precio of [producto.precioCashea]) {
       for (const numero of cifrasDeDinero(precio)) buenos.add(numero);
       // El precio puede venir sin símbolo en la hoja ("310"), y entonces
       // no lo reconoce el patrón de dinero: se toma el número tal cual.
@@ -3534,6 +3557,19 @@ function sinPreciosInventados(texto, productos) {
   );
 
   return productos.length ? alAzar(EL_PRECIO_EN_LAS_FICHAS) : EL_PRECIO_LO_CONFIRMA_UN_ASESOR;
+}
+
+// "EL PRECIO ESTÁ EN LA IMAGEN" (5-oct-2026, el dueño: "no debe decir
+// que el precio está en la imagen"). El prompt se lo prohíbe; esto es la
+// red por si lo escribe igual. Se cambia la frase entera por una que no
+// señale nada: la ficha lleva el precio escrito, no hace falta decirlo.
+const SENALA_LA_IMAGEN =
+  /\bprecios?\b[^.!?\n]{0,40}\b(en\s+la\s+(imagen|foto|ficha)|en\s+las\s+(im[aá]genes|fotos|fichas)|lo\s+tengo\s+aqu[ií]|los\s+tengo\s+aqu[ií]|est[aá]n?\s+aqu[ií])|\b(en\s+la\s+(imagen|foto)|en\s+las\s+(im[aá]genes|fotos))\b[^.!?\n]{0,30}\bprecios?\b/i;
+
+function sinSenalarLaImagen(texto, productos) {
+  if (!SENALA_LA_IMAGEN.test(String(texto || ""))) return texto;
+  console.log(`El modelo señaló la imagen para el precio ("${String(texto).slice(0, 80)}"): le cambio la frase`);
+  return productos.length ? alAzar(SI_LO_TENGO) : EL_PRECIO_LO_CONFIRMA_UN_ASESOR;
 }
 
 /* ── EL BOT NO LE CIERRA LA PUERTA A NADIE ─────────────────────────
@@ -4341,8 +4377,8 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "" }) {
   // LAS CIFRAS QUE EL MODELO NO PUEDE CONOCER SE VAN AQUÍ, antes que nada
   // más: lo que se mira debajo (que no diga "no hay", la bienvenida
   // repetida) tiene que mirar el texto que de verdad va a salir.
-  const sinInventos = sinCerrarLaPuerta(
-    sinPreciosInventados(salida.respuesta, productos),
+  const sinInventos = sinSenalarLaImagen(
+    sinCerrarLaPuerta(sinPreciosInventados(salida.respuesta, productos), productos),
     productos
   );
 
@@ -4439,50 +4475,26 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "" }) {
   };
 }
 
-// Decide qué precio va en la ficha, según lo que haya preguntado el cliente.
+// UN SOLO PRECIO, EL DE CASHEA (5-oct-2026, decisión del dueño).
 //
-//   · Preguntó por Cashea → precio en divisas y precio Cashea, los dos
-//     juntos (así ve la diferencia sin tener que preguntar dos veces).
-//   · Preguntó el precio "en divisas" / "dólares" → SOLO ese precio.
-//   · Ninguna de las dos → precio Cashea solo, que es el que se muestra
-//     primero por defecto. Si el producto no tiene precio Cashea cargado en
-//     la hoja, se usa el de divisas para no dejar la ficha sin precio.
-// La etiqueta que va PEGADA al monto cuando el cliente pidió divisas.
-// Sin ella son dos cifras sueltas —la de la hoja y la de Cashea— y el
-// cliente no sabe cuál acaba de pedir.
-const ETIQUETA_DIVISA = "Precio DIVISA";
+// "Necesito que la IA solo dé precio de Cashea, no de precio divisas ni
+// nada de eso. Debe responder solo 1 precio." Antes la ficha cambiaba
+// según lo que escribía el cliente: con "Cashea" salían DOS precios, con
+// "divisas" salía el de divisas. Ya no: en las fichas, en las listas, en
+// los comentarios y en el texto, el precio es uno y es el de Cashea.
+//
+// Si a un producto le faltara el precio Cashea en la hoja, NO se cae al de
+// divisas: sale "Precio: consúltalo" y lo confirma un asesor. (En el
+// inventario del 05-09-26 todos los que tienen stock lo tienen.)
+//
+// EL SÍMBOLO LO PONE EL BOT, NO LA HOJA (28-sep-2026): en el inventario los
+// precios son números pelados, y debajo de una foto un "170" a secas no
+// dice si son dólares o bolívares. Si algún día la hoja trae el símbolo
+// puesto, se respeta tal cual.
+const SIN_PRECIO_CASHEA = "Precio: consúltalo";
 
-function precioParaMostrar(producto, conCashea, conDivisas) {
-  // EL SÍMBOLO LO PONE EL BOT, NO LA HOJA (28-sep-2026).
-  //
-  // En el inventario real los precios son números pelados: la columna se
-  // llama "Precio Divisas ($)" y dentro dice 170. Debajo de una foto, un
-  // "170" a secas no dice si son dólares, bolívares o cuotas. Se le pone
-  // aquí, en el único sitio por donde pasan todos los precios que ve un
-  // cliente: las fichas, las listas y el privado de los comentarios.
-  //
-  // Si algún día la hoja trae el símbolo puesto ("$170" o "170 Bs"), se
-  // respeta tal cual y no se toca nada.
-  const enDivisas = conMoneda(producto.precio);
-  const enCashea = conMoneda(producto.precioCashea);
-
-  if (conDivisas) {
-    return enDivisas ? `${enDivisas} · ${ETIQUETA_DIVISA}` : "Precio: consúltalo";
-  }
-
-  // Los DOS precios juntos: aquí sí van con su nombre. Sin etiqueta
-  // serían dos cifras seguidas y el cliente no sabría cuál es cuál —
-  // justo cuando preguntó para comparar.
-  if (conCashea && producto.precioCashea) {
-    return `${enDivisas || "Precio: consúltalo"} en divisas · ${enCashea} con Cashea`;
-  }
-
-  // El precio de siempre, solo. Sin el "Con Cashea:" delante: es el que
-  // se muestra por defecto, así que decirlo en cada ficha no aporta y le
-  // roba espacio al título, que es lo que el cliente está leyendo.
-  if (enCashea) return enCashea;
-
-  return enDivisas || "";
+function precioParaMostrar(producto) {
+  return conMoneda(producto.precioCashea) || SIN_PRECIO_CASHEA;
 }
 
 // El texto que va bajo el título de la ficha: la capacidad delante del
@@ -4491,8 +4503,8 @@ function precioParaMostrar(producto, conCashea, conDivisas) {
 // Así el cliente la ve SIN tener que preguntar — que es mejor que
 // contestarla bien: la pregunta que no hace falta hacer es la que no se
 // responde mal.
-function subtituloDeFicha(producto, conCashea, conDivisas) {
-  const precio = precioParaMostrar(producto, conCashea, conDivisas);
+function subtituloDeFicha(producto) {
+  const precio = precioParaMostrar(producto);
   const capacidad = capacidadDe(producto);
 
   if (!capacidad) return precio;

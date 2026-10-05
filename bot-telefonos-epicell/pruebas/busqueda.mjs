@@ -88,5 +88,32 @@ comprobar("«redmi note 17» trae sus dos versiones, sin el forro", await enXiao
 comprobar("y «forro note 17» trae el forro, no el teléfono", await enXiaomi("forro note 17"), ["Forro Redmi Note 17"]);
 comprobar("«galaxy a57» encuentra el Samsung", await enXiaomi("galaxy a57"), ["Samsung Galaxy A57 128GB"]);
 
+// ── EL INVENTARIO REAL: UNA MARCA QUE SOLO TIENE ACCESORIOS (5-oct-2026) ──
+//
+// "¿Qué tienen de Yookie?" devolvía 2 de 11: el teclado y el hub no
+// llevaban ninguna palabra de accesorio, pasaban por TELÉFONO, y la regla
+// "si salen equipos, deja solo los equipos" escondía los demás.
+const HOJA_YOOKIE = `Código,Marca,Nombre,Cantidad,Almacenamiento,Precio Cashea ($),Precio Divisas ($)
+INV-046,Yookie,Yookie Audifonos Headphone EB620 ,2,,25,20
+INV-050,Yookie,Auriculares Tipo C  YTL09,4,,7,7
+INV-052,Yookie,Teclado Inalambrico YE07,3,,25,18
+INV-053,Yookie,Cable 4 en 1 CB95,3,,10,10
+INV-059,Yookie,Yookie Multipuerto Hub 7en1 ,2,,17,15
+INV-063,Maspower,Maspower Game TV Stick ,1,,30,25
+INV-068,Xbyte,Xbyte Base para carro  Xb-4978,1,,12,10
+INV-017,Samsung,Samsung A57,1,12GB / 512GB,770,620`;
+globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => HOJA_YOOKIE });
+const enYookie = async (t) =>
+  (await buscarProductos({ SHEET_ID: `yookie${++cuantas}`, SHEET_NOMBRE: "Hoja 1" }, t)).productos.map((p) => p.titulo);
+
+comprobar("«yookie» trae TODO lo de Yookie, no solo 2", (await enYookie("yookie")).length, 5);
+comprobar("aunque la marca no esté en el nombre (por la columna Marca)", (await enYookie("yookie")).includes("Cable 4 en 1 CB95"), true);
+comprobar("el nombre sale sin espacios dobles ni sobrantes", (await enYookie("yookie")).includes("Auriculares Tipo C YTL09"), true);
+const { tipoDelProducto } = await import("./.stub/tipos.js");
+for (const titulo of ["Teclado Inalambrico YE07", "Yookie Multipuerto Hub 7en1", "Maspower Game TV Stick", "Xbyte Base para carro Xb-4978", "xbyte OTG Sx-54", "Sheaver afeitadora", "Maspower Mouse Inalambrico", "Amazon fire tv stick 4k"]) {
+  comprobar(`«${titulo}» no es un teléfono`, tipoDelProducto(titulo) !== "telefono", true);
+}
+comprobar("el Samsung A57 sí lo es", tipoDelProducto("Samsung A57"), "telefono");
+
 console.log(fallos ? `\n${fallos} FALLO(S)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);
