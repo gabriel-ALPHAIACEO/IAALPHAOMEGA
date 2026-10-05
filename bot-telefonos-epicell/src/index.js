@@ -155,7 +155,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-05 (31) · la llave del panel central: sin espacios, y /estado dice su largo";
+const VERSION = "2026-10-05 (32) · métricas y ganadores con calendario (rango de fechas exacto)";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA

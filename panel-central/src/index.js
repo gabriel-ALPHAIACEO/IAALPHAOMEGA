@@ -42,6 +42,8 @@ import {
   listaDeAlertas,
   vistaResumenTienda,
   vistaMetricas,
+  selectorDePeriodo,
+  fechaCorta,
   vistaGanadores,
   vistaErrores,
   vistaGastos,
@@ -58,7 +60,7 @@ import {
   vistaEnPausa,
 } from "./vistas.js";
 
-const VERSION = "2026-10-05 (12) · dice en claro por qué no coincide la llave de una tienda";
+const VERSION = "2026-10-05 (13) · calendario en métricas y ganadores: 7, 14, 30, 90 días o el rango que elijas";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");
@@ -73,6 +75,58 @@ function redirigir(a, cookie = "") {
   if (cookie) headers["set-cookie"] = cookie;
   return new Response(null, { status: 303, headers });
 }
+
+// EL PERÍODO QUE SE PIDE (ver selectorDePeriodo en vistas.js): "dias=N" o
+// "desde"/"hasta" del calendario. A la tienda se le manda todo, y "dias"
+// también: una tienda con la versión de antes solo entiende eso (y se avisa).
+const FECHA = /^\d{4}-\d{2}-\d{2}$/;
+
+function hoyEnVenezuela() {
+  return new Date(Date.now() - 4 * 3600e3).toISOString().slice(0, 10);
+}
+
+function periodoDe(url, porDefecto) {
+  const desde = url.searchParams.get("desde") || "";
+  const hasta = url.searchParams.get("hasta") || "";
+  if (FECHA.test(desde) || FECHA.test(hasta)) {
+    const d = FECHA.test(desde) ? desde : hasta;
+    const h = FECHA.test(hasta) ? hasta : hoyEnVenezuela();
+    const primero = d < h ? d : h;
+    const aprox = Math.min(Math.max(Math.round((Date.parse(hoyEnVenezuela()) - Date.parse(primero)) / 864e5) + 1, 1), 180);
+    return { aMedida: true, desde: d, hasta: h, consulta: `desde=${d}&hasta=${h}&dias=${aprox}` };
+  }
+  const n = Math.min(Math.max(Number(url.searchParams.get("dias")) || porDefecto, 1), 180);
+  return { aMedida: false, dias: n, consulta: `dias=${n}` };
+}
+
+// Qué rango contaron de verdad las tiendas, desde cuándo hay datos, y cuáles
+// tienen la versión de antes (que no entiende el calendario).
+function rangoDeLasRespuestas(respuestas, periodo, rangoDe = (d) => d?.rango) {
+  const buenas = respuestas.filter((r) => r.ok);
+  const conRango = buenas.filter((r) => rangoDe(r.datos));
+  const primeros = buenas.map((r) => r.datos?.primerDato).filter(Boolean).sort();
+  const viejas = buenas.filter((r) => !rangoDe(r.datos)).map((r) => r.tienda.nombre);
+  return {
+    rango: conRango.length ? rangoDe(conRango[0].datos) : null,
+    primerDato: primeros[0] || "",
+    avisos: viejas.length
+      ? [`${viejas.join(", ")} ${viejas.length === 1 ? "tiene" : "tienen"} la versión de antes: ${periodo.aMedida ? "no entiende el calendario y cuenta sus últimos días" : "cuenta igual, pero sin decir desde cuándo hay datos"}. Despliega su versión nueva.`]
+      : [],
+  };
+}
+
+function selectorPara(respuestas, periodo, rangoDe) {
+  return selectorDePeriodo({ periodo, hoy: hoyEnVenezuela(), ...rangoDeLasRespuestas(respuestas, periodo, rangoDe) });
+}
+
+function tituloDelRango(prefijo, respuestas, periodo, rangoDe) {
+  const { rango } = rangoDeLasRespuestas(respuestas, periodo, rangoDe);
+  if (!rango) return `${prefijo}${periodo.aMedida ? "rango elegido" : `últimos ${periodo.dias} días`}`;
+  return `${prefijo}${fechaCorta(rango.desde)} – ${fechaCorta(rango.hasta)} (${rango.dias} ${rango.dias === 1 ? "día" : "días"})`;
+}
+
+const filasDeGanadores = (datos) => (Array.isArray(datos) ? datos : Array.isArray(datos?.filas) ? datos.filas : null);
+const rangoDeGanadores = (datos) => (Array.isArray(datos) ? null : datos?.rango);
 
 function dias(url, porDefecto) {
   return Math.min(Math.max(Number(url.searchParams.get("dias")) || porDefecto, 1), 90);
@@ -367,17 +421,25 @@ async function atenderTienda(request, env, url, t, resto, opciones) {
   }
 
   if (resto === "metricas") {
-    const n = dias(url, 14);
-    const r = await pedir(env, t, `metricas?dias=${n}`, { espera: 15000 });
+    const periodo = periodoDe(url, 14);
+    const r = await pedir(env, t, `metricas?${periodo.consulta}`, { espera: 15000 });
     if (!r.ok || !Array.isArray(r.datos?.dias)) return p("Métricas", pestanasDeTienda(t, "metricas") + errorDe(r.ok ? { error: "la tienda no mandó sus métricas: despliega su versión nueva" } : r));
-    return p("Métricas", vistaMetricas(`Últimos ${n} días`, r.datos.dias, r.datos, { conAnuncios: r.datos.dias.some((d) => d.anuncios > 0), cabecera: pestanasDeTienda(t, "metricas") }));
+    return p(
+      "Métricas",
+      vistaMetricas(tituloDelRango("", [r], periodo), r.datos.dias, r.datos, {
+        conAnuncios: r.datos.dias.some((d) => d.anuncios > 0),
+        cabecera: pestanasDeTienda(t, "metricas"),
+        selector: selectorPara([{ ...r, tienda: t }], periodo),
+      })
+    );
   }
 
   if (resto === "ganadores") {
-    const n = dias(url, 30);
-    const r = await pedir(env, t, `ganadores?dias=${n}`, { espera: 15000 });
-    const cabecera = `${pestanasDeTienda(t, "ganadores")}<div class="suave">Ver: ${[7, 30, 90].map((x) => `<a href="?dias=${x}">${x} días</a>`).join(" · ")}</div>`;
-    return p("Ganadores", r.ok && Array.isArray(r.datos) ? vistaGanadores(r.datos, { cabecera }) : cabecera + errorDe(r));
+    const periodo = periodoDe(url, 30);
+    const r = await pedir(env, t, `ganadores?${periodo.consulta}&formato=2`, { espera: 15000 });
+    const filas = r.ok ? filasDeGanadores(r.datos) : null;
+    const cabecera = `${pestanasDeTienda(t, "ganadores")}${selectorPara([{ ...r, tienda: t }], periodo, rangoDeGanadores)}`;
+    return p("Ganadores", filas ? vistaGanadores(filas, { cabecera }) : cabecera + errorDe(r));
   }
 
   if (resto === "errores") {
@@ -568,29 +630,30 @@ async function atender(request, env) {
   }
 
   if (url.pathname === "/metricas") {
-    const n = dias(url, 14);
-    const respuestas = await pedirATodas(env, `metricas?dias=${n}`, { espera: 15000 });
+    const periodo = periodoDe(url, 14);
+    const respuestas = await pedirATodas(env, `metricas?${periodo.consulta}`, { espera: 15000 });
     const datos = juntarMetricas(respuestas);
     return pagina(
       "Métricas",
-      vistaMetricas(`Todas las tiendas · últimos ${n} días`, datos.dias, datos, {
+      vistaMetricas(tituloDelRango("Todas las tiendas · ", respuestas, periodo), datos.dias, datos, {
         conAnuncios: datos.dias.some((d) => d.anuncios > 0),
         cabecera: "<h2>Métricas</h2>",
+        selector: selectorPara(respuestas, periodo),
       }) + comparacion(respuestas),
       opciones
     );
   }
 
   if (url.pathname === "/ganadores") {
-    const n = dias(url, 30);
-    const respuestas = await pedirATodas(env, `ganadores?dias=${n}`, { espera: 15000 });
+    const periodo = periodoDe(url, 30);
+    const respuestas = await pedirATodas(env, `ganadores?${periodo.consulta}&formato=2`, { espera: 15000 });
     const filas = respuestas
-      .filter((r) => r.ok && Array.isArray(r.datos))
-      .flatMap((r) => r.datos.map((f) => ({ ...f, tiendaNombre: r.tienda.nombre })))
+      .filter((r) => r.ok && filasDeGanadores(r.datos))
+      .flatMap((r) => filasDeGanadores(r.datos).map((f) => ({ ...f, tiendaNombre: r.tienda.nombre })))
       .sort((a, b) => b.ventas - a.ventas || b.clientes - a.clientes || b.mostrado - a.mostrado)
       .slice(0, 60);
     const caidas = respuestas.filter((r) => !r.ok).map((r) => `<div class="tarjeta mal">🚨 ${esc(r.tienda.nombre)}: ${esc(r.error)}</div>`).join("");
-    const cabecera = `<h2>Productos ganadores</h2><div class="suave">Ver: ${[7, 30, 90].map((x) => `<a href="?dias=${x}">${x} días</a>`).join(" · ")}</div>${caidas}`;
+    const cabecera = `<h2>Productos ganadores</h2>${selectorPara(respuestas, periodo, rangoDeGanadores)}${caidas}`;
     return pagina("Ganadores", vistaGanadores(filas, { conTienda: true, cabecera }), opciones);
   }
 

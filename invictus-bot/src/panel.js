@@ -960,17 +960,63 @@ async function resumenCentral(env, opciones) {
   };
 }
 
-async function metricasCentral(env, dias) {
-  const n = Math.min(Math.max(Number(dias) || 14, 1), 90);
+// EL PERÍODO QUE PIDE EL PANEL CENTRAL (5-oct-2026). Dos formas:
+//   · dias=N              los últimos N días, contando hoy
+//   · desde=AAAA-MM-DD&hasta=AAAA-MM-DD   un rango del calendario
+// Las fechas son de Venezuela. Hasta 180 días (los mensajes se guardan 90;
+// los turnos y avisos, más). "hasta" nunca pasa de hoy.
+const MAX_DIAS_PERIODO = 180;
+
+function inicioDelDia(fecha) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fecha || ""))) return null;
+  const ms = Date.parse(`${fecha}T00:00:00Z`);
+  return Number.isFinite(ms) ? ms - DESFASE_MS : null;
+}
+
+export function periodoPedido(params, porDefecto = 14) {
   const hoy = inicioDeHoy();
-  const desde = hoy - (n - 1) * DIA_MS;
-  const periodo = await lodelPeriodo(env.DB, desde);
+  let inicio = inicioDelDia(params?.get?.("desde"));
+  let fin = inicioDelDia(params?.get?.("hasta"));
+  if (inicio == null && fin == null) {
+    const n = Math.min(Math.max(Number(params?.get?.("dias")) || porDefecto, 1), MAX_DIAS_PERIODO);
+    return { inicio: hoy - (n - 1) * DIA_MS, fin: hoy, dias: n, aMedida: false };
+  }
+  if (inicio == null) inicio = fin;
+  if (fin == null) fin = hoy;
+  if (inicio > fin) [inicio, fin] = [fin, inicio];
+  fin = Math.min(fin, hoy);
+  inicio = Math.min(inicio, fin);
+  const n = Math.min(Math.round((fin - inicio) / DIA_MS) + 1, MAX_DIAS_PERIODO);
+  return { inicio: fin - (n - 1) * DIA_MS, fin, dias: n, aMedida: true };
+}
+
+function rangoDe(p) {
+  return { desde: diaDe(p.inicio), hasta: diaDe(p.fin), dias: p.dias, aMedida: p.aMedida };
+}
+
+// El primer día con datos guardados: si se piden 30 días y solo hay 4, se
+// dice (si no, 7 y 30 días "dan lo mismo" y parece un error).
+async function primerDato(db) {
+  try {
+    await asegurarMensajes(db);
+    const m = await db.prepare("SELECT MIN(cuando) AS n FROM mensajes").first();
+    const t = await db.prepare("SELECT MIN(cuando) AS n FROM turnos").first().catch(() => null);
+    const n = Math.min(...[m?.n, t?.n].map(Number).filter((x) => x > 0));
+    return Number.isFinite(n) ? diaDe(n) : "";
+  } catch {
+    return "";
+  }
+}
+
+async function metricasCentral(env, params) {
+  const p = periodoPedido(params, 14);
+  const periodo = await lodelPeriodo(env.DB, p.inicio);
   const serie = [];
-  for (let i = 0; i < n; i++) {
-    const inicio = desde + i * DIA_MS;
+  for (let i = 0; i < p.dias; i++) {
+    const inicio = p.inicio + i * DIA_MS;
     serie.push({ dia: diaDe(inicio), ...contar(periodo, inicio, inicio + DIA_MS) });
   }
-  const totales = contar(periodo, desde);
+  const totales = contar(periodo, p.inicio, p.fin + DIA_MS);
   return {
     dias: serie,
     totales,
@@ -980,35 +1026,41 @@ async function metricasCentral(env, dias) {
       ventasPorCliente: totales.clientes ? totales.ventas / totales.clientes : 0,
     },
     gasto: await gastoDelMes(env),
+    rango: rangoDe(p),
+    primerDato: await primerDato(env.DB),
   };
 }
 
-async function ganadoresCentral(env, dias) {
-  const desde = Date.now() - Math.min(Math.max(Number(dias) || 30, 1), 90) * DIA_MS;
-  const periodo = await lodelPeriodo(env.DB, desde);
+async function ganadoresCentral(env, params) {
+  const p = periodoPedido(params, 30);
+  const periodo = await lodelPeriodo(env.DB, p.inicio);
+  const dentro = (x) => x.cuando > p.inicio && x.cuando <= p.fin + DIA_MS;
   const tabla = new Map();
   const de = (titulo) => {
     if (!tabla.has(titulo)) tabla.set(titulo, { titulo, mostrado: 0, ventas: 0, avisos: 0, clientes: new Set() });
     return tabla.get(titulo);
   };
-  for (const t of periodo.turnos) {
+  for (const t of periodo.turnos.filter(dentro)) {
     for (const titulo of leer(t.productos)) {
       const fila = de(titulo);
       fila.mostrado++;
       fila.clientes.add(t.igsid);
     }
   }
-  for (const a of periodo.avisos) {
+  for (const a of periodo.avisos.filter(dentro)) {
     for (const titulo of leer(a.productos)) {
       const fila = de(titulo);
       fila.avisos++;
       if (esIntencionDeCompra(a.motivo)) fila.ventas++;
     }
   }
-  return [...tabla.values()]
+  const filas = [...tabla.values()]
     .map((f) => ({ titulo: f.titulo, mostrado: f.mostrado, clientes: f.clientes.size, ventas: f.ventas, avisos: f.avisos }))
     .sort((a, b) => b.ventas - a.ventas || b.clientes - a.clientes || b.mostrado - a.mostrado)
     .slice(0, 30);
+  // El panel central nuevo pide formato=2 (con el rango); el de antes
+  // espera la lista sola.
+  return params?.get?.("formato") === "2" ? { filas, rango: rangoDe(p), primerDato: await primerDato(env.DB) } : filas;
 }
 
 /* ── En vivo: lo nuevo desde la última vez ────────────────────────
@@ -1287,8 +1339,8 @@ export async function atenderApiCentral(request, env, opciones = {}) {
     if (ruta === "vivo") return json(await vivoCentral(env, url));
     if (ruta === "ping") return json({ ok: true, tienda: opciones.tienda, version: opciones.version || "", ahora: Date.now(), marca: await marcaDeNovedades(env.DB) });
     if (ruta === "resumen") return json(await resumenCentral(env, opciones));
-    if (ruta === "metricas") return json(await metricasCentral(env, url.searchParams.get("dias")));
-    if (ruta === "ganadores") return json(await ganadoresCentral(env, url.searchParams.get("dias")));
+    if (ruta === "metricas") return json(await metricasCentral(env, url.searchParams));
+    if (ruta === "ganadores") return json(await ganadoresCentral(env, url.searchParams));
 
     if (ruta === "chats") {
       const lista = await contactosParaLista(env.DB, { q: url.searchParams.get("q") || "", filtro: url.searchParams.get("f") || "" });

@@ -318,6 +318,33 @@ titulo("el revisor compara con los datos de la tienda (traído de El Emperador)"
   await DB.prepare("DELETE FROM contactos WHERE id = '555'").run();
 }
 
+titulo("el período que pide el panel central: los últimos N días o un rango del calendario");
+{
+  const P2 = await src.cargar("panel.js");
+  const q = (x) => new URLSearchParams(x);
+  const hoy = P2.periodoPedido(q("dias=1"));
+  const p7 = P2.periodoPedido(q("dias=7"));
+  ok(p7.dias === 7 && p7.fin === hoy.fin && p7.inicio === hoy.inicio - 6 * 864e5 && !p7.aMedida, "dias=7: siete días que terminan hoy");
+  const r = P2.periodoPedido(q("desde=2026-09-01&hasta=2026-09-03"));
+  ok(r.aMedida && r.dias === 3 && new Date(r.inicio).toISOString() === "2026-09-01T04:00:00.000Z", "desde/hasta: el rango exacto, en hora de Venezuela (las 00:00 son las 04:00 UTC)");
+  ok(P2.periodoPedido(q("desde=2026-09-03&hasta=2026-09-01")).dias === 3, "al revés, se ordena");
+  ok(P2.periodoPedido(q("desde=2020-01-01&hasta=2026-09-01")).dias === 180, "como mucho 180 días");
+  ok(P2.periodoPedido(q("hasta=2099-01-01")).fin === hoy.fin, "nunca pasa de hoy");
+  ok(P2.periodoPedido(q("desde=basura")).dias === 14, "una fecha que no es fecha: los 14 días de siempre");
+
+  const CLAVE_API = "v".repeat(10) + "-clave-larga-del-central";
+  const api = async (ruta) => {
+    const res = await callado(() => worker.fetch(new Request(`https://bot.test/api/central/${ruta}`, { headers: { authorization: `Bearer ${CLAVE_API}` } }), { ...ENV, PANEL_API_CLAVE: CLAVE_API }, { waitUntil() {} }));
+    return res.json();
+  };
+  const m = await api("metricas?desde=2026-09-01&hasta=2026-09-03");
+  ok(m.rango?.desde === "2026-09-01" && m.rango.hasta === "2026-09-03" && m.dias.length === 3 && m.totales.clientes === 0, "metricas con rango: dice qué contó, día por día, y en septiembre no hay nada", JSON.stringify(m.rango));
+  ok(/^\d{4}-\d{2}-\d{2}$/.test(m.primerDato), "y desde cuándo hay datos", m.primerDato);
+  const viejo = await api("ganadores?dias=7");
+  const nuevo = await api("ganadores?dias=7&formato=2");
+  ok(Array.isArray(viejo) && Array.isArray(nuevo.filas) && nuevo.rango?.dias === 7, "ganadores: la lista sola para el panel de antes, con el rango para el nuevo");
+}
+
 titulo("seguridad y el resto");
 r = await pedir("/panel/c/%3Cscript%3E", { cookie });
 ok(!/Id <script>/.test(r.texto) && /Id &lt;script&gt;/.test(r.texto), "lo que viene en la URL se escapa");

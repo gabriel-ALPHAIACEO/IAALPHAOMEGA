@@ -77,7 +77,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 td .corto{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
 .grafico{display:flex;flex-direction:column}.grafico .barras{margin-top:auto}.grafico .nombre{margin-bottom:6px}.grafico .suave{display:block;font-weight:400;font-size:12px}
 .barras{display:flex;align-items:flex-end;gap:2px;height:120px;padding:4px 0;border-bottom:1px solid var(--borde-fuerte)}
-.barra{flex:1;min-width:6px;display:flex;align-items:flex-end;height:100%;position:relative}
+.barra{flex:1;min-width:0;display:flex;align-items:flex-end;height:100%;position:relative}
 .barra i{display:block;width:100%;background:linear-gradient(180deg,var(--cian),var(--marca-fuerte));border-radius:4px 4px 0 0;transform-origin:bottom;animation:crecer .7s var(--suave-curva) both}
 @keyframes crecer{from{transform:scaleY(0)}to{transform:scaleY(1)}}
 .barra:hover i{filter:brightness(1.25)}.barra .tip{display:none;position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:var(--tarjeta-solida);border:1px solid var(--borde-fuerte);color:var(--texto);font-size:12px;padding:2px 7px;border-radius:6px;white-space:nowrap;z-index:3}
@@ -95,6 +95,15 @@ td .corto{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:now
 .vivo-lista .cuerpo{white-space:pre-wrap;word-wrap:break-word}.vivo-lista .cuando{display:block;font-size:12px}
 .vivo-lista .nuevo{animation:entrar .45s var(--suave-curva) both,llegar 2.5s ease-out}
 @keyframes llegar{from{box-shadow:0 0 0 2px var(--marca),0 0 30px -4px var(--marca)}to{box-shadow:none}}
+.periodo{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:flex-end}
+.atajos{display:flex;gap:6px;flex-wrap:wrap}
+.atajos a{padding:7px 13px;border-radius:999px;border:1px solid var(--borde);background:rgba(255,255,255,.03);font-size:13.5px;color:var(--suave);transition:all .2s}
+.atajos a:hover{color:var(--texto);border-color:var(--borde-fuerte)}
+.atajos a.activa{color:#fff;background:linear-gradient(135deg,#2f7bff,#0a5cf5);border-color:transparent;box-shadow:0 4px 16px -6px rgba(10,92,245,.8)}
+.calendario{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.calendario label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--suave)}
+.calendario input{flex:none;min-width:150px}
+.periodo-texto,.periodo .aviso{flex-basis:100%}
 .miniaturas{display:flex;gap:6px;margin-top:8px;overflow-x:auto}.miniaturas img{width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid var(--borde);flex:none;background:#0a0f1c}
 #avisos{position:fixed;right:12px;bottom:12px;display:flex;flex-direction:column;gap:8px;z-index:9;max-width:340px}
 .toast{background:rgba(12,18,32,.92);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid var(--borde-fuerte);border-left:3px solid var(--mal);border-radius:12px;padding:10px 12px;box-shadow:0 12px 40px -12px #000;font-size:14px;animation:entrar .4s var(--suave-curva) both}
@@ -283,12 +292,41 @@ ${(d.gasto?.filas || []).length ? `<div class="tabla"><table><tr><th>Modelo</th>
 ${d.ultimoError ? `<h3>Último error</h3><div class="tarjeta mal">${esc(horaExacta(d.ultimoError.cuando))} · ${esc(d.ultimoError.texto)}</div>` : ""}`;
 }
 
-export function vistaMetricas(titulo, dias, datos, { conAnuncios = false, cabecera = "" } = {}) {
-  if (!dias.length) return `${cabecera}<div class="tarjeta">Sin datos todavía.</div>`;
+// "2026-10-02" → "2 oct" (la fecha tal cual, sin moverla de día).
+export function fechaCorta(dia) {
+  const ms = Date.parse(`${dia}T12:00:00Z`);
+  if (!Number.isFinite(ms)) return String(dia || "");
+  return new Date(ms).toLocaleDateString("es-VE", { day: "numeric", month: "short", timeZone: "UTC" }).replace(/\.$/, "");
+}
+
+// EL CALENDARIO (5-oct-2026). El dueño: "un calendario de elección, junto a
+// las sugerencias de 7, 14, 30 y 90 días, que funcione bien: pongo 30 y 7 y
+// dice lo mismo". Decía lo mismo porque solo hay datos desde hace unos días:
+// ahora se ve el rango exacto que se está mirando y desde cuándo hay datos.
+//   periodo: lo que se pidió ({ aMedida, dias } o { aMedida, desde, hasta })
+//   rango: lo que la tienda de verdad contó ({ desde, hasta, dias })
+export function selectorDePeriodo({ periodo = {}, rango = null, primerDato = "", hoy = "", avisos = [] } = {}) {
+  const atajos = [7, 14, 30, 90]
+    .map((n) => `<a class="${!periodo.aMedida && periodo.dias === n ? "activa" : ""}" href="?dias=${n}">${n} días</a>`)
+    .join("");
+  const desde = rango?.desde || periodo.desde || "";
+  const hasta = rango?.hasta || periodo.hasta || hoy;
+  const viendo = rango
+    ? `${periodo.aMedida ? "Del" : `Últimos ${rango.dias} días · del`} ${fechaCorta(rango.desde)} al ${fechaCorta(rango.hasta)}${periodo.aMedida ? ` · ${rango.dias} ${rango.dias === 1 ? "día" : "días"}` : ""}`
+    : "";
+  const corto = primerDato && desde && primerDato > desde;
+  return `<div class="periodo tarjeta">
+<div class="atajos">${atajos}</div>
+<form method="get" class="calendario"><label>Desde<input type="date" name="desde" value="${esc(desde)}"${hoy ? ` max="${esc(hoy)}"` : ""}></label><label>Hasta<input type="date" name="hasta" value="${esc(hasta)}"${hoy ? ` max="${esc(hoy)}"` : ""}></label><button class="principal">Ver</button></form>
+<div class="suave periodo-texto">${viendo ? `📅 ${esc(viendo)}` : ""}${primerDato ? ` · hay datos desde el <b>${esc(fechaCorta(primerDato))}</b>` : ""}${corto ? ". Antes de esa fecha no hay nada guardado: por eso un período más largo da los mismos números." : ""}</div>
+${avisos.map((a) => `<div class="aviso">⚠️ ${esc(a)}</div>`).join("")}</div>`;
+}
+
+export function vistaMetricas(titulo, dias, datos, { conAnuncios = false, cabecera = "", selector = "" } = {}) {
+  if (!dias.length) return `${cabecera}${selector}<div class="tarjeta">Sin datos todavía.</div>`;
   const tot = datos.totales;
   const pct = (x) => `${Math.round((Number(x) || 0) * 100)}%`;
-  const enlaces = [7, 14, 30, 90].map((n) => `<a href="?dias=${n}">${n} días</a>`).join(" · ");
-  return `${cabecera}<h3>${esc(titulo)}</h3><div class="suave">Ver: ${enlaces}</div>
+  return `${cabecera}${selector}<h3>${esc(titulo)}</h3>
 <div class="kpis">${kpi(tot.clientes, "clientes")}${kpi(tot.mensajes, "mensajes")}${kpi(tot.respuestas, "respuestas de la IA")}${kpi(pct(datos.tasas?.conFichas), "respuestas con fichas")}
 ${kpi(tot.ventas, "ventas por cerrar")}${kpi(pct(datos.tasas?.ventasPorCliente), "clientes que quieren comprar")}${kpi(tot.avisos, "pasados al asesor")}${kpi(tot.voz, "notas de voz")}
 ${conAnuncios ? kpi(tot.anuncios, "llegaron por anuncios") : ""}${kpi(tot.fallos, "❌ respuestas con error", { clase: tot.fallos ? "mal" : "" })}${kpi(tot.indebidas, "🔴 indebidas", { clase: tot.indebidas ? "mal" : "" })}${kpi(tot.corregidas, "⚠️ corregidas")}${kpi(tot.quejas, "👎 quejas")}${kpi(tot.errores, "⚙️ errores técnicos", { clase: tot.errores ? "mal" : "" })}

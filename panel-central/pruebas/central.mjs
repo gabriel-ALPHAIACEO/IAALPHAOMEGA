@@ -408,6 +408,27 @@ titulo("métricas, ganadores, errores y gastos");
   const mt = await abrir("/t/invictus/metricas");
   ok(/Últimos 14 días/.test(mt.html) && /❌ Respuestas con error por día/.test(mt.html) && /⚙️ Errores técnicos por día/.test(mt.html), "métricas de una tienda (❌ respuestas con error y ⚙️ errores técnicos, por separado)");
 
+  // EL CALENDARIO (5-oct-2026): atajos, rango a medida, y lo que de verdad se contó.
+  const dia = (atras) => new Date(Date.now() - 4 * 3600e3 - atras * 864e5).toISOString().slice(0, 10);
+  const m7 = await abrir("/t/invictus/metricas?dias=7");
+  ok(/type="date" name="desde"/.test(m7.html) && /type="date" name="hasta"/.test(m7.html) && /class="activa" href="\?dias=7"/.test(m7.html),
+     "el calendario (desde/hasta) junto a los atajos, con el de 7 días marcado");
+  ok(/Últimos 7 días · del/.test(m7.html) && /hay datos desde el <b>/.test(m7.html), "dice las fechas exactas que se miran y desde cuándo hay datos");
+  ok(/Antes de esa fecha no hay nada guardado/.test((await abrir("/t/invictus/metricas?dias=30")).html), "con 30 días y datos de pocos días: explica por qué da lo mismo que 7");
+  const kpiClientes = (html) => Number((html.match(/<div class="v ">(\d+)<\/div><div class="e">clientes<\/div>/) || [])[1]);
+  const ayer = await abrir(`/t/invictus/metricas?desde=${dia(3)}&hasta=${dia(1)}`);
+  ok(/Del \d+ \S+ al \d+ \S+ · 3 días/.test(ayer.html) && kpiClientes(ayer.html) === 0 && kpiClientes(m7.html) > 0,
+     "un rango del calendario cuenta SOLO esos días (antes de hoy: 0 clientes; 7 días: los de hoy)", `${kpiClientes(ayer.html)} vs ${kpiClientes(m7.html)}`);
+  ok((ayer.html.match(/<div class="barra">/g) || []).length === 3 * 7, "y las barras son de esos 3 días");
+  const alReves = await abrir(`/t/invictus/metricas?desde=${dia(0)}&hasta=${dia(4)}`);
+  ok(/· 5 días/.test(alReves.html), "con las fechas al revés, se ordenan solas");
+  const futuro = await abrir(`/t/invictus/metricas?desde=${dia(1)}&hasta=2099-01-01`);
+  ok(/· 2 días/.test(futuro.html) && new RegExp(`value="${dia(0)}"`).test(futuro.html), "una fecha futura se corta en hoy");
+  const todas = await abrir(`/metricas?desde=${dia(6)}&hasta=${dia(0)}`);
+  ok(/Todas las tiendas · \d+ \S+ – \d+ \S+ \(7 días\)/.test(todas.html) && /type="date"/.test(todas.html), "las métricas de todas, con el mismo calendario");
+  const g = await abrir(`/ganadores?desde=${dia(3)}&hasta=${dia(1)}`);
+  ok(/type="date"/.test(g.html) && /Todavía no hay productos con movimiento/.test(g.html), "ganadores con el calendario: un rango sin movimiento sale vacío");
+
   ok(/Productos ganadores/.test((await abrir("/ganadores")).html), "ganadores de todas");
   const errores = await abrir("/errores");
   ok(/Errores de todas las tiendas/.test(errores.html), "errores de todas");

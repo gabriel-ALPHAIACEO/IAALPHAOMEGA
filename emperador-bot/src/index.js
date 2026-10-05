@@ -131,7 +131,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-05 (41) · la llave del panel central: sin espacios, y /estado dice su largo";
+const VERSION = "2026-10-05 (42) · métricas y ganadores con calendario (rango de fechas exacto)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
