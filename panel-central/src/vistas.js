@@ -148,23 +148,49 @@ const VIVO = `
   revisar();setInterval(revisar,8000);
   var b=document.getElementById("notificar");
   if(b&&window.Notification&&Notification.permission!=="granted"){b.style.display="";b.onclick=function(){Notification.requestPermission().then(function(){b.style.display="none"})}}
+  // PONERSE AL DÍA: trae la página y cambia solo las zonas data-zona (la
+  // conversación): el cuadro donde escribes no se toca. Sin zonas, todo el
+  // contenido, salvo que estés escribiendo. Si estabas al final, baja.
+  function escribiendo(){var a=document.activeElement;return a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName)}
+  function alFinal(){return window.innerHeight+window.scrollY>=document.documentElement.scrollHeight-250}
+  function ponerAlDia(){
+    fetch(location.href,{credentials:"same-origin"}).then(function(r){return r.ok?r.text():null}).then(function(h){
+      if(!h)return;
+      var doc=new DOMParser().parseFromString(h,"text/html"), abajo=alFinal();
+      var zonas=document.querySelectorAll("[data-zona]");
+      if(zonas.length){
+        zonas.forEach(function(z){var n=doc.querySelector('[data-zona="'+z.getAttribute("data-zona")+'"]');if(n&&n.innerHTML!==z.innerHTML)z.innerHTML=n.innerHTML});
+      }else if(!escribiendo()){
+        var nuevo=doc.getElementById("contenido"),actual=document.getElementById("contenido");
+        if(nuevo&&actual&&nuevo.innerHTML!==actual.innerHTML)actual.innerHTML=nuevo.innerHTML;
+      }
+      if(abajo&&zonas.length)window.scrollTo(0,document.documentElement.scrollHeight);
+    }).catch(function(){})
+  }
+  // EN TIEMPO REAL Y BARATO: cada 3 s se pregunta solo "¿cuál es el último
+  // mensaje?" (data-marca); la página se pone al día únicamente si cambió.
+  var urlMarca=document.body.getAttribute("data-marca"), marca=null, mirando=false;
+  if(urlMarca){
+    var revisarMarca=function(){
+      if(mirando||document.visibilityState!=="visible")return;
+      mirando=true;
+      fetch(urlMarca,{credentials:"same-origin"}).then(function(r){return r.ok?r.json():null}).then(function(d){
+        mirando=false;if(!d||d.marca==null)return;
+        if(marca!==null&&d.marca!==marca)ponerAlDia();
+        marca=d.marca;
+      }).catch(function(){mirando=false})
+    };
+    revisarMarca();setInterval(revisarMarca,3000);
+    document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")revisarMarca()});
+  }
   if(document.body.dataset.vivo){
     var cada=Number(document.body.dataset.vivo)||60000;
-    setInterval(function(){
-      if(document.visibilityState!=="visible")return;
-      if(document.activeElement&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))return;
-      fetch(location.href,{credentials:"same-origin"}).then(function(r){return r.ok?r.text():null}).then(function(h){
-        if(!h)return;
-        var nuevo=new DOMParser().parseFromString(h,"text/html").getElementById("contenido");
-        var actual=document.getElementById("contenido");
-        if(nuevo&&actual&&nuevo.innerHTML!==actual.innerHTML){actual.innerHTML=nuevo.innerHTML}
-      }).catch(function(){})
-    },cada)
+    setInterval(function(){if(document.visibilityState==="visible")ponerAlDia()},cada)
   }
 })();
 </script>`;
 
-export function pagina(titulo, cuerpo, { conMenu = true, vivo = false, sinLeer = 0, nombre = "ALPHA IA" } = {}) {
+export function pagina(titulo, cuerpo, { conMenu = true, vivo = false, marca = "", sinLeer = 0, nombre = "ALPHA IA" } = {}) {
   const menu = conMenu
     ? `<nav class="menu"><a href="/">Inicio</a><a href="/en-vivo">🟢 En vivo</a><a class="campana" href="/alertas">🔔 Alertas<span class="n" id="sinleer" style="${sinLeer ? "" : "display:none"}">${sinLeer || ""}</span></a>
 <a href="/en-pausa">⏸️ En pausa</a><a href="/metricas">Métricas</a><a href="/ganadores">Ganadores</a><a href="/errores">Errores</a><a href="/gastos">Gastos</a><a href="/salud">Estado</a><a href="/como-funciona">Cómo funciona</a><a href="/salir">Salir</a>
@@ -173,7 +199,7 @@ export function pagina(titulo, cuerpo, { conMenu = true, vivo = false, sinLeer =
   return new Response(
     `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><title>${esc(titulo)} · ${esc(nombre)}</title><style>${ESTILO}</style></head>
-<body${vivo ? ` data-vivo="${typeof vivo === "number" ? vivo : 60000}"` : ""}><header><div class="fila"><b class="marca-nombre">${esc(nombre)} <span class="suave">· Panel central</span></b>${menu}</div></header>
+<body${vivo ? ` data-vivo="${typeof vivo === "number" ? vivo : 60000}"` : ""}${marca ? ` data-marca="${esc(marca)}"` : ""}><header><div class="fila"><b class="marca-nombre">${esc(nombre)} <span class="suave">· Panel central</span></b>${menu}</div></header>
 <main id="contenido">${cuerpo}</main>${conMenu ? VIVO : ""}</body></html>`,
     {
       status: 200,
@@ -503,6 +529,7 @@ export function vistaConversacion(t, datos, aviso = "") {
   const pausado = Number(contacto.pausado_hasta) > Date.now();
   const id = encodeURIComponent(contacto.id);
   return `<p><a href="/t/${esc(t.id)}/chats">← Chats de ${esc(t.nombre)}</a></p>
+<div data-zona="conversacion">
 <div class="tarjeta"><span class="nombre">${esc(contacto.nombre || contacto.usuario || contacto.id)}</span>${contacto.usuario ? ` <span class="suave">@${esc(contacto.usuario)}</span>` : ""}
 <div class="suave">Id ${esc(contacto.id)} · último mensaje del bot ${esc(cuandoFue(contacto.ultimo_envio))}</div>
 ${contacto.anuncio ? `<div>📣 Llegó por un anuncio${contacto.anuncio.equipo ? ` del <b>${esc(contacto.anuncio.equipo)}</b>` : ""}</div>` : ""}
@@ -512,6 +539,7 @@ ${pausado ? `<span class="etiqueta mal">Bot en pausa hasta ${esc(horaExacta(cont
 <div class="leyenda">${Object.values(MARCAS).map((m) => `<span>${m.simbolo} ${esc(m.nombre)}</span>`).join("")}</div>
 <div class="chat">${burbujas || '<p class="suave">Todavía no hay mensajes guardados de esta persona.</p>'}</div>
 ${sueltos.length ? `<h3>Más de lo que pensó la IA</h3><div class="chat">${sueltos.map((x) => `${x.cliente ? `<div class="burbuja de-cliente">${esc(x.cliente)}</div>` : ""}<div class="burbuja de-bot">${esc(x.respuesta)}</div>${cajaDeTurno(x)}`).join("")}</div>` : ""}
+</div>
 ${formularioDeMensaje(t, contacto.id, horasDePausa, aviso)}
 <details class="tarjeta"><summary>🗑️ Borrar esta conversación del panel</summary>
 <form method="post" action="/t/${esc(t.id)}/borrar-conversacion" onsubmit="return confirm('¿Borrar toda la conversación del panel? En Instagram no se borra. Se puede deshacer desde el historial de cambios.')">

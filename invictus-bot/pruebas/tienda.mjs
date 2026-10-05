@@ -224,9 +224,24 @@ titulo("borrar mensajes y conversaciones del panel (y deshacer)");
   await DB.prepare("DELETE FROM cambios_panel").run();
 }
 
+titulo("en tiempo real: la página se pone al día sola");
+{
+  const conv = await pedir("/panel/c/123", { cookie });
+  ok(/data-marca-url="\/panel\/marca"/.test(conv.texto) && /data-zona="conversacion"/.test(conv.texto) && /setInterval\(revisar,3000\)/.test(conv.texto), "la conversación pregunta cada 3 s si hay algo nuevo");
+  ok(conv.texto.indexOf('data-zona="conversacion"') < conv.texto.indexOf("Escribirle tú") && conv.texto.indexOf("Escribirle tú") > conv.texto.indexOf("</div>\n<h3 id=\"escribir\"") - 1, "el cuadro para escribir queda FUERA de lo que se actualiza (no se borra lo que escribes)");
+  const lista = await pedir("/panel", { cookie });
+  ok(/data-marca-url/.test(lista.texto) && /data-zona="lista"/.test(lista.texto), "la lista de chats también");
+  const m1 = JSON.parse((await pedir("/panel/marca", { cookie })).texto).marca;
+  await P.anotarMensaje(DB, "123", "cliente", "un mensaje nuevo para la marca");
+  const m2 = JSON.parse((await pedir("/panel/marca", { cookie })).texto).marca;
+  ok(/^\d+-\d+$/.test(m1) && m1 !== m2, "llega un mensaje: la marca cambia", `${m1} → ${m2}`);
+  ok(/Escribe la clave/.test((await pedir("/panel/marca")).texto), "sin sesión, la marca no se da");
+  await DB.prepare("DELETE FROM mensajes WHERE texto = 'un mensaje nuevo para la marca'").run();
+}
+
 titulo("seguridad y el resto");
 r = await pedir("/panel/c/%3Cscript%3E", { cookie });
-ok(!/<script>/.test(r.texto), "lo que viene en la URL se escapa");
+ok(!/Id <script>/.test(r.texto) && /Id &lt;script&gt;/.test(r.texto), "lo que viene en la URL se escapa");
 r = await pedir("/panel/estado", { cookie });
 ok(/PANEL_CLAVE/.test(r.texto), "el estado se ve dentro del panel");
 

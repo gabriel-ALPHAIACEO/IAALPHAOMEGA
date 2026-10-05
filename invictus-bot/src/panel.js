@@ -265,7 +265,7 @@ input{flex:1;min-width:0}button{cursor:pointer}button.principal{background:var(-
 pre{white-space:pre-wrap;word-wrap:break-word;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace;margin:0}
 `;
 
-function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnuncios = true } = {}) {
+function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnuncios = true, enVivo = false } = {}) {
   const menu = conMenu
     ? `<a href="/panel">Chats</a>${conAnuncios ? '<a href="/panel/anuncios">Anuncios</a>' : ""}<a href="/panel/estado">Estado</a><a href="/panel/salir">Salir</a>`
     : "";
@@ -274,7 +274,7 @@ function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnunc
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
 <title>${esc(titulo)} · ${esc(tienda)}</title><style>${ESTILO}</style></head>
-<body><header><div class="fila"><b>${esc(tienda)}</b>${menu}</div></header><main>${cuerpo}</main></body></html>`,
+<body${enVivo ? ' data-marca-url="/panel/marca"' : ""}><header><div class="fila"><b>${esc(tienda)}</b>${menu}${enVivo ? '<span class="suave" title="Se pone al día sola en cuanto llega un mensaje">🟢 en vivo</span>' : ""}</div></header><main>${cuerpo}</main>${enVivo ? SCRIPT_EN_VIVO : ""}</body></html>`,
     {
       status: 200,
       headers: {
@@ -360,6 +360,63 @@ export async function mandarDesdeElPanel(env, igsid, texto, horasDePausa = 1) {
   console.log(`PANEL: el dueño le escribió a ${igsid}; bot en pausa ${horasDePausa} h`);
   return { ok: true, mid: datos.message_id };
 }
+
+/* ── EN TIEMPO REAL (5-oct-2026) ───────────────────────────────────
+   El dueño: "que la página se recargue sola, que siempre se vean los
+   mensajes en tiempo real". Recargar la página entera cada pocos segundos
+   haría que la lista de chats leyera miles de filas en cada vuelta (D1
+   cobra por fila leída). Así que la página pregunta cada 3 segundos SOLO
+   "¿cuál es el último mensaje?" —dos filas: el último mensaje y el último
+   turno— y se actualiza únicamente cuando eso cambia. */
+
+export async function marcaDeNovedades(db) {
+  try {
+    await asegurarMensajes(db);
+    const m = await db.prepare("SELECT MAX(id) AS n FROM mensajes").first();
+    const t = await db.prepare("SELECT MAX(id) AS n FROM turnos").first().catch(() => null);
+    return `${Number(m?.n) || 0}-${Number(t?.n) || 0}`;
+  } catch {
+    return "";
+  }
+}
+
+// El script de la página (sin librerías). Cada 3 s, con la pestaña a la
+// vista, pregunta la marca; si cambió, trae la página y cambia SOLO las
+// zonas marcadas data-zona (la conversación): el cuadro donde estás
+// escribiendo no se toca. Si estabas al final, baja al mensaje nuevo. Y
+// una vez por minuto, por si acaso, se pone al día igual.
+export const SCRIPT_EN_VIVO = `<script>
+(function(){
+  var b=document.body, url=b.getAttribute("data-marca-url"); if(!url) return;
+  var marca=null, ocupado=false;
+  function alFinal(){return window.innerHeight+window.scrollY>=document.documentElement.scrollHeight-250}
+  function escribiendo(){var a=document.activeElement;return a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName)}
+  function ponerAlDia(){
+    fetch(location.href,{credentials:"same-origin"}).then(function(r){return r.ok?r.text():null}).then(function(h){
+      if(!h)return;
+      var nuevo=new DOMParser().parseFromString(h,"text/html"), abajo=alFinal();
+      var zonas=document.querySelectorAll("[data-zona]");
+      if(zonas.length){
+        zonas.forEach(function(z){var n=nuevo.querySelector('[data-zona="'+z.getAttribute("data-zona")+'"]');if(n&&n.innerHTML!==z.innerHTML)z.innerHTML=n.innerHTML});
+      }else if(!escribiendo()){
+        var a=document.querySelector("main"),n=nuevo.querySelector("main");if(a&&n&&a.innerHTML!==n.innerHTML)a.innerHTML=n.innerHTML;
+      }
+      if(abajo)window.scrollTo(0,document.documentElement.scrollHeight);
+    }).catch(function(){});
+  }
+  function revisar(){
+    if(ocupado||document.visibilityState!=="visible")return;
+    ocupado=true;
+    fetch(url,{credentials:"same-origin"}).then(function(r){return r.ok?r.json():null}).then(function(d){
+      ocupado=false;if(!d||!d.marca)return;
+      if(marca!==null&&d.marca!==marca)ponerAlDia();
+      marca=d.marca;
+    }).catch(function(){ocupado=false});
+  }
+  revisar();setInterval(revisar,3000);setInterval(function(){if(document.visibilityState==="visible")ponerAlDia()},60000);
+  document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")revisar()});
+})();
+</script>`;
 
 /* ── Borrar mensajes del panel (5-oct-2026) ─────────────────────────
    El dueño: "necesito poder eliminar mensajes en el panel". Se borran del
@@ -541,8 +598,8 @@ ${Object.entries(c.problemas).map(([m, n]) => `<span class="etiqueta pausa" titl
 ${filtro ? `<input type="hidden" name="f" value="${esc(filtro)}">` : ""}<button>Buscar</button></form>
 <div class="leyenda">${Object.values(MARCAS).map((m) => `<span>${m.simbolo} ${esc(m.nombre)}</span>`).join("")}</div>
 <div class="filtros">${enlaceFiltro("", "Todas")}${enlaceFiltro("problemas", "Con problemas")}${enlaceFiltro("pausados", "Con el bot en pausa")}${conAnuncios ? enlaceFiltro("anuncios", "Vinieron de un anuncio") : ""}</div><br>
-${todas}<div class="lista">${filas || `<p class="suave">${filtro === "pausados" ? "Nadie en pausa: el bot está atendiendo a todos ✅" : "No hay conversaciones con eso."}</p>`}</div>`,
-    { tienda, conAnuncios }
+<div data-zona="lista">${todas}<div class="lista">${filas || `<p class="suave">${filtro === "pausados" ? "Nadie en pausa: el bot está atendiendo a todos ✅" : "No hay conversaciones con eso."}</p>`}</div></div>`,
+    { tienda, conAnuncios, enVivo: true }
   );
 }
 
@@ -603,6 +660,7 @@ async function paginaDeConversacion(env, id, tienda, { horasDePausa = 1, conAnun
   return pagina(
     nombre,
     `<p><a href="/panel">← Conversaciones</a></p>
+<div data-zona="conversacion">
 <div class="tarjeta"><span class="nombre">${esc(nombre)}</span>${contacto.usuario ? ` <span class="suave">@${esc(contacto.usuario)}</span>` : ""}
 <div class="suave">Id ${esc(id)} · último mensaje del bot ${esc(cuandoFue(contacto.ultimo_envio))}</div>
 ${pub?.deAnuncio ? `<div>📣 Llegó por un anuncio${pub.equipo ? ` del <b>${esc(pub.equipo)}</b>` : ""} · ${esc(cuandoFue(pub.cuando))}</div>` : ""}
@@ -615,9 +673,10 @@ ${contacto.historial ? `<div class="suave">Resumen: ${esc(contacto.historial)}</
     }</div></div>
 <div class="chat">${burbujas || '<p class="suave">Todavía no hay mensajes guardados de esta persona.</p>'}</div>
 ${sueltos.length ? `<h3>Más de lo que pensó la IA</h3><div class="chat">${sueltos.map((t) => `${t.cliente ? `<div class="burbuja de-cliente">${esc(t.cliente)}</div>` : ""}<div class="burbuja de-bot">${esc(t.respuesta)}</div>${cajaDePienso(t)}`).join("")}</div>` : ""}
+</div>
 ${formularioDeMensaje("/panel/enviar", id, horasDePausa, aviso)}
 ${formularioBorrarConversacion("/panel/borrar-conversacion", id)}`,
-    { tienda, conAnuncios }
+    { tienda, conAnuncios, enVivo: true }
   );
 }
 
@@ -704,6 +763,12 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
 
   if (url.pathname === "/panel/salir") {
     return redirigir("/panel", `${COOKIE}=; Path=/panel; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
+  }
+
+  if (url.pathname === "/panel/marca") {
+    return new Response(JSON.stringify({ marca: await marcaDeNovedades(env.DB) }), {
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+    });
   }
 
   if ((url.pathname === "/panel/pausar" || url.pathname === "/panel/devolver") && request.method === "POST") {
@@ -1220,7 +1285,7 @@ export async function atenderApiCentral(request, env, opciones = {}) {
 
   try {
     if (ruta === "vivo") return json(await vivoCentral(env, url));
-    if (ruta === "ping") return json({ ok: true, tienda: opciones.tienda, version: opciones.version || "", ahora: Date.now() });
+    if (ruta === "ping") return json({ ok: true, tienda: opciones.tienda, version: opciones.version || "", ahora: Date.now(), marca: await marcaDeNovedades(env.DB) });
     if (ruta === "resumen") return json(await resumenCentral(env, opciones));
     if (ruta === "metricas") return json(await metricasCentral(env, url.searchParams.get("dias")));
     if (ruta === "ganadores") return json(await ganadoresCentral(env, url.searchParams.get("dias")));

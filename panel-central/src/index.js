@@ -57,7 +57,7 @@ import {
   vistaEnPausa,
 } from "./vistas.js";
 
-const VERSION = "2026-10-05 (8) · ALPHA IA: borrar mensajes y conversaciones del panel";
+const VERSION = "2026-10-05 (9) · ALPHA IA: el panel se pone al día solo, en tiempo real";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");
@@ -295,14 +295,14 @@ async function atenderTienda(request, env, url, t, resto, opciones) {
   const formulario = esPost ? await request.formData().catch(() => null) : null;
 
   if (resto === "") {
-    return p("Resumen", vistaResumenTienda(t, resumenValido(await pedir(env, t, "resumen"))), { vivo: true });
+    return p("Resumen", vistaResumenTienda(t, resumenValido(await pedir(env, t, "resumen"))), { vivo: true, marca: `/t/${t.id}/marca` });
   }
 
   if (resto === "chats") {
     const q = url.searchParams.get("q") || "";
     const f = url.searchParams.get("f") || "";
     const r = await pedir(env, t, `chats?q=${encodeURIComponent(q)}&f=${encodeURIComponent(f)}`);
-    return p("Chats", r.ok && Array.isArray(r.datos) ? vistaChats(t, r.datos, { q, f }) : pestanasDeTienda(t, "chats") + errorDe(r), { vivo: !q });
+    return p("Chats", r.ok && Array.isArray(r.datos) ? vistaChats(t, r.datos, { q, f }) : pestanasDeTienda(t, "chats") + errorDe(r), { vivo: !q, marca: q ? "" : `/t/${t.id}/marca` });
   }
 
   if (resto === "en-vivo") return p("En vivo", vistaEnVivo([], { tienda: t }));
@@ -313,7 +313,10 @@ async function atenderTienda(request, env, url, t, resto, opciones) {
     // Abierta, la conversación se pone al día sola cada 6 segundos.
     const aviso = String(url.searchParams.get("aviso") || "").slice(0, 300);
     // Con un aviso en pantalla no se refresca sola (se borraría el aviso).
-    return p("Conversación", r.ok && r.datos?.contacto ? vistaConversacion(t, r.datos, aviso) : errorDe(r), { vivo: aviso ? false : 6000 });
+    // En tiempo real: se pone al día en cuanto hay un mensaje nuevo (y una
+    // vez por minuto por si acaso). El cuadro para escribir y el aviso no se
+    // tocan (solo cambia la zona de la conversación).
+    return p("Conversación", r.ok && r.datos?.contacto ? vistaConversacion(t, r.datos, aviso) : errorDe(r), { vivo: true, marca: `/t/${t.id}/marca` });
   }
 
   if ((resto === "pausar" || resto === "devolver") && esPost) {
@@ -519,11 +522,22 @@ async function atender(request, env) {
 
   if (url.pathname === "/") {
     const respuestas = await resumenes(env);
-    return pagina("Inicio", vistaInicio(respuestas, await listarAlertas(env.DB, { limite: 8 }), nombres(env)), { ...opciones, vivo: true });
+    return pagina("Inicio", vistaInicio(respuestas, await listarAlertas(env.DB, { limite: 8 }), nombres(env)), { ...opciones, vivo: true, marca: "/marca" });
+  }
+
+  // LA MARCA DE NOVEDADES (ver vistas.js): el último mensaje y el último
+  // turno de cada tienda. La página la pide cada 3 s y se pone al día solo
+  // si cambió. Una sola tienda (/t/<id>/marca) o todas (/marca).
+  if (url.pathname === "/marca" || /^\/t\/[a-z0-9_-]+\/marca$/.test(url.pathname)) {
+    const id = url.pathname.split("/")[2] || "";
+    const lista = url.pathname === "/marca" ? tiendas : tiendas.filter((x) => x.id === id);
+    const respuestas = await Promise.all(lista.map((x) => pedir(env, x, "ping", { espera: 5000 })));
+    const marca = lista.map((x, i) => `${x.id}:${respuestas[i].ok ? respuestas[i].datos?.marca || "" : "x"}`).join("|");
+    return json({ marca });
   }
 
   if (url.pathname === "/en-vivo") return pagina("En vivo", vistaEnVivo(tiendas), opciones);
-  if (url.pathname === "/en-pausa") return pagina("En pausa", vistaEnPausa((await pedirATodas(env, "chats?f=pausados")).map((r) => (r.ok && !Array.isArray(r.datos) ? { ...r, ok: false, error: "respuesta rara de la tienda: despliega su versión nueva" } : r))), { ...opciones, vivo: true });
+  if (url.pathname === "/en-pausa") return pagina("En pausa", vistaEnPausa((await pedirATodas(env, "chats?f=pausados")).map((r) => (r.ok && !Array.isArray(r.datos) ? { ...r, ok: false, error: "respuesta rara de la tienda: despliega su versión nueva" } : r))), { ...opciones, vivo: true, marca: "/marca" });
   if (url.pathname === "/en-vivo/datos") return enVivo(env, url);
 
   if (url.pathname === "/alertas") {

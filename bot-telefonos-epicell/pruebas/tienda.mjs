@@ -83,7 +83,9 @@ r = await pedir("/panel/c/cliente1", { cookie });
 comprobar("y devolverle la conversación al bot", /Pausar el bot 1 h/.test(r.texto), true);
 
 r = await pedir("/panel/c/%3Cscript%3E", { cookie });
-comprobar("lo que viene en la URL se escapa (nada de <script>)", /<script>/.test(r.texto), false);
+// La página trae su propio <script> (el de ponerse al día sola): lo que se
+// mira es que el <script> de la URL salga escapado.
+comprobar("lo que viene en la URL se escapa (nada de <script>)", !/Id <script>/.test(r.texto) && /Id &lt;script&gt;/.test(r.texto), true);
 
 const sinClave = await silencio(worker.fetch)(new Request("https://bot.test/panel"), { DB }, { waitUntil() {} });
 comprobar("sin PANEL_CLAVE el panel está apagado para todos", /El panel está apagado/.test(await sinClave.text()), true);
