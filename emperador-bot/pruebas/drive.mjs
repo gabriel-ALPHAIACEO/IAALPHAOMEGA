@@ -14,11 +14,11 @@ const S = await src.cargar("shopify.js");
 titulo("leer el nombre de la foto: título, código y precio");
 
 for (const [nombre, titulo_, codigo, precio] of [
-  ["Nike Air Force One blanco COD 125 45$.jpg", "Nike Air Force One blanco", "125", "45 USD"],
-  ["AIR MAX 90 - Cód: AM90 - $55.png", "AIR MAX 90", "AM90", "55 USD"],
-  ["Jordan 4 negro #J4N 60 USD.jpeg", "Jordan 4 negro", "J4N", "60 USD"],
-  ["Campus gris_precio 40.jpeg", "Campus gris", "", "40 USD"],
-  ["Samba blanca ref S12 35,50$", "Samba blanca", "S12", "35.5 USD"],
+  ["Nike Air Force One blanco COD 125 45$.jpg", "Nike Air Force One blanco", "125", "$45"],
+  ["AIR MAX 90 - Cód: AM90 - $55.png", "AIR MAX 90", "AM90", "$55"],
+  ["Jordan 4 negro #J4N 60 USD.jpeg", "Jordan 4 negro", "J4N", "$60"],
+  ["Campus gris_precio 40.jpeg", "Campus gris", "", "$40"],
+  ["Samba blanca ref S12 35,50$", "Samba blanca", "S12", "$35.50"],
   ["New Balance 9060.jpg", "New Balance 9060", "", ""],
 ]) {
   const r = D.leerNombre(nombre);
@@ -26,6 +26,27 @@ for (const [nombre, titulo_, codigo, precio] of [
      `"${nombre}"`, `${r.titulo} | ${r.codigo || "-"} | ${r.precio || "sin precio"}`);
 }
 ok(D.leerNombre("New Balance 9060.jpg").titulo.includes("9060"), "el número del MODELO no se confunde con el precio");
+
+titulo("el número del FINAL es el precio, aunque no lleve $ (5-oct-2026)");
+for (const [nombre, titulo_, precio] of [
+  ["Nike Air Force 1 blanco 45.jpg", "Nike Air Force 1 blanco", "$45"],
+  ["Nike Dunk Low panda 50.jpg", "Nike Dunk Low panda", "$50"],
+  ["Jordan 4 negro 60.jpg", "Jordan 4 negro", "$60"],
+  ["Air Max 90 blanco 85.jpg", "Air Max 90 blanco", "$85"],
+  ["Campus gris 39,99.jpg", "Campus gris", "$39.99"],
+  ["Bolso Nike COD 125 30.jpg", "Bolso Nike", "$30"],
+  // El número es del MODELO, no un precio:
+  ["Jordan 4.jpg", "Jordan 4", ""],
+  ["Air Max 90.jpg", "Air Max 90", ""],
+  ["New Balance 530.jpg", "New Balance 530", ""],
+  ["Real Madrid 2026.jpg", "Real Madrid 2026", ""],
+  ["Short Nike talla 32.jpg", "Short Nike talla 32", ""],
+  ["Bolso Nike COD 125.jpg", "Bolso Nike", ""],
+]) {
+  const r = D.leerNombre(nombre);
+  ok(r.titulo === titulo_ && r.precio === precio, `"${nombre}" → ${precio || "sin precio"}`, `${r.titulo} | ${r.precio || "sin precio"}`);
+}
+ok(D.conSimboloDeDolar("45") === "$45" && D.conSimboloDeDolar("45.5") === "$45.50", "debajo de la foto sale con el símbolo: $45, $45.50");
 
 titulo("el id de la carpeta, del enlace tal cual se copia");
 ok(D.idDeCarpeta("https://drive.google.com/drive/folders/14lvw1gxxkZSMEdtZbvJ_fIuaCcCcZykA?usp=sharing") === "14lvw1gxxkZSMEdtZbvJ_fIuaCcCcZykA",
@@ -71,11 +92,11 @@ titulo("la carpeta entera, con subcarpetas, como si fuera Shopify");
   const { productos } = await conDrive(() => S.traerCatalogoCompleto(env));
   ok(productos.length === 3, "3 productos: las fotos (el PDF no cuenta), también la de la subcarpeta", productos.map((p) => p.titulo).join(" · "));
   const af = productos.find((p) => /Air Force/.test(p.titulo));
-  ok(af.titulo === "Air Force One blanco · Cód. 125" && af.precio === "45 USD", "con su código y su precio", `${af.titulo} — ${af.precio}`);
+  ok(af.titulo === "Air Force One blanco · Cód. 125" && af.precio === "$45", "con su código y su precio", `${af.titulo} — ${af.precio}`);
   ok(/^https:\/\/lh3\.googleusercontent\.com\/d\/f1=w1000$/.test(af.imagen), "la foto, servida directa por Google (la puede bajar Instagram)", af.imagen);
   ok(af.url === "https://drive.google.com/file/d/f1/view", "y 'Ver producto' abre la foto en Drive");
   const campus = productos.find((p) => /Campus/.test(p.titulo));
-  ok(campus.precio === "40 USD", "la DESCRIPCIÓN manda si trae el precio (el nombre no lo tenía)");
+  ok(campus.precio === "$40", "la DESCRIPCIÓN manda si trae el precio (el nombre no lo tenía)");
   ok(S.urlPequena(af.imagen).endsWith("=w512"), "para el cotejo se pide pequeña (512)", S.urlPequena(af.imagen));
 }
 
@@ -166,7 +187,7 @@ titulo("SIN CLAVE: lee la carpeta pública, como cualquiera con el enlace");
   ok(/pública/.test(r.via), "y dice que la leyó como carpeta pública", r.via);
   ok(paginasPedidas.includes(PUB_SUB), "entró en la subcarpeta Nike");
   const af = r.productos.find((p) => /Air Force/.test(p.titulo));
-  ok(af.titulo === "Air Force One blanco · Cód. 125" && af.precio === "45 USD", "con su código y su precio", `${af.titulo} — ${af.precio}`);
+  ok(af.titulo === "Air Force One blanco · Cód. 125" && af.precio === "$45", "con su código y su precio", `${af.titulo} — ${af.precio}`);
   ok(af.imagen === "https://lh3.googleusercontent.com/d/1FotoAirForceXXXXXX=w1000", "la foto directa de Google", af.imagen);
   ok(af.nombre === "Air Force One blanco COD 125 45$.jpg", "guarda el nombre del archivo tal cual (para /probar-drive)");
   const rj = await conPublica(() => S.buscarProductos(envSinClave, "retro", 10));

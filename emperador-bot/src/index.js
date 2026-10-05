@@ -130,7 +130,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-05 (31) · siete categorías como las carpetas (calzado, bolsos, franelas, pantalones, shorts, uniformes, gorras), gorras ajustables, revisor con DeepSeek (apagado) y panel";
+const VERSION = "2026-10-05 (32) · el número del final del nombre es el precio, y sale como $45 debajo de la foto";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo

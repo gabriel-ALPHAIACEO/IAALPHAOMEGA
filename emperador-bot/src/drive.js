@@ -93,6 +93,35 @@ const PRECIO = [
   /\bprecio\s*[:=\-]?\s*(\d{1,4}(?:[.,]\d{1,2})?)/i, //   "precio 45", "precio: 45"
 ];
 
+// EL NÚMERO DEL FINAL ES EL PRECIO (5-oct-2026, pedido del dueño): en
+// "Nike Air Force 1 blanco 45" el 45 es el precio aunque no lleve "$".
+// Excepto cuando ese número es parte del MODELO: va justo después de una de
+// estas palabras ("Jordan 4", "Air Max 90", "New Balance 530") o de "talla".
+// Los de cuatro cifras (años, "9060") tampoco: ningún precio llega a eso.
+const ANTES_DE_UN_MODELO = new Set([
+  "force", "jordan", "retro", "max", "airmax", "yeezy", "boost", "balance", "nb",
+  "forum", "levis", "levi's", "pegasus", "kayano", "gel", "cloud", "vomero",
+  "lebron", "kd", "kobe", "zoom", "talla", "tallas", "size", "numero", "número", "n°", "no",
+]);
+const PRECIO_MINIMO_SUELTO = 5;
+
+function precioAlFinal(resto) {
+  const m = resto.match(/(?:^|\s)(\d{1,3}(?:[.,]\d{1,2})?)\s*$/);
+  if (!m) return null;
+  const antes = resto.slice(0, m.index).trim();
+  const palabraAnterior = (antes.split(/\s+/).pop() || "").toLowerCase();
+  if (!antes || ANTES_DE_UN_MODELO.has(palabraAnterior)) return null;
+  if (Number(m[1].replace(",", ".")) < PRECIO_MINIMO_SUELTO) return null;
+  return m;
+}
+
+// El precio como lo ve el cliente debajo de la foto: "$45", "$45.50".
+export function conSimboloDeDolar(cifra) {
+  const n = Number(cifra);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
+}
+
 const CODIGO = [
   /\b(?:c[oó]d(?:igo)?|ref(?:erencia)?|art(?:[ií]culo)?)\.?\s*[:#\-]?\s*([a-z0-9][a-z0-9\-]{0,14})\b/i,
   /#\s*([a-z0-9][a-z0-9\-]{0,14})\b/i,
@@ -111,7 +140,8 @@ export function leerNombre(texto) {
       break;
     }
   }
-
+  // Sin "$" ni "precio": el número del final (ver precioAlFinal). Se mira
+  // DESPUÉS de quitar el código, para que "COD 125" no cuente como precio.
   let codigo = "";
   for (const patron of CODIGO) {
     const m = resto.match(patron);
@@ -119,6 +149,14 @@ export function leerNombre(texto) {
       codigo = m[1].toUpperCase();
       resto = resto.replace(m[0], " ");
       break;
+    }
+  }
+  resto = resto.replace(/\s+/g, " ").trim();
+  if (!precio) {
+    const m = precioAlFinal(resto);
+    if (m) {
+      precio = m[1].replace(",", ".");
+      resto = resto.slice(0, m.index);
     }
   }
 
@@ -129,7 +167,7 @@ export function leerNombre(texto) {
     .replace(/\s+/g, " ")
     .trim();
 
-  return { titulo, codigo, precio: precio ? `${Number(precio)} USD` : "" };
+  return { titulo, codigo, precio: conSimboloDeDolar(precio) };
 }
 
 /* ── Leer la carpeta ─────────────────────────────────────────────── */

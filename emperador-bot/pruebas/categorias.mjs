@@ -172,9 +172,11 @@ async function conversacion(mensaje, { texto, vision = null, cotejo = null, revi
   } finally {
     globalThis.fetch = real; console.log = log; console.error = err;
   }
-  const fichas = enviados.flatMap((m) => m.attachment?.payload?.elements || []).map((e) => e.title);
+  const elementos = enviados.flatMap((m) => m.attachment?.payload?.elements || []);
+  const fichas = elementos.map((e) => e.title);
+  const debajo = elementos.map((e) => e.subtitle);
   const textos = enviados.map((m) => m.text).filter(Boolean);
-  return { fichas, textos, registro };
+  return { fichas, debajo, textos, registro };
 }
 
 const ZAPATOS = /Air Force|Dunk|Campus/;
@@ -186,6 +188,7 @@ titulo("por TEXTO: 'tienes bolsos nike?'");
   });
   ok(r.fichas.length === 1 && /Heritage/.test(r.fichas[0]), "le llega el bolso Nike", r.fichas.join(" · ") || r.textos.join(" | "));
   ok(!r.fichas.some((t) => ZAPATOS.test(t)), "y ningún zapato Nike");
+  ok(r.debajo[0] === "$25", "con el precio debajo de la foto, con su símbolo: $25", r.debajo.join(" · "));
 }
 
 titulo("por TEXTO, aunque la IA busque solo la marca");
