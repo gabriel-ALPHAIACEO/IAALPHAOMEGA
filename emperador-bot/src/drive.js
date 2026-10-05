@@ -87,9 +87,13 @@ function claveDeDrive(env) {
 
 const EXTENSION = /\.(jpe?g|png|webp|heic|heif|gif|avif)$/i;
 
+// "$. 60" o "USD . 60" (con un punto o dos puntos en medio) también es
+// precio. Y en "45$" el número no puede venir pegado a un guion: en
+// "Tallas 40-45 $. 60" el 45 es la talla, no el precio (caso real, 5-oct-2026:
+// salía "$45" y el título "Tallas 40- . 60").
 const PRECIO = [
-  /(?:\$|usd)\s*(\d{1,4}(?:[.,]\d{1,2})?)/i, //          "$45", "USD 45"
-  /(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:\$|usd\b|d[oó]lares?\b|verdes\b)/i, // "45$", "45 USD"
+  /(?:\$|usd\b)[\s.:]*(\d{1,4}(?:[.,]\d{1,2})?)/i, //   "$45", "USD 45", "$. 60"
+  /(?<![\d\-])(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:\$|usd\b|d[oó]lares?\b|verdes\b)/i, // "45$", "45 USD"
   /\bprecio\s*[:=\-]?\s*(\d{1,4}(?:[.,]\d{1,2})?)/i, //   "precio 45", "precio: 45"
 ];
 
@@ -161,6 +165,8 @@ export function leerNombre(texto) {
   }
 
   const titulo = resto
+    // Lo que queda de "(COD ACG)" después de sacar el código: "( )".
+    .replace(/[(\[]\s*[)\]]/g, " ")
     .replace(/\s*[|•·]\s*/g, " ")
     .replace(/\s+-\s+/g, " ")
     .replace(/^[\s\-:,.]+|[\s\-:,.]+$/g, "")

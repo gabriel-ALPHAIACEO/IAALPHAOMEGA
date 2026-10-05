@@ -15,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
+import vm from "node:vm";
 import { pathToFileURL } from "node:url";
 import { prepararSrc, baseDeMentira, ok, titulo, terminar } from "../../invictus-bot/pruebas/ayuda.mjs";
 
@@ -285,6 +286,41 @@ titulo("una tienda: chats y conversación");
   ok(pausa.estado === 303 && fila.pausado_hasta > Date.now(), "pausar el bot desde el central pausa la tienda de verdad");
   await abrir("/t/invictus/devolver", { metodo: "POST", form: { id: "123" } });
   ok(BASE1.sql.prepare("SELECT pausado_hasta FROM contactos WHERE id = '123'").get().pausado_hasta <= Date.now(), "y devolvérselo");
+}
+
+titulo("ALPHA IA: el logo, las fotos y el carrusel de fichas");
+{
+  const logo = await central.fetch(new Request("https://central.test/logo.png"), ENV_C, ctx);
+  const iso = await central.fetch(new Request("https://central.test/isotipo.png"), ENV_C, ctx);
+  ok(logo.status === 200 && iso.headers.get("content-type") === "image/png" && (await iso.arrayBuffer()).byteLength > 1000, "el logo se sirve sin sesión (lo usa la pantalla de entrada)");
+  const fuera = await abrir("/", { sinSesion: true });
+  ok(/\/logo\.png/.test(fuera.html) && /Panel central/.test(fuera.html), "la entrada lleva el logo de ALPHA IA");
+  const P1 = await tienda1.cargar("panel.js");
+  await P1.anotarMensaje(BASE1.DB, "123", "cliente", "", { fotos: ["https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=7"] });
+  await P1.anotarMensaje(BASE1.DB, "123", "bot", "📷 Fichas: Jordan 4 · Dunk", { fichas: [{ titulo: "Jordan 4", precio: "$70", imagen: "https://cdn.shopify.com/j4.jpg" }, { titulo: "Dunk", precio: "$50", imagen: "https://cdn.shopify.com/dunk.jpg" }] });
+  const conv = await abrir("/t/invictus/c/123");
+  ok(/class="alpha"/.test(conv.html) && /isotipo\.png/.test(conv.html), "arriba, la marca ALPHA IA");
+  ok(/<img src="https:\/\/lookaside\.fbsbx\.com/.test(conv.html), "la foto que mandó el cliente se ve");
+  ok(/class="carrusel"/.test(conv.html) && /cdn\.shopify\.com\/j4\.jpg/.test(conv.html) && /\$70/.test(conv.html), "las fichas, en un carrusel que se desliza, con su precio");
+  ok(/img-src 'self' data: https:/.test(conv.r.headers.get("content-security-policy") || ""), "la política de seguridad deja ver imágenes https");
+  const datos = (await abrir("/en-vivo/datos?tienda=invictus")).datos;
+  ok((datos?.eventos || []).some((e) => (e.imagenes || []).some((u) => /j4\.jpg/.test(u))), "En vivo: el mensaje llega con sus miniaturas");
+
+  // El JavaScript de cada pantalla se compila de verdad: un "\\/" mal
+  // escapado dentro de una plantilla rompe la página entera sin dar error
+  // en ninguna prueba (pasó el 5-oct-2026 con En vivo).
+  const malos = [];
+  for (const ruta of ["/", "/en-vivo", "/t/invictus/en-vivo", "/t/invictus/c/123", "/t/invictus/chats", "/metricas", "/alertas", "/en-pausa"]) {
+    const html = (await abrir(ruta)).html;
+    for (const [, codigo] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
+      try {
+        new vm.Script(codigo);
+      } catch (error) {
+        malos.push(`${ruta}: ${error.message}`);
+      }
+    }
+  }
+  ok(!malos.length, "el JavaScript de cada pantalla compila (sin errores de sintaxis)", malos.join(" | "));
 }
 
 titulo("despausar: en pausa, desde la lista y todas de una vez");

@@ -32,6 +32,7 @@
 import { cargarContacto, pausar, despausar, asegurarColumnas } from "./estado.js";
 import { gastoDelMes } from "./gasto.js";
 import { TABLAS, leerTabla, tipoDeError, esIntencionDeCompra, asegurarTurnos, MARCAS } from "./registro.js";
+import { ESTILO_ALPHA, SCRIPT_ALPHA, imagenDeAlpha, marcaAlpha, cajaDeEntrada, adjuntosLimpios, leerAdjuntos, textoDeAdjuntos, textoVisible, htmlDeAdjuntos } from "./alpha.js";
 
 // Se reexporta para que index.js lo siga importando desde aquí.
 export { anotarTurno } from "./registro.js";
@@ -96,7 +97,8 @@ const CREAR_MENSAJES = `
     igsid  TEXT NOT NULL,
     cuando INTEGER NOT NULL,
     de     TEXT NOT NULL,
-    texto  TEXT NOT NULL
+    texto  TEXT NOT NULL,
+    adjuntos TEXT NOT NULL DEFAULT ''
   )
 `;
 
@@ -108,14 +110,24 @@ let mensajesListos = false;
 async function asegurarMensajes(db) {
   if (mensajesListos) return;
   await db.prepare(CREAR_MENSAJES).run();
+  // Las fotos y las fichas (5-oct-2026, ver alpha.js): las tablas de antes
+  // no tienen la columna. Si dos a la vez la añaden, la segunda falla: da igual.
+  const { results: columnas } = await db.prepare("PRAGMA table_info(mensajes)").all();
+  if (!(columnas || []).some((c) => c.name === "adjuntos")) {
+    await db.prepare("ALTER TABLE mensajes ADD COLUMN adjuntos TEXT NOT NULL DEFAULT ''").run().catch(() => {});
+  }
   await db.prepare("CREATE INDEX IF NOT EXISTS mensajes_igsid ON mensajes (igsid, cuando)").run();
   await db.prepare("CREATE INDEX IF NOT EXISTS mensajes_cuando ON mensajes (cuando)").run();
   mensajesListos = true;
 }
 
 // de: "cliente", "bot" o "asesor".
-export async function anotarMensaje(db, igsid, de, texto) {
-  const limpio = String(texto || "").trim();
+// adjuntos (opcional, ver alpha.js): { fotos: [url], historia, fichas: [productos] }
+// para que en el panel se vea la foto que mandó el cliente y el carrusel
+// que mandó el bot. Sin texto, se guarda uno que lo describe.
+export async function anotarMensaje(db, igsid, de, texto, adjuntos = null) {
+  const extra = adjuntosLimpios(adjuntos);
+  const limpio = String(texto || "").trim() || textoDeAdjuntos(extra, de);
   if (!db || !igsid || !limpio) return;
   try {
     await asegurarMensajes(db);
@@ -130,8 +142,8 @@ export async function anotarMensaje(db, igsid, de, texto) {
       if (igual) return;
     }
     await db
-      .prepare("INSERT INTO mensajes (igsid, cuando, de, texto) VALUES (?, ?, ?, ?)")
-      .bind(String(igsid), Date.now(), ["cliente", "bot", "asesor"].includes(de) ? de : "cliente", limpio.slice(0, 2000))
+      .prepare("INSERT INTO mensajes (igsid, cuando, de, texto, adjuntos) VALUES (?, ?, ?, ?, ?)")
+      .bind(String(igsid), Date.now(), ["cliente", "bot", "asesor"].includes(de) ? de : "cliente", limpio.slice(0, 2000), extra ? JSON.stringify(extra) : "")
       .run();
     if (Math.random() < 0.01) {
       await db.prepare("DELETE FROM mensajes WHERE cuando < ?").bind(Date.now() - MENSAJES_DIAS * 86400000).run();
@@ -145,10 +157,12 @@ async function mensajesDe(db, igsid) {
   try {
     await asegurarMensajes(db);
     const r = await db
-      .prepare("SELECT id, de, texto, cuando FROM mensajes WHERE igsid = ? ORDER BY cuando DESC, id DESC LIMIT 200")
+      .prepare("SELECT id, de, texto, cuando, adjuntos FROM mensajes WHERE igsid = ? ORDER BY cuando DESC, id DESC LIMIT 200")
       .bind(String(igsid))
       .all();
-    return (r?.results || []).reverse().map((m) => ({ id: Number(m.id), de: m.de, texto: m.texto, cuando: Number(m.cuando) || 0 }));
+    return (r?.results || [])
+      .reverse()
+      .map((m) => ({ id: Number(m.id), de: m.de, texto: m.texto, cuando: Number(m.cuando) || 0, adjuntos: leerAdjuntos(m.adjuntos) }));
   } catch {
     return [];
   }
@@ -230,51 +244,32 @@ function horaExacta(ms) {
   });
 }
 
-const ESTILO = `
-:root{--fondo:#f6f7f9;--tarjeta:#fff;--texto:#1c1f24;--suave:#5f6773;--borde:#e3e6ea;--marca:#2f6fed;
---cliente:#eef1f5;--bot:#e6efff;--pienso:#fff8e6;--pienso-borde:#f0d48a;--alerta:#b42318;--bien:#137333;}
-@media (prefers-color-scheme:dark){:root{--fondo:#111418;--tarjeta:#1a1e24;--texto:#e8eaed;--suave:#9aa3ad;
---borde:#2b3139;--marca:#7aa7ff;--cliente:#232a33;--bot:#1d2a44;--pienso:#2b2616;--pienso-borde:#6b5a22;--alerta:#ff8a80;--bien:#81c995;}}
-*{box-sizing:border-box}body{margin:0;background:var(--fondo);color:var(--texto);
-font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-a{color:var(--marca);text-decoration:none}
-header{position:sticky;top:0;background:var(--tarjeta);border-bottom:1px solid var(--borde);padding:10px 16px;z-index:2}
-header .fila{display:flex;gap:14px;align-items:center;flex-wrap:wrap;max-width:880px;margin:0 auto}
-header b{font-size:16px;margin-right:auto}
-main{max-width:880px;margin:0 auto;padding:16px}
-.tarjeta{background:var(--tarjeta);border:1px solid var(--borde);border-radius:12px;padding:12px 14px;margin-bottom:10px}
-.lista a.tarjeta,.lista a.dentro{display:block;color:inherit}.lista form.acciones{margin:8px 0 0}
-.nombre{font-weight:600}.suave{color:var(--suave);font-size:13px}
-.etiqueta{display:inline-block;font-size:12px;border-radius:999px;padding:1px 8px;margin-left:6px;border:1px solid var(--borde)}
-.pausa{color:var(--alerta);border-color:var(--alerta)}.anuncio{color:var(--marca);border-color:var(--marca)}
-.chat{display:flex;flex-direction:column;gap:8px}
-.burbuja{max-width:85%;padding:8px 12px;border-radius:14px;white-space:pre-wrap;word-wrap:break-word}
-.de-cliente{align-self:flex-start;background:var(--cliente)}.de-bot{align-self:flex-end;background:var(--bot)}
-.de-asesor{align-self:flex-end;background:var(--tarjeta);border:1px solid var(--marca)}
-.quien{display:block;font-size:11px;color:var(--suave);margin-bottom:2px}
-.sello{font-weight:600;margin-bottom:4px}.sello-error,.sello-indebida{color:var(--alerta)}
-.leyenda{font-size:13px;color:var(--suave);margin:6px 0 12px}.leyenda span{margin-right:10px;white-space:nowrap}
-.pienso{align-self:flex-end;max-width:85%;background:var(--pienso);border:1px dashed var(--pienso-borde);
-border-radius:10px;padding:8px 12px;font-size:13px}
-.pienso b{display:block;margin-bottom:2px}
+// El diseño es el de ALPHA IA (alpha.js, igual en el panel central). Aquí
+// solo lo que es de este panel.
+const ESTILO = `${ESTILO_ALPHA}
+.lista a.dentro{display:block;color:inherit}.lista form.acciones{margin:10px 0 0}
+.filtros{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 14px}
+.filtros a{font-size:13.5px;color:var(--suave);padding:6px 12px;border-radius:999px;border:1px solid var(--borde);background:var(--tarjeta);transition:all .2s}
+.filtros a:hover{color:var(--texto);border-color:var(--borde-fuerte)}
+.filtros a.activo{color:#fff;background:linear-gradient(135deg,#2f7bff,#0a5cf5);border-color:transparent;box-shadow:0 4px 16px -6px rgba(10,92,245,.8)}
 form.buscar{display:flex;gap:8px;margin-bottom:12px}
-input,button{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid var(--borde);background:var(--tarjeta);color:var(--texto)}
-input{flex:1;min-width:0}button{cursor:pointer}button.principal{background:var(--marca);color:#fff;border-color:var(--marca)}
-.filtros a{margin-right:12px;font-size:14px}.filtros a.activo{font-weight:700}
-.acciones{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
-pre{white-space:pre-wrap;word-wrap:break-word;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace;margin:0}
+input{flex:1;min-width:0}
+textarea{width:100%}
 `;
 
-function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnuncios = true, enVivo = false } = {}) {
+function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnuncios = true, enVivo = false, entrada = false } = {}) {
   const menu = conMenu
-    ? `<a href="/panel">Chats</a>${conAnuncios ? '<a href="/panel/anuncios">Anuncios</a>' : ""}<a href="/panel/estado">Estado</a><a href="/panel/salir">Salir</a>`
+    ? `<nav class="menu"><a href="/panel">Chats</a>${conAnuncios ? '<a href="/panel/anuncios">Anuncios</a>' : ""}<a href="/panel/estado">Estado</a><a href="/panel/salir">Salir</a></nav>`
     : "";
+  const vivo = enVivo ? '<span class="en-vivo" title="Se pone al día sola en cuanto llega un mensaje"><i></i>en vivo</span>' : "";
+  const arriba = entrada ? "" : `<header><div class="fila">${marcaAlpha("/panel", tienda)}${menu}${vivo}</div></header>`;
   return new Response(
     `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex">
-<title>${esc(titulo)} · ${esc(tienda)}</title><style>${ESTILO}</style></head>
-<body${enVivo ? ' data-marca-url="/panel/marca"' : ""}><header><div class="fila"><b>${esc(tienda)}</b>${menu}${enVivo ? '<span class="suave" title="Se pone al día sola en cuanto llega un mensaje">🟢 en vivo</span>' : ""}</div></header><main>${cuerpo}</main>${enVivo ? SCRIPT_EN_VIVO : ""}</body></html>`,
+<meta name="robots" content="noindex"><meta name="theme-color" content="#05070d">
+<link rel="icon" href="/panel/isotipo.png?v=1">
+<title>${esc(titulo)} · ${esc(tienda)} · ALPHA IA</title><style>${ESTILO}</style></head>
+<body${enVivo ? ' data-marca="/panel/marca"' : ""}>${arriba}${entrada ? cuerpo : `<main>${cuerpo}</main>`}${conMenu ? SCRIPT_ALPHA : ""}</body></html>`,
     {
       status: 200,
       headers: {
@@ -294,15 +289,11 @@ function redirigir(a, cookie = "") {
 }
 
 function paginaDeEntrada(tienda, error = "") {
-  return pagina(
-    "Entrar",
-    `<div class="tarjeta"><form method="post" action="/panel/entrar">
-<p>Escribe la clave del panel.</p>
-${error ? `<p style="color:var(--alerta)">${esc(error)}</p>` : ""}
-<div class="acciones"><input type="password" name="clave" autocomplete="current-password" autofocus>
-<button class="principal">Entrar</button></div></form></div>`,
-    { tienda, conMenu: false }
-  );
+  return pagina("Entrar", cajaDeEntrada("/panel", { accion: "/panel/entrar", texto: "Escribe la clave del panel.", error, detalle: tienda }), {
+    tienda,
+    conMenu: false,
+    entrada: true,
+  });
 }
 
 /* ── Escribirle al cliente desde el panel (5-oct-2026) ─────────────
@@ -380,43 +371,8 @@ export async function marcaDeNovedades(db) {
   }
 }
 
-// El script de la página (sin librerías). Cada 3 s, con la pestaña a la
-// vista, pregunta la marca; si cambió, trae la página y cambia SOLO las
-// zonas marcadas data-zona (la conversación): el cuadro donde estás
-// escribiendo no se toca. Si estabas al final, baja al mensaje nuevo. Y
-// una vez por minuto, por si acaso, se pone al día igual.
-export const SCRIPT_EN_VIVO = `<script>
-(function(){
-  var b=document.body, url=b.getAttribute("data-marca-url"); if(!url) return;
-  var marca=null, ocupado=false;
-  function alFinal(){return window.innerHeight+window.scrollY>=document.documentElement.scrollHeight-250}
-  function escribiendo(){var a=document.activeElement;return a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName)}
-  function ponerAlDia(){
-    fetch(location.href,{credentials:"same-origin"}).then(function(r){return r.ok?r.text():null}).then(function(h){
-      if(!h)return;
-      var nuevo=new DOMParser().parseFromString(h,"text/html"), abajo=alFinal();
-      var zonas=document.querySelectorAll("[data-zona]");
-      if(zonas.length){
-        zonas.forEach(function(z){var n=nuevo.querySelector('[data-zona="'+z.getAttribute("data-zona")+'"]');if(n&&n.innerHTML!==z.innerHTML)z.innerHTML=n.innerHTML});
-      }else if(!escribiendo()){
-        var a=document.querySelector("main"),n=nuevo.querySelector("main");if(a&&n&&a.innerHTML!==n.innerHTML)a.innerHTML=n.innerHTML;
-      }
-      if(abajo)window.scrollTo(0,document.documentElement.scrollHeight);
-    }).catch(function(){});
-  }
-  function revisar(){
-    if(ocupado||document.visibilityState!=="visible")return;
-    ocupado=true;
-    fetch(url,{credentials:"same-origin"}).then(function(r){return r.ok?r.json():null}).then(function(d){
-      ocupado=false;if(!d||!d.marca)return;
-      if(marca!==null&&d.marca!==marca)ponerAlDia();
-      marca=d.marca;
-    }).catch(function(){ocupado=false});
-  }
-  revisar();setInterval(revisar,3000);setInterval(function(){if(document.visibilityState==="visible")ponerAlDia()},60000);
-  document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")revisar()});
-})();
-</script>`;
+// El script que pregunta la marca y pone la página al día es SCRIPT_ALPHA
+// (alpha.js): el mismo en el panel central.
 
 /* ── Borrar mensajes del panel (5-oct-2026) ─────────────────────────
    El dueño: "necesito poder eliminar mensajes en el panel". Se borran del
@@ -577,13 +533,13 @@ async function paginaDeLista(env, url, tienda, conAnuncios = true) {
   const aqui = `/panel${filtro || q ? `?${new URLSearchParams({ ...(filtro ? { f: filtro } : {}), ...(q ? { q } : {}) })}` : ""}`;
   const filas = contactos
     .map((c) => {
-      const enlace = `<a class="${c.pausado ? "dentro" : "tarjeta"}" href="/panel/c/${encodeURIComponent(c.id)}">
+      const enlace = `<a class="${c.pausado ? "dentro" : "tarjeta"}"${c.pausado ? "" : ` data-k="c${esc(c.id)}"`} href="/panel/c/${encodeURIComponent(c.id)}">
 <span class="nombre">${esc(c.nombre || c.usuario || c.id)}</span>${c.usuario ? ` <span class="suave">@${esc(c.usuario)}</span>` : ""}
 ${Object.entries(c.problemas).map(([m, n]) => `<span class="etiqueta pausa" title="${esc(MARCAS[m]?.nombre || m)}">${MARCAS[m]?.simbolo || "!"} ${n}</span>`).join("")}${c.pausado ? `<span class="etiqueta pausa">⏸️ bot en pausa hasta ${esc(horaExacta(c.pausadoHasta))}</span>` : ""}${c.anuncio ? `<span class="etiqueta anuncio">anuncio · ${esc(String(c.anuncio).slice(0, 30))}</span>` : ""}
 <div class="suave">${esc(cuandoFue(c.ultimo))}${c.ultima ? ` · ${c.ultima.de === "bot" ? "Bot: " : c.ultima.de === "asesor" ? "Asesor: " : ""}${esc(String(c.ultima.texto || "").slice(0, 90))}` : ""}</div></a>`;
       if (!c.pausado) return enlace;
       // En pausa: el botón para devolvérsela al bot, sin tener que abrirla.
-      return `<div class="tarjeta">${enlace}<form class="acciones" method="post" action="/panel/devolver"><input type="hidden" name="id" value="${esc(c.id)}"><input type="hidden" name="volver" value="${esc(aqui)}"><button class="principal">▶️ Devolverle la conversación al bot</button></form></div>`;
+      return `<div class="tarjeta" data-k="c${esc(c.id)}">${enlace}<form class="acciones" method="post" action="/panel/devolver"><input type="hidden" name="id" value="${esc(c.id)}"><input type="hidden" name="volver" value="${esc(aqui)}"><button class="principal">▶️ Devolverle la conversación al bot</button></form></div>`;
     })
     .join("");
   const enPausa = contactos.filter((c) => c.pausado).length;
@@ -615,11 +571,12 @@ function cajaDePienso(t) {
   const hizo = [
     t.buscar && t.buscar.toUpperCase() !== "NADA" ? `Buscó: “${esc(t.buscar)}”` : "No buscó nada",
     t.mostrar ? `Eligió: ${esc({ texto: "solo texto", texto_e_imagenes: "texto con fichas", imagenes: "fichas" }[t.mostrar] || t.mostrar)}` : "",
-    t.productos.length ? `Fichas: ${t.productos.map(esc).join(", ")}` : "",
   ].filter(Boolean);
   partes.push(`<div>${hizo.join(" · ")}</div>`);
+  // Las fichas ya se ven en el carrusel: aquí, plegadas.
+  if (t.productos.length) partes.push(`<details><summary>🗂 ${t.productos.length} ficha(s)</summary>${t.productos.map(esc).join(" · ")}</details>`);
   if (t.notas.length) partes.push(`<div>🛠 ${t.notas.map(esc).join(" · ")}</div>`);
-  return `<div class="pienso">${partes.join("")}<div class="suave">${esc(horaExacta(t.cuando))}</div></div>`;
+  return `<div class="pienso"${t.id ? ` data-k="t${esc(t.id)}"` : ""}>${partes.join("")}<div class="suave">${esc(horaExacta(t.cuando))}</div></div>`;
 }
 
 async function paginaDeConversacion(env, id, tienda, { horasDePausa = 1, conAnuncios = true, aviso = "" } = {}) {
@@ -635,9 +592,13 @@ async function paginaDeConversacion(env, id, tienda, { horasDePausa = 1, conAnun
   const burbujas = charla
     .map((linea) => {
       const quien = linea.de === "asesor" ? "Asesor (a mano)" : linea.de === "bot" ? "Bot" : "Cliente";
+      // Con fotos o fichas (alpha.js): se ven las imágenes, como en Instagram.
+      const adjuntos = linea.adjuntos || null;
+      const texto = textoVisible(linea.texto, adjuntos);
+      const clase = `burbuja de-${linea.de === "asesor" ? "asesor" : linea.de === "bot" ? "bot" : "cliente"}${adjuntos?.fichas && !texto ? " con-fichas" : ""}`;
       const caja =
-        `<div class="burbuja de-${linea.de === "asesor" ? "asesor" : linea.de === "bot" ? "bot" : "cliente"}">` +
-        `<span class="quien">${quien}${linea.cuando ? ` · ${esc(horaExacta(linea.cuando))}` : ""}${botonBorrar(id, linea.id)}</span>${esc(linea.texto)}</div>`;
+        `<div class="${clase}"${linea.id ? ` data-k="m${esc(linea.id)}"` : ""}>` +
+        `<span class="quien">${quien}${linea.cuando ? ` · ${esc(horaExacta(linea.cuando))}` : ""}${botonBorrar(id, linea.id)}</span>${htmlDeAdjuntos(adjuntos)}${esc(texto)}</div>`;
       if (linea.de !== "bot") return caja;
       const i = turnos.findIndex((t, n) => !usados.has(n) && normal(t.respuesta) && normal(t.respuesta) === normal(linea.texto));
       if (i === -1) return caja;
@@ -733,6 +694,11 @@ export async function atenderPanel(request, env, opciones = {}) {
 
 async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda", horasDePausa = 1, conAnuncios = true } = {}) {
   const url = new URL(request.url);
+
+  // El logo de ALPHA IA (alpha.js): sin sesión, lo usa la pantalla de entrada.
+  if (url.pathname === "/panel/logo.png" || url.pathname === "/panel/isotipo.png") {
+    return imagenDeAlpha(url.pathname.slice("/panel/".length));
+  }
 
   if (!panelActivo(env)) {
     return pagina(
@@ -1073,7 +1039,8 @@ async function vivoCentral(env, url) {
     return cursor ? filas : filas.reverse();
   };
 
-  const mensajes = await ultimos("SELECT id, igsid, cuando, de, texto FROM mensajes", desde, 40);
+  await asegurarMensajes(db);
+  const mensajes = await ultimos("SELECT id, igsid, cuando, de, texto, adjuntos FROM mensajes", desde, 40);
   const turnos = await ultimos(
     "SELECT id, igsid, cuando, cliente, pienso, respuesta, productos, notas, marca, motivo FROM turnos",
     desdeTurno,
@@ -1092,7 +1059,7 @@ async function vivoCentral(env, url) {
     : [];
 
   return {
-    mensajes: mensajes.map((m) => ({ ...m, cuando: Number(m.cuando) || 0 })),
+    mensajes: mensajes.map((m) => ({ ...m, cuando: Number(m.cuando) || 0, adjuntos: leerAdjuntos(m.adjuntos) })),
     turnos: turnos.map((t) => ({ ...t, cuando: Number(t.cuando) || 0, productos: leer(t.productos), notas: leer(t.notas) })),
     marcas,
     ultimo: Math.max(desde, ...mensajes.map((m) => Number(m.id) || 0)),

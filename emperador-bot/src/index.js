@@ -131,7 +131,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-05 (38) · el panel se pone al día solo, en tiempo real";
+const VERSION = "2026-10-05 (39) · ALPHA IA: diseño nuevo, logo, fotos y carrusel en el panel (y precios de Drive con talla 40-45)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1415,7 +1415,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   let enviadoEn = 0;
 
   // "texto" es lo que se le mandó, tal cual: va al panel (ver panel.js).
-  const mandar = async (hacer, texto = "") => {
+  // "adjuntos": las fichas que se mandaron, para verlas en el panel como
+  // carrusel (ver alpha.js).
+  const mandar = async (hacer, texto = "", adjuntos = null) => {
     const mid = await hacer();
     if (!mid) return "";
 
@@ -1423,7 +1425,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     mids = agregarMid(mids, mid);
     enviadoEn = Date.now();
     await marcarEnvio(env.DB, mensaje.igsid, mids, enviadoEn);
-    if (texto) await anotarMensaje(env.DB, mensaje.igsid, "bot", texto);
+    if (texto || adjuntos) await anotarMensaje(env.DB, mensaje.igsid, "bot", texto, adjuntos);
     return mid;
   };
   // El eco de un mensaje que salió de la cuenta: el nuestro (el bot
@@ -1523,7 +1525,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     env.DB,
     mensaje.igsid,
     "cliente",
-    [mensaje.texto, mensaje.historia?.url ? "(respondió a una historia)" : mensaje.foto ? "(mandó una foto)" : ""].filter(Boolean).join(" ")
+    [mensaje.texto, mensaje.historia?.url ? "(respondió a una historia)" : mensaje.foto ? "(mandó una foto)" : ""].filter(Boolean).join(" "),
+    // La foto que mandó (o la historia a la que respondió), para verla en el panel.
+    { fotos: [mensaje.historia?.url || mensaje.foto], historia: Boolean(mensaje.historia?.url) }
   );
   // ¿Se está quejando de la respuesta? Al panel central, en el momento.
   await vigilarQueja(env, mensaje.igsid, mensaje.texto);
@@ -2076,7 +2080,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // guarda cada envío en el momento y cierra esa ventana.
   if (productos.length) {
     await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente), respuestaCliente);
-    await mandar(() => enviarFichas(env, mensaje.igsid, productos), `📷 Fichas: ${productos.map((p) => p.titulo).join(" · ")}`);
+    await mandar(() => enviarFichas(env, mensaje.igsid, productos), `📷 Fichas: ${productos.map((p) => p.titulo).join(" · ")}`, { fichas: productos });
   } else if (buscoSinExito || seAcabaron || hayMasDelCatalogo) {
     // Tres motivos distintos, misma salida: el cliente quería ver algo y no
     // hay nada (más) que enseñarle en una ficha. Ahí el enlace de la tienda

@@ -46,6 +46,17 @@ for (const [nombre, titulo_, precio] of [
   const r = D.leerNombre(nombre);
   ok(r.titulo === titulo_ && r.precio === precio, `"${nombre}" → ${precio || "sin precio"}`, `${r.titulo} | ${r.precio || "sin precio"}`);
 }
+titulo("tallas con guion y \"$. 60\": el precio es el 60, no la talla (caso real, 5-oct-2026)");
+for (const [nombre, titulo_, codigo, precio] of [
+  ["NIKE ACG (Cód. ACG) Tallas 40-45 $. 60.jpg", "NIKE ACG Tallas 40-45", "ACG", "$60"],
+  ["NIKE ACG (COD NAG) Tallas 40-45 USD . 60.jpg", "NIKE ACG Tallas 40-45", "NAG", "$60"],
+  ["NIKE ACG (COD ACG) Tallas 40-45 . 60.jpg", "NIKE ACG Tallas 40-45", "ACG", "$60"],
+  ["Nike 45$ AF1.jpg", "Nike AF1", "", "$45"],
+]) {
+  const r = D.leerNombre(nombre);
+  ok(r.titulo === titulo_ && r.codigo === codigo && r.precio === precio,
+     `"${nombre}" → ${precio}`, `${r.titulo} | ${r.codigo || "-"} | ${r.precio || "sin precio"}`);
+}
 ok(D.conSimboloDeDolar("45") === "$45" && D.conSimboloDeDolar("45.5") === "$45.50", "debajo de la foto sale con el símbolo: $45, $45.50");
 
 titulo("el id de la carpeta, del enlace tal cual se copia");

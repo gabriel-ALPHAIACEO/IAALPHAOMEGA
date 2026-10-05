@@ -25,6 +25,8 @@ Como los archivos se pegan a mano, **cada entrega sube la constante `VERSION` de
 
 **`src/` es casi idéntico en `invictus-bot/`, `emperador-bot/` y `bot-telefonos-epicell/` a propósito.** Un arreglo se aplica pegando el mismo archivo en las carpetas que correspondan. Lo que NUNCA se cruza entre tiendas: `wrangler.toml`, `src/prompts/` y los secretos — ahí vive lo que hace que cada bot sea de su tienda. (EPICELL además lee de Google Sheets en vez de Shopify, así que sus `sheets.js`, `capacidad.js` y `recomendados.js` son suyos.)
 
+**`src/alpha.js` es idéntico en las 3 tiendas Y en `panel-central/src/`** (5-oct-2026): es la cara de ALPHA IA en los dos paneles — el logo (dentro del archivo, en base64), el estilo oscuro, el script que pone la página al día sin parpadear, y cómo se pintan la foto del cliente y el carrusel de fichas. Un cambio de diseño se pega en las cuatro carpetas.
+
 **UN WORKER POR TIENDA, y así se queda (decidido el 29-sep-2026).** Se probó
 la vía multi-tienda —un solo Worker que atendía a varias con `tienda.js` y
 `tiendas/*.js`— y se descartó: con pocos clientes que son negocios de verdad,

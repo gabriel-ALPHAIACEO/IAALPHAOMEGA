@@ -155,7 +155,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-05 (27) · el panel se pone al día solo, en tiempo real";
+const VERSION = "2026-10-05 (28) · ALPHA IA: diseño nuevo, logo, fotos y carrusel en el panel";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -2070,7 +2070,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // lo que el bot dice: da igual por qué camino se haya respondido —la
   // lista de una marca, el precio en divisas, un comentario— queda escrito
   // igual. Lo mismo que se hace con los mids y con los textos.
-  const mandar = async (hacer, texto = "") => {
+  // "adjuntos": las fichas que se mandaron, para verlas en el panel como
+  // carrusel (ver alpha.js). No entran en la memoria de la conversación.
+  const mandar = async (hacer, texto = "", adjuntos = null) => {
     const mid = await hacer();
     if (!mid) return "";
 
@@ -2082,7 +2084,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     }
     enviadoEn = Date.now();
     await marcarEnvio(env.DB, mensaje.igsid, mids, enviadoEn, textos, conversacion);
-    if (texto) await anotarMensaje(env.DB, mensaje.igsid, "bot", texto);
+    if (texto || adjuntos) await anotarMensaje(env.DB, mensaje.igsid, "bot", texto, adjuntos);
     return mid;
   };
   // El eco de un mensaje que salió de la cuenta: el nuestro (el bot
@@ -2263,7 +2265,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
                   ? "(respondió a una historia)"
                   : mensaje.anuncio
                     ? "(llegó desde un anuncio)"
-                    : "")
+                    : ""),
+      // La foto que mandó (o la historia o publicación), para verla en el panel.
+      {
+        fotos: [mensaje.historia?.url || mensaje.foto || mensaje.publicacion?.url],
+        historia: Boolean(mensaje.historia?.url),
+      }
     );
     // ¿Se está quejando de la respuesta? Al panel central, en el momento.
     await vigilarQueja(env, mensaje.igsid, mensaje.texto);
@@ -2419,13 +2426,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       console.log(`Quiere las imágenes de la lista: ${previos.length} ficha(s)`);
 
       await mandar(() => enviarTexto(env, mensaje.igsid, respuesta), respuesta);
-      await mandar(() =>
-        enviarFichas(
-          env,
-          mensaje.igsid,
-          previos.map((p) => ({ ...p, precio: subtituloDeFicha(p, false, false) }))
-        )
-      );
+      const fichas = previos.map((p) => ({ ...p, precio: subtituloDeFicha(p, false, false) }));
+      await mandar(() => enviarFichas(env, mensaje.igsid, fichas), "", { fichas });
 
       await guardarContacto(env.DB, {
         ...contacto,
@@ -2700,7 +2702,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       }));
 
       await mandar(() => enviarTexto(env, mensaje.igsid, respuesta), respuesta);
-      await mandar(() => enviarFichas(env, mensaje.igsid, fichas));
+      await mandar(() => enviarFichas(env, mensaje.igsid, fichas), "", { fichas });
 
       await guardarContacto(env.DB, {
         ...contacto,
@@ -2788,13 +2790,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
         );
 
         await mandar(() => enviarTexto(env, mensaje.igsid, respuesta), respuesta);
-        await mandar(() =>
-          enviarFichas(
-            env,
-            mensaje.igsid,
-            previos.map((p) => ({ ...p, precio: subtituloDeFicha(p, false, true) }))
-          )
-        );
+        const fichas = previos.map((p) => ({ ...p, precio: subtituloDeFicha(p, false, true) }));
+        await mandar(() => enviarFichas(env, mensaje.igsid, fichas), "", { fichas });
 
         await guardarContacto(env.DB, {
           ...contacto,
@@ -3282,7 +3279,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     );
   } else if (paraMostrar.length) {
     await mandar(() => enviarTexto(env, mensaje.igsid, leDigo), leDigo);
-    await mandar(() => enviarFichas(env, mensaje.igsid, paraMostrar));
+    await mandar(() => enviarFichas(env, mensaje.igsid, paraMostrar), "", { fichas: paraMostrar });
     // Solo si hay una tienda de verdad a la que mandarlo. Sin catálogo no
     // sale nada: el cliente se queda con sus fotos y su pregunta.
     if (hayMas && hayQueDecirQueHayMas(env)) {

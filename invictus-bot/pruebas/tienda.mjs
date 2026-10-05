@@ -6,6 +6,7 @@
 
 import { prepararSrc, baseDeMentira, ok, titulo, terminar } from "./ayuda.mjs";
 import crypto from "node:crypto";
+import vm from "node:vm";
 
 const SECRETO = "secreto-de-prueba";
 const CLAVE = "clave-del-panel-123";
@@ -227,16 +228,67 @@ titulo("borrar mensajes y conversaciones del panel (y deshacer)");
 titulo("en tiempo real: la página se pone al día sola");
 {
   const conv = await pedir("/panel/c/123", { cookie });
-  ok(/data-marca-url="\/panel\/marca"/.test(conv.texto) && /data-zona="conversacion"/.test(conv.texto) && /setInterval\(revisar,3000\)/.test(conv.texto), "la conversación pregunta cada 3 s si hay algo nuevo");
+  ok(/data-marca="\/panel\/marca"/.test(conv.texto) && /data-zona="conversacion"/.test(conv.texto) && /setInterval\(revisar,3000\)/.test(conv.texto), "la conversación pregunta cada 3 s si hay algo nuevo");
   ok(conv.texto.indexOf('data-zona="conversacion"') < conv.texto.indexOf("Escribirle tú") && conv.texto.indexOf("Escribirle tú") > conv.texto.indexOf("</div>\n<h3 id=\"escribir\"") - 1, "el cuadro para escribir queda FUERA de lo que se actualiza (no se borra lo que escribes)");
   const lista = await pedir("/panel", { cookie });
-  ok(/data-marca-url/.test(lista.texto) && /data-zona="lista"/.test(lista.texto), "la lista de chats también");
+  ok(/data-marca="\/panel\/marca"/.test(lista.texto) && /data-zona="lista"/.test(lista.texto), "la lista de chats también");
   const m1 = JSON.parse((await pedir("/panel/marca", { cookie })).texto).marca;
   await P.anotarMensaje(DB, "123", "cliente", "un mensaje nuevo para la marca");
   const m2 = JSON.parse((await pedir("/panel/marca", { cookie })).texto).marca;
   ok(/^\d+-\d+$/.test(m1) && m1 !== m2, "llega un mensaje: la marca cambia", `${m1} → ${m2}`);
   ok(/Escribe la clave/.test((await pedir("/panel/marca")).texto), "sin sesión, la marca no se da");
   await DB.prepare("DELETE FROM mensajes WHERE texto = 'un mensaje nuevo para la marca'").run();
+}
+
+titulo("ALPHA IA: el logo, las fotos y las fichas (5-oct-2026)");
+{
+  const logo = await pedir("/panel/logo.png");
+  const iso = await worker.fetch(new Request("https://bot.test/panel/isotipo.png"), ENV, { waitUntil() {} });
+  ok(logo.estado === 200 && iso.headers.get("content-type") === "image/png" && (await iso.arrayBuffer()).byteLength > 1000, "el logo se sirve sin sesión (lo usa la pantalla de entrada)");
+  const entrada = await pedir("/panel");
+  ok(/\/panel\/logo\.png/.test(entrada.texto) && /Escribe la clave/.test(entrada.texto), "la pantalla de entrada lleva el logo de ALPHA IA");
+  const conv0 = await pedir("/panel/c/123", { cookie });
+  ok(/class="alpha"/.test(conv0.texto) && /\/panel\/isotipo\.png/.test(conv0.texto) && /ALPHA IA/.test(conv0.texto), "arriba, la marca ALPHA IA con la A del logo");
+
+  await P.anotarMensaje(DB, "777", "cliente", "", { fotos: ["https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1&signature=x"] });
+  await P.anotarMensaje(DB, "777", "cliente", "este pero en negro", { fotos: ["https://cdn.example.com/historia.jpg"], historia: true });
+  await P.anotarMensaje(DB, "777", "bot", "📷 Fichas: Nike ACG · Crocs", {
+    fichas: [
+      { titulo: "Nike ACG", precio: "$60", imagen: "https://lh3.googleusercontent.com/d/abc=w1000", url: "https://x" },
+      { titulo: "Crocs <b>", precio: "$25", imagen: "javascript:alert(1)" },
+    ],
+  });
+  const filas = (await DB.prepare("SELECT texto, adjuntos FROM mensajes WHERE igsid = '777' ORDER BY id").all()).results;
+  ok(filas[0].texto === "(mandó una foto)" && JSON.parse(filas[0].adjuntos).fotos.length === 1, "una foto sin texto se guarda con su enlace y un texto que la describe");
+  ok(JSON.parse(filas[2].adjuntos).fichas.length === 2 && !/javascript/.test(filas[2].adjuntos) && !/"url"/.test(filas[2].adjuntos), "las fichas se guardan (título, precio e imagen) y un enlace que no es https no");
+  const v = await pedir("/panel/c/777", { cookie });
+  ok(/<img src="https:\/\/lookaside\.fbsbx\.com[^"]*"/.test(v.texto) && /class="foto"/.test(v.texto), "la foto del cliente se ve en la conversación");
+  ok(/Respondió a una historia/.test(v.texto) && /este pero en negro/.test(v.texto) && !/\(respondió a una historia\)/.test(v.texto), "la historia se ve, con su texto y sin el '(respondió a una historia)'");
+  ok(/class="carrusel"/.test(v.texto) && /class="carrusel-pista"/.test(v.texto) && (v.texto.match(/class="ficha"/g) || []).length === 2, "las fichas se ven en un carrusel que se desliza");
+  ok(/\$60/.test(v.texto) && /Crocs &lt;b&gt;/.test(v.texto) && !/javascript:/.test(v.texto), "con su precio, y lo que viene de fuera, escapado");
+  ok(/burbuja de-bot con-fichas/.test(v.texto) && !/📷 Fichas: Nike ACG/.test(v.texto.replace(/<div class="pienso"[\s\S]*?<\/div>/g, "")), "no se repite la lista de fichas escrita: se ve el carrusel");
+  ok(/data-k="m\d+"/.test(v.texto), "cada mensaje lleva su clave (al ponerse al día, solo entra lo nuevo y las fotos no parpadean)");
+  const malos = [];
+  for (const html of [v.texto, (await pedir("/panel", { cookie })).texto]) {
+    for (const [, codigo] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
+      try {
+        new vm.Script(codigo);
+      } catch (error) {
+        malos.push(error.message);
+      }
+    }
+  }
+  ok(!malos.length && /<script>/.test(v.texto), "el JavaScript de la página compila (sin errores de sintaxis)", malos.join(" | "));
+  const CLAVE_API = "w".repeat(10) + "-clave-larga-del-central";
+  const api = async (ruta) => {
+    const r = await callado(() => worker.fetch(new Request(`https://bot.test/api/central/${ruta}`, { headers: { authorization: `Bearer ${CLAVE_API}` } }), { ...ENV, PANEL_API_CLAVE: CLAVE_API }, { waitUntil() {} }));
+    return r.json();
+  };
+  const chat = await api("chat?id=777");
+  ok(chat.mensajes?.[2]?.adjuntos?.fichas?.length === 2, "el panel central recibe las fotos y las fichas (API chat)");
+  const vivo = await api("vivo");
+  ok((vivo.mensajes || []).some((m) => m.adjuntos?.fotos?.length), "y en vivo");
+  await DB.prepare("DELETE FROM mensajes WHERE igsid = '777'").run();
 }
 
 titulo("seguridad y el resto");
@@ -428,6 +480,19 @@ titulo("el panel central: ping y en vivo");
 
   const indices = (await DB.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all()).results.map((f) => f.name);
   ok(["mensajes_igsid", "mensajes_cuando", "turnos_igsid", "turnos_cuando"].every((n) => indices.includes(n)), "los índices se crean solos (abrir un chat no lee la tabla entera)", indices.join(", "));
+}
+
+titulo("una base de antes (sin la columna de las fotos): se arregla sola");
+{
+  const otra = await prepararSrc();
+  const P2 = await otra.cargar("panel.js");
+  const { DB: vieja } = baseDeMentira();
+  await vieja.prepare("CREATE TABLE mensajes (id INTEGER PRIMARY KEY AUTOINCREMENT, igsid TEXT NOT NULL, cuando INTEGER NOT NULL, de TEXT NOT NULL, texto TEXT NOT NULL)").run();
+  await vieja.prepare("INSERT INTO mensajes (igsid, cuando, de, texto) VALUES ('1', 1, 'cliente', 'un mensaje de antes')").run();
+  await P2.anotarMensaje(vieja, "1", "cliente", "", { fotos: ["https://cdn.example.com/a.jpg"] });
+  const filas = (await vieja.prepare("SELECT texto, adjuntos FROM mensajes ORDER BY id").all()).results;
+  ok(filas.length === 2 && filas[0].adjuntos === "" && /a\.jpg/.test(filas[1].adjuntos), "añade la columna, sin perder lo que había", JSON.stringify(filas));
+  otra.limpiar();
 }
 
 src.limpiar();

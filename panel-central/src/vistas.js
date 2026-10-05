@@ -6,6 +6,7 @@
 // crudo.
 
 import { TIPOS } from "./alertas.js";
+import { ESTILO_ALPHA, SCRIPT_ALPHA, marcaAlpha, cajaDeEntrada, htmlDeAdjuntos, textoVisible } from "./alpha.js";
 
 export function esc(texto) {
   return String(texto ?? "")
@@ -45,74 +46,58 @@ export const MARCAS = {
 };
 
 /* ── El estilo ───────────────────────────────────────────────────────
-   Colores como tokens, con su versión oscura. La serie de los gráficos es
-   una sola (azul, el primer color de la paleta de referencia); los estados
-   (error, bien) van siempre con su símbolo, nunca solo con color. */
-const ESTILO = `
-:root{color-scheme:light;--sobre-marca:#fff;--fondo:#f6f7f9;--tarjeta:#fff;--texto:#1c1f24;--suave:#5f6773;--borde:#e3e6ea;
---marca:#2a78d6;--serie:#2a78d6;--cliente:#eef1f5;--bot:#e6efff;--pienso:#fff8e6;--pienso-borde:#f0d48a;
---mal:#b42318;--bien:#137333;--aviso:#9a6700;--rejilla:#e9ecef}
-@media (prefers-color-scheme:dark){:root{color-scheme:dark;--sobre-marca:#0b1220;--fondo:#111418;--tarjeta:#1a1e24;--texto:#e8eaed;--suave:#9aa3ad;
---borde:#2b3139;--marca:#7aa7ff;--serie:#3987e5;--cliente:#232a33;--bot:#1d2a44;--pienso:#2b2616;--pienso-borde:#6b5a22;
---mal:#ff8a80;--bien:#81c995;--aviso:#e3b341;--rejilla:#262c33}}
-*{box-sizing:border-box}body{margin:0;background:var(--fondo);color:var(--texto);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-a{color:var(--marca);text-decoration:none}
-header{position:sticky;top:0;background:var(--tarjeta);border-bottom:1px solid var(--borde);padding:10px 16px;z-index:5}
-header .fila{display:flex;gap:4px 14px;align-items:center;flex-wrap:wrap;max-width:1100px;margin:0 auto}
-header b{font-size:16px;margin-right:auto}.marca-nombre{letter-spacing:.04em}.marca-nombre .suave{font-weight:400;letter-spacing:0}
-.menu{display:flex;gap:14px;align-items:center;overflow-x:auto;white-space:nowrap;max-width:100%;padding:8px 14px 4px 0;scrollbar-width:none}
-.menu::-webkit-scrollbar{display:none}
-.campana{position:relative}.campana .n{position:absolute;top:-8px;right:-12px;background:var(--mal);color:#fff;border-radius:999px;font-size:11px;padding:0 6px;min-width:18px;text-align:center}
-main{max-width:1100px;margin:0 auto;padding:16px}
-h2{font-size:18px;margin:18px 0 8px}h3{font-size:15px;margin:14px 0 6px}
-.tarjeta{background:var(--tarjeta);border:1px solid var(--borde);border-radius:12px;padding:12px 14px;margin-bottom:10px}
-a.tarjeta,a.dentro{display:block;color:inherit}form.dentro{margin:8px 0 0}
+   El diseño es el de ALPHA IA (alpha.js, el mismo archivo que en las
+   tiendas). Aquí solo lo que es del panel central: números, gráficos, el
+   recorrido, las tablas, "En vivo" y los avisos. La serie de los gráficos
+   es una sola (el azul de la marca); los estados (error, bien) van siempre
+   con su símbolo, nunca solo con color. */
+const ESTILO = `${ESTILO_ALPHA}
+.campana{position:relative}.campana .n{position:absolute;top:-2px;right:-2px;background:var(--mal);color:#fff;border-radius:999px;font-size:10.5px;padding:0 5px;min-width:17px;text-align:center;box-shadow:0 0 12px rgba(255,107,107,.6)}
+#notificar{font-size:12px;padding:5px 11px;border-radius:999px}
+form.dentro{margin:10px 0 0}
 .rejilla{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
-.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:10px}
-.kpi{background:var(--tarjeta);border:1px solid var(--borde);border-radius:12px;padding:10px 12px}
-.kpi .v{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums}.kpi .e{font-size:12px;color:var(--suave)}
-.nombre{font-weight:600}.suave{color:var(--suave);font-size:13px}
-.etiqueta{display:inline-block;font-size:12px;border-radius:999px;padding:1px 8px;margin:0 6px 0 0;border:1px solid var(--borde)}
-.mal{color:var(--mal)}.bien{color:var(--bien)}.aviso{color:var(--aviso)}
-.pestanas{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 14px}.pestanas a{padding:6px 10px;border-radius:8px;border:1px solid var(--borde);background:var(--tarjeta);font-size:14px}
-.pestanas a.activa{background:var(--marca);color:var(--sobre-marca);border-color:var(--marca)}
-.chat{display:flex;flex-direction:column;gap:8px}
-.burbuja{max-width:85%;padding:8px 12px;border-radius:14px;white-space:pre-wrap;word-wrap:break-word}
-.de-cliente{align-self:flex-start;background:var(--cliente)}.de-bot{align-self:flex-end;background:var(--bot)}
-.de-asesor{align-self:flex-end;background:var(--tarjeta);border:1px solid var(--marca)}
-.quien{display:block;font-size:11px;color:var(--suave);margin-bottom:2px}
-.pienso{align-self:flex-end;max-width:85%;background:var(--pienso);border:1px dashed var(--pienso-borde);border-radius:10px;padding:8px 12px;font-size:13px}
-.recorrido{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0}.paso{font-size:12px;border:1px solid var(--borde);border-radius:6px;padding:1px 6px;background:var(--tarjeta)}
-.sello{font-weight:600;margin-bottom:4px}
-.leyenda{font-size:13px;color:var(--suave);margin:6px 0 12px;display:flex;flex-wrap:wrap;gap:2px 14px}
-form.fila,.acciones{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
-input,button,select,textarea{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid var(--borde);background:var(--tarjeta);color:var(--texto)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.kpi{position:relative;overflow:hidden;background:var(--tarjeta);border:1px solid var(--borde);border-radius:var(--radio);padding:12px 14px;animation:entrar .5s var(--suave-curva) both}
+.kpi::before{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:linear-gradient(90deg,var(--marca),var(--cian));opacity:.7}
+.kpi .v{font-size:26px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}.kpi .e{font-size:12px;color:var(--suave)}
+.kpi .v.mal{color:var(--mal)}.kpi .v.bien{color:var(--bien)}.kpi .v.aviso{color:var(--aviso)}
+.pestanas{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 16px}
+.pestanas a{padding:6px 12px;border-radius:999px;border:1px solid var(--borde);background:var(--tarjeta);font-size:13.5px;color:var(--suave);transition:all .2s}
+.pestanas a:hover{color:var(--texto);border-color:var(--borde-fuerte)}
+.pestanas a.activa{color:#fff;background:linear-gradient(135deg,#2f7bff,#0a5cf5);border-color:transparent;box-shadow:0 4px 16px -6px rgba(10,92,245,.8)}
+.recorrido{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0;align-items:center;color:var(--suave)}
+.paso{font-size:12px;border:1px solid var(--borde);border-radius:999px;padding:1px 8px;background:rgba(255,255,255,.03);color:var(--texto)}
+form.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
 input{min-width:0;flex:1}textarea{width:100%;min-height:90px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
-button{cursor:pointer}button.principal{background:var(--marca);color:var(--sobre-marca);border-color:var(--marca)}button.peligro{color:var(--mal);border-color:var(--mal)}
-pre{white-space:pre-wrap;word-wrap:break-word;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace;margin:0}
-.tabla{overflow-x:auto;border:1px solid var(--borde);border-radius:10px;background:var(--tarjeta)}
-table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:6px 8px;border-bottom:1px solid var(--borde);text-align:left;vertical-align:top}
-th{position:sticky;top:0;background:var(--tarjeta);font-weight:600}td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.tabla{overflow-x:auto;border:1px solid var(--borde);border-radius:var(--radio);background:var(--tarjeta)}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:7px 10px;border-bottom:1px solid var(--borde);text-align:left;vertical-align:top}
+th{position:sticky;top:0;background:var(--tarjeta-solida);font-weight:600;color:var(--suave);font-size:12px;letter-spacing:.03em}
+tr{transition:background .15s}tbody tr:hover,tr:hover td{background:rgba(61,134,255,.05)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 td .corto{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
 .grafico{display:flex;flex-direction:column}.grafico .barras{margin-top:auto}.grafico .nombre{margin-bottom:6px}.grafico .suave{display:block;font-weight:400;font-size:12px}
-.barras{display:flex;align-items:flex-end;gap:2px;height:120px;padding:4px 0;border-bottom:1px solid var(--suave)}
+.barras{display:flex;align-items:flex-end;gap:2px;height:120px;padding:4px 0;border-bottom:1px solid var(--borde-fuerte)}
 .barra{flex:1;min-width:6px;display:flex;align-items:flex-end;height:100%;position:relative}
-.barra i{display:block;width:100%;background:var(--serie);border-radius:4px 4px 0 0}
-.barra:hover i{opacity:.8}.barra .tip{display:none;position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:var(--texto);color:var(--fondo);font-size:12px;padding:2px 6px;border-radius:6px;white-space:nowrap;z-index:3}
+.barra i{display:block;width:100%;background:linear-gradient(180deg,var(--cian),var(--marca-fuerte));border-radius:4px 4px 0 0;transform-origin:bottom;animation:crecer .7s var(--suave-curva) both}
+@keyframes crecer{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+.barra:hover i{filter:brightness(1.25)}.barra .tip{display:none;position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:var(--tarjeta-solida);border:1px solid var(--borde-fuerte);color:var(--texto);font-size:12px;padding:2px 7px;border-radius:6px;white-space:nowrap;z-index:3}
 .barra:hover .tip{display:block}
-.ejes{display:flex;justify-content:space-between;font-size:11px;color:var(--suave);margin-top:2px}
+.ejes{display:flex;justify-content:space-between;font-size:11px;color:var(--suave);margin-top:4px}
 .flujo{display:flex;flex-direction:column;align-items:stretch;gap:0;max-width:720px}
-.nodo{background:var(--tarjeta);border:1px solid var(--borde);border-radius:12px;padding:10px 14px}
-.nodo b{display:block}.nodo.decision{border-style:dashed}.nodo.red{border-color:var(--aviso)}
-.flecha{text-align:center;color:var(--suave);font-size:18px;line-height:22px}
+.nodo{background:var(--tarjeta);border:1px solid var(--borde);border-radius:var(--radio);padding:10px 14px}
+.nodo b{display:block}.nodo.decision{border-style:dashed}.nodo.red{border-color:rgba(251,191,36,.5)}
+.flecha{text-align:center;color:var(--marca);font-size:18px;line-height:24px}
 .rama{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
-.vivo-lista{display:flex;flex-direction:column;gap:8px}.vivo-lista a.tarjeta{margin:0;border-left:4px solid var(--borde)}
-.vivo-lista .de-bot{border-left-color:var(--marca)}.vivo-lista .de-asesor{border-left-color:var(--aviso)}
-.vivo-lista .es-turno{background:var(--pienso);border-style:dashed;border-color:var(--pienso-borde);border-left:4px solid var(--pienso-borde);font-size:14px}
-.vivo-lista .cuerpo{white-space:pre-wrap;word-wrap:break-word}.vivo-lista .cuando{display:block;font-size:12px}.vivo-lista .nuevo{animation:llegar 3s ease-out}
-@keyframes llegar{from{box-shadow:0 0 0 3px var(--marca)}to{box-shadow:none}}
+.vivo-lista{display:flex;flex-direction:column;gap:8px}.vivo-lista a.tarjeta{margin:0;border-left:3px solid var(--borde-fuerte)}
+.vivo-lista .de-bot{border-left-color:var(--marca)}.vivo-lista .de-asesor{border-left-color:var(--cian)}.vivo-lista .de-cliente{border-left-color:var(--plata)}
+.vivo-lista a.tarjeta{max-width:85%;min-width:min(320px,100%)}.vivo-lista .de-cliente{align-self:flex-start}
+.vivo-lista .es-turno{align-self:flex-end;background:var(--pienso);border-style:dashed;border-color:var(--pienso-borde);border-left:3px solid var(--pienso-borde);font-size:14px}
+.vivo-lista .cuerpo{white-space:pre-wrap;word-wrap:break-word}.vivo-lista .cuando{display:block;font-size:12px}
+.vivo-lista .nuevo{animation:entrar .45s var(--suave-curva) both,llegar 2.5s ease-out}
+@keyframes llegar{from{box-shadow:0 0 0 2px var(--marca),0 0 30px -4px var(--marca)}to{box-shadow:none}}
+.miniaturas{display:flex;gap:6px;margin-top:8px;overflow-x:auto}.miniaturas img{width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid var(--borde);flex:none;background:#0a0f1c}
 #avisos{position:fixed;right:12px;bottom:12px;display:flex;flex-direction:column;gap:8px;z-index:9;max-width:340px}
-.toast{background:var(--tarjeta);border:1px solid var(--borde);border-left:4px solid var(--mal);border-radius:10px;padding:10px 12px;box-shadow:0 4px 18px rgba(0,0,0,.15);font-size:14px}
+.toast{background:rgba(12,18,32,.92);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid var(--borde-fuerte);border-left:3px solid var(--mal);border-radius:12px;padding:10px 12px;box-shadow:0 12px 40px -12px #000;font-size:14px;animation:entrar .4s var(--suave-curva) both}
 `;
 
 // EN TIEMPO REAL (lado del navegador). Cada 8 segundos pregunta si hay
@@ -121,7 +106,7 @@ td .corto{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:now
 // interpreta como HTML.
 // Las páginas marcadas "vivo" además se refrescan solas cada minuto, pero
 // solo con la pestaña a la vista (cada refresco le pide datos a las
-// tiendas, y eso gasta lecturas de su base).
+// tiendas, y eso gasta lecturas de su base). Eso lo hace SCRIPT_ALPHA.
 const VIVO = `
 <div id="avisos"></div>
 <script>
@@ -148,45 +133,8 @@ const VIVO = `
   revisar();setInterval(revisar,8000);
   var b=document.getElementById("notificar");
   if(b&&window.Notification&&Notification.permission!=="granted"){b.style.display="";b.onclick=function(){Notification.requestPermission().then(function(){b.style.display="none"})}}
-  // PONERSE AL DÍA: trae la página y cambia solo las zonas data-zona (la
-  // conversación): el cuadro donde escribes no se toca. Sin zonas, todo el
-  // contenido, salvo que estés escribiendo. Si estabas al final, baja.
-  function escribiendo(){var a=document.activeElement;return a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName)}
-  function alFinal(){return window.innerHeight+window.scrollY>=document.documentElement.scrollHeight-250}
-  function ponerAlDia(){
-    fetch(location.href,{credentials:"same-origin"}).then(function(r){return r.ok?r.text():null}).then(function(h){
-      if(!h)return;
-      var doc=new DOMParser().parseFromString(h,"text/html"), abajo=alFinal();
-      var zonas=document.querySelectorAll("[data-zona]");
-      if(zonas.length){
-        zonas.forEach(function(z){var n=doc.querySelector('[data-zona="'+z.getAttribute("data-zona")+'"]');if(n&&n.innerHTML!==z.innerHTML)z.innerHTML=n.innerHTML});
-      }else if(!escribiendo()){
-        var nuevo=doc.getElementById("contenido"),actual=document.getElementById("contenido");
-        if(nuevo&&actual&&nuevo.innerHTML!==actual.innerHTML)actual.innerHTML=nuevo.innerHTML;
-      }
-      if(abajo&&zonas.length)window.scrollTo(0,document.documentElement.scrollHeight);
-    }).catch(function(){})
-  }
-  // EN TIEMPO REAL Y BARATO: cada 3 s se pregunta solo "¿cuál es el último
-  // mensaje?" (data-marca); la página se pone al día únicamente si cambió.
-  var urlMarca=document.body.getAttribute("data-marca"), marca=null, mirando=false;
-  if(urlMarca){
-    var revisarMarca=function(){
-      if(mirando||document.visibilityState!=="visible")return;
-      mirando=true;
-      fetch(urlMarca,{credentials:"same-origin"}).then(function(r){return r.ok?r.json():null}).then(function(d){
-        mirando=false;if(!d||d.marca==null)return;
-        if(marca!==null&&d.marca!==marca)ponerAlDia();
-        marca=d.marca;
-      }).catch(function(){mirando=false})
-    };
-    revisarMarca();setInterval(revisarMarca,3000);
-    document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")revisarMarca()});
-  }
-  if(document.body.dataset.vivo){
-    var cada=Number(document.body.dataset.vivo)||60000;
-    setInterval(function(){if(document.visibilityState==="visible")ponerAlDia()},cada)
-  }
+  // Ponerse al día solo (data-marca, data-vivo), las fotos y el carrusel:
+  // SCRIPT_ALPHA (alpha.js), el mismo de las tiendas.
 })();
 </script>`;
 
@@ -196,11 +144,14 @@ export function pagina(titulo, cuerpo, { conMenu = true, vivo = false, marca = "
 <a href="/en-pausa">⏸️ En pausa</a><a href="/metricas">Métricas</a><a href="/ganadores">Ganadores</a><a href="/errores">Errores</a><a href="/gastos">Gastos</a><a href="/salud">Estado</a><a href="/como-funciona">Cómo funciona</a><a href="/salir">Salir</a>
 <button id="notificar" style="display:none">Activar avisos</button></nav>`
     : "";
+  const entrando = !conMenu && titulo === "Entrar";
+  const arriba = entrando ? "" : `<header><div class="fila">${marcaAlpha("", nombre === "ALPHA IA" ? "Panel central" : nombre)}${menu}</div></header>`;
   return new Response(
     `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex"><title>${esc(titulo)} · ${esc(nombre)}</title><style>${ESTILO}</style></head>
-<body${vivo ? ` data-vivo="${typeof vivo === "number" ? vivo : 60000}"` : ""}${marca ? ` data-marca="${esc(marca)}"` : ""}><header><div class="fila"><b class="marca-nombre">${esc(nombre)} <span class="suave">· Panel central</span></b>${menu}</div></header>
-<main id="contenido">${cuerpo}</main>${conMenu ? VIVO : ""}</body></html>`,
+<meta name="robots" content="noindex"><meta name="theme-color" content="#05070d"><link rel="icon" href="/isotipo.png?v=1">
+<title>${esc(titulo)} · ${esc(nombre)}</title><style>${ESTILO}</style></head>
+<body${vivo ? ` data-vivo="${typeof vivo === "number" ? vivo : 60000}"` : ""}${marca ? ` data-marca="${esc(marca)}"` : ""}>${arriba}
+${entrando ? cuerpo : `<main id="contenido">${cuerpo}</main>`}${conMenu ? VIVO + SCRIPT_ALPHA : ""}</body></html>`,
     {
       status: 200,
       headers: {
@@ -209,22 +160,20 @@ export function pagina(titulo, cuerpo, { conMenu = true, vivo = false, marca = "
         "x-frame-options": "DENY",
         "referrer-policy": "same-origin",
         "x-content-type-options": "nosniff",
-        // Nada de fuera: ni scripts, ni imágenes, ni a dónde mandar datos.
+        // Nada de fuera: ni scripts ni a dónde mandar datos. Imágenes sí
+        // (https): las fotos de los clientes y las fichas de las tiendas.
         "content-security-policy":
-          "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+          "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
       },
     }
   );
 }
 
 export function entrada(nombre, error = "") {
-  return pagina(
-    "Entrar",
-    `<div class="tarjeta" style="max-width:420px"><form method="post" action="/entrar">
-<h2 style="margin-top:0">${esc(nombre)}</h2><p>Escribe la clave del panel central.</p>${error ? `<p class="mal">${esc(error)}</p>` : ""}
-<div class="acciones"><input type="password" name="clave" autocomplete="current-password" autofocus><button class="principal">Entrar</button></div></form></div>`,
-    { conMenu: false, nombre }
-  );
+  return pagina("Entrar", cajaDeEntrada("", { accion: "/entrar", texto: "Escribe la clave del panel central.", error, detalle: nombre === "ALPHA IA" ? "Panel central" : nombre }), {
+    conMenu: false,
+    nombre,
+  });
 }
 
 /* ── Piezas ──────────────────────────────────────────────────────── */
@@ -436,11 +385,11 @@ ${lista.length ? lista.map((c) => tarjetaDeChat(t, c, `/t/${t.id}/chats${f || q 
 // Una persona en la lista. Si el bot está en pausa con ella, lleva el botón
 // para devolvérsela al bot ahí mismo, sin abrir la conversación.
 function tarjetaDeChat(t, c, volver, { conTienda = false } = {}) {
-  const enlace = `<a class="${c.pausado ? "dentro" : "tarjeta"}" href="/t/${esc(t.id)}/c/${encodeURIComponent(c.id)}"><span class="nombre">${esc(c.nombre || c.usuario || c.id)}</span>${c.usuario ? ` <span class="suave">@${esc(c.usuario)}</span>` : ""}${conTienda ? ` <span class="etiqueta">${esc(t.nombre)}</span>` : ""}
+  const enlace = `<a class="${c.pausado ? "dentro" : "tarjeta"}"${c.pausado ? "" : ` data-k="c${esc(t.id)}:${esc(c.id)}"`} href="/t/${esc(t.id)}/c/${encodeURIComponent(c.id)}"><span class="nombre">${esc(c.nombre || c.usuario || c.id)}</span>${c.usuario ? ` <span class="suave">@${esc(c.usuario)}</span>` : ""}${conTienda ? ` <span class="etiqueta">${esc(t.nombre)}</span>` : ""}
 ${Object.entries(c.problemas || {}).map(([m, n]) => `<span class="etiqueta mal">${MARCAS[m]?.simbolo || "!"} ${n}</span>`).join("")}${c.pausado ? `<span class="etiqueta mal">⏸️ bot en pausa${c.pausadoHasta ? ` hasta ${esc(horaExacta(c.pausadoHasta))}` : ""}</span>` : ""}${c.anuncio ? `<span class="etiqueta">📣 ${esc(String(c.anuncio).slice(0, 30))}</span>` : ""}
 <div class="suave">${esc(cuandoFue(c.ultimo))}${c.ultima ? ` · ${c.ultima.de === "bot" ? "Bot: " : c.ultima.de === "asesor" ? "Asesor: " : ""}${esc(String(c.ultima.texto || "").slice(0, 90))}` : ""}</div></a>`;
   if (!c.pausado) return enlace;
-  return `<div class="tarjeta">${enlace}<form class="dentro" method="post" action="/t/${esc(t.id)}/devolver"><input type="hidden" name="id" value="${esc(c.id)}"><input type="hidden" name="volver" value="${esc(volver)}"><button class="principal">▶️ Devolverle la conversación al bot</button></form></div>`;
+  return `<div class="tarjeta" data-k="c${esc(t.id)}:${esc(c.id)}">${enlace}<form class="dentro" method="post" action="/t/${esc(t.id)}/devolver"><input type="hidden" name="id" value="${esc(c.id)}"><input type="hidden" name="volver" value="${esc(volver)}"><button class="principal">▶️ Devolverle la conversación al bot</button></form></div>`;
 }
 
 function botonDevolverTodas(t, cuantas, volver) {
@@ -486,9 +435,9 @@ function recorrido(turno) {
 
 function cajaDeTurno(t) {
   const m = MARCAS[t.marca];
-  return `<div class="pienso">${m ? `<div class="sello ${t.marca === "error" || t.marca === "indebida" ? "mal" : "aviso"}">${m.simbolo} ${esc(m.nombre)}${t.motivo ? `: ${esc(t.motivo)}` : ""}</div>` : ""}
+  return `<div class="pienso"${t.id ? ` data-k="t${esc(t.id)}"` : ""}>${m ? `<div class="sello ${t.marca === "error" || t.marca === "indebida" ? "mal" : "aviso"}">${m.simbolo} ${esc(m.nombre)}${t.motivo ? `: ${esc(t.motivo)}` : ""}</div>` : ""}
 ${t.pienso ? `<b>🧠 Lo que pensó la IA</b><div>${esc(t.pienso)}</div>` : ""}${recorrido(t)}
-${(t.productos || []).length ? `<div>Fichas: ${t.productos.map(esc).join(", ")}</div>` : ""}${(t.notas || []).length ? `<div class="suave">🛠 ${t.notas.map(esc).join(" · ")}</div>` : ""}
+${(t.productos || []).length ? `<details><summary>🗂 ${t.productos.length} ficha(s)</summary>${t.productos.map(esc).join(" · ")}</details>` : ""}${(t.notas || []).length ? `<div class="suave">🛠 ${t.notas.map(esc).join(" · ")}</div>` : ""}
 <div class="suave">${esc(horaExacta(t.cuando))}</div></div>`;
 }
 
@@ -515,7 +464,10 @@ export function vistaConversacion(t, datos, aviso = "") {
       const borrar = l.id
         ? ` <form method="post" action="/t/${esc(t.id)}/borrar-mensaje" style="display:inline" onsubmit="return confirm('¿Borrar este mensaje del panel? En Instagram no se borra. Se puede deshacer.')"><input type="hidden" name="igsid" value="${esc(contacto.id)}"><input type="hidden" name="mensaje" value="${esc(l.id)}"><button title="Borrar del panel" style="border:0;background:none;padding:0 2px;font-size:12px;cursor:pointer">🗑️</button></form>`
         : "";
-      let caja = `<div class="burbuja de-${l.de === "asesor" ? "asesor" : l.de === "bot" ? "bot" : "cliente"}"><span class="quien">${quien}${l.cuando ? ` · ${esc(horaExacta(l.cuando))}` : ""}${borrar}</span>${esc(l.texto)}</div>`;
+      // Con fotos o fichas (alpha.js): se ven las imágenes, como en Instagram.
+      const texto = textoVisible(l.texto, l.adjuntos);
+      const clase = `burbuja de-${l.de === "asesor" ? "asesor" : l.de === "bot" ? "bot" : "cliente"}${l.adjuntos?.fichas && !texto ? " con-fichas" : ""}`;
+      let caja = `<div class="${clase}"${l.id ? ` data-k="m${esc(l.id)}"` : ""}><span class="quien">${quien}${l.cuando ? ` · ${esc(horaExacta(l.cuando))}` : ""}${borrar}</span>${htmlDeAdjuntos(l.adjuntos)}${esc(texto)}</div>`;
       if (l.de !== "bot") return caja;
       const i = turnos.findIndex((x, n) => !usados.has(n) && normal(x.respuesta) && normal(x.respuesta) === normal(l.texto));
       if (i === -1) return caja;
@@ -575,7 +527,11 @@ const SCRIPT_EN_VIVO = `<script>
       if(e.pienso)linea(a,"cuerpo",e.pienso);
       if(e.productos&&e.productos.length)linea(a,"suave","🗂 Fichas: "+e.productos.join(", "));
       if(e.notas&&e.notas.length)linea(a,"suave","🛠 "+e.notas.join(" · "));
-    }else linea(a,"cuerpo",e.texto);
+    }else{
+      if(e.texto)linea(a,"cuerpo",e.texto);
+      var fotos=(e.imagenes||[]).filter(function(u){return String(u).indexOf("https://")===0});
+      if(fotos.length){var mi=document.createElement("div");mi.className="miniaturas";fotos.forEach(function(u){var im=document.createElement("img");im.src=u;im.alt="";im.loading="lazy";im.referrerPolicy="no-referrer";im.onerror=function(){im.remove()};mi.appendChild(im)});a.appendChild(mi)}
+    }
     return a;
   }
   function vacio(){if(!lista.children.length){var p=document.createElement("div");p.className="tarjeta suave";p.id="vivo-vacio";p.textContent="Esperando mensajes… en cuanto escriba alguien, sale aquí.";lista.appendChild(p)}}

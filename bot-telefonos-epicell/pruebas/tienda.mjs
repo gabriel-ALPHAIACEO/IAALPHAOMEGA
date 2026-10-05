@@ -67,7 +67,9 @@ r = await pedir("/panel/c/cliente1", { cookie });
 comprobar("la conversación: lo que escribió el cliente", /tienes el samsung a57\?/.test(r.texto), true);
 comprobar("lo que contestó el bot", /Mira el Samsung A57/.test(r.texto), true);
 comprobar("y debajo, LO QUE PENSÓ LA IA", /Lo que pensó la IA/.test(r.texto) && /Está en la lista: lo busco/.test(r.texto), true);
-comprobar("qué buscó y qué fichas mandó", /Buscó: “Samsung A57”/.test(r.texto) && /Fichas: Samsung A57/.test(r.texto), true);
+// Las fichas, plegadas en la caja de lo que pensó (ya se ven en el carrusel).
+comprobar("qué buscó y qué fichas mandó", /Buscó: “Samsung A57”/.test(r.texto) && /ficha\(s\)<\/summary>Samsung A57/.test(r.texto), true);
+comprobar("y las fichas, en un carrusel con su foto (como en Instagram)", /class="carrusel"/.test(r.texto) && /class="ficha"/.test(r.texto), true);
 
 const id = new FormData(); id.set("id", "cliente1");
 r = await pedir("/panel/pausar", { metodo: "POST", cookie, cuerpo: id, origen: "https://otra-web.com" });

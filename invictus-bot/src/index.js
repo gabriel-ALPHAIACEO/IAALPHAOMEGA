@@ -145,7 +145,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-05 (56) · el panel se pone al día solo, en tiempo real";
+const VERSION = "2026-10-05 (57) · ALPHA IA: diseño nuevo, logo, fotos y carrusel en el panel";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1148,7 +1148,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   // "texto" es lo que se guarda para el panel (ver panel.js): lo que el
   // cliente vio, tal cual.
-  const mandar = async (hacer, texto = "") => {
+  // "adjuntos": las fichas que se mandaron, para verlas en el panel como
+  // carrusel (ver alpha.js).
+  const mandar = async (hacer, texto = "", adjuntos = null) => {
     const mid = await hacer();
     if (!mid) return "";
 
@@ -1156,7 +1158,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     mids = agregarMid(mids, mid);
     enviadoEn = Date.now();
     await marcarEnvio(env.DB, mensaje.igsid, mids, enviadoEn);
-    if (texto) await anotarMensaje(env.DB, mensaje.igsid, "bot", texto);
+    if (texto || adjuntos) await anotarMensaje(env.DB, mensaje.igsid, "bot", texto, adjuntos);
     return mid;
   };
   // El eco de un mensaje que salió de la cuenta: el nuestro (el bot
@@ -1262,7 +1264,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
         ? "🎤 (mandó una nota de voz)"
         : [mensaje.texto, mensaje.historia?.url ? "(respondió a una historia)" : mensaje.foto ? "(mandó una foto)" : ""]
             .filter(Boolean)
-            .join(" ")
+            .join(" "),
+      // La foto que mandó (o la historia a la que respondió), para verla en el panel.
+      { fotos: [mensaje.historia?.url || mensaje.foto], historia: Boolean(mensaje.historia?.url) }
     );
   }
 
@@ -1920,7 +1924,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   if (fichas.length) {
     if (!hablado) await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente), respuestaCliente);
-    await mandar(() => enviarFichas(env, mensaje.igsid, fichas), `📷 Fichas: ${fichas.map((f) => f.titulo).join(" · ")}`);
+    await mandar(() => enviarFichas(env, mensaje.igsid, fichas), `📷 Fichas: ${fichas.map((f) => f.titulo).join(" · ")}`, { fichas });
   } else if (soloTexto) {
     // Habló de algo que ya está en la conversación: solo texto.
     if (!hablado) await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente), respuestaCliente);

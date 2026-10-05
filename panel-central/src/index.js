@@ -29,6 +29,7 @@
 //   CLAVE_<TIENDA>       una por tienda: la misma que esa tienda tiene en
 //                        su PANEL_API_CLAVE (p. ej. CLAVE_EPICELL)
 
+import { imagenDeAlpha, imagenesDeAdjuntos } from "./alpha.js";
 import { leerTiendas, claveDe, pedir, pedirATodas, tiendaDeLaClave, mismoTexto } from "./tiendas.js";
 import { TIPOS, guardarAlerta, listarAlertas, sinLeer, marcarLeidas, anotarSalud, leerSalud } from "./alertas.js";
 import { claveLista, cookieNueva, COOKIE_FUERA, sesionValida, vieneDelPanel, demasiadosIntentos, anotarIntento, olvidarIntentos } from "./sesion.js";
@@ -57,7 +58,7 @@ import {
   vistaEnPausa,
 } from "./vistas.js";
 
-const VERSION = "2026-10-05 (9) · ALPHA IA: el panel se pone al día solo, en tiempo real";
+const VERSION = "2026-10-05 (10) · ALPHA IA: diseño nuevo con el logo, fotos y carrusel de fichas";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");
@@ -203,6 +204,8 @@ async function enVivo(env, url) {
         clave: `${t.id}:m${m.id}`,
         de: ["cliente", "bot", "asesor"].includes(m.de) ? m.de : "cliente",
         texto: String(m.texto || "").slice(0, 1500),
+        // Las fotos del cliente y las fichas del bot, en miniatura (alpha.js).
+        imagenes: imagenesDeAdjuntos(m.adjuntos),
         cuando: Number(m.cuando) || 0,
         nombre: quien(m.igsid),
         tiendaNombre: t.nombre,
@@ -485,6 +488,8 @@ async function atender(request, env) {
   }
 
   if (url.pathname === "/api/alerta" && request.method === "POST") return recibirAlerta(request, env);
+  // El logo de ALPHA IA (alpha.js): sin sesión, lo usa la pantalla de entrada.
+  if (url.pathname === "/logo.png" || url.pathname === "/isotipo.png") return imagenDeAlpha(url.pathname.slice(1));
 
   if (!claveLista(env)) {
     return pagina(
