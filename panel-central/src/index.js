@@ -60,7 +60,7 @@ import {
   vistaEnPausa,
 } from "./vistas.js";
 
-const VERSION = "2026-10-05 (13) · calendario en métricas y ganadores: 7, 14, 30, 90 días o el rango que elijas";
+const VERSION = "2026-10-05 (14) · las piezas de diseño compartidas (alpha.js) con el CRM de las tiendas";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");

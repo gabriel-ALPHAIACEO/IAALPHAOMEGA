@@ -32,7 +32,8 @@
 import { cargarContacto, pausar, despausar, asegurarColumnas } from "./estado.js";
 import { gastoDelMes } from "./gasto.js";
 import { TABLAS, leerTabla, tipoDeError, esIntencionDeCompra, asegurarTurnos, MARCAS } from "./registro.js";
-import { ESTILO_ALPHA, SCRIPT_ALPHA, imagenDeAlpha, marcaAlpha, cajaDeEntrada, adjuntosLimpios, leerAdjuntos, textoDeAdjuntos, textoVisible, htmlDeAdjuntos } from "./alpha.js";
+import { ESTILO_ALPHA, SCRIPT_ALPHA, imagenDeAlpha, marcaAlpha, cajaDeEntrada, adjuntosLimpios, leerAdjuntos, textoDeAdjuntos, textoVisible, htmlDeAdjuntos, kpi, barras, selectorDePeriodo, aCsv, respuestaCsv } from "./alpha.js";
+import { clientesDelCrm, guardarCrm, htmlListaDeClientes, htmlFichaDeCliente, filtrarClientes, filasCsvDeClientes } from "./crm.js";
 
 // Se reexporta para que index.js lo siga importando desde aquí.
 export { anotarTurno } from "./registro.js";
@@ -305,7 +306,7 @@ textarea{width:100%}
 
 function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnuncios = true, enVivo = false, entrada = false } = {}) {
   const menu = conMenu
-    ? `<nav class="menu"><a href="/panel">Chats</a>${conAnuncios ? '<a href="/panel/anuncios">Anuncios</a>' : ""}<a href="/panel/estado">Estado</a><a href="/panel/salir">Salir</a></nav>`
+    ? `<nav class="menu"><a href="/panel">Chats</a><a href="/panel/clientes">Clientes</a><a href="/panel/metricas">Métricas</a><a href="/panel/ganadores">Ganadores</a>${conAnuncios ? '<a href="/panel/anuncios">Anuncios</a>' : ""}<a href="/panel/salir">Salir</a></nav>`
     : "";
   const vivo = enVivo ? '<span class="en-vivo" title="Se pone al día sola en cuanto llega un mensaje"><i></i>en vivo</span>' : "";
   const arriba = entrada ? "" : `<header><div class="fila">${marcaAlpha("/panel", tienda)}${menu}${vivo}</div></header>`;
@@ -627,6 +628,8 @@ function cajaDePienso(t) {
 
 async function paginaDeConversacion(env, id, tienda, { horasDePausa = 1, conAnuncios = true, aviso = "" } = {}) {
   const contacto = await cargarContacto(env.DB, id);
+  // La ficha del CRM (ver crm.js): etapa, notas y etiquetas.
+  const [delCrm] = await clientesDelCrm(env.DB, { soloId: id }).catch(() => []);
   const guardados = await mensajesDe(env.DB, id);
   const charla = guardados.length ? guardados : contacto.conversacion || [];
   const turnos = await turnosDe(env.DB, id);
@@ -666,7 +669,8 @@ async function paginaDeConversacion(env, id, tienda, { horasDePausa = 1, conAnun
 
   return pagina(
     nombre,
-    `<p><a href="/panel">← Conversaciones</a></p>
+    `<p><a href="/panel">← Conversaciones</a> · <a href="/panel/clientes">Clientes</a></p>
+${htmlFichaDeCliente(delCrm, { id })}
 <div data-zona="conversacion">
 <div class="tarjeta"><span class="nombre">${esc(nombre)}</span>${contacto.usuario ? ` <span class="suave">@${esc(contacto.usuario)}</span>` : ""}
 <div class="suave">Id ${esc(id)} · último mensaje del bot ${esc(cuandoFue(contacto.ultimo_envio))}</div>
@@ -685,6 +689,54 @@ ${formularioDeMensaje("/panel/enviar", id, horasDePausa, aviso)}
 ${formularioBorrarConversacion("/panel/borrar-conversacion", id)}`,
     { tienda, conAnuncios, enVivo: true }
   );
+}
+
+/* ── Métricas y ganadores, para la tienda (5-oct-2026) ─────────────
+   Lo mismo que ve el dueño en ALPHA IA, menos lo confidencial: ni el gasto
+   de la IA ni los errores técnicos. Con el calendario (7, 14, 30, 90 días
+   o el rango que se elija) y a Excel. */
+
+function periodoDeLaUrl(url, porDefecto) {
+  const aMedida = Boolean(url.searchParams.get("desde") || url.searchParams.get("hasta"));
+  return { aMedida, dias: Math.min(Math.max(Number(url.searchParams.get("dias")) || porDefecto, 1), 180) };
+}
+
+function conLaMismaConsulta(ruta, url) {
+  const q = new URLSearchParams(url.searchParams);
+  q.delete("formato");
+  const texto = q.toString();
+  return texto ? `${ruta}?${texto}` : ruta;
+}
+
+function vistaDeMetricasDelCliente(datos, url) {
+  const tot = datos.totales || {};
+  const pct = (x) => `${Math.round((Number(x) || 0) * 100)}%`;
+  const dias = datos.dias || [];
+  const conAnuncios = dias.some((d) => d.anuncios > 0);
+  const selector = selectorDePeriodo({ periodo: periodoDeLaUrl(url, 14), rango: datos.rango, primerDato: datos.primerDato, hoy: diaDe(Date.now()) });
+  return `<h2>📊 Métricas</h2>${selector}
+<div class="kpis">${kpi(tot.clientes || 0, "clientes")}${kpi(tot.mensajes || 0, "mensajes de clientes")}${kpi(tot.respuestas || 0, "respuestas de la IA")}${kpi(pct(datos.tasas?.conFichas), "respuestas con fichas")}
+${kpi(tot.ventas || 0, "🛒 quieren comprar")}${kpi(pct(datos.tasas?.ventasPorCliente), "clientes que quieren comprar")}${kpi(tot.avisos || 0, "pasados al asesor")}${kpi(tot.voz || 0, "notas de voz")}
+${conAnuncios ? kpi(tot.anuncios || 0, "📣 llegaron por anuncios") : ""}${kpi(tot.quejas || 0, "👎 quejas")}</div>
+<div class="rejilla">${barras("Clientes por día", dias, "clientes")}${barras("Mensajes de clientes por día", dias, "mensajes")}
+${barras("Respuestas de la IA por día", dias, "respuestas")}${barras("Quieren comprar, por día", dias, "ventas")}${conAnuncios ? barras("Llegadas por anuncios, por día", dias, "anuncios") : ""}</div>
+<p><a href="${esc(conLaMismaConsulta("/panel/metricas.csv", url))}">⬇️ Exportar a Excel (día por día)</a></p>
+<details><summary>Ver la tabla día por día</summary><div class="tabla"><table><tr><th>Día</th><th class="num">Clientes</th><th class="num">Mensajes</th><th class="num">Respuestas</th><th class="num">Con fichas</th><th class="num">Quieren comprar</th><th class="num">Asesor</th><th class="num">Voz</th></tr>
+${dias.map((d) => `<tr><td>${esc(d.dia)}</td>${["clientes", "mensajes", "respuestas", "fichas", "ventas", "avisos", "voz"].map((c) => `<td class="num">${Number(d[c]) || 0}</td>`).join("")}</tr>`).join("")}</table></div></details>`;
+}
+
+function vistaDeGanadoresDelCliente(datos, url) {
+  const selector = selectorDePeriodo({ periodo: periodoDeLaUrl(url, 30), rango: datos.rango, primerDato: datos.primerDato, hoy: diaDe(Date.now()) });
+  const filas = datos.filas || [];
+  return `<h2>🏆 Productos ganadores</h2>${selector}
+${
+    filas.length
+      ? `<p class="suave">Ordenados por <b>quieren comprar</b> (avisos de compra con ese producto delante), después por cuántos clientes distintos lo vieron.</p>
+<div class="tabla"><table><tr><th>Producto</th><th class="num">🛒 Quieren comprar</th><th class="num">Clientes que lo vieron</th><th class="num">Veces mostrado</th><th class="num">Pasados al asesor</th></tr>
+${filas.map((f, i) => `<tr><td>${i < 3 ? ["🥇", "🥈", "🥉"][i] + " " : ""}${esc(f.titulo)}</td><td class="num">${f.ventas}</td><td class="num">${f.clientes}</td><td class="num">${f.mostrado}</td><td class="num">${f.avisos}</td></tr>`).join("")}</table></div>
+<p><a href="${esc(conLaMismaConsulta("/panel/ganadores.csv", url))}">⬇️ Exportar a Excel</a></p>`
+      : '<div class="tarjeta suave">Todavía no hay productos con movimiento en este período.</div>'
+  }`;
 }
 
 // 🗑️ en cada mensaje (solo los que están en la tabla de mensajes).
@@ -833,13 +885,54 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
     return paginaDeConversacion(env, id, tienda, { horasDePausa, conAnuncios, aviso: String(url.searchParams.get("aviso") || "").slice(0, 300) });
   }
 
-  if ((url.pathname === "/panel/anuncios" && conAnuncios) || url.pathname === "/panel/estado") {
-    const texto = verTexto ? await verTexto(url.pathname === "/panel/anuncios" ? "/anuncios" : "/estado") : "";
-    return pagina(
-      url.pathname === "/panel/anuncios" ? "Anuncios" : "Estado",
-      `<div class="tarjeta"><pre>${esc(texto)}</pre></div>`,
-      { tienda, conAnuncios }
-    );
+  // EL ESTADO TÉCNICO ES CONFIDENCIAL (5-oct-2026): ya no está en el panel de
+  // la tienda. Lo ve el dueño en su panel ALPHA IA (la tienda → Estado).
+  if (url.pathname === "/panel/estado") return redirigir("/panel");
+
+  if (url.pathname === "/panel/anuncios" && conAnuncios) {
+    const texto = verTexto ? await verTexto("/anuncios") : "";
+    return pagina("Anuncios", `<div class="tarjeta"><pre>${esc(texto)}</pre></div>`, { tienda, conAnuncios });
+  }
+
+  // EL CRM (ver crm.js).
+  if (url.pathname === "/panel/crm" && request.method === "POST") {
+    if (!vieneDelPanel(request, url)) return new Response("No", { status: 403 });
+    const datos = await request.formData().catch(() => null);
+    const id = String(datos?.get("id") || "").trim();
+    if (id) {
+      await guardarCrm(env.DB, id, { etapa: datos.get("etapa"), notas: datos.get("notas"), etiquetas: datos.get("etiquetas") });
+      console.log(`PANEL: ficha del cliente ${id} guardada`);
+    }
+    return redirigir(`/panel/c/${encodeURIComponent(id)}#crm`);
+  }
+  if (url.pathname === "/panel/clientes" || url.pathname === "/panel/clientes.csv") {
+    const filtros = { etapa: url.searchParams.get("etapa") || "", etiqueta: url.searchParams.get("etiqueta") || "", q: url.searchParams.get("q") || "" };
+    const clientes = await clientesDelCrm(env.DB);
+    if (url.pathname.endsWith(".csv")) {
+      const { encabezados, filas } = filasCsvDeClientes(filtrarClientes(clientes, filtros));
+      return respuestaCsv(`clientes-${diaDe(Date.now())}.csv`, aCsv(encabezados, filas));
+    }
+    return pagina("Clientes", htmlListaDeClientes(clientes, filtros), { tienda, conAnuncios, enVivo: true });
+  }
+  if (url.pathname === "/panel/metricas" || url.pathname === "/panel/metricas.csv") {
+    const datos = await metricasCentral(env, url.searchParams);
+    if (url.pathname.endsWith(".csv")) {
+      const campos = [["dia", "Día"], ["clientes", "Clientes"], ["mensajes", "Mensajes de clientes"], ["respuestas", "Respuestas de la IA"], ["fichas", "Respuestas con fichas"], ["ventas", "Quieren comprar"], ["avisos", "Pasados al asesor"], ["voz", "Notas de voz"], ["anuncios", "Llegaron por anuncios"], ["quejas", "Quejas"]];
+      return respuestaCsv(`metricas-${datos.rango.desde}-a-${datos.rango.hasta}.csv`, aCsv(campos.map((c) => c[1]), datos.dias.map((d) => campos.map(([c]) => (c === "dia" ? d.dia : Number(d[c]) || 0)))));
+    }
+    return pagina("Métricas", vistaDeMetricasDelCliente(datos, url), { tienda, conAnuncios });
+  }
+  if (url.pathname === "/panel/ganadores" || url.pathname === "/panel/ganadores.csv") {
+    const params = new URLSearchParams(url.searchParams);
+    params.set("formato", "2");
+    const datos = await ganadoresCentral(env, params);
+    if (url.pathname.endsWith(".csv")) {
+      return respuestaCsv(
+        `ganadores-${datos.rango.desde}-a-${datos.rango.hasta}.csv`,
+        aCsv(["Producto", "Quieren comprar", "Clientes que lo vieron", "Veces mostrado", "Pasados al asesor"], datos.filas.map((f) => [f.titulo, f.ventas, f.clientes, f.mostrado, f.avisos]))
+      );
+    }
+    return pagina("Ganadores", vistaDeGanadoresDelCliente(datos, url), { tienda, conAnuncios });
   }
 
   return paginaDeLista(env, url, tienda, conAnuncios);
@@ -924,6 +1017,34 @@ function claveDada(request) {
 function autorizadoCentral(request, env) {
   if (!apiCentralActiva(env)) return false;
   return mismoTexto(claveDada(request), claveApi(env));
+}
+
+/* EL /estado ES CONFIDENCIAL (5-oct-2026): secretos, base de datos, gasto y
+   errores son del dueño, no del cliente de la tienda. Con el panel central
+   conectado (PANEL_API_CLAVE puesta), el /estado público solo dice que el bot
+   está vivo y su versión. El completo lo piden:
+   - el panel ALPHA IA (por /api/central → verTexto, con la cabecera interna);
+   - el dueño desde el navegador: /estado?clave=<PANEL_API_CLAVE>.
+   Sin PANEL_API_CLAVE, sigue como siempre (completo). */
+const CABECERA_INTERNA = "x-alpha-clave";
+
+export function estadoCompletoPermitido(request, env) {
+  if (!apiCentralActiva(env)) return true;
+  const url = new URL(request.url);
+  const dada = String(request.headers.get(CABECERA_INTERNA) || url.searchParams.get("clave") || "").trim();
+  return Boolean(dada) && mismoTexto(dada, claveApi(env));
+}
+
+export function estadoPublico(version) {
+  return new Response(`Bot activo ✅\nVersión: ${version}\n\nEl estado técnico lo ve el dueño en su panel ALPHA IA.\n`, {
+    headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+  });
+}
+
+// Para verTexto (el panel pidiéndole al Worker su propio /estado o /anuncios).
+export function pedidoInterno(ruta, base, env) {
+  const clave = claveApi(env);
+  return new Request(new URL(ruta, base), clave ? { headers: { [CABECERA_INTERNA]: clave } } : {});
 }
 
 // Para /estado: si está, y cuántas letras tiene (nunca la clave).

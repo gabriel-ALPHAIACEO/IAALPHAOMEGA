@@ -349,7 +349,96 @@ titulo("seguridad y el resto");
 r = await pedir("/panel/c/%3Cscript%3E", { cookie });
 ok(!/Id <script>/.test(r.texto) && /Id &lt;script&gt;/.test(r.texto), "lo que viene en la URL se escapa");
 r = await pedir("/panel/estado", { cookie });
-ok(/PANEL_CLAVE/.test(r.texto), "el estado se ve dentro del panel");
+ok(r.estado === 303 && r.donde === "/panel" && !/PANEL_CLAVE/.test(r.texto), "el estado técnico ya NO se ve en el panel de la tienda (es del dueño)");
+r = await pedir("/panel", { cookie });
+ok(!/href="\/panel\/estado"/.test(r.texto) && /href="\/panel\/clientes"/.test(r.texto) && /href="\/panel\/metricas"/.test(r.texto) && /href="\/panel\/ganadores"/.test(r.texto), "el menú: Clientes, Métricas y Ganadores; sin Estado");
+
+titulo("el CRM de la tienda: clientes, ficha, etapas, notas, etiquetas y Excel");
+{
+  r = await pedir("/panel/clientes", { cookie });
+  ok(r.estado === 200 && /Ana Pérez/.test(r.texto) && /data-k="c123"/.test(r.texto), "la lista de clientes, con Ana");
+  ok(/<span class="etapa etapa-(nuevo|interesado)">/.test(r.texto), "cada cliente con su etapa (la sugiere el bot mientras nadie la ponga)");
+  const C = await src.cargar("crm.js");
+  ok(C.etapaSugerida({ compras: 1, productos: [], mensajes: 1 }) === "quiere_comprar" && C.etapaSugerida({ compras: 0, productos: ["x"], mensajes: 1 }) === "interesado" && C.etapaSugerida({ compras: 0, productos: [], mensajes: 1 }) === "nuevo", "la sugerida: quiso comprar → Quiere comprar; vio productos → Interesado; si no, Nuevo");
+  r = await pedir("/panel/c/123", { cookie });
+  ok(/id="crm"/.test(r.texto) && /name="notas"/.test(r.texto) && /name="etiquetas"/.test(r.texto) && /name="etapa"/.test(r.texto), "en la conversación está la ficha para editar");
+  ok(r.texto.indexOf('id="crm"') < r.texto.indexOf('data-zona="conversacion"'), "y fuera de la zona en vivo (no se pisa lo que se escribe)");
+
+  const ficha = new FormData();
+  ficha.set("id", "123"); ficha.set("etapa", "vendido"); ficha.set("notas", "Pagó por Zelle <b>"); ficha.set("etiquetas", "VIP, talla 42, vip");
+  r = await pedir("/panel/crm", { metodo: "POST", cookie, cuerpo: ficha, origen: "https://otra-web.com" });
+  ok(r.estado === 403, "guardar la ficha desde otra web, no");
+  const ficha2 = new FormData();
+  ficha2.set("id", "123"); ficha2.set("etapa", "vendido"); ficha2.set("notas", "Pagó por Zelle <b>"); ficha2.set("etiquetas", "VIP, talla 42, vip");
+  r = await pedir("/panel/crm", { metodo: "POST", cookie, cuerpo: ficha2, origen: "https://bot.test" });
+  ok(r.estado === 303 && r.donde === "/panel/c/123#crm", "guardar la ficha vuelve a la conversación", `${r.estado} ${r.donde}`);
+  const fila = await DB.prepare("SELECT etapa, notas, etiquetas FROM crm WHERE igsid = '123'").first();
+  ok(fila?.etapa === "vendido" && fila.notas === "Pagó por Zelle <b>" && JSON.parse(fila.etiquetas).length === 2, "queda guardada (etiquetas sin repetir)", JSON.stringify(fila));
+  r = await pedir("/panel/c/123", { cookie });
+  ok(/Pagó por Zelle &lt;b&gt;/.test(r.texto) && !/Pagó por Zelle <b>/.test(r.texto), "las notas se ven, escapadas");
+  r = await pedir("/panel/clientes?etapa=vendido", { cookie });
+  ok(/Ana Pérez/.test(r.texto), "filtrar por etapa: Vendido");
+  r = await pedir("/panel/clientes?etapa=perdido", { cookie });
+  ok(!/data-k="c123"/.test(r.texto), "y en Perdido no está");
+  r = await pedir("/panel/clientes?etiqueta=vip", { cookie });
+  ok(/data-k="c123"/.test(r.texto), "filtrar por etiqueta");
+  r = await pedir("/panel/clientes?q=Ana", { cookie });
+  ok(/data-k="c123"/.test(r.texto), "buscar por nombre");
+
+  r = await pedir("/panel/clientes.csv", { cookie });
+  // (Response.text() se come el BOM: el BOM se mira en aCsv directamente.)
+  const Al = await src.cargar("alpha.js");
+  ok(Al.aCsv(["a"], [["ñ"]]).charCodeAt(0) === 0xfeff, "el CSV lleva BOM (Excel en español lee bien los acentos)");
+  ok(/;/.test(r.texto.split("\n")[0]) && /Ana Pérez/.test(r.texto) && /Vendido/.test(r.texto) && /VIP/.test(r.texto), "exportar a Excel (CSV con ; y acentos bien)", r.texto.slice(0, 120));
+  r = await pedir("/panel/clientes.csv");
+  ok(!/Ana Pérez/.test(r.texto), "el Excel sin sesión, no");
+
+  const vacia = new FormData(); vacia.set("id", "123"); vacia.set("etapa", ""); vacia.set("notas", ""); vacia.set("etiquetas", "");
+  await pedir("/panel/crm", { metodo: "POST", cookie, cuerpo: vacia, origen: "https://bot.test" });
+  r = await pedir("/panel/clientes?etapa=vendido", { cookie });
+  ok(!/data-k="c123"/.test(r.texto), "con etapa vacía vuelve a la automática");
+}
+
+titulo("métricas y ganadores para la tienda (sin lo confidencial)");
+{
+  r = await pedir("/panel/metricas?dias=7", { cookie });
+  ok(r.estado === 200 && /Métricas/.test(r.texto) && /class="periodo/.test(r.texto) && /Últimos 7 días/.test(r.texto), "métricas con el calendario");
+  ok(!/gasto|\$\d|errores técnicos|⚙️/i.test(r.texto.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, "")), "sin el gasto de la IA ni los errores técnicos");
+  r = await pedir("/panel/metricas?desde=2026-09-01&hasta=2026-09-03", { cookie });
+  ok(/Del 1 sep/.test(r.texto) || /2026-09-01/.test(r.texto) || /1 sep/i.test(r.texto), "con un rango de fechas", (r.texto.match(/Del [^<]*/) || [""])[0]);
+  r = await pedir("/panel/metricas.csv?dias=7", { cookie });
+  const lineas = r.texto.trim().split("\n");
+  ok(lineas.length === 8 && /Día;Clientes/.test(lineas[0]), "métricas a Excel: 7 días, uno por fila", lineas[0]);
+  r = await pedir("/panel/ganadores?dias=30", { cookie });
+  ok(r.estado === 200 && /Productos ganadores/.test(r.texto) && /class="periodo/.test(r.texto), "ganadores con el calendario");
+  r = await pedir("/panel/ganadores.csv?dias=30", { cookie });
+  ok(/Producto;Quieren comprar/.test(r.texto), "ganadores a Excel", r.texto.slice(0, 80));
+  r = await pedir("/panel/metricas");
+  ok(!/Clientes por día/.test(r.texto), "sin sesión no se ven");
+}
+
+titulo("el /estado público es confidencial cuando el panel central está conectado");
+{
+  const API = "y".repeat(10) + "-clave-larga-del-central";
+  const ENV_API = { ...ENV, PANEL_API_CLAVE: API };
+  r = await pedir("/estado", { env: ENV_API });
+  ok(/Bot activo/.test(r.texto) && /Versión: /.test(r.texto) && !/PANEL_CLAVE|OPENAI|FALTA|cargado/.test(r.texto), "sin la clave: solo 'vivo' y la versión", r.texto.slice(0, 80));
+  r = await pedir(`/estado?clave=${encodeURIComponent(API)}`, { env: ENV_API });
+  ok(/PANEL_CLAVE/.test(r.texto), "el dueño con ?clave= lo ve completo");
+  r = await pedir("/estado?clave=otra-clave-cualquiera-larga", { env: ENV_API });
+  ok(!/PANEL_CLAVE/.test(r.texto), "con otra clave, no");
+  const real = globalThis.fetch;
+  globalThis.fetch = falso({});
+  try {
+    const res = await callado(() => worker.fetch(new Request("https://bot.test/api/central/estado", { headers: { authorization: `Bearer ${API}` } }), ENV_API, { waitUntil() {} }));
+    const d = await res.json();
+    ok(/PANEL_CLAVE/.test(d.texto || ""), "el panel ALPHA IA sí lo recibe completo (por /api/central)", String(d.texto || "").slice(0, 60));
+  } finally {
+    globalThis.fetch = real;
+  }
+  r = await pedir("/estado");
+  ok(/PANEL_CLAVE/.test(r.texto), "sin panel central (sin PANEL_API_CLAVE), como siempre");
+}
 
 titulo("la puerta del panel central (/api/central)");
 {

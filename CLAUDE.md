@@ -18,7 +18,7 @@ Como los archivos se pegan a mano, **cada entrega sube la constante `VERSION` de
 | Carpeta | Qué es |
 |---|---|
 | `invictus-bot/` | **LA DE PRODUCCIÓN.** Es el código que atiende clientes hoy. Todo cambio para Invictus se hace acá. |
-| `emperador-bot/` | **El Emperador** (DeepSeek + catálogo en Google Drive). Vende **calzado, bolsos, camisas, pantalones y gorras** (5-oct-2026): `src/categorias.js` decide la categoría por texto y por foto, y la búsqueda filtra por ella. Calidad doble A / triple A en vez de 1.1. Conectada al panel central (`panel.js`, `registro.js`, `revisor.js` iguales a Invictus). Ver su `EMPEZAR-AQUI.md`. |
+| `emperador-bot/` | **El Emperador** (DeepSeek + catálogo en Google Drive). Vende **calzado, bolsos, camisas, pantalones y gorras** (5-oct-2026): `src/categorias.js` decide la categoría por texto y por foto, y la búsqueda filtra por ella. Calidad doble A / triple A en vez de 1.1. Conectada al panel central (`panel.js`, `registro.js`, `revisor.js`, `crm.js` iguales a Invictus). Ver su `EMPEZAR-AQUI.md`. |
 | `kit-meta/` | Las piezas de Meta directo (`instagram.js`, `estado.js`, `imagen.js` + migraciones), copiadas de producción sin cambios, con `GUIA.md` para portarlas a otro bot. **Decisión del dueño (22-sep): todos los bots van a Meta directo, ManyChat se retira de todos.** |
 | `bot-telefonos-epicell/` | **EPICCELL** (teléfonos, Google Sheets) — el nombre de la tienda se escribe con **dos C** (5-oct-2026); la carpeta, el Worker `bot-telefonos`, el id `epicell` y el secreto `CLAVE_EPICELL` se quedan como están. Meta directo, completo. Ver su `PENDIENTE.md`. |
 | `panel-central/` | **El panel central del dueño** (2-oct-2026). Un Worker suyo que NO atiende clientes: mira todas las tiendas por su `/api/central` y lo junta (en vivo, alertas, métricas, ganadores, gastos, en pausa, bases editables, diagrama). Su `src/` es SOLO suyo, no se pega en las tiendas. Ver su `LEEME.md`. Pruebas: `node pruebas/central.mjs` (usa `invictus-bot/` como tienda de verdad). |
@@ -26,6 +26,8 @@ Como los archivos se pegan a mano, **cada entrega sube la constante `VERSION` de
 **`src/` es casi idéntico en `invictus-bot/`, `emperador-bot/` y `bot-telefonos-epicell/` a propósito.** Un arreglo se aplica pegando el mismo archivo en las carpetas que correspondan. Lo que NUNCA se cruza entre tiendas: `wrangler.toml`, `src/prompts/` y los secretos — ahí vive lo que hace que cada bot sea de su tienda. (EPICELL además lee de Google Sheets en vez de Shopify, así que sus `sheets.js`, `capacidad.js` y `recomendados.js` son suyos.)
 
 **`src/alpha.js` es idéntico en las 3 tiendas Y en `panel-central/src/`** (5-oct-2026): es la cara de ALPHA IA en los dos paneles — el logo (dentro del archivo, en base64), el estilo oscuro, el script que pone la página al día sin parpadear, y cómo se pintan la foto del cliente y el carrusel de fichas. Un cambio de diseño se pega en las cuatro carpetas.
+
+**El `/panel` de cada tienda es el panel del CLIENTE (5-oct-2026)**: chats, CRM (`src/crm.js`: ficha, etapas, notas, etiquetas, Excel), métricas y ganadores con calendario. Lo confidencial —gastos de la IA, estado técnico y errores, bases de datos— queda SOLO en el panel ALPHA IA. Con `PANEL_API_CLAVE` puesta, el `/estado` público solo dice "vivo" y la versión; completo con `/estado?clave=<PANEL_API_CLAVE>` o desde ALPHA IA.
 
 **UN WORKER POR TIENDA, y así se queda (decidido el 29-sep-2026).** Se probó
 la vía multi-tienda —un solo Worker que atendía a varias con `tienda.js` y

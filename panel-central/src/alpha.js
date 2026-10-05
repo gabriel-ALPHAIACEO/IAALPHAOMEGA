@@ -166,6 +166,78 @@ export function htmlDeAdjuntos(a) {
   return html;
 }
 
+/* ── Números, gráficos y el calendario (los dos paneles) ──────────── */
+
+export function kpi(valor, etiqueta, { clase = "", titulo = "" } = {}) {
+  return `<div class="kpi" title="${esc(titulo)}"><div class="v ${clase}">${esc(valor)}</div><div class="e">${esc(etiqueta)}</div></div>`;
+}
+
+// Un gráfico de barras de UNA serie (sin leyenda: el título la nombra),
+// con el valor de cada día al pasar el dedo o el ratón.
+export function barras(titulo, dias, campo) {
+  const max = Math.max(1, ...dias.map((d) => Number(d[campo]) || 0));
+  const total = dias.reduce((s, d) => s + (Number(d[campo]) || 0), 0);
+  const cuerpo = dias
+    .map((d) => {
+      const v = Number(d[campo]) || 0;
+      return `<div class="barra"><i style="height:${Math.round((v / max) * 100)}%"></i><span class="tip">${esc(d.dia.slice(5))}: ${v}</span></div>`;
+    })
+    .join("");
+  return `<div class="tarjeta grafico"><div class="nombre">${esc(titulo)}<span class="suave">${total} en total · máximo ${max === 1 && !total ? 0 : max} en un día</span></div>
+<div class="barras" role="img" aria-label="${esc(titulo)} por día">${cuerpo}</div>
+<div class="ejes"><span>${esc(dias[0]?.dia.slice(5) || "")}</span><span>${esc(dias.at(-1)?.dia.slice(5) || "")}</span></div></div>`;
+}
+
+// "2026-10-02" → "2 oct" (la fecha tal cual, sin moverla de día).
+export function fechaCorta(dia) {
+  const ms = Date.parse(`${dia}T12:00:00Z`);
+  if (!Number.isFinite(ms)) return String(dia || "");
+  return new Date(ms).toLocaleDateString("es-VE", { day: "numeric", month: "short", timeZone: "UTC" }).replace(/\.$/, "");
+}
+
+// EL CALENDARIO (5-oct-2026). El dueño: "un calendario de elección, junto a
+// las sugerencias de 7, 14, 30 y 90 días, que funcione bien: pongo 30 y 7 y
+// dice lo mismo". Decía lo mismo porque solo hay datos desde hace unos días:
+// ahora se ve el rango exacto que se está mirando y desde cuándo hay datos.
+//   periodo: lo que se pidió ({ aMedida, dias } o { aMedida, desde, hasta })
+//   rango: lo que la tienda de verdad contó ({ desde, hasta, dias })
+export function selectorDePeriodo({ periodo = {}, rango = null, primerDato = "", hoy = "", avisos = [] } = {}) {
+  const atajos = [7, 14, 30, 90]
+    .map((n) => `<a class="${!periodo.aMedida && periodo.dias === n ? "activa" : ""}" href="?dias=${n}">${n} días</a>`)
+    .join("");
+  const desde = rango?.desde || periodo.desde || "";
+  const hasta = rango?.hasta || periodo.hasta || hoy;
+  const viendo = rango
+    ? `${periodo.aMedida ? "Del" : `Últimos ${rango.dias} días · del`} ${fechaCorta(rango.desde)} al ${fechaCorta(rango.hasta)}${periodo.aMedida ? ` · ${rango.dias} ${rango.dias === 1 ? "día" : "días"}` : ""}`
+    : "";
+  const corto = primerDato && desde && primerDato > desde;
+  return `<div class="periodo tarjeta">
+<div class="atajos">${atajos}</div>
+<form method="get" class="calendario"><label>Desde<input type="date" name="desde" value="${esc(desde)}"${hoy ? ` max="${esc(hoy)}"` : ""}></label><label>Hasta<input type="date" name="hasta" value="${esc(hasta)}"${hoy ? ` max="${esc(hoy)}"` : ""}></label><button class="principal">Ver</button></form>
+<div class="suave periodo-texto">${viendo ? `📅 ${esc(viendo)}` : ""}${primerDato ? ` · hay datos desde el <b>${esc(fechaCorta(primerDato))}</b>` : ""}${corto ? ". Antes de esa fecha no hay nada guardado: por eso un período más largo da los mismos números." : ""}</div>
+${avisos.map((a) => `<div class="aviso">⚠️ ${esc(a)}</div>`).join("")}</div>`;
+}
+
+// UN CSV QUE ABRE BIEN EN EXCEL EN ESPAÑOL: con BOM (para las tildes) y
+// punto y coma (el separador de Excel cuando la coma es el decimal).
+export function aCsv(encabezados, filas) {
+  const celda = (v) => {
+    const t = String(v ?? "");
+    return /[";\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+  return "\uFEFF" + [encabezados, ...filas].map((f) => f.map(celda).join(";")).join("\r\n") + "\r\n";
+}
+
+export function respuestaCsv(nombre, contenido) {
+  return new Response(contenido, {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="${String(nombre).replace(/[^\w.-]/g, "_")}"`,
+      "cache-control": "no-store",
+    },
+  });
+}
+
 /* ── El estilo ───────────────────────────────────────────────────────
    Los colores salen del logo: el azul de la A, el azul claro de su cinta y
    el plateado de "ALPHA". Como tokens, para que los dos paneles (y cada
@@ -273,6 +345,46 @@ background:rgba(12,18,32,.88);border:1px solid var(--borde-fuerte);-webkit-backd
 .visor{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:20px;background:rgba(3,5,10,.88);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);animation:aparecer .2s ease-out;cursor:zoom-out}
 .visor img{max-width:min(94vw,960px);max-height:84vh;border-radius:14px;box-shadow:0 30px 80px -20px #000;animation:entrar .35s var(--suave-curva)}
 .visor a{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);font-size:13px;padding:8px 14px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid var(--borde-fuerte)}
+/* Números, gráficos, tablas y el calendario (los dos paneles) */
+.rejilla{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.kpi{position:relative;overflow:hidden;background:var(--tarjeta);border:1px solid var(--borde);border-radius:var(--radio);padding:12px 14px;animation:entrar .5s var(--suave-curva) both}
+.kpi::before{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:linear-gradient(90deg,var(--marca),var(--cian));opacity:.7}
+.kpi .v{font-size:26px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}.kpi .e{font-size:12px;color:var(--suave)}
+.kpi .v.mal{color:var(--mal)}.kpi .v.bien{color:var(--bien)}.kpi .v.aviso{color:var(--aviso)}
+.tabla{overflow-x:auto;border:1px solid var(--borde);border-radius:var(--radio);background:var(--tarjeta)}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:7px 10px;border-bottom:1px solid var(--borde);text-align:left;vertical-align:top}
+th{position:sticky;top:0;background:var(--tarjeta-solida);font-weight:600;color:var(--suave);font-size:12px;letter-spacing:.03em}
+tr{transition:background .15s}tbody tr:hover,tr:hover td{background:rgba(61,134,255,.05)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+td .corto{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+.grafico{display:flex;flex-direction:column}.grafico .barras{margin-top:auto}.grafico .nombre{margin-bottom:6px}.grafico .suave{display:block;font-weight:400;font-size:12px}
+.barras{display:flex;align-items:flex-end;gap:2px;height:120px;padding:4px 0;border-bottom:1px solid var(--borde-fuerte)}
+.barra{flex:1;min-width:0;display:flex;align-items:flex-end;height:100%;position:relative}
+.barra i{display:block;width:100%;background:linear-gradient(180deg,var(--cian),var(--marca-fuerte));border-radius:4px 4px 0 0;transform-origin:bottom;animation:crecer .7s var(--suave-curva) both}
+@keyframes crecer{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+.barra:hover i{filter:brightness(1.25)}.barra .tip{display:none;position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:var(--tarjeta-solida);border:1px solid var(--borde-fuerte);color:var(--texto);font-size:12px;padding:2px 7px;border-radius:6px;white-space:nowrap;z-index:3}
+.barra:hover .tip{display:block}
+.ejes{display:flex;justify-content:space-between;font-size:11px;color:var(--suave);margin-top:4px}
+.periodo{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:flex-end}
+.atajos{display:flex;gap:6px;flex-wrap:wrap}
+.atajos a{padding:7px 13px;border-radius:999px;border:1px solid var(--borde);background:rgba(255,255,255,.03);font-size:13.5px;color:var(--suave);transition:all .2s}
+.atajos a:hover{color:var(--texto);border-color:var(--borde-fuerte)}
+.atajos a.activa{color:#fff;background:linear-gradient(135deg,#2f7bff,#0a5cf5);border-color:transparent;box-shadow:0 4px 16px -6px rgba(10,92,245,.8)}
+.calendario{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.calendario label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--suave)}
+.calendario input{flex:none;min-width:150px}
+.periodo-texto,.periodo .aviso{flex-basis:100%}
+/* El CRM del cliente */
+.etapa{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 10px;border-radius:999px;border:1px solid var(--borde-fuerte);white-space:nowrap}
+.etapa-nuevo{color:#cfd6e6}.etapa-interesado{color:var(--cian);border-color:rgba(107,184,255,.45)}.etapa-quiere_comprar{color:var(--aviso);border-color:rgba(251,191,36,.45)}
+.etapa-vendido{color:var(--bien);border-color:rgba(74,222,128,.45)}.etapa-perdido{color:var(--suave)}
+.embudo{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 14px}.embudo a{display:flex;flex-direction:column;gap:2px;min-width:118px;padding:10px 14px;border-radius:var(--radio);border:1px solid var(--borde);background:var(--tarjeta);color:var(--texto);transition:all .2s}
+.embudo a b{font-size:22px;font-variant-numeric:tabular-nums}.embudo a span{font-size:12px;color:var(--suave)}.embudo a:hover{border-color:var(--borde-fuerte)}
+.embudo a.activa{border-color:rgba(61,134,255,.6);box-shadow:var(--brillo)}
+.ficha-crm{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px 14px;margin:8px 0}.ficha-crm div{font-size:13px}.ficha-crm b{display:block;font-size:11px;color:var(--suave);font-weight:500;letter-spacing:.02em}
+.etiqueta-crm{display:inline-block;font-size:11.5px;padding:1px 8px;margin:2px 4px 2px 0;border-radius:6px;background:rgba(61,134,255,.12);color:#cfe0ff}
+.filtros-crm{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px}.filtros-crm input{flex:1;min-width:180px}.filtros-crm select{min-width:150px}
 /* La pantalla de entrada */
 .entrada{min-height:100vh;display:grid;place-items:center;padding:24px 16px}
 .entrada-caja{width:100%;max-width:360px;display:flex;flex-direction:column;gap:12px;align-items:stretch;text-align:center;padding:30px 26px;border-radius:22px;

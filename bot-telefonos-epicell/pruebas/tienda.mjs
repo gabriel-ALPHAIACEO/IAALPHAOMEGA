@@ -92,8 +92,15 @@ comprobar("lo que viene en la URL se escapa (nada de <script>)", !/Id <script>/.
 const sinClave = await silencio(worker.fetch)(new Request("https://bot.test/panel"), { DB }, { waitUntil() {} });
 comprobar("sin PANEL_CLAVE el panel está apagado para todos", /El panel está apagado/.test(await sinClave.text()), true);
 
+// El estado técnico es confidencial: ya no está en el panel de la tienda.
 r = await pedir("/panel/estado", { cookie });
-comprobar("el estado se ve dentro del panel", /CÓDIGO DESPLEGADO/.test(r.texto), true);
+comprobar("el estado técnico ya NO se ve en el panel de la tienda", r.estado === 303 && !/CÓDIGO DESPLEGADO/.test(r.texto), true);
+r = await pedir("/panel/clientes", { cookie });
+comprobar("el CRM: la lista de clientes", r.estado === 200 && /Exportar a Excel/.test(r.texto), true);
+r = await pedir("/panel/metricas?dias=7", { cookie });
+comprobar("las métricas con el calendario", /class="periodo/.test(r.texto) && /Últimos 7 días/.test(r.texto), true);
+r = await pedir("/panel/ganadores.csv?dias=30", { cookie });
+comprobar("los ganadores a Excel", /Producto;Quieren comprar/.test(r.texto), true);
 
 console.log(fallos ? `\n${fallos} fallo(s)` : "\nTodo bien");
 process.exit(fallos ? 1 : 0);

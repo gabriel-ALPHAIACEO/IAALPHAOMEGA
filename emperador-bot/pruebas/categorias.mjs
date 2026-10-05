@@ -312,8 +312,15 @@ titulo("el panel: mensajes, lo que pensó la IA y la puerta del panel central");
   ok(resumen.datos?.hoy?.clientes >= 5 && resumen.datos.hoy.respuestas >= 5, "/api/central/resumen: los números de hoy", JSON.stringify(resumen.datos?.hoy));
   const sinClave = await callado(() => worker.fetch(new Request("https://bot.test/api/central/resumen"), env, { waitUntil() {} }));
   ok(sinClave.status === 401, "sin la clave, no entra nadie");
-  const estado = await callado(async () => (await worker.fetch(new Request("https://bot.test/estado"), env, { waitUntil() {} })).text());
-  ok(/PANEL_API_CLAVE/.test(estado) && /PANEL_CENTRAL_URL/.test(estado), "/estado dice si están las claves del panel");
+  // Con el panel central conectado, el /estado público es confidencial (ver panel.js).
+  const publico = await callado(async () => (await worker.fetch(new Request("https://bot.test/estado"), env, { waitUntil() {} })).text());
+  ok(/Bot activo/.test(publico) && !/PANEL_API_CLAVE|DEEPSEEK/.test(publico), "/estado sin la clave: solo 'vivo' y la versión", publico.slice(0, 60));
+  const estado = await callado(async () => (await worker.fetch(new Request(`https://bot.test/estado?clave=${CLAVE}`), env, { waitUntil() {} })).text());
+  ok(/PANEL_API_CLAVE/.test(estado) && /PANEL_CENTRAL_URL/.test(estado), "/estado con la clave dice si están las claves del panel");
+  const central = await api("estado");
+  ok(/PANEL_API_CLAVE/.test(central.datos?.texto || ""), "y el panel ALPHA IA lo recibe completo por /api/central");
+  const crm = await callado(async () => (await worker.fetch(new Request("https://bot.test/panel/clientes"), env, { waitUntil() {} })).text());
+  ok(!/data-k="c/.test(crm), "el CRM sin sesión no enseña clientes");
 }
 
 src.limpiar();

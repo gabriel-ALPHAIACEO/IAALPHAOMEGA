@@ -65,7 +65,7 @@ import {
 import { hayQueRescatar, FRASE_DE_RESCATE, MOTIVO_DE_RESCATE } from "./rescate.js";
 import { revisarTono } from "./tono.js";
 import { revisarPrecio } from "./precio.js";
-import { estadoDeLaClaveApi, esTextoDelBot, pausadoAhora, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
+import { estadoDeLaClaveApi, esTextoDelBot, pausadoAhora, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral, estadoCompletoPermitido, estadoPublico, pedidoInterno } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
 import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDelRevisor } from "./revisor.js";
 import { anotar, leerRastro, hace } from "./rastro.js";
@@ -153,7 +153,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-05 (61) · la IA se calla del todo cuando habla el asesor";
+const VERSION = "2026-10-05 (62) · CRM para la tienda en /panel (clientes, etapas, notas, etiquetas, métricas, ganadores, Excel); el estado técnico solo en ALPHA IA";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -444,7 +444,7 @@ const trabajador = {
         version: VERSION,
         horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
         conAnuncios: false,
-        verTexto: async (ruta) => (await trabajador.fetch(new Request(new URL(ruta, url)), env, ctx)).text(),
+        verTexto: async (ruta) => (await trabajador.fetch(pedidoInterno(ruta, url, env), env, ctx)).text(),
       });
     }
 
@@ -453,7 +453,7 @@ const trabajador = {
         tienda: String(env.TIENDA_NOMBRE || "Invictus Shoes"),
         horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
         conAnuncios: false,
-        verTexto: async (ruta) => (await trabajador.fetch(new Request(new URL(ruta, url)), env, ctx)).text(),
+        verTexto: async (ruta) => (await trabajador.fetch(pedidoInterno(ruta, url, env), env, ctx)).text(),
       });
     }
 
@@ -598,6 +598,8 @@ const trabajador = {
     // está y cuánto mide. Con esto se sabe en diez segundos si el problema
     // es un secreto que falta o una configuración mal puesta.
     if (url.pathname === "/estado") {
+      // Confidencial (ver panel.js): sin la clave, solo "vivo" y la versión.
+      if (!estadoCompletoPermitido(request, env)) return estadoPublico(VERSION);
       const secreto = (nombre) => {
         const valor = env[nombre];
         return valor ? `cargado (${String(valor).length} caracteres)` : "FALTA";

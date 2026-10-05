@@ -6,7 +6,8 @@
 // crudo.
 
 import { TIPOS } from "./alertas.js";
-import { ESTILO_ALPHA, SCRIPT_ALPHA, marcaAlpha, cajaDeEntrada, htmlDeAdjuntos, textoVisible } from "./alpha.js";
+import { ESTILO_ALPHA, SCRIPT_ALPHA, marcaAlpha, cajaDeEntrada, htmlDeAdjuntos, textoVisible, kpi, barras, fechaCorta, selectorDePeriodo } from "./alpha.js";
+export { fechaCorta, selectorDePeriodo };
 
 export function esc(texto) {
   return String(texto ?? "")
@@ -55,12 +56,6 @@ const ESTILO = `${ESTILO_ALPHA}
 .campana{position:relative}.campana .n{position:absolute;top:-2px;right:-2px;background:var(--mal);color:#fff;border-radius:999px;font-size:10.5px;padding:0 5px;min-width:17px;text-align:center;box-shadow:0 0 12px rgba(255,107,107,.6)}
 #notificar{font-size:12px;padding:5px 11px;border-radius:999px}
 form.dentro{margin:10px 0 0}
-.rejilla{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
-.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:12px}
-.kpi{position:relative;overflow:hidden;background:var(--tarjeta);border:1px solid var(--borde);border-radius:var(--radio);padding:12px 14px;animation:entrar .5s var(--suave-curva) both}
-.kpi::before{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:linear-gradient(90deg,var(--marca),var(--cian));opacity:.7}
-.kpi .v{font-size:26px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}.kpi .e{font-size:12px;color:var(--suave)}
-.kpi .v.mal{color:var(--mal)}.kpi .v.bien{color:var(--bien)}.kpi .v.aviso{color:var(--aviso)}
 .pestanas{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 16px}
 .pestanas a{padding:6px 12px;border-radius:999px;border:1px solid var(--borde);background:var(--tarjeta);font-size:13.5px;color:var(--suave);transition:all .2s}
 .pestanas a:hover{color:var(--texto);border-color:var(--borde-fuerte)}
@@ -69,20 +64,6 @@ form.dentro{margin:10px 0 0}
 .paso{font-size:12px;border:1px solid var(--borde);border-radius:999px;padding:1px 8px;background:rgba(255,255,255,.03);color:var(--texto)}
 form.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
 input{min-width:0;flex:1}textarea{width:100%;min-height:90px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
-.tabla{overflow-x:auto;border:1px solid var(--borde);border-radius:var(--radio);background:var(--tarjeta)}
-table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:7px 10px;border-bottom:1px solid var(--borde);text-align:left;vertical-align:top}
-th{position:sticky;top:0;background:var(--tarjeta-solida);font-weight:600;color:var(--suave);font-size:12px;letter-spacing:.03em}
-tr{transition:background .15s}tbody tr:hover,tr:hover td{background:rgba(61,134,255,.05)}
-td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
-td .corto{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
-.grafico{display:flex;flex-direction:column}.grafico .barras{margin-top:auto}.grafico .nombre{margin-bottom:6px}.grafico .suave{display:block;font-weight:400;font-size:12px}
-.barras{display:flex;align-items:flex-end;gap:2px;height:120px;padding:4px 0;border-bottom:1px solid var(--borde-fuerte)}
-.barra{flex:1;min-width:0;display:flex;align-items:flex-end;height:100%;position:relative}
-.barra i{display:block;width:100%;background:linear-gradient(180deg,var(--cian),var(--marca-fuerte));border-radius:4px 4px 0 0;transform-origin:bottom;animation:crecer .7s var(--suave-curva) both}
-@keyframes crecer{from{transform:scaleY(0)}to{transform:scaleY(1)}}
-.barra:hover i{filter:brightness(1.25)}.barra .tip{display:none;position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:var(--tarjeta-solida);border:1px solid var(--borde-fuerte);color:var(--texto);font-size:12px;padding:2px 7px;border-radius:6px;white-space:nowrap;z-index:3}
-.barra:hover .tip{display:block}
-.ejes{display:flex;justify-content:space-between;font-size:11px;color:var(--suave);margin-top:4px}
 .flujo{display:flex;flex-direction:column;align-items:stretch;gap:0;max-width:720px}
 .nodo{background:var(--tarjeta);border:1px solid var(--borde);border-radius:var(--radio);padding:10px 14px}
 .nodo b{display:block}.nodo.decision{border-style:dashed}.nodo.red{border-color:rgba(251,191,36,.5)}
@@ -95,15 +76,6 @@ td .corto{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:now
 .vivo-lista .cuerpo{white-space:pre-wrap;word-wrap:break-word}.vivo-lista .cuando{display:block;font-size:12px}
 .vivo-lista .nuevo{animation:entrar .45s var(--suave-curva) both,llegar 2.5s ease-out}
 @keyframes llegar{from{box-shadow:0 0 0 2px var(--marca),0 0 30px -4px var(--marca)}to{box-shadow:none}}
-.periodo{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:flex-end}
-.atajos{display:flex;gap:6px;flex-wrap:wrap}
-.atajos a{padding:7px 13px;border-radius:999px;border:1px solid var(--borde);background:rgba(255,255,255,.03);font-size:13.5px;color:var(--suave);transition:all .2s}
-.atajos a:hover{color:var(--texto);border-color:var(--borde-fuerte)}
-.atajos a.activa{color:#fff;background:linear-gradient(135deg,#2f7bff,#0a5cf5);border-color:transparent;box-shadow:0 4px 16px -6px rgba(10,92,245,.8)}
-.calendario{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
-.calendario label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--suave)}
-.calendario input{flex:none;min-width:150px}
-.periodo-texto,.periodo .aviso{flex-basis:100%}
 .miniaturas{display:flex;gap:6px;margin-top:8px;overflow-x:auto}.miniaturas img{width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid var(--borde);flex:none;background:#0a0f1c}
 #avisos{position:fixed;right:12px;bottom:12px;display:flex;flex-direction:column;gap:8px;z-index:9;max-width:340px}
 .toast{background:rgba(12,18,32,.92);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid var(--borde-fuerte);border-left:3px solid var(--mal);border-radius:12px;padding:10px 12px;box-shadow:0 12px 40px -12px #000;font-size:14px;animation:entrar .4s var(--suave-curva) both}
@@ -186,26 +158,6 @@ export function entrada(nombre, error = "") {
 }
 
 /* ── Piezas ──────────────────────────────────────────────────────── */
-
-function kpi(valor, etiqueta, { clase = "", titulo = "" } = {}) {
-  return `<div class="kpi" title="${esc(titulo)}"><div class="v ${clase}">${esc(valor)}</div><div class="e">${esc(etiqueta)}</div></div>`;
-}
-
-// Un gráfico de barras de UNA serie (sin leyenda: el título la nombra),
-// con el valor de cada día al pasar el dedo o el ratón.
-function barras(titulo, dias, campo) {
-  const max = Math.max(1, ...dias.map((d) => Number(d[campo]) || 0));
-  const total = dias.reduce((s, d) => s + (Number(d[campo]) || 0), 0);
-  const cuerpo = dias
-    .map((d) => {
-      const v = Number(d[campo]) || 0;
-      return `<div class="barra"><i style="height:${Math.round((v / max) * 100)}%"></i><span class="tip">${esc(d.dia.slice(5))}: ${v}</span></div>`;
-    })
-    .join("");
-  return `<div class="tarjeta grafico"><div class="nombre">${esc(titulo)}<span class="suave">${total} en total · máximo ${max === 1 && !total ? 0 : max} en un día</span></div>
-<div class="barras" role="img" aria-label="${esc(titulo)} por día">${cuerpo}</div>
-<div class="ejes"><span>${esc(dias[0]?.dia.slice(5) || "")}</span><span>${esc(dias.at(-1)?.dia.slice(5) || "")}</span></div></div>`;
-}
 
 export function pestanasDeTienda(t, activa) {
   const p = [
@@ -290,36 +242,6 @@ ${kpi(d[p].fallos, "❌ respuestas con error", { clase: d[p].fallos ? "mal" : ""
 <h3>Gasto de OpenAI este mes</h3><div class="kpis">${kpi(dolares(d.gasto?.total), "gastado")}${kpi(dolares(d.gasto?.proyectado), "el mes saldrá en")}${kpi(`${d.gasto?.dias || 0}/${d.gasto?.delMes || 0}`, "días del mes")}</div>
 ${(d.gasto?.filas || []).length ? `<div class="tabla"><table><tr><th>Modelo</th><th class="num">Llamadas</th><th class="num">Dólares</th></tr>${d.gasto.filas.map((f) => `<tr><td>${esc(f.modelo)}</td><td class="num">${esc(f.llamadas)}</td><td class="num">${dolares(f.dolares)}</td></tr>`).join("")}</table></div>` : ""}
 ${d.ultimoError ? `<h3>Último error</h3><div class="tarjeta mal">${esc(horaExacta(d.ultimoError.cuando))} · ${esc(d.ultimoError.texto)}</div>` : ""}`;
-}
-
-// "2026-10-02" → "2 oct" (la fecha tal cual, sin moverla de día).
-export function fechaCorta(dia) {
-  const ms = Date.parse(`${dia}T12:00:00Z`);
-  if (!Number.isFinite(ms)) return String(dia || "");
-  return new Date(ms).toLocaleDateString("es-VE", { day: "numeric", month: "short", timeZone: "UTC" }).replace(/\.$/, "");
-}
-
-// EL CALENDARIO (5-oct-2026). El dueño: "un calendario de elección, junto a
-// las sugerencias de 7, 14, 30 y 90 días, que funcione bien: pongo 30 y 7 y
-// dice lo mismo". Decía lo mismo porque solo hay datos desde hace unos días:
-// ahora se ve el rango exacto que se está mirando y desde cuándo hay datos.
-//   periodo: lo que se pidió ({ aMedida, dias } o { aMedida, desde, hasta })
-//   rango: lo que la tienda de verdad contó ({ desde, hasta, dias })
-export function selectorDePeriodo({ periodo = {}, rango = null, primerDato = "", hoy = "", avisos = [] } = {}) {
-  const atajos = [7, 14, 30, 90]
-    .map((n) => `<a class="${!periodo.aMedida && periodo.dias === n ? "activa" : ""}" href="?dias=${n}">${n} días</a>`)
-    .join("");
-  const desde = rango?.desde || periodo.desde || "";
-  const hasta = rango?.hasta || periodo.hasta || hoy;
-  const viendo = rango
-    ? `${periodo.aMedida ? "Del" : `Últimos ${rango.dias} días · del`} ${fechaCorta(rango.desde)} al ${fechaCorta(rango.hasta)}${periodo.aMedida ? ` · ${rango.dias} ${rango.dias === 1 ? "día" : "días"}` : ""}`
-    : "";
-  const corto = primerDato && desde && primerDato > desde;
-  return `<div class="periodo tarjeta">
-<div class="atajos">${atajos}</div>
-<form method="get" class="calendario"><label>Desde<input type="date" name="desde" value="${esc(desde)}"${hoy ? ` max="${esc(hoy)}"` : ""}></label><label>Hasta<input type="date" name="hasta" value="${esc(hasta)}"${hoy ? ` max="${esc(hoy)}"` : ""}></label><button class="principal">Ver</button></form>
-<div class="suave periodo-texto">${viendo ? `📅 ${esc(viendo)}` : ""}${primerDato ? ` · hay datos desde el <b>${esc(fechaCorta(primerDato))}</b>` : ""}${corto ? ". Antes de esa fecha no hay nada guardado: por eso un período más largo da los mismos números." : ""}</div>
-${avisos.map((a) => `<div class="aviso">⚠️ ${esc(a)}</div>`).join("")}</div>`;
 }
 
 export function vistaMetricas(titulo, dias, datos, { conAnuncios = false, cabecera = "", selector = "" } = {}) {

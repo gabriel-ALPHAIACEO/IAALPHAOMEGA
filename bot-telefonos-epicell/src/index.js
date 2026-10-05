@@ -30,7 +30,7 @@
 
 import { responderTexto, identificarEnImagen, redactarConResultados } from "./ia.js";
 import { transcribirAudio, notaDeVoz, PEDIR_QUE_ESCRIBA } from "./voz.js";
-import { estadoDeLaClaveApi, esTextoDelBot, pausadoAhora, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
+import { estadoDeLaClaveApi, esTextoDelBot, pausadoAhora, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral, estadoCompletoPermitido, estadoPublico, pedidoInterno } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
 import { elLocal, hayLocal, preguntaPorElLocal, soloPreguntaPorElLocal, NOTA_LOCAL_ENVIADA, BOTON_MAPA } from "./local.js";
 import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDelRevisor } from "./revisor.js";
@@ -157,7 +157,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-05 (36) · los anuncios: la cuenta publicitaria donde de verdad corren (act_1529013371511542)";
+const VERSION = "2026-10-05 (37) · CRM para la tienda en /panel (clientes, etapas, notas, etiquetas, métricas, ganadores, Excel); el estado técnico solo en ALPHA IA";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -1016,7 +1016,7 @@ const trabajador = {
         version: VERSION,
         horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
         conAnuncios: true,
-        verTexto: async (ruta) => (await trabajador.fetch(new Request(new URL(ruta, url)), env, ctx)).text(),
+        verTexto: async (ruta) => (await trabajador.fetch(pedidoInterno(ruta, url, env), env, ctx)).text(),
       });
     }
 
@@ -1024,7 +1024,7 @@ const trabajador = {
       return atenderPanel(request, env, {
         tienda: String(env.TIENDA_NOMBRE || "EPICCELL"),
         horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
-        verTexto: async (ruta) => (await trabajador.fetch(new Request(new URL(ruta, url)), env, ctx)).text(),
+        verTexto: async (ruta) => (await trabajador.fetch(pedidoInterno(ruta, url, env), env, ctx)).text(),
       });
     }
 
@@ -1117,6 +1117,8 @@ const trabajador = {
     // Todo lo que hace falta saber para arreglar un despliegue: qué versión
     // está puesta, qué secretos faltan y si la base responde.
     if (url.pathname === "/estado") {
+      // Confidencial (ver panel.js): sin la clave, solo "vivo" y la versión.
+      if (!estadoCompletoPermitido(request, env)) return estadoPublico(VERSION);
       const secreto = (nombre) => {
         const valor = env[nombre];
         return valor ? `cargado (${String(valor).length} caracteres)` : "FALTA";
