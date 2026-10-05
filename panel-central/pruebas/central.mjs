@@ -315,6 +315,22 @@ titulo("despausar: en pausa, desde la lista y todas de una vez");
   ok(/No pude leer esta tienda/.test(caida.html), "la tienda caída explica qué pasa");
 }
 
+titulo("escribirle al cliente desde el panel central");
+{
+  BASE1.sql.prepare("UPDATE contactos SET pausado_hasta = 0 WHERE id = '123'").run();
+  const conv = await abrir("/t/invictus/c/123");
+  ok(/Escribirle tú/.test(conv.html) && /action="\/t\/invictus\/enviar"/.test(conv.html), "la conversación trae el cuadro para escribir");
+  const r = await abrir("/t/invictus/enviar", { metodo: "POST", form: { id: "123", texto: "Hola, te escribe el dueño desde el panel 😊" } });
+  ok(r.estado === 303 && /aviso=ok/.test(r.r.headers.get("location") || ""), "se manda y vuelve con el aviso", r.r.headers.get("location"));
+  ok(BASE1.sql.prepare("SELECT pausado_hasta FROM contactos WHERE id = '123'").get().pausado_hasta > Date.now(), "en la tienda, el bot queda en pausa con ese cliente");
+  ok(BASE1.sql.prepare("SELECT COUNT(*) AS n FROM mensajes WHERE igsid = '123' AND de = 'asesor' AND texto LIKE '%desde el panel%'").get().n === 1, "y el mensaje queda en la conversación (como asesor)");
+  const vista = await abrir("/t/invictus/c/123?aviso=ok");
+  ok(/✅ Enviado/.test(vista.html) && !/data-vivo/.test(vista.html), "con el aviso, y sin refrescarse solo (no se borra el aviso)");
+  const ajena = await abrir("/t/invictus/enviar", { metodo: "POST", form: { id: "123", texto: "x" }, origen: "https://malo.test" });
+  ok(ajena.estado === 403, "desde otra web: no");
+  BASE1.sql.prepare("UPDATE contactos SET pausado_hasta = 0 WHERE id = '123'").run();
+}
+
 titulo("métricas, ganadores, errores y gastos");
 {
   const m = await abrir("/metricas?dias=7");

@@ -119,6 +119,16 @@ export async function anotarMensaje(db, igsid, de, texto) {
   if (!db || !igsid || !limpio) return;
   try {
     await asegurarMensajes(db);
+    // Lo que escribe el dueño DESDE EL PANEL se guarda al mandarlo, y después
+    // Meta devuelve su eco (que la tienda anota como "asesor"): el mismo
+    // texto del asesor en los últimos 2 minutos no se repite.
+    if (de === "asesor") {
+      const igual = await db
+        .prepare("SELECT id FROM mensajes WHERE igsid = ? AND de = 'asesor' AND texto = ? AND cuando > ? LIMIT 1")
+        .bind(String(igsid), limpio.slice(0, 2000), Date.now() - 2 * 60 * 1000)
+        .first();
+      if (igual) return;
+    }
     await db
       .prepare("INSERT INTO mensajes (igsid, cuando, de, texto) VALUES (?, ?, ?, ?)")
       .bind(String(igsid), Date.now(), ["cliente", "bot", "asesor"].includes(de) ? de : "cliente", limpio.slice(0, 2000))
@@ -295,6 +305,62 @@ ${error ? `<p style="color:var(--alerta)">${esc(error)}</p>` : ""}
   );
 }
 
+/* ── Escribirle al cliente desde el panel (5-oct-2026) ─────────────
+   El dueño: "dentro del panel debo poder mandar mensajes yo también". Sale
+   por la misma cuenta de Instagram que el bot. Como escribe una persona, el
+   bot se PAUSA con ese cliente (igual que cuando un asesor escribe desde la
+   app): así no hablan los dos a la vez. Se le devuelve con el botón.
+
+   Instagram solo deja escribirle a alguien dentro de las 24 horas desde SU
+   último mensaje. Fuera de eso Meta lo rechaza: se dice tal cual, no como
+   un "error" sin explicación. */
+
+const GRAFO_PANEL = "https://graph.instagram.com/v23.0";
+export const MAXIMO_DESDE_EL_PANEL = 1000;
+
+function porQueNoSalio(estado, datos) {
+  const e = datos?.error || {};
+  const texto = `${e.message || ""} ${e.error_user_msg || ""}`;
+  if (e.error_subcode === 2534022 || /outside of allowed window|24 ?h|fuera de la ventana/i.test(texto)) {
+    return "Pasaron más de 24 horas desde el último mensaje del cliente: Instagram no deja escribirle hasta que él vuelva a escribir.";
+  }
+  if (estado === 401 || e.code === 190) return "El IG_TOKEN de la tienda venció o no es válido: hay que renovarlo.";
+  if (e.code === 10 || e.code === 200) return "Instagram no da permiso para escribirle a este cliente ahora mismo.";
+  return `Instagram no lo dejó pasar (${estado}${e.message ? `: ${String(e.message).slice(0, 160)}` : ""}).`;
+}
+
+export async function mandarDesdeElPanel(env, igsid, texto, horasDePausa = 1) {
+  const limpio = String(texto || "").trim();
+  if (!igsid) return { ok: false, error: "Falta el cliente." };
+  if (!limpio) return { ok: false, error: "Escribe el mensaje." };
+  if (limpio.length > MAXIMO_DESDE_EL_PANEL) return { ok: false, error: `Máximo ${MAXIMO_DESDE_EL_PANEL} letras por mensaje.` };
+  if (!env.IG_TOKEN) return { ok: false, error: "La tienda no tiene IG_TOKEN cargado." };
+
+  let r;
+  try {
+    r = await fetch(`${GRAFO_PANEL}/me/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${env.IG_TOKEN}` },
+      body: JSON.stringify({ recipient: { id: String(igsid) }, message: { text: limpio } }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (error) {
+    return { ok: false, error: `No se pudo llegar a Instagram: ${error?.message || error}` };
+  }
+  const datos = await r.json().catch(() => null);
+  if (!r.ok || !datos?.message_id) {
+    const motivo = porQueNoSalio(r.status, datos);
+    console.error(`PANEL: no salió el mensaje a ${igsid}: ${motivo}`);
+    return { ok: false, error: motivo };
+  }
+
+  // Una persona está atendiendo: el bot se aparta, como con el asesor.
+  await pausar(env.DB, String(igsid), horasDePausa);
+  await anotarMensaje(env.DB, String(igsid), "asesor", limpio);
+  console.log(`PANEL: el dueño le escribió a ${igsid}; bot en pausa ${horasDePausa} h`);
+  return { ok: true, mid: datos.message_id };
+}
+
 /* ── Las páginas ─────────────────────────────────────────────────── */
 
 async function contactosParaLista(db, { q = "", filtro = "" } = {}) {
@@ -314,8 +380,9 @@ async function contactosParaLista(db, { q = "", filtro = "" } = {}) {
     for (const m of u?.results || []) ultimos.set(String(m.igsid), { de: m.de, texto: m.texto, cuando: Number(m.cuando) || 0 });
     if (String(q || "").trim()) {
       const b = await db
-        .prepare("SELECT DISTINCT igsid FROM mensajes WHERE lower(texto) LIKE ?")
-        .bind(`%${String(q).toLowerCase().trim()}%`)
+        // instr() y no LIKE: D1 no acepta patrones de LIKE de más de 50 bytes.
+        .prepare("SELECT DISTINCT igsid FROM mensajes WHERE instr(lower(texto), ?) > 0")
+        .bind(String(q).toLowerCase().trim())
         .all();
       conLaPalabra = new Set((b?.results || []).map((m) => String(m.igsid)));
     }
@@ -425,7 +492,7 @@ function cajaDePienso(t) {
   return `<div class="pienso">${partes.join("")}<div class="suave">${esc(horaExacta(t.cuando))}</div></div>`;
 }
 
-async function paginaDeConversacion(env, id, tienda, { horasDePausa = 1, conAnuncios = true } = {}) {
+async function paginaDeConversacion(env, id, tienda, { horasDePausa = 1, conAnuncios = true, aviso = "" } = {}) {
   const contacto = await cargarContacto(env.DB, id);
   const guardados = await mensajesDe(env.DB, id);
   const charla = guardados.length ? guardados : contacto.conversacion || [];
@@ -474,9 +541,24 @@ ${contacto.historial ? `<div class="suave">Resumen: ${esc(contacto.historial)}</
         : `<form method="post" action="/panel/pausar"><input type="hidden" name="id" value="${esc(id)}"><button>Pausar el bot ${esc(horasDePausa)} h (la atiendo yo)</button></form>`
     }</div></div>
 <div class="chat">${burbujas || '<p class="suave">Todavía no hay mensajes guardados de esta persona.</p>'}</div>
-${sueltos.length ? `<h3>Más de lo que pensó la IA</h3><div class="chat">${sueltos.map((t) => `${t.cliente ? `<div class="burbuja de-cliente">${esc(t.cliente)}</div>` : ""}<div class="burbuja de-bot">${esc(t.respuesta)}</div>${cajaDePienso(t)}`).join("")}</div>` : ""}`,
+${sueltos.length ? `<h3>Más de lo que pensó la IA</h3><div class="chat">${sueltos.map((t) => `${t.cliente ? `<div class="burbuja de-cliente">${esc(t.cliente)}</div>` : ""}<div class="burbuja de-bot">${esc(t.respuesta)}</div>${cajaDePienso(t)}`).join("")}</div>` : ""}
+${formularioDeMensaje("/panel/enviar", id, horasDePausa, aviso)}`,
     { tienda, conAnuncios }
   );
+}
+
+// El cuadro para escribirle al cliente. "aviso": lo que pasó con el último
+// envío ("ok" o el motivo de por qué no salió).
+function formularioDeMensaje(accion, id, horasDePausa, aviso = "") {
+  const avisoHtml = !aviso
+    ? ""
+    : aviso === "ok"
+      ? '<div class="tarjeta" style="border-color:#137333">✅ Enviado. El bot quedó en pausa con este cliente: devuélveselo con el botón de arriba cuando termines.</div>'
+      : `<div class="tarjeta" style="border-color:#b42318;color:#b42318">❌ No salió: ${esc(aviso)}</div>`;
+  return `<h3 id="escribir">✍️ Escribirle tú</h3>${avisoHtml}
+<form method="post" action="${accion}" class="tarjeta"><input type="hidden" name="id" value="${esc(id)}">
+<textarea name="texto" rows="3" maxlength="${MAXIMO_DESDE_EL_PANEL}" required placeholder="Escribe tu mensaje…" style="width:100%;font:inherit;padding:8px;border-radius:8px;border:1px solid var(--borde);background:var(--tarjeta);color:var(--texto)"></textarea>
+<div class="acciones"><button class="principal">Enviar</button><span class="suave">Sale por Instagram desde la cuenta de la tienda. El bot se pausa ${esc(horasDePausa)} h con este cliente.</span></div></form>`;
 }
 
 /* ── La puerta de entrada ────────────────────────────────────────── */
@@ -484,7 +566,24 @@ ${sueltos.length ? `<h3>Más de lo que pensó la IA</h3><div class="chat">${suel
 // verTexto(ruta) devuelve el texto de /estado o /anuncios, para no tener
 // dos copias de lo mismo.
 // conAnuncios: false en las tiendas que no tienen el panel de anuncios.
-export async function atenderPanel(request, env, { verTexto, tienda = "La tienda", horasDePausa = 1, conAnuncios = true } = {}) {
+// Si algo se rompe dentro del panel, se ve el error en una página (y queda
+// en el registro), en vez de la pantalla 1101 de Cloudflare.
+export async function atenderPanel(request, env, opciones = {}) {
+  try {
+    return await atenderPanelSinRed(request, env, opciones);
+  } catch (error) {
+    console.error("PANEL falló:", error?.stack || error?.message || error);
+    return pagina(
+      "Error",
+      `<div class="tarjeta"><p>❌ El panel tuvo un error y no pudo terminar:</p><pre>${esc(String(error?.message || error).slice(0, 500))}</pre>
+<p class="suave">Mándale una captura de esto a quien te ayuda con el bot. Para ver el detalle: <code>npx.cmd wrangler tail</code></p>
+<p><a href="/panel">← Volver al panel</a></p></div>`,
+      { tienda: opciones.tienda || "La tienda", conMenu: false }
+    );
+  }
+}
+
+async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda", horasDePausa = 1, conAnuncios = true } = {}) {
   const url = new URL(request.url);
 
   if (!panelActivo(env)) {
@@ -534,6 +633,15 @@ export async function atenderPanel(request, env, { verTexto, tienda = "La tienda
     return redirigir(volverA(datos, `/panel/c/${encodeURIComponent(id)}`));
   }
 
+  if (url.pathname === "/panel/enviar" && request.method === "POST") {
+    if (!vieneDelPanel(request, url)) return new Response("No", { status: 403 });
+    const datos = await request.formData().catch(() => null);
+    const id = String(datos?.get("id") || "").trim();
+    const r = await mandarDesdeElPanel(env, id, datos?.get("texto"), horasDePausa);
+    const aviso = r.ok ? "ok" : r.error;
+    return redirigir(`/panel/c/${encodeURIComponent(id)}?aviso=${encodeURIComponent(aviso)}#escribir`);
+  }
+
   if (url.pathname === "/panel/devolver-todos" && request.method === "POST") {
     if (!vieneDelPanel(request, url)) return new Response("No", { status: 403 });
     const cuantos = await despausarTodos(env.DB);
@@ -543,7 +651,7 @@ export async function atenderPanel(request, env, { verTexto, tienda = "La tienda
 
   if (url.pathname.startsWith("/panel/c/")) {
     const id = decodeURIComponent(url.pathname.slice("/panel/c/".length));
-    return paginaDeConversacion(env, id, tienda, { horasDePausa, conAnuncios });
+    return paginaDeConversacion(env, id, tienda, { horasDePausa, conAnuncios, aviso: String(url.searchParams.get("aviso") || "").slice(0, 300) });
   }
 
   if ((url.pathname === "/panel/anuncios" && conAnuncios) || url.pathname === "/panel/estado") {
@@ -579,6 +687,7 @@ export async function atenderPanel(request, env, { verTexto, tienda = "La tienda
      GET  /api/central/estado            el texto de /estado
      POST /api/central/pausar|devolver   {"id": "..."}
      POST /api/central/devolver-todos    todas las conversaciones en pausa, al bot
+     POST /api/central/enviar  {id, texto}  el dueño le escribe al cliente (pausa el bot)
 
    LAS BASES DE DATOS (el dueño: "quiero ver y editar todas las bases de
    la IA, yo soy el experto"):
@@ -890,8 +999,9 @@ async function apiBases(ruta, request, env, url) {
     const pagina = Math.max(Number(url.searchParams.get("pagina")) || 1, 1);
     const q = String(url.searchParams.get("q") || "").trim();
     // Buscar en todas las columnas a la vez, como texto.
-    const donde = q ? `WHERE ${columnas.map((c) => `CAST("${c.nombre}" AS TEXT) LIKE ?`).join(" OR ")}` : "";
-    const args = q ? columnas.map(() => `%${q}%`) : [];
+    // instr() y no LIKE: D1 no acepta patrones de LIKE de más de 50 bytes.
+    const donde = q ? `WHERE ${columnas.map((c) => `instr(lower(CAST("${c.nombre}" AS TEXT)), ?) > 0`).join(" OR ")}` : "";
+    const args = q ? columnas.map(() => q.toLowerCase()) : [];
     const total = await db.prepare(`SELECT COUNT(*) AS n FROM "${tabla}" ${donde}`).bind(...args).first();
     const r = await db
       .prepare(`SELECT rowid AS _rowid, * FROM "${tabla}" ${donde} ORDER BY rowid DESC LIMIT ? OFFSET ?`)
@@ -1050,6 +1160,12 @@ export async function atenderApiCentral(request, env, opciones = {}) {
     if (["tablas", "tabla", "fila", "borrar", "sql", "deshacer"].includes(ruta)) {
       const respuesta = await apiBases(ruta, request, env, url);
       if (respuesta) return respuesta;
+    }
+
+    if (ruta === "enviar" && request.method === "POST") {
+      const { id, texto } = await request.json().catch(() => ({}));
+      const r = await mandarDesdeElPanel(env, String(id || ""), texto, opciones.horasDePausa || 1);
+      return r.ok ? json({ ok: true }) : json({ error: r.error }, 400);
     }
 
     if (ruta === "devolver-todos" && request.method === "POST") {

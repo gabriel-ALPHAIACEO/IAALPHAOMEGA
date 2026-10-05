@@ -144,6 +144,34 @@ ok(/devolvió la conversación al bot/.test(nota.historial), "con su nota en el 
 r = await pedir("/panel?f=pausados", { cookie });
 ok(/Nadie en pausa/.test(r.texto), "sin nadie en pausa, lo dice");
 
+titulo("escribirle al cliente desde el panel");
+{
+  await E.despausar(DB, "123");
+  const f = new FormData(); f.set("id", "123"); f.set("texto", "Hola Ana, soy el dueño 😊 ¿te ayudo con la talla?");
+  const r1 = await pedir("/panel/enviar", { metodo: "POST", cookie, cuerpo: f, origen: "https://bot.test" });
+  ok(r1.estado === 303 && /aviso=ok/.test(r1.donde), "se manda y vuelve a la conversación con el aviso", r1.donde);
+  ok(await E.estaPausado(await E.cargarContacto(DB, "123")), "el bot queda en pausa con ese cliente (habla una persona)");
+  const guardados = (await DB.prepare("SELECT de, texto FROM mensajes WHERE igsid = '123' AND de = 'asesor' AND texto LIKE '%soy el dueño%'").all()).results;
+  ok(guardados.length === 1, "queda en la conversación como mensaje del asesor");
+  await P.anotarMensaje(DB, "123", "asesor", "Hola Ana, soy el dueño 😊 ¿te ayudo con la talla?");
+  const tras = (await DB.prepare("SELECT COUNT(*) AS n FROM mensajes WHERE igsid = '123' AND texto LIKE '%soy el dueño%'").first()).n;
+  ok(tras === 1, "el eco que devuelve Meta no lo repite");
+  const pag = await pedir("/panel/c/123?aviso=ok", { cookie });
+  ok(/Escribirle tú/.test(pag.texto) && /✅ Enviado/.test(pag.texto) && /action="\/panel\/enviar"/.test(pag.texto), "la conversación trae el cuadro para escribir y el aviso");
+
+  // Fuera de las 24 horas, Instagram lo rechaza: se dice tal cual.
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: { message: "This message is sent outside of allowed window.", code: 10, error_subcode: 2534022 } }), { status: 400 });
+  const r2 = await callado(() => P.mandarDesdeElPanel({ ...ENV, IG_TOKEN: "x" }, "123", "hola", 1));
+  globalThis.fetch = real;
+  ok(!r2.ok && /24 horas/.test(r2.error), "fuera de las 24 h: lo explica (no un error sin más)", r2.error);
+  const vacio = await P.mandarDesdeElPanel(ENV, "123", "   ", 1);
+  ok(!vacio.ok && /Escribe/.test(vacio.error), "un mensaje vacío no sale");
+  const ajeno = new FormData(); ajeno.set("id", "123"); ajeno.set("texto", "hola");
+  ok((await pedir("/panel/enviar", { metodo: "POST", cookie, cuerpo: ajeno, origen: "https://otra-web.com" })).estado === 403, "desde otra web: no");
+  await E.despausar(DB, "123");
+}
+
 titulo("seguridad y el resto");
 r = await pedir("/panel/c/%3Cscript%3E", { cookie });
 ok(!/<script>/.test(r.texto), "lo que viene en la URL se escapa");

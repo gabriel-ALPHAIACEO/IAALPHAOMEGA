@@ -466,7 +466,20 @@ ${(t.productos || []).length ? `<div>Fichas: ${t.productos.map(esc).join(", ")}<
 <div class="suave">${esc(horaExacta(t.cuando))}</div></div>`;
 }
 
-export function vistaConversacion(t, datos) {
+// El cuadro para escribirle al cliente (ver /t/<tienda>/enviar).
+function formularioDeMensaje(t, id, horasDePausa, aviso = "") {
+  const avisoHtml = !aviso
+    ? ""
+    : aviso === "ok"
+      ? '<div class="tarjeta bien">✅ Enviado. El bot quedó en pausa con este cliente: devuélveselo con el botón de arriba cuando termines.</div>'
+      : `<div class="tarjeta mal">❌ No salió: ${esc(aviso)}</div>`;
+  return `<h3 id="escribir">✍️ Escribirle tú</h3>${avisoHtml}
+<form method="post" action="/t/${esc(t.id)}/enviar" class="tarjeta"><input type="hidden" name="id" value="${esc(id)}">
+<textarea name="texto" rows="3" maxlength="1000" required placeholder="Escribe tu mensaje…" style="font-family:inherit;font-size:15px"></textarea>
+<div class="acciones"><button class="principal">Enviar</button><span class="suave">Sale por Instagram desde la cuenta de ${esc(t.nombre)}. El bot se pausa ${esc(horasDePausa)} h con este cliente.</span></div></form>`;
+}
+
+export function vistaConversacion(t, datos, aviso = "") {
   const { contacto, mensajes = [], turnos = [], horasDePausa = 1 } = datos;
   const usados = new Set();
   const normal = (x) => String(x || "").replace(/\s+/g, " ").trim().slice(0, 120);
@@ -496,6 +509,7 @@ ${pausado ? `<span class="etiqueta mal">Bot en pausa hasta ${esc(horaExacta(cont
 <div class="leyenda">${Object.values(MARCAS).map((m) => `<span>${m.simbolo} ${esc(m.nombre)}</span>`).join("")}</div>
 <div class="chat">${burbujas || '<p class="suave">Todavía no hay mensajes guardados de esta persona.</p>'}</div>
 ${sueltos.length ? `<h3>Más de lo que pensó la IA</h3><div class="chat">${sueltos.map((x) => `${x.cliente ? `<div class="burbuja de-cliente">${esc(x.cliente)}</div>` : ""}<div class="burbuja de-bot">${esc(x.respuesta)}</div>${cajaDeTurno(x)}`).join("")}</div>` : ""}
+${formularioDeMensaje(t, contacto.id, horasDePausa, aviso)}
 <p class="suave">Ver también: <a href="/t/${esc(t.id)}/bases/mensajes?q=${id}">sus filas en la base</a></p>`;
 }
 

@@ -660,14 +660,17 @@ export async function pausar(db, id, horas) {
 // El asesor terminó y le devuelve la conversación al bot desde el propio
 // chat (ver FRASE_DESPAUSAR en index.js). Deja una nota en el historial para
 // que el bot sepa que alguien ya estuvo atendiendo y no salude de cero.
+// instr() y no LIKE (5-oct-2026): D1, la base de Cloudflare, no acepta un
+// patrón de LIKE de más de 50 bytes, y esta nota es más larga: el botón de
+// "devolver al bot" tumbaba el Worker (error 1101).
 export async function despausar(db, id, nota = "") {
   await db
     .prepare(
       `UPDATE contactos SET
          pausado_hasta = 0,
          historial = CASE
-           WHEN ? = '' OR historial LIKE '%' || ? THEN historial
-           ELSE trim(historial || ' ' || ?)
+           WHEN ? = '' OR instr(coalesce(historial, ''), ?) > 0 THEN historial
+           ELSE trim(coalesce(historial, '') || ' ' || ?)
          END
        WHERE id = ?`
     )

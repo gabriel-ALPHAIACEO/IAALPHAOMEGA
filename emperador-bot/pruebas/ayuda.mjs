@@ -138,19 +138,30 @@ export function baseDeMentira() {
       },
       prepare(consulta) {
         let args = [];
+        // COMO D1 (5-oct-2026): Cloudflare rechaza un patrón de LIKE de más
+        // de 50 bytes. SQLite no, y por eso el botón de "devolver al bot"
+        // pasó las pruebas y tumbaba el Worker en producción (error 1101).
+        const comoD1 = () => {
+          if (/\bLIKE\b/i.test(consulta) && args.some((a) => typeof a === "string" && Buffer.byteLength(a) > 50)) {
+            throw new Error("LIKE or GLOB pattern too complex (límite de D1: 50 bytes)");
+          }
+        };
         return {
           bind(...a) {
             args = a;
             return this;
           },
           async run() {
+            comoD1();
             sql.prepare(consulta).run(...args);
             return { success: true };
           },
           async all() {
+            comoD1();
             return { results: sql.prepare(consulta).all(...args) };
           },
           async first() {
+            comoD1();
             return sql.prepare(consulta).get(...args) ?? null;
           },
         };

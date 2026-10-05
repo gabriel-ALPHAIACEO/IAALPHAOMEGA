@@ -57,7 +57,7 @@ import {
   vistaEnPausa,
 } from "./vistas.js";
 
-const VERSION = "2026-10-02 (6) · ALPHA IA: en su propia cuenta de Cloudflare";
+const VERSION = "2026-10-05 (7) · ALPHA IA: escribirle al cliente desde el panel";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");
@@ -311,7 +311,9 @@ async function atenderTienda(request, env, url, t, resto, opciones) {
     const id = decodeURIComponent(resto.slice(2));
     const r = await pedir(env, t, `chat?id=${encodeURIComponent(id)}`);
     // Abierta, la conversación se pone al día sola cada 6 segundos.
-    return p("Conversación", r.ok && r.datos?.contacto ? vistaConversacion(t, r.datos) : errorDe(r), { vivo: 6000 });
+    const aviso = String(url.searchParams.get("aviso") || "").slice(0, 300);
+    // Con un aviso en pantalla no se refresca sola (se borraría el aviso).
+    return p("Conversación", r.ok && r.datos?.contacto ? vistaConversacion(t, r.datos, aviso) : errorDe(r), { vivo: aviso ? false : 6000 });
   }
 
   if ((resto === "pausar" || resto === "devolver") && esPost) {
@@ -322,6 +324,17 @@ async function atenderTienda(request, env, url, t, resto, opciones) {
       console.log(`PANEL CENTRAL: ${resto} ${id} en ${t.nombre}`);
     }
     return redirigir(volverA(formulario, `/t/${encodeURIComponent(t.id)}/c/${encodeURIComponent(id)}`));
+  }
+
+  // El dueño le escribe al cliente (la tienda lo manda por Instagram y
+  // pausa el bot con ese cliente).
+  if (resto === "enviar" && esPost) {
+    const id = String(formulario?.get("id") || "").trim();
+    const texto = String(formulario?.get("texto") || "");
+    const r = await pedir(env, t, "enviar", { metodo: "POST", cuerpo: { id, texto }, espera: 15000 });
+    const aviso = r.ok ? "ok" : r.datos?.error || r.error;
+    if (r.ok) console.log(`PANEL CENTRAL: mensaje a ${id} en ${t.nombre}`);
+    return redirigir(`/t/${encodeURIComponent(t.id)}/c/${encodeURIComponent(id)}?aviso=${encodeURIComponent(aviso)}#escribir`);
   }
 
   if (resto === "devolver-todos" && esPost) {
