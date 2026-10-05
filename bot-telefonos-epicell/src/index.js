@@ -157,7 +157,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-05 (35) · los anuncios: solo la cuenta publicitaria de EPICCELL";
+const VERSION = "2026-10-05 (36) · los anuncios: la cuenta publicitaria donde de verdad corren (act_1529013371511542)";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA

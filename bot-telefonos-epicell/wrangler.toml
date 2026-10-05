@@ -180,7 +180,7 @@ ANUNCIOS_EQUIPOS = ""
 # que vea el ADS_TOKEN. Puesta en la de EPICCELL (5-oct-2026): el token es de
 # un usuario que también ve cuentas de otros negocios, y el bot de EPICCELL
 # solo tiene que mirar la suya.
-ADS_CUENTA = "act_28096202786742719"
+ADS_CUENTA = "act_1529013371511542"
 
 # --- LA TIENDA ---------------------------------------------------------
 # Enlace del catalogo online. EPICCELL no tiene tienda web, asi que va
