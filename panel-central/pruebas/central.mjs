@@ -331,6 +331,24 @@ titulo("escribirle al cliente desde el panel central");
   BASE1.sql.prepare("UPDATE contactos SET pausado_hasta = 0 WHERE id = '123'").run();
 }
 
+titulo("borrar mensajes y conversaciones desde el panel central");
+{
+  const conv = await abrir("/t/invictus/c/456");
+  ok(/action="\/t\/invictus\/borrar-mensaje"/.test(conv.html) && /Borrar esta conversación del panel/.test(conv.html), "cada mensaje con su 🗑️, y borrar la conversación");
+  const fila = BASE1.sql.prepare("SELECT id FROM mensajes WHERE igsid = '456' ORDER BY id LIMIT 1").get();
+  const antes = BASE1.sql.prepare("SELECT COUNT(*) AS n FROM mensajes WHERE igsid = '456'").get().n;
+  const r = await abrir("/t/invictus/borrar-mensaje", { metodo: "POST", form: { igsid: "456", mensaje: String(fila.id) } });
+  ok(r.estado === 303 && BASE1.sql.prepare("SELECT COUNT(*) AS n FROM mensajes WHERE igsid = '456'").get().n === antes - 1, "borra un mensaje en la tienda de verdad");
+  const r2 = await abrir("/t/invictus/borrar-conversacion", { metodo: "POST", form: { id: "456" } });
+  ok(r2.estado === 303 && BASE1.sql.prepare("SELECT COUNT(*) AS n FROM mensajes WHERE igsid = '456'").get().n === 0, "y la conversación entera");
+  const historial = await abrir("/t/invictus/cambios");
+  ok(/borrar conversación en mensajes/.test(historial.html), "queda en el historial de cambios, para deshacer");
+  const ultimo = BASE1.sql.prepare("SELECT id FROM cambios_panel WHERE accion = 'borrar-conversacion' ORDER BY id DESC LIMIT 1").get().id;
+  await abrir("/t/invictus/deshacer", { metodo: "POST", form: { id: String(ultimo) } });
+  ok(BASE1.sql.prepare("SELECT COUNT(*) AS n FROM mensajes WHERE igsid = '456'").get().n === antes - 1, "deshacer: la conversación vuelve");
+  ok((await abrir("/t/invictus/borrar-conversacion", { metodo: "POST", form: { id: "456" }, origen: "https://malo.test" })).estado === 403, "desde otra web: no");
+}
+
 titulo("métricas, ganadores, errores y gastos");
 {
   const m = await abrir("/metricas?dias=7");

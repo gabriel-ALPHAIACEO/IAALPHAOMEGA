@@ -155,7 +155,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-05 (25) · arreglado devolver al bot (error 1101) y escribirle al cliente desde el panel";
+const VERSION = "2026-10-05 (26) · borrar mensajes y conversaciones del panel (y deshacer)";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA

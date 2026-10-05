@@ -57,7 +57,7 @@ import {
   vistaEnPausa,
 } from "./vistas.js";
 
-const VERSION = "2026-10-05 (7) · ALPHA IA: escribirle al cliente desde el panel";
+const VERSION = "2026-10-05 (8) · ALPHA IA: borrar mensajes y conversaciones del panel";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");
@@ -335,6 +335,22 @@ async function atenderTienda(request, env, url, t, resto, opciones) {
     const aviso = r.ok ? "ok" : r.datos?.error || r.error;
     if (r.ok) console.log(`PANEL CENTRAL: mensaje a ${id} en ${t.nombre}`);
     return redirigir(`/t/${encodeURIComponent(t.id)}/c/${encodeURIComponent(id)}?aviso=${encodeURIComponent(aviso)}#escribir`);
+  }
+
+  // Borrar del panel (no de Instagram: su API no lo permite). Se puede
+  // deshacer desde el historial de cambios de la tienda.
+  if (resto === "borrar-mensaje" && esPost) {
+    const igsid = String(formulario?.get("igsid") || "");
+    const r = await pedir(env, t, "borrar-mensaje", { metodo: "POST", cuerpo: { igsid, id: Number(formulario?.get("mensaje")) } });
+    if (!r.ok && r.estado !== 404) return p("No se pudo", errorDe(r));
+    return redirigir(`/t/${encodeURIComponent(t.id)}/c/${encodeURIComponent(igsid)}`);
+  }
+  if (resto === "borrar-conversacion" && esPost) {
+    const id = String(formulario?.get("id") || "");
+    const r = await pedir(env, t, "borrar-conversacion", { metodo: "POST", cuerpo: { id, olvidar: formulario?.get("olvidar") === "si" } });
+    if (!r.ok) return p("No se pudo", errorDe(r));
+    console.log(`PANEL CENTRAL: borrada la conversación de ${id} en ${t.nombre}`);
+    return redirigir(`/t/${encodeURIComponent(t.id)}/chats`);
   }
 
   if (resto === "devolver-todos" && esPost) {

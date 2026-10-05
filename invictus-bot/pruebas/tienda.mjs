@@ -172,6 +172,58 @@ titulo("escribirle al cliente desde el panel");
   await E.despausar(DB, "123");
 }
 
+titulo("borrar mensajes y conversaciones del panel (y deshacer)");
+{
+  // Un cliente aparte, para no tocar lo de las otras pruebas.
+  await P.anotarMensaje(DB, "900", "cliente", "hola, tienen crocs?");
+  await P.anotarMensaje(DB, "900", "bot", "¡Sí! Mira 👇");
+  await P.anotarMensaje(DB, "900", "cliente", "un mensaje para borrar");
+  await E.pausar(DB, "900", 1);
+  await DB.prepare("UPDATE contactos SET historial = 'Pidió crocs.' WHERE id = '900'").run();
+  const pag = await pedir("/panel/c/900", { cookie });
+  ok(/action="\/panel\/borrar-mensaje"/.test(pag.texto) && /Borrar esta conversación del panel/.test(pag.texto), "cada mensaje trae su 🗑️ y abajo, borrar la conversación");
+  ok(/En Instagram no se borra/.test(pag.texto), "y dice claro que en Instagram no se borra");
+
+  const fila = await DB.prepare("SELECT id FROM mensajes WHERE igsid = '900' AND texto = 'un mensaje para borrar'").first();
+  const f = new FormData(); f.set("igsid", "900"); f.set("mensaje", String(fila.id));
+  const r1 = await pedir("/panel/borrar-mensaje", { metodo: "POST", cookie, cuerpo: f, origen: "https://bot.test" });
+  const quedan = (await DB.prepare("SELECT texto FROM mensajes WHERE igsid = '900'").all()).results.map((m) => m.texto);
+  ok(r1.estado === 303 && !quedan.includes("un mensaje para borrar") && quedan.length === 2, "borrar UN mensaje: solo ese", quedan.join(" | "));
+  const ajeno = new FormData(); ajeno.set("igsid", "900"); ajeno.set("mensaje", String(fila.id));
+  ok((await pedir("/panel/borrar-mensaje", { metodo: "POST", cookie, cuerpo: ajeno, origen: "https://otra-web.com" })).estado === 403, "desde otra web: no");
+
+  const g = new FormData(); g.set("id", "900"); g.set("olvidar", "si");
+  const r2 = await pedir("/panel/borrar-conversacion", { metodo: "POST", cookie, cuerpo: g, origen: "https://bot.test" });
+  const n = (await DB.prepare("SELECT COUNT(*) AS n FROM mensajes WHERE igsid = '900'").first()).n;
+  const c = await E.cargarContacto(DB, "900");
+  ok(r2.estado === 303 && n === 0, "borrar la conversación entera: sin mensajes");
+  ok(c.historial === "" && (await E.estaPausado(c)), "con 'olvidar', el bot olvida lo hablado (la pausa no se toca)", JSON.stringify({ h: c.historial }));
+
+  const API = "z".repeat(10) + "-clave-larga-del-central";
+  const ENV_API = { ...ENV, PANEL_API_CLAVE: API };
+  const api = async (ruta, cuerpo) => {
+    const r = await callado(() => worker.fetch(new Request(`https://bot.test/api/central/${ruta}`, { method: cuerpo ? "POST" : "GET", headers: { authorization: `Bearer ${API}` }, body: cuerpo ? JSON.stringify(cuerpo) : null }), ENV_API, { waitUntil() {} }));
+    return r.json();
+  };
+  const cambios = await api("cambios");
+  const conv = cambios.find((x) => x.accion === "borrar-conversacion");
+  ok(conv, "queda en el historial de cambios");
+  await api("deshacer", { id: conv.id });
+  const vuelven = (await DB.prepare("SELECT COUNT(*) AS n FROM mensajes WHERE igsid = '900'").first()).n;
+  ok(vuelven === 2 && (await E.cargarContacto(DB, "900")).historial === "Pidió crocs.", "y se deshace: vuelven los mensajes y la memoria del bot");
+  const uno = cambios.find((x) => x.accion === "borrar" && x.tabla === "mensajes");
+  await api("deshacer", { id: uno.id });
+  ok((await DB.prepare("SELECT COUNT(*) AS n FROM mensajes WHERE igsid = '900' AND texto = 'un mensaje para borrar'").first()).n === 1, "el mensaje suelto también se deshace");
+
+  const porApi = await api("borrar-mensaje", { igsid: "900", id: Number(fila.id) });
+  ok(porApi.ok, "también desde el panel central (API)");
+  // Se deja la base como estaba: las pruebas de abajo cuentan clientes.
+  await DB.prepare("DELETE FROM mensajes WHERE igsid = '900'").run();
+  await DB.prepare("DELETE FROM turnos WHERE igsid = '900'").run();
+  await DB.prepare("DELETE FROM contactos WHERE id = '900'").run();
+  await DB.prepare("DELETE FROM cambios_panel").run();
+}
+
 titulo("seguridad y el resto");
 r = await pedir("/panel/c/%3Cscript%3E", { cookie });
 ok(!/<script>/.test(r.texto), "lo que viene en la URL se escapa");

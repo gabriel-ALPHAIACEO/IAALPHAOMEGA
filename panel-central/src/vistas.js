@@ -486,7 +486,10 @@ export function vistaConversacion(t, datos, aviso = "") {
   const burbujas = mensajes
     .map((l) => {
       const quien = l.de === "asesor" ? "Asesor (a mano)" : l.de === "bot" ? "Bot" : "Cliente";
-      let caja = `<div class="burbuja de-${l.de === "asesor" ? "asesor" : l.de === "bot" ? "bot" : "cliente"}"><span class="quien">${quien}${l.cuando ? ` · ${esc(horaExacta(l.cuando))}` : ""}</span>${esc(l.texto)}</div>`;
+      const borrar = l.id
+        ? ` <form method="post" action="/t/${esc(t.id)}/borrar-mensaje" style="display:inline" onsubmit="return confirm('¿Borrar este mensaje del panel? En Instagram no se borra. Se puede deshacer.')"><input type="hidden" name="igsid" value="${esc(contacto.id)}"><input type="hidden" name="mensaje" value="${esc(l.id)}"><button title="Borrar del panel" style="border:0;background:none;padding:0 2px;font-size:12px;cursor:pointer">🗑️</button></form>`
+        : "";
+      let caja = `<div class="burbuja de-${l.de === "asesor" ? "asesor" : l.de === "bot" ? "bot" : "cliente"}"><span class="quien">${quien}${l.cuando ? ` · ${esc(horaExacta(l.cuando))}` : ""}${borrar}</span>${esc(l.texto)}</div>`;
       if (l.de !== "bot") return caja;
       const i = turnos.findIndex((x, n) => !usados.has(n) && normal(x.respuesta) && normal(x.respuesta) === normal(l.texto));
       if (i === -1) return caja;
@@ -510,6 +513,12 @@ ${pausado ? `<span class="etiqueta mal">Bot en pausa hasta ${esc(horaExacta(cont
 <div class="chat">${burbujas || '<p class="suave">Todavía no hay mensajes guardados de esta persona.</p>'}</div>
 ${sueltos.length ? `<h3>Más de lo que pensó la IA</h3><div class="chat">${sueltos.map((x) => `${x.cliente ? `<div class="burbuja de-cliente">${esc(x.cliente)}</div>` : ""}<div class="burbuja de-bot">${esc(x.respuesta)}</div>${cajaDeTurno(x)}`).join("")}</div>` : ""}
 ${formularioDeMensaje(t, contacto.id, horasDePausa, aviso)}
+<details class="tarjeta"><summary>🗑️ Borrar esta conversación del panel</summary>
+<form method="post" action="/t/${esc(t.id)}/borrar-conversacion" onsubmit="return confirm('¿Borrar toda la conversación del panel? En Instagram no se borra. Se puede deshacer desde el historial de cambios.')">
+<input type="hidden" name="id" value="${esc(contacto.id)}">
+<p class="suave">Se borran sus mensajes y lo que pensó la IA, solo del panel: al cliente, en Instagram, le siguen apareciendo. Se puede deshacer en <a href="/t/${esc(t.id)}/cambios">el historial de cambios</a>.</p>
+<label><input type="checkbox" name="olvidar" value="si" style="flex:none"> Y que el bot olvide lo hablado (lo atiende como a alguien nuevo)</label>
+<div class="acciones"><button class="peligro">Borrar conversación</button></div></form></details>
 <p class="suave">Ver también: <a href="/t/${esc(t.id)}/bases/mensajes?q=${id}">sus filas en la base</a></p>`;
 }
 
@@ -628,7 +637,7 @@ ${resultado.filas.map((f) => `<tr>${cols.map((c) => `<td><span class="corto" tit
 
 export function vistaCambios(t, cambios) {
   return `${pestanasDeTienda(t, "bases")}<p><a href="/t/${esc(t.id)}/bases">← Tablas</a></p><h3>🕓 Historial de cambios</h3>
-${cambios.length ? cambios.map((c) => `<div class="tarjeta"><b>${esc(horaExacta(c.cuando))} · ${esc(c.accion)}${c.tabla ? ` en ${esc(c.tabla)}` : ""}${c.fila != null ? ` (fila ${esc(c.fila)})` : ""}</b>${c.deshecho ? ' <span class="etiqueta">deshecho</span>' : ""}
+${cambios.length ? cambios.map((c) => `<div class="tarjeta"><b>${esc(horaExacta(c.cuando))} · ${esc(c.accion === "borrar-conversacion" ? "borrar conversación" : c.accion)}${c.tabla ? ` en ${esc(c.tabla)}` : ""}${c.fila != null ? ` (fila ${esc(c.fila)})` : ""}</b>${c.deshecho ? ' <span class="etiqueta">deshecho</span>' : ""}
 ${c.antes ? `<details><summary>Cómo estaba</summary><pre>${esc(c.antes)}</pre></details>` : ""}${c.despues ? `<details><summary>Cómo quedó</summary><pre>${esc(c.despues)}</pre></details>` : ""}
 ${!c.deshecho && c.accion !== "sql" ? `<form method="post" action="/t/${esc(t.id)}/deshacer" onsubmit="return confirm('¿Deshacer este cambio?')"><input type="hidden" name="id" value="${esc(c.id)}"><button>↩️ Deshacer</button></form>` : ""}</div>`).join("") : '<div class="tarjeta suave">Todavía no se ha cambiado nada desde el panel.</div>'}`;
 }

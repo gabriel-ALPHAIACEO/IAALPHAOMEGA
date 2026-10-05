@@ -145,10 +145,10 @@ async function mensajesDe(db, igsid) {
   try {
     await asegurarMensajes(db);
     const r = await db
-      .prepare("SELECT de, texto, cuando FROM mensajes WHERE igsid = ? ORDER BY cuando DESC, id DESC LIMIT 200")
+      .prepare("SELECT id, de, texto, cuando FROM mensajes WHERE igsid = ? ORDER BY cuando DESC, id DESC LIMIT 200")
       .bind(String(igsid))
       .all();
-    return (r?.results || []).reverse().map((m) => ({ de: m.de, texto: m.texto, cuando: Number(m.cuando) || 0 }));
+    return (r?.results || []).reverse().map((m) => ({ id: Number(m.id), de: m.de, texto: m.texto, cuando: Number(m.cuando) || 0 }));
   } catch {
     return [];
   }
@@ -361,6 +361,79 @@ export async function mandarDesdeElPanel(env, igsid, texto, horasDePausa = 1) {
   return { ok: true, mid: datos.message_id };
 }
 
+/* ── Borrar mensajes del panel (5-oct-2026) ─────────────────────────
+   El dueño: "necesito poder eliminar mensajes en el panel". Se borran del
+   REGISTRO de la conversación, no de Instagram: la API de Instagram no deja
+   borrar un mensaje que ya le llegó al cliente. Todo queda en el historial
+   de cambios (cambios_panel) y se puede deshacer. */
+
+async function borrarMensaje(db, igsid, id) {
+  await asegurarMensajes(db);
+  const fila = await db
+    .prepare("SELECT rowid AS _rowid, * FROM mensajes WHERE id = ? AND igsid = ?")
+    .bind(Number(id), String(igsid))
+    .first();
+  if (!fila) return { ok: false, error: "Ese mensaje ya no está." };
+  await db.prepare("DELETE FROM mensajes WHERE id = ?").bind(Number(id)).run();
+  await anotarCambio(db, { tabla: "mensajes", accion: "borrar", fila: Number(id), antes: fila });
+  console.log(`PANEL: borrado del panel el mensaje ${id} de ${igsid}`);
+  return { ok: true };
+}
+
+// Toda la conversación: sus mensajes y lo que pensó la IA. Con "olvidar",
+// además el bot olvida lo hablado (su resumen y lo que ya le enseñó): la
+// próxima vez lo atiende como a alguien nuevo.
+async function borrarConversacion(db, igsid, { olvidar = false } = {}) {
+  await asegurarMensajes(db);
+  try {
+    await asegurarTurnos(db);
+  } catch {}
+  const id = String(igsid);
+  const mensajes = (await db.prepare("SELECT rowid AS _rowid, * FROM mensajes WHERE igsid = ?").bind(id).all())?.results || [];
+  const turnos = (await db.prepare("SELECT rowid AS _rowid, * FROM turnos WHERE igsid = ?").bind(id).all().catch(() => null))?.results || [];
+  let memoria = null;
+  if (olvidar) {
+    const { results: columnas } = await db.prepare("PRAGMA table_info(contactos)").all();
+    const hay = new Set((columnas || []).map((c) => String(c.name)));
+    const campos = { historial: "''", mostrados: "'[]'", conversacion: "'[]'" };
+    const aBorrar = Object.keys(campos).filter((c) => hay.has(c));
+    if (aBorrar.length) {
+      memoria = await db.prepare(`SELECT ${aBorrar.join(", ")} FROM contactos WHERE id = ?`).bind(id).first();
+      if (memoria) {
+        await db.prepare(`UPDATE contactos SET ${aBorrar.map((c) => `${c} = ${campos[c]}`).join(", ")} WHERE id = ?`).bind(id).run();
+      }
+    }
+  }
+  await db.prepare("DELETE FROM mensajes WHERE igsid = ?").bind(id).run();
+  if (turnos.length) await db.prepare("DELETE FROM turnos WHERE igsid = ?").bind(id).run();
+  await anotarCambio(db, { tabla: "mensajes", accion: "borrar-conversacion", antes: { igsid: id, mensajes, turnos, memoria } });
+  console.log(`PANEL: borrada del panel la conversación de ${id} (${mensajes.length} mensajes${memoria ? ", y el bot la olvidó" : ""})`);
+  return { ok: true, mensajes: mensajes.length };
+}
+
+// Deshacer "borrar-conversacion": vuelve todo a su sitio.
+async function deshacerConversacion(db, antes) {
+  const volver = async (tabla, filas) => {
+    for (const fila of filas || []) {
+      const { _rowid, ...valores } = fila;
+      const columnas = Object.keys(valores);
+      await db
+        .prepare(`INSERT OR IGNORE INTO "${tabla}" (rowid, ${columnas.map((k) => `"${k}"`).join(", ")}) VALUES (?, ${columnas.map(() => "?").join(", ")})`)
+        .bind(Number(_rowid), ...columnas.map((k) => valores[k]))
+        .run();
+    }
+  };
+  await volver("mensajes", antes.mensajes);
+  await volver("turnos", antes.turnos);
+  if (antes.memoria && antes.igsid) {
+    const columnas = Object.keys(antes.memoria);
+    await db
+      .prepare(`UPDATE contactos SET ${columnas.map((c) => `"${c}" = ?`).join(", ")} WHERE id = ?`)
+      .bind(...columnas.map((c) => antes.memoria[c]), String(antes.igsid))
+      .run();
+  }
+}
+
 /* ── Las páginas ─────────────────────────────────────────────────── */
 
 async function contactosParaLista(db, { q = "", filtro = "" } = {}) {
@@ -507,7 +580,7 @@ async function paginaDeConversacion(env, id, tienda, { horasDePausa = 1, conAnun
       const quien = linea.de === "asesor" ? "Asesor (a mano)" : linea.de === "bot" ? "Bot" : "Cliente";
       const caja =
         `<div class="burbuja de-${linea.de === "asesor" ? "asesor" : linea.de === "bot" ? "bot" : "cliente"}">` +
-        `<span class="quien">${quien}${linea.cuando ? ` · ${esc(horaExacta(linea.cuando))}` : ""}</span>${esc(linea.texto)}</div>`;
+        `<span class="quien">${quien}${linea.cuando ? ` · ${esc(horaExacta(linea.cuando))}` : ""}${botonBorrar(id, linea.id)}</span>${esc(linea.texto)}</div>`;
       if (linea.de !== "bot") return caja;
       const i = turnos.findIndex((t, n) => !usados.has(n) && normal(t.respuesta) && normal(t.respuesta) === normal(linea.texto));
       if (i === -1) return caja;
@@ -542,9 +615,25 @@ ${contacto.historial ? `<div class="suave">Resumen: ${esc(contacto.historial)}</
     }</div></div>
 <div class="chat">${burbujas || '<p class="suave">Todavía no hay mensajes guardados de esta persona.</p>'}</div>
 ${sueltos.length ? `<h3>Más de lo que pensó la IA</h3><div class="chat">${sueltos.map((t) => `${t.cliente ? `<div class="burbuja de-cliente">${esc(t.cliente)}</div>` : ""}<div class="burbuja de-bot">${esc(t.respuesta)}</div>${cajaDePienso(t)}`).join("")}</div>` : ""}
-${formularioDeMensaje("/panel/enviar", id, horasDePausa, aviso)}`,
+${formularioDeMensaje("/panel/enviar", id, horasDePausa, aviso)}
+${formularioBorrarConversacion("/panel/borrar-conversacion", id)}`,
     { tienda, conAnuncios }
   );
+}
+
+// 🗑️ en cada mensaje (solo los que están en la tabla de mensajes).
+function botonBorrar(igsid, id, accion = "/panel/borrar-mensaje") {
+  if (!id) return "";
+  return ` <form method="post" action="${accion}" style="display:inline" onsubmit="return confirm('¿Borrar este mensaje del panel? En Instagram no se borra. Se puede deshacer.')"><input type="hidden" name="igsid" value="${esc(igsid)}"><input type="hidden" name="mensaje" value="${esc(id)}"><button title="Borrar del panel" style="border:0;background:none;cursor:pointer;padding:0 2px;font-size:12px">🗑️</button></form>`;
+}
+
+function formularioBorrarConversacion(accion, id) {
+  return `<details class="tarjeta"><summary>🗑️ Borrar esta conversación del panel</summary>
+<form method="post" action="${accion}" onsubmit="return confirm('¿Borrar toda la conversación del panel? En Instagram no se borra. Se puede deshacer desde el historial de cambios.')">
+<input type="hidden" name="id" value="${esc(id)}">
+<p class="suave">Se borran sus mensajes y lo que pensó la IA, solo del panel: al cliente, en Instagram, le siguen apareciendo.</p>
+<label><input type="checkbox" name="olvidar" value="si"> Y que el bot olvide lo hablado (lo atiende como a alguien nuevo)</label>
+<div class="acciones"><button style="color:#b42318;border-color:#b42318">Borrar conversación</button></div></form></details>`;
 }
 
 // El cuadro para escribirle al cliente. "aviso": lo que pasó con el último
@@ -642,6 +731,19 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
     return redirigir(`/panel/c/${encodeURIComponent(id)}?aviso=${encodeURIComponent(aviso)}#escribir`);
   }
 
+  if ((url.pathname === "/panel/borrar-mensaje" || url.pathname === "/panel/borrar-conversacion") && request.method === "POST") {
+    if (!vieneDelPanel(request, url)) return new Response("No", { status: 403 });
+    const datos = await request.formData().catch(() => null);
+    if (url.pathname === "/panel/borrar-mensaje") {
+      const igsid = String(datos?.get("igsid") || "");
+      await borrarMensaje(env.DB, igsid, datos?.get("mensaje"));
+      return redirigir(`/panel/c/${encodeURIComponent(igsid)}`);
+    }
+    const id = String(datos?.get("id") || "");
+    await borrarConversacion(env.DB, id, { olvidar: datos?.get("olvidar") === "si" });
+    return redirigir("/panel");
+  }
+
   if (url.pathname === "/panel/devolver-todos" && request.method === "POST") {
     if (!vieneDelPanel(request, url)) return new Response("No", { status: 403 });
     const cuantos = await despausarTodos(env.DB);
@@ -688,6 +790,8 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
      POST /api/central/pausar|devolver   {"id": "..."}
      POST /api/central/devolver-todos    todas las conversaciones en pausa, al bot
      POST /api/central/enviar  {id, texto}  el dueño le escribe al cliente (pausa el bot)
+     POST /api/central/borrar-mensaje {igsid, id}           borra un mensaje del panel
+     POST /api/central/borrar-conversacion {id, olvidar}    borra la conversación del panel
 
    LAS BASES DE DATOS (el dueño: "quiero ver y editar todas las bases de
    la IA, yo soy el experto"):
@@ -1074,6 +1178,12 @@ async function apiBases(ruta, request, env, url) {
     const c = await db.prepare("SELECT * FROM cambios_panel WHERE id = ?").bind(Number(cuerpo.id)).first();
     if (!c || c.deshecho) return json({ error: "Ese cambio no existe o ya se deshizo" }, 404);
     if (c.accion === "sql") return json({ error: "Un SQL no se puede deshacer solo: mira el historial y escribe el contrario" }, 400);
+    if (c.accion === "borrar-conversacion") {
+      await deshacerConversacion(db, JSON.parse(c.antes || "{}"));
+      await db.prepare("UPDATE cambios_panel SET deshecho = 1 WHERE id = ?").bind(Number(c.id)).run();
+      console.log(`BASE: deshecho el cambio ${c.id} (la conversación vuelve)`);
+      return json({ ok: true });
+    }
     const tabla = await tablaValida(db, c.tabla);
     if (!tabla) return json({ error: "Esa tabla ya no existe" }, 404);
     const antes = JSON.parse(c.antes || "{}");
@@ -1160,6 +1270,18 @@ export async function atenderApiCentral(request, env, opciones = {}) {
     if (["tablas", "tabla", "fila", "borrar", "sql", "deshacer"].includes(ruta)) {
       const respuesta = await apiBases(ruta, request, env, url);
       if (respuesta) return respuesta;
+    }
+
+    if (ruta === "borrar-mensaje" && request.method === "POST") {
+      const { igsid, id } = await request.json().catch(() => ({}));
+      const r = await borrarMensaje(env.DB, String(igsid || ""), id);
+      return r.ok ? json({ ok: true }) : json({ error: r.error }, 404);
+    }
+
+    if (ruta === "borrar-conversacion" && request.method === "POST") {
+      const { id, olvidar } = await request.json().catch(() => ({}));
+      if (!id) return json({ error: "Falta el id" }, 400);
+      return json(await borrarConversacion(env.DB, String(id), { olvidar: Boolean(olvidar) }));
     }
 
     if (ruta === "enviar" && request.method === "POST") {
