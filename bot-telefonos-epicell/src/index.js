@@ -32,6 +32,7 @@ import { responderTexto, identificarEnImagen, redactarConResultados } from "./ia
 import { transcribirAudio, notaDeVoz, PEDIR_QUE_ESCRIBA } from "./voz.js";
 import { estadoDeLaClaveApi, esTextoDelBot, pausadoAhora, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
+import { elLocal, hayLocal, preguntaPorElLocal, soloPreguntaPorElLocal, NOTA_LOCAL_ENVIADA, BOTON_MAPA } from "./local.js";
 import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDelRevisor } from "./revisor.js";
 import { anotarGasto } from "./gasto.js";
 
@@ -142,6 +143,7 @@ import {
   firmaValida,
   leerMensaje,
   enviarTexto,
+  enviarLocal,
   enviarFichas,
   enviarBotonCatalogo,
   enviarConBoton,
@@ -155,7 +157,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-05 (33) · un solo precio (Cashea; divisas solo si lo piden) y callada con el asesor";
+const VERSION = "2026-10-05 (34) · la ubicación del local: foto, texto y botón de Maps";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -2480,7 +2482,10 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // Solo cuando el mensaje es SOBRE ESO. Si además nombra un equipo —"¿tienen
   // el A57 y hacen envíos?"— sigue el camino normal: ahí hay producto que
   // enseñar, y el prompt ya manda los envíos al asesor.
-  const datoQuePide = !imagenCruda && !publicacion ? queDatoPide(mensaje.texto) : "";
+  // La ubicación, si está cargada (LOCAL_TEXTO), la manda su propio atajo
+  // con la foto y el botón de Maps (ver local.js), más abajo.
+  const datoPedido = !imagenCruda && !publicacion ? queDatoPide(mensaje.texto) : "";
+  const datoQuePide = datoPedido === "ubicacion" && hayLocal(env) ? "" : datoPedido;
   const nombraEquipo = datoQuePide
     ? Boolean(equipoQueNombra(mensaje.texto, await catalogoCompleto(env)))
     : false;
@@ -2751,6 +2756,32 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   //
   // Va antes del modelo, como "muéstrame esos", por la misma razón: no hay
   // nada que redactar ni que buscar, hay que volver a enseñar lo mismo.
+  // "¿DÓNDE ESTÁN?": LA UBICACIÓN DE EPICCELL, CON SU BOTÓN DE MAPS (5-oct-2026).
+  //
+  // Sale del código, no de la IA: como en ManyChat, la foto del local, el
+  // texto y el botón de Maps (sin foto, el texto con el botón). Si es SOLO eso, aquí
+  // termina (cero llamadas a la IA). Si además pide otra cosa, la ubicación
+  // sale primero y el resto sigue, con la IA avisada de que ya se mandó.
+  // Ver local.js.
+  let notaDelLocal = "";
+  if (!imagenCruda && hayLocal(env) && preguntaPorElLocal(mensaje.texto)) {
+    const local = elLocal(env);
+    console.log(`Preguntó dónde estamos → le mando la ubicación${local.foto ? " con la foto" : ""}${local.mapa ? " y el botón de Maps" : " (sin botón: falta LOCAL_MAPA)"}`);
+    await mandar(() => enviarLocal(env, mensaje.igsid, { ...local, boton: BOTON_MAPA }), local.texto, local.foto ? { fotos: [local.foto] } : null);
+    if (soloPreguntaPorElLocal(mensaje.texto)) {
+      await guardarContacto(env.DB, {
+        ...contacto,
+        nombre,
+        historial: conNota(historialPrevio, "Preguntó la ubicación y se la pasé."),
+        mids_enviados: mids,
+        ultimo_envio: enviadoEn || Date.now(),
+        ultima_respuesta: local.texto,
+      });
+      return;
+    }
+    notaDelLocal = NOTA_LOCAL_ENVIADA;
+  }
+
   if (!imagenCruda && !publicacion && PREGUNTA_DIVISAS.test(mensaje.texto)) {
     const enElCatalogo = await catalogoCompleto(env);
 
@@ -3014,7 +3045,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     nombre,
     historialPrevio,
     textoCliente,
-    [notaVoz, marca, notaDelAnuncio].filter(Boolean).join("\n"),
+    [notaVoz, marca, notaDelAnuncio, notaDelLocal].filter(Boolean).join("\n"),
     esHistoria,
     minutosCallado,
     catalogo,

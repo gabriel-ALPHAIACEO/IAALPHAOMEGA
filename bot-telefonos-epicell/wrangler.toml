@@ -130,6 +130,20 @@ TRABAJO = ""
 # El nombre que sale arriba del panel.
 TIENDA_NOMBRE = "EPICCELL"
 
+# LA UBICACIÓN DEL LOCAL (ver src/local.js). Cuando preguntan "¿dónde
+# están?", el bot manda, como en ManyChat, una tarjeta con LA FOTO del
+# local, el texto y el botón "Cómo llegar" (LOCAL_MAPA). Sin pasar por la IA.
+# Sin foto, sale LOCAL_TEXTO completo con el mismo botón.
+#   LOCAL_FOTO tiene que ser LA IMAGEN: un enlace de Google Drive del archivo
+#   (compartido con "Cualquier persona con el enlace") o uno que termine en
+#   .jpg/.png. Un enlace de Google Maps NO sirve (abre una página).
+#   \n = salto de línea dentro del texto.
+LOCAL_TEXTO = "📍 ¡Te esperamos en EPICCELL!\n\n🏝️ Isla de Margarita, entre Circunvalación y Terranova\n🏬 Centro Comercial Mercado La Isla · Local L-04"
+LOCAL_TITULO = "📍 Centro Comercial Mercado La Isla · Local L-04"
+LOCAL_SUBTITULO = "Isla de Margarita, entre Circunvalación y Terranova"
+LOCAL_FOTO = "PENDIENTE: el enlace de Drive de la foto del local"
+LOCAL_MAPA = "https://maps.app.goo.gl/fUxvG6M97TDQy7R66"
+
 # --- EL PANEL CENTRAL (2-oct-2026) --------------------------------------
 # Tu Worker "panel-central" junta todas las tiendas en un solo sitio. Esta
 # tienda le da sus datos por /api/central (con la clave PANEL_API_CLAVE,

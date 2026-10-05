@@ -299,8 +299,9 @@ Si preguntan por una que no está en esa lista, no digas que sí: la confirma
 un asesor.
 
 {{OTROS DATOS}}
-Lo que no esté aquí (dirección, envíos, delivery, tasa), lo confirma un
-asesor. Quien busca trabajo: gracias, hoy el personal está completo y las
+La UBICACIÓN de la tienda la manda el sistema solo, con su botón de Maps
+(nunca la escribas tú ni digas que la confirma un asesor). Lo que no esté
+aquí (envíos, delivery, tasa), lo confirma un asesor. Quien busca trabajo: gracias, hoy el personal está completo y las
 vacantes se publican en las historias.
 
 

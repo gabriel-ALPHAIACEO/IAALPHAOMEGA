@@ -161,6 +161,29 @@ export function enviarTexto(env, igsid, texto) {
   return enviar(env, igsid, { text: recortar(texto, 1000) });
 }
 
+// LA UBICACIÓN DEL LOCAL (ver local.js), como la mandaba ManyChat: una
+// tarjeta con la foto, el texto y el botón de Maps. Sin foto: el texto con
+// el botón. Sin botón: el texto solo.
+export function enviarLocal(env, igsid, { texto, titulo, subtitulo, foto, mapa, boton }) {
+  const hayMapa = /^https:\/\//i.test(String(mapa || ""));
+  if (!hayMapa) return enviarTexto(env, igsid, texto);
+  const botones = [{ type: "web_url", url: mapa, title: recortar(boton, 20) }];
+  if (/^https:\/\//i.test(String(foto || "")) && titulo) {
+    return enviar(env, igsid, {
+      attachment: {
+        type: "template",
+        payload: {
+          template_type: "generic",
+          elements: [{ title: recortar(titulo, 80), ...(subtitulo ? { subtitle: recortar(subtitulo, 80) } : {}), image_url: foto, buttons: botones }],
+        },
+      },
+    });
+  }
+  return enviar(env, igsid, {
+    attachment: { type: "template", payload: { template_type: "button", text: recortar(texto, 640), buttons: botones } },
+  });
+}
+
 // Las fichas con foto son lo que en Make mandaba el módulo de plantilla
 // genérica. Instagram admite 10 como máximo.
 //
