@@ -73,7 +73,7 @@ import {
 import { gastoDelMes } from "./gasto.js";
 import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
 import { tallaPedida, revisarTalla, traeLaTalla, fraseHayTalla, fraseNoHayTalla } from "./tallas.js";
-import { categoriaDeLaBusqueda, CATEGORIAS, emojiDe, categoriasParaElPrompt, filtrarPorCategoria } from "./categorias.js";
+import { categoriaDeLaBusqueda, CATEGORIAS, emojiDe, categoriasParaElPrompt, filtrarPorCategoria, quitarPalabrasDeCategoria } from "./categorias.js";
 import { estadoDeLaClaveApi, esTextoDelBot, pausadoAhora, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral, estadoCompletoPermitido, estadoPublico, pedidoInterno } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
 import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDelRevisor } from "./revisor.js";
@@ -132,7 +132,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-06 (50) · \"Ref.60\" en el nombre es el precio ($60), ya no un código";
+const VERSION = "2026-10-06 (51) · lo más cercano en vez de diez cualquiera; el precio que la ficha no trae lo confirma un asesor";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -148,6 +148,14 @@ const OTROS_DE_LA_CATEGORIA = [
   "Ese justo no me queda, pero te muestro los {cosa} que hay {emoji}👇",
   "De ese no hay por ahora 😅 Échale un ojo a estos {cosa} {emoji}👇",
 ];
+
+// EL PRECIO QUE LA FICHA NO TRAE (6-oct-2026, informe de errores): el bot
+// decía "aquí tienes los precios" y las fichas salían sin precio. Si
+// pregunta el precio —o la IA lo promete— y alguna ficha no lo trae, el
+// precio lo confirma un asesor (y se le avisa).
+const PIDE_PRECIO = /\b(?:precios?|cu[aá]nto|cuesta[ns]?|vale[ns]?|valor|costo|cobran|sale[ns]? en)\b/i;
+const PRECIO_AL_ASESOR_TODOS = "Aquí los tienes 👇 El precio te lo confirma un asesor en un momento 😊";
+const PRECIO_AL_ASESOR_ALGUNOS = "Aquí los tienes 👇 Los que no traen el precio debajo te los confirma un asesor en un momento 😊";
 
 // La talla la confirma una persona: el catálogo no guarda qué tallas quedan.
 const SOLO_TALLA = "Eso te lo confirma un asesor en un momento 😊";
@@ -1985,6 +1993,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     sinCupo,
     alternativa,
     categoria,
+    precioAlAsesor,
   } = await decidir({
     env,
     salida,
@@ -2197,6 +2206,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const porCashea = casheaFueraDeFecha || casheaMontosAlAsesor || casheaSinTabla;
   const otraRazon =
     pidioDatos ||
+    precioAlAsesor ||
     hayEscalada({
       respuesta: respuestaCliente === CASHEA_FUERA_DE_FECHA ? "" : respuestaCliente,
       productos,
@@ -2224,7 +2234,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       respuesta: respuestaCliente,
       slack: Boolean(otraRazon),
       motivo: otraRazon
-        ? pidioDatos && !preguntoTalla
+        ? precioAlAsesor && !preguntoTalla && !pidioDatos
+          ? "PIDIO EL PRECIO Y LA FICHA NO LO TRAE: CONFIRMARLE EL PRECIO"
+          : pidioDatos && !preguntoTalla
           ? "PIDE LOS DATOS PARA PAGAR"
           : motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo, categoria })
         : motivoDeCashea,
@@ -2616,6 +2628,12 @@ async function decidir({
 
   let productos = [];
   let habiaDelModelo = 0;
+  // Los del modelo ANTES de filtrar por color: si en ese color no hay, se
+  // le enseñan los colores que sí (ver buscarLoMasCercano).
+  let delModelo = [];
+  // El término que se le enseñó EN LUGAR del que pidió (lo más cercano o un
+  // parecido): va al historial como "Ya busqué".
+  let alternativa = "";
   // "hayMasEnCatalogo": Shopify tenía más de los 10 que caben en un
   // carrusel de Instagram. Solo es de fiar cuando NO se filtra por color
   // después: filtrar por color puede bajar el conteo por debajo de 10 sin
@@ -2644,6 +2662,7 @@ async function decidir({
     const resultado = await buscarProductos(env, aBuscar, cuantosPedir, { categoria });
     productos = resultado.productos;
     habiaDelModelo = productos.length;
+    delModelo = resultado.productos;
 
     // Solo se filtra cuando el color no ES la búsqueda: si ya buscamos
     // "negr" en Shopify, volver a filtrar por negro no aporta nada.
@@ -2673,7 +2692,26 @@ async function decidir({
   // saca los bolsos que sí tiene. Solo por texto (con una foto manda el
   // cotejo) y solo si lo pedido era más que la categoría.
   let otrosDeLaCategoria = false;
-  if (!foto && categoria && aBuscar && !productos.length) {
+  // LO MÁS CERCANO, NO DIEZ CUALQUIERA (6-oct-2026, dueño). Antes, si la
+  // búsqueda no daba nada, salían los diez primeros de TODA la categoría
+  // ("Ese justo no me queda, pero te muestro los calzados que hay"): con
+  // cientos de zapatos, diez cualquiera. Ahora se busca lo más cercano a lo
+  // que pidió (ver buscarLoMasCercano): el mismo modelo en otro color, el
+  // modelo sin la palabra que sobraba, o uno parecido. Si nada de eso hay,
+  // en calzado va el catálogo y el asesor; los diez de la categoría quedan
+  // solo para lo que tiene pocos (bolsos, gorras…).
+  if (!foto && aBuscar && !productos.length) {
+    const cercano = await buscarLoMasCercano(env, { aBuscar, sinColor, colores, categoria, delModelo });
+    if (cercano) {
+      productos = cercano.productos.slice(0, MAXIMO_EN_CARRUSEL);
+      hayMasEnCatalogo = cercano.productos.length > MAXIMO_EN_CARRUSEL;
+      alternativa = cercano.termino;
+      salida.respuesta = cercano.frase;
+      salida.historial = conNota(salida.historial || historialPrevio, cercano.nota);
+      console.log(`No había "${aBuscar}": le enseño lo más cercano, "${cercano.termino}" (${productos.length})`);
+    }
+  }
+  if (!foto && categoria && categoria !== "calzado" && aBuscar && !productos.length) {
     const deLaCategoria = await buscarProductos(env, "", MAXIMO_EN_CARRUSEL, { categoria });
     if (deLaCategoria.productos.length) {
       productos = deLaCategoria.productos;
@@ -2841,7 +2879,6 @@ async function decidir({
   // distinto. Si pregunta "¿cuánto cuestan?" sobre lo mismo, hay que
   // volver a mostrárselo: ahí repetir es la respuesta correcta.
   let repetidos = false;
-  let alternativa = "";
   // 22-sep-2026: caso real — pidió "On Cloud", vio los 10 que caben en el
   // carrusel, preguntó "¿solo tienes esos?" y el bot le ofreció Salomon.
   // El problema no era "ya vio todo": Shopify SÍ tenía más de 10, solo que
@@ -2944,6 +2981,15 @@ async function decidir({
     respuestaCliente = SIN_RESULTADOS;
   }
 
+  // Preguntó el precio (o la IA lo prometió) y alguna ficha no lo trae.
+  let precioAlAsesor = false;
+  const sinPrecio = productos.filter((p) => !p.precio);
+  if (sinPrecio.length && !fraseDeTalla && (PIDE_PRECIO.test(texto) || /\bprecio/i.test(respuestaCliente))) {
+    precioAlAsesor = true;
+    respuestaCliente = sinPrecio.length === productos.length ? PRECIO_AL_ASESOR_TODOS : PRECIO_AL_ASESOR_ALGUNOS;
+    console.log(`Pidió precio y ${sinPrecio.length} de ${productos.length} ficha(s) no lo traen: al asesor`);
+  }
+
   return {
     preguntoTalla,
     termino,
@@ -2954,10 +3000,87 @@ async function decidir({
     seAcabaron,
     hayMasDelCatalogo,
     noReconociLaFoto: false,
+    precioAlAsesor,
     alternativa: alternativa || (otrosDeLaCategoria ? categoria : ""),
     categoria,
     respuestaCliente: conEmojiDe(respuestaCliente, categoria),
   };
+}
+
+// LO MÁS CERCANO A LO QUE PIDIÓ (ver decidir). En este orden:
+//   1. El mismo modelo en OTRO color: "las negras" no hay, pero ese modelo sí.
+//   2. El modelo sin una palabra: "Nike Nocta Glide" → "Nike Nocta" →
+//      "Nocta"… (la que sobraba era la que no está en ninguna carpeta).
+//   3. Un parecido de la tabla de parecidos.js (Vapormax → TN, Air Max…).
+// null si nada de eso existe: entonces no se inventa nada.
+const PALABRAS_QUE_NO_SON_MODELO = new Set([
+  "de", "del", "la", "las", "el", "los", "un", "una", "unos", "unas", "para", "con", "en", "y", "o",
+  "dama", "damas", "caballero", "caballeros", "nino", "nina", "ninos", "ninas", "unisex", "mujer", "hombre",
+  "zapato", "zapatos", "zapatilla", "zapatillas", "tenis", "calzado", "calzados", "deportivo", "deportivos",
+  "original", "originales", "low", "high", "mid", "nuevo", "nuevos", "modelo",
+]);
+const INTENTOS_DE_CERCANO = 6;
+
+async function buscarLoMasCercano(env, { aBuscar, sinColor, colores, categoria, delModelo }) {
+  const k = CATEGORIAS[categoria] || CATEGORIAS.calzado || { emoji: "👟" };
+  const emoji = k.emoji || "👟";
+
+  if (colores.length && delModelo.length) {
+    return {
+      productos: delModelo,
+      termino: sinColor,
+      frase: `De ese en ${colores.join(" y ")} no tengo ahora 😕 Pero mira los colores que sí hay ${emoji}👇`,
+      nota: `No había "${aBuscar}" en ${colores.join(" y ")}; le enseñé los otros colores. Ya busqué: ${sinColor}.`,
+    };
+  }
+
+  const base = sinColor || aBuscar;
+  const palabras = base
+    .split(/\s+/)
+    .filter((p) => p && !PALABRAS_QUE_NO_SON_MODELO.has(p.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()));
+  const intentos = [];
+  if (palabras.length > 1) {
+    for (let i = palabras.length - 1; i >= 0; i--) intentos.push(palabras.filter((_, j) => j !== i).join(" "));
+    for (const p of [...palabras].sort((a, b) => b.length - a.length)) if (!/^\d+$/.test(p)) intentos.push(p);
+  }
+  const vistos = new Set([base.toLowerCase()]);
+  for (const termino of intentos) {
+    if (vistos.has(termino.toLowerCase()) || vistos.size > INTENTOS_DE_CERCANO) continue;
+    // Solo la categoría ("bolso"): eso no es "lo más cercano", son todos los
+    // de la categoría. Lo hace el paso de después, con su frase.
+    if (!quitarPalabrasDeCategoria(termino).trim()) continue;
+    vistos.add(termino.toLowerCase());
+    const { productos } = await buscarProductos(env, termino, MAXIMO_EN_CARRUSEL + 1, { categoria });
+    if (productos.length) {
+      return {
+        productos,
+        termino,
+        frase: `De ese exacto no tengo ahora 😕 Pero mira estos ${bonito(termino)} que sí tenemos ${emoji}👇`,
+        nota: `No había "${aBuscar}"; le enseñé lo más cercano: ${termino}. Ya busqué: ${termino}.`,
+      };
+    }
+  }
+
+  for (const otro of alternativasPara(base).slice(0, MAXIMO_ALTERNATIVAS)) {
+    const { productos } = await buscarProductos(env, otro, MAXIMO_EN_CARRUSEL + 1, { categoria });
+    if (productos.length) {
+      return {
+        productos,
+        termino: otro,
+        frase: `De ese no tengo ahora mismo 😕 Pero mira estos parecidos que sí tenemos ${emoji}👇`,
+        nota: `No había "${aBuscar}"; le ofrecí parecidos: ${otro}. Ya busqué: ${otro}.`,
+      };
+    }
+  }
+  return null;
+}
+
+// "nocta" → "Nocta", "AIR FORCE ONE" → "Air Force One", "TN" → "TN".
+function bonito(termino) {
+  return String(termino)
+    .split(/\s+/)
+    .map((p) => (p.length <= 3 && p === p.toUpperCase() ? p : p[0].toUpperCase() + p.slice(1).toLowerCase()))
+    .join(" ");
 }
 
 // ¿TRAE ESA TALLA? (ver tallas.js). Devuelve null si el nombre no dice
