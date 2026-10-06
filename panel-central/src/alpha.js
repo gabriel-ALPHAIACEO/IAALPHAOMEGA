@@ -14,8 +14,11 @@
 // panel lo sirve él mismo (/panel/logo.png en las tiendas, /logo.png en el
 // central). Carga rápido en el teléfono y no depende de otro servidor.
 //
-// OSCURO A PROPÓSITO. El logo tiene "ALPHA" en blanco plateado: sobre fondo
-// claro desaparece. El panel es oscuro siempre, como el logo.
+// OSCURO POR DEFECTO, CLARO SI SE PIDE (6-oct-2026, dueño: "poder cambiarle
+// el color de blanco o negro"). El botón ☀️/🌙 de la barra de arriba (y de
+// la pantalla de entrada) cambia de tema y cada navegador lo recuerda. El
+// logo tiene "ALPHA" en blanco plateado y sobre blanco desaparecería: en el
+// tema claro va sobre su placa oscura.
 
 /* ── El logo ─────────────────────────────────────────────────────────
    LOGO: el completo (la A, "ALPHA IA" y "Soluciones que impulsan"), para la
@@ -54,12 +57,30 @@ function esc(texto) {
 // La marca de la barra de arriba: la A, "ALPHA IA" y, al lado, de quién es
 // el panel (la tienda, o "Panel central").
 export function marcaAlpha(prefijo, detalle = "") {
-  return `<a class="alpha" href="${esc(prefijo || "/")}" aria-label="ALPHA IA"><img src="${esc(prefijo)}/isotipo.png?v=1" alt="" width="40" height="28"><span class="alpha-nombre">ALPHA <span class="ia">IA</span></span>${detalle ? `<span class="alpha-de">${esc(detalle)}</span>` : ""}</a>`;
+  return `<a class="alpha" href="${esc(prefijo || "/")}" aria-label="ALPHA IA"><img src="${esc(prefijo)}/isotipo.png?v=1" alt="" width="40" height="28"><span class="alpha-nombre">ALPHA <span class="ia">IA</span></span>${detalle ? `<span class="alpha-de">${esc(detalle)}</span>` : ""}</a>${BOTON_TEMA}${SCRIPT_TEMA}`;
 }
+
+// EL TEMA CLARO / OSCURO (6-oct-2026). El botón y el script van junto a la
+// marca (barra de arriba) y en la pantalla de entrada: así ningún panel
+// tiene que tocarse para tenerlo. El script corre ahí mismo, antes de que
+// se pinte el resto de la página, para que no parpadee de oscuro a claro.
+// Lo elegido se guarda en ESTE navegador (cada persona elige el suyo); si
+// el navegador no deja guardar, se queda en oscuro y el botón sigue
+// funcionando mientras la página está abierta.
+const BOTON_TEMA = `<button type="button" class="tema" data-tema-boton title="Cambiar entre claro y oscuro"><span class="a-claro">☀️ Claro</span><span class="a-oscuro">🌙 Oscuro</span></button>`;
+const SCRIPT_TEMA = `<script>(function(){var d=document.documentElement;
+if(!window.__alphaTema){window.__alphaTema=1;
+try{if(localStorage.getItem("alpha-tema")==="claro")d.setAttribute("data-tema","claro")}catch(e){}
+document.addEventListener("click",function(e){var b=e.target.closest&&e.target.closest("[data-tema-boton]");if(!b)return;
+var claro=d.getAttribute("data-tema")!=="claro";if(claro)d.setAttribute("data-tema","claro");else d.removeAttribute("data-tema");
+try{localStorage.setItem("alpha-tema",claro?"claro":"oscuro")}catch(e){}
+var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",claro?"#f4f6fb":"#05070d")});}
+try{if(d.getAttribute("data-tema")==="claro"){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content","#f4f6fb")}}catch(e){}
+})();</script>`;
 
 // La pantalla de entrada: el logo grande y la clave.
 export function cajaDeEntrada(prefijo, { accion, texto = "", error = "", detalle = "" } = {}) {
-  return `<div class="entrada"><form class="entrada-caja" method="post" action="${esc(accion)}">
+  return `<div class="tema-flotante">${BOTON_TEMA}</div>${SCRIPT_TEMA}<div class="entrada"><form class="entrada-caja" method="post" action="${esc(accion)}">
 <img class="entrada-logo" src="${esc(prefijo)}/logo.png?v=1" alt="ALPHA IA · Soluciones que impulsan" width="317" height="184">
 ${detalle ? `<div class="entrada-de">${esc(detalle)}</div>` : ""}
 <p class="suave">${esc(texto)}</p>${error ? `<p class="mal">${esc(error)}</p>` : ""}
@@ -396,6 +417,44 @@ background:rgba(255,255,255,.03);border:1px solid var(--borde);box-shadow:0 30px
 .entrada-logo{width:210px;height:auto;margin:0 auto 4px;filter:drop-shadow(0 10px 30px rgba(10,92,245,.35))}
 .entrada-de{font-size:13px;color:var(--suave);letter-spacing:.06em}
 .entrada-caja p{margin:0}.entrada-caja input{text-align:center}
+/* El botón del tema */
+.tema{order:99;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:5px 12px;border-radius:999px;background:transparent;color:var(--suave);white-space:nowrap}
+.tema:hover{color:var(--texto)}.tema .a-oscuro{display:none}
+.tema-flotante{position:fixed;top:14px;right:14px;z-index:6}
+/* EL TEMA CLARO: los mismos tokens, en claro. Lo que no es token se corrige abajo. */
+:root[data-tema="claro"]{color-scheme:light;
+--fondo:#f4f6fb;--tarjeta:#ffffff;--tarjeta-solida:#ffffff;--texto:#0f172a;--suave:#5b6478;
+--borde:rgba(15,23,42,.10);--borde-fuerte:rgba(15,23,42,.20);
+--marca:#0a5cf5;--marca-fuerte:#0a4fd6;--cian:#0b6bd6;--plata:#1e293b;--serie:#0a5cf5;
+--cliente:#ffffff;--bot:linear-gradient(135deg,rgba(47,123,255,.14),rgba(10,92,245,.06));--asesor:rgba(11,107,214,.07);
+--pienso:rgba(109,94,230,.06);--pienso-borde:rgba(109,94,230,.4);--pienso-titulo:#5b4bd6;
+--mal:#d92d2d;--alerta:#d92d2d;--bien:#15803d;--aviso:#b45309;--rejilla:rgba(15,23,42,.05);
+--brillo:0 0 0 1px rgba(10,92,245,.25),0 10px 30px -12px rgba(10,92,245,.35)}
+[data-tema="claro"] .tema .a-claro{display:none}[data-tema="claro"] .tema .a-oscuro{display:inline}
+[data-tema="claro"] body{background:radial-gradient(1100px 560px at 88% -12%,rgba(10,92,245,.10),transparent 62%),radial-gradient(800px 480px at -12% 8%,rgba(107,184,255,.12),transparent 60%),var(--fondo)}
+[data-tema="claro"] header{background:rgba(255,255,255,.85)}
+[data-tema="claro"] a:hover{color:#0a4fd6}[data-tema="claro"] ::selection{background:rgba(10,92,245,.2)}
+[data-tema="claro"] .alpha:hover{color:#0f172a}
+[data-tema="claro"] .alpha img{background:#0b1222;border-radius:9px;padding:3px 6px;filter:none}
+[data-tema="claro"] .entrada-logo{background:#0b1222;border-radius:18px;padding:14px 18px;filter:none}
+[data-tema="claro"] .menu a:hover{background:rgba(15,23,42,.06)}
+[data-tema="claro"] input,[data-tema="claro"] select,[data-tema="claro"] textarea,[data-tema="claro"] button{background:#fff}
+[data-tema="claro"] input::placeholder,[data-tema="claro"] textarea::placeholder{color:#94a3b8}
+[data-tema="claro"] button:hover{background:#eef2f9}
+[data-tema="claro"] button.principal{background:linear-gradient(135deg,#2f7bff,#0a5cf5);color:#fff}
+[data-tema="claro"] button.peligro:hover{background:rgba(217,45,45,.08)}
+[data-tema="claro"] .tema{background:transparent}
+[data-tema="claro"] .tarjeta,[data-tema="claro"] .kpi,[data-tema="claro"] .tabla,[data-tema="claro"] .ficha{box-shadow:0 1px 2px rgba(15,23,42,.05)}
+[data-tema="claro"] .etiqueta,[data-tema="claro"] .atajos a{background:#fff}
+[data-tema="claro"] .pienso{color:#3f3d56}
+[data-tema="claro"] .foto,[data-tema="claro"] .ficha-img{background:#eef2f9}
+[data-tema="claro"] .carrusel-flecha{background:rgba(255,255,255,.94)}
+[data-tema="claro"] .etiqueta-crm{color:#0a4fd6;background:rgba(10,92,245,.08)}
+[data-tema="claro"] .etapa-nuevo{color:#334155}
+[data-tema="claro"] .en-vivo{background:rgba(21,128,61,.07);border-color:rgba(21,128,61,.3)}
+[data-tema="claro"] .entrada-caja{background:#fff;box-shadow:0 30px 80px -30px rgba(10,92,245,.25)}
+[data-tema="claro"] .toast{background:rgba(255,255,255,.96);color:var(--texto)}
+[data-tema="claro"] .paso{background:#fff}
 @media (max-width:560px){.burbuja,.pienso{max-width:92%}.alpha-de{max-width:40vw}.ficha{flex-basis:72%}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 `;

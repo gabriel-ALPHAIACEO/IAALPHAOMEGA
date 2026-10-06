@@ -62,7 +62,7 @@ import {
   vistaAprendido,
 } from "./vistas.js";
 
-const VERSION = "2026-10-06 (16) · 🧠 Aprendido: lo que la IA aprendió sola, y la alerta 🛠️ de lo que hay que poner en el código";
+const VERSION = "2026-10-06 (17) · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · 🧠 Aprendido: lo que la IA aprendió sola, y la alerta 🛠️ de lo que hay que poner en el código";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");
