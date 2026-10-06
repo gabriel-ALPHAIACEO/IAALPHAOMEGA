@@ -163,7 +163,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-06 (46) · las fichas no se quedan sin mandar (pide fotos o se le promete 👇 → van; más tiempo para el carrusel) · Redmi 17 Pro Max = Note 17 Pro Max · catálogo del inventario del 6-oct · /probar-fotos";
+const VERSION = "2026-10-06 (47) · la columna Existencia se entiende en mayúscula o minúscula (0, NO, no hay, AGOTADO esconden; SI, hay o un número muestran), y todas las columnas de existencia cuentan · fichas que no salían, Redmi 17 Pro Max, inventario del 6-oct, /probar-fotos";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA

@@ -521,6 +521,7 @@ function indiceDeBusqueda(titulo, fila, encabezados, indices) {
   const fuera = new Set(
     ["precio", "precioLocal", "precioCashea", "imagen", "enlace", "activo", "stock"]
       .map((clave) => indices[clave])
+      .concat(indices.existencias || [])
       .filter((i) => i !== undefined && i !== -1)
   );
 
@@ -846,7 +847,7 @@ function convertir(filas, env) {
     imagen: nombreDe(indices.imagen),
     enlace: nombreDe(indices.enlace),
     activo: nombreDe(indices.activo),
-    stock: nombreDe(indices.stock),
+    stock: indices.existencias.length ? indices.existencias.map(nombreDe).join(" y ") : nombreDe(-1),
   };
 
   const productos = [];
@@ -859,18 +860,16 @@ function convertir(filas, env) {
     // activo, para que no haya que rellenar la columna producto a producto.
     if (indices.activo !== -1) {
       const estado = normalizar(fila[indices.activo]);
-      if (["no", "0", "false", "borrador", "inactivo", "agotado", "vendido"].includes(estado)) {
+      if (["no", "0", "false", "borrador", "inactivo", "agotado", "agotada", "vendido", "vendida", "nohay", "sinexistencia", "sinstock"].includes(estado)) {
         continue;
       }
     }
 
-    // Igual con el stock: vacío no esconde nada, solo un 0 de verdad. Se
-    // limpian puntos y comas por si viene escrito como "1.000".
-    if (indices.stock !== -1) {
-      const bruto = String(fila[indices.stock] || "").trim();
-      const numero = Number(bruto.replace(/[.,\s]/g, ""));
-      if (bruto && Number.isFinite(numero) && numero === 0) continue;
-    }
+    // Igual con el stock: vacío no esconde nada, solo un 0 de verdad o un
+    // "no hay" escrito. Y TODAS las columnas de existencia cuentan
+    // (6-oct-2026): con "Cantidad" y "Existencia" a la vez, cualquiera de
+    // las dos en 0 o en NO lo esconde. Mayúsculas o minúsculas, igual.
+    if (indices.existencias.some((i) => sinExistencia(fila[i]))) continue;
 
     const precioPrincipal = indices.precio === -1 ? "" : String(fila[indices.precio] || "").trim();
     const precioLocal =
@@ -920,6 +919,27 @@ function convertir(filas, env) {
   return { productos, encabezados, filasLeidas: filas.length, columnas };
 }
 
+// ¿Esta celda de existencia dice que NO hay? (6-oct-2026)
+//   "0", "0.0", "NO", "No", "no hay", "AGOTADO", "Sin existencia" → sí, no hay
+//   "3", "SI", "Sí", "Hay", "Disponible", vacía                   → hay
+// Se compara sin tildes, sin espacios y sin mayúsculas: "NO HAY" = "no hay".
+const NO_HAY = new Set([
+  "no", "nohay", "noquedan", "noqueda", "agotado", "agotada", "agotados", "agotadas",
+  "sinexistencia", "sinstock", "sinunidades", "vendido", "vendida", "false", "falso",
+  "ninguno", "ninguna", "x", "cero",
+]);
+
+export function sinExistencia(valor) {
+  const bruto = String(valor ?? "").trim();
+  if (!bruto) return false;
+  // Un número: "0", "0.0", "1.000". Se limpian puntos y comas de miles.
+  if (/^[\d.,\s]+$/.test(bruto)) {
+    const numero = Number(bruto.replace(/[.,\s]/g, ""));
+    return Number.isFinite(numero) && numero === 0;
+  }
+  return NO_HAY.has(normalizar(bruto));
+}
+
 // Devuelve en qué posición está cada columna dentro de una fila, o -1.
 function ubicarColumnas(fila) {
   const celdas = (fila || []).map(normalizar);
@@ -944,6 +964,10 @@ function ubicarColumnas(fila) {
     enlace: buscar("enlace"),
     activo: buscar("activo"),
     stock: buscar("stock"),
+    // TODAS las de existencia, no solo la primera ("Cantidad" y "Existencia").
+    existencias: celdas
+      .map((c, i) => (c && SINONIMOS.stock.map(normalizar).some((n) => c === n || c.startsWith(n)) ? i : -1))
+      .filter((i) => i !== -1),
   };
 }
 
