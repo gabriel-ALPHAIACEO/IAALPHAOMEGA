@@ -71,8 +71,9 @@ import {
   NOTA_UBICACION_ENVIADA,
 } from "./ubicacion.js";
 import { gastoDelMes } from "./gasto.js";
-import { buscarProductos } from "./shopify.js";
-import { categoriaDeLaBusqueda, CATEGORIAS, emojiDe, categoriasParaElPrompt } from "./categorias.js";
+import { buscarProductos, traerCatalogoCompleto } from "./shopify.js";
+import { tallaPedida, revisarTalla, traeLaTalla, fraseHayTalla, fraseNoHayTalla } from "./tallas.js";
+import { categoriaDeLaBusqueda, CATEGORIAS, emojiDe, categoriasParaElPrompt, filtrarPorCategoria } from "./categorias.js";
 import { estadoDeLaClaveApi, esTextoDelBot, pausadoAhora, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral, estadoCompletoPermitido, estadoPublico, pedidoInterno } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
 import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDelRevisor } from "./revisor.js";
@@ -92,7 +93,7 @@ import { separarColor, filtrarPorColor, terminoDeColor, nombreDeColor } from "./
 import { comoDataUri } from "./imagen.js";
 import { validarIdentificacion } from "./identificar.js";
 import { cotejoPorImagen, ordenarPorLaFoto } from "./cotejo.js";
-import { leerIndice, indexarTanda } from "./indice.js";
+import { leerIndice, indexarTanda, mejoresPorRasgos } from "./indice.js";
 import { contextoParaElModelo, recortarHistorial } from "./historial.js";
 import {
   cargarContacto,
@@ -131,7 +132,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-06 (47) · los Drake son los AF1; se busca también por el modelo del índice (fotos IMG); sin doble respuesta en anuncios";
+const VERSION = "2026-10-06 (48) · tallas leídas del nombre (36-45): sí hay → asesor; no hay → uno parecido que sí la trae";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1990,6 +1991,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     texto: mensaje.texto,
     historialPrevio,
     mostrados: contacto.mostrados,
+    ultimosMostrados: tallaPedida(mensaje.texto) ? await ultimosProductosMostrados(env.DB, mensaje.igsid) : [],
     // Solo si pide algo DISTINTO se descarta lo que ya vio. Una foto no
     // cuenta: quien manda una foto está pidiendo ESE zapato, no otro.
     pideMas: !imagenCruda && pideMasVariedad(mensaje.texto),
@@ -2524,8 +2526,11 @@ async function decidir({
   // Cuándo llegó el mensaje. El cotejo lo usa para saber si le da el
   // tiempo de esperar el cupo de OpenAI.
   recibidoEn = 0,
+  // Los títulos de lo último que se le enseñó (ver tallas.js): de eso
+  // habla cuando pregunta "¿y en talla 46?" sin nombrar el modelo.
+  ultimosMostrados = [],
 }) {
-  const preguntoTalla = PREGUNTA_TALLA.test(texto);
+  let preguntoTalla = PREGUNTA_TALLA.test(texto);
 
   // LA FOTO ERA LA VITRINA: NI SE BUSCA.
   //
@@ -2881,11 +2886,28 @@ async function decidir({
   // modelo: pasamos al asesor sin afirmar que el producto no existe. Vale
   // igual si el modelo sí estaba pero no en ese color: el cliente pidió ese
   // color, y decirle que sí mostrándole otro es engañarlo.
-  const buscoSinExito = Boolean(aBuscar) && !productos.length && !seAcabaron && !hayMasDelCatalogo;
+  let buscoSinExito = Boolean(aBuscar) && !productos.length && !seAcabaron && !hayMasDelCatalogo;
 
   // Preguntó la talla y no quedó nada que buscar: la talla la confirma una
   // persona, así que no se le da largas ni se le muestra el catálogo entero.
-  const soloTalla = preguntoTalla && !termino;
+  let soloTalla = preguntoTalla && !termino;
+
+  // LA TALLA, LEÍDA DEL NOMBRE (6-oct-2026, ver tallas.js). Va antes de
+  // elegir la frase: si el nombre dice las tallas, la respuesta es esa.
+  const talla = tallaPedida(texto);
+  let fraseDeTalla = "";
+  if (talla) {
+    const deTalla = await decidirTalla(env, { talla, productos, ultimosMostrados, categoria, mostrados });
+    if (deTalla) {
+      productos = deTalla.productos;
+      fraseDeTalla = deTalla.frase;
+      // "Sí hay" va al asesor (los detalles); "no hay" no: ya se le
+      // contestó y se le ofreció otro.
+      preguntoTalla = deTalla.hay;
+      salida.historial = conNota(salida.historial || historialPrevio, deTalla.nota);
+      soloTalla = false;
+    }
+  }
 
   // Si ya se conocen, se le quita la bienvenida aunque el modelo la haya
   // escrito. Es el fallo que más se nota: saludar dos veces.
@@ -2897,7 +2919,10 @@ async function decidir({
   // escribió el modelo es la última opción porque él no vio el resultado de
   // la búsqueda — no sabe que se repitió ni que no había nada.
   let respuestaCliente = respuestaFinal;
-  if (soloTalla) {
+  if (fraseDeTalla) {
+    respuestaCliente = fraseDeTalla;
+    buscoSinExito = false;
+  } else if (soloTalla) {
     respuestaCliente = SOLO_TALLA;
   } else if (hayMasDelCatalogo) {
     respuestaCliente = alAzar(HAY_MAS_EN_CATALOGO);
@@ -2923,6 +2948,106 @@ async function decidir({
     categoria,
     respuestaCliente: conEmojiDe(respuestaCliente, categoria),
   };
+}
+
+// ¿TRAE ESA TALLA? (ver tallas.js). Devuelve null si el nombre no dice
+// tallas: entonces sigue como antes (lo confirma un asesor).
+//
+// De qué productos habla: de los que salieron en esta búsqueda o, si no se
+// buscó nada ("¿y en 46?"), de lo último que se le enseñó.
+async function decidirTalla(env, { talla, productos, ultimosMostrados, categoria, mostrados }) {
+  let referencia = productos;
+  let deAntes = false;
+  if (!referencia.length && ultimosMostrados.length) {
+    referencia = await productosConTitulo(env, ultimosMostrados);
+    deAntes = true;
+  }
+  const revision = revisarTalla(referencia, talla);
+  if (revision.estado === "no_se") return null;
+
+  if (revision.estado === "hay") {
+    // Si de lo que vio solo algunos la traen, se le enseñan esos (para que
+    // sepa cuáles). Si la traen todos, no hace falta repetirle las fotos.
+    const todos = revision.con.length === referencia.length;
+    console.log(`Talla ${talla}: la traen ${revision.con.length} de ${referencia.length}`);
+    return {
+      hay: true,
+      productos: deAntes && todos ? [] : revision.con.slice(0, MAXIMO_EN_CARRUSEL),
+      frase: fraseHayTalla(talla),
+      nota: `Preguntó talla ${talla}: SÍ la hay (${revision.con.map((p) => p.titulo).slice(0, 3).join(", ")}). Los detalles, el asesor.`,
+    };
+  }
+
+  // Ninguno la trae: uno parecido que sí.
+  const excluir = new Set([...referencia.map((p) => p.titulo), ...(mostrados || [])].map(clave));
+  const parecidos = await parecidosConTalla(env, { referencia: revision.sin[0], talla, categoria, excluir });
+  console.log(`Talla ${talla}: no la trae ninguno; parecidos con esa talla: ${parecidos.length}`);
+  return {
+    hay: false,
+    productos: parecidos,
+    frase: fraseNoHayTalla(talla, parecidos.length > 0),
+    nota: `Preguntó talla ${talla}: de ese NO hay (${revision.sin[0].titulo}).${parecidos.length ? ` Le ofrecí: ${parecidos.map((p) => p.titulo).join(", ")}.` : ""}`,
+  };
+}
+
+const clave = (t) => String(t || "").toLowerCase().replace(/\s+/g, " ").trim();
+
+// Los productos del catálogo con esos títulos (los turnos guardan solo el
+// título de lo que se enseñó).
+async function productosConTitulo(env, titulos) {
+  try {
+    const { productos } = await traerCatalogoCompleto(env, 5000);
+    const porTitulo = new Map(productos.map((p) => [clave(p.titulo), p]));
+    return titulos.map((t) => porTitulo.get(clave(t)) || { titulo: t }).filter(Boolean);
+  } catch {
+    return titulos.map((t) => ({ titulo: t }));
+  }
+}
+
+// LOS PARECIDOS QUE SÍ TRAEN LA TALLA: de la misma categoría, con esa
+// talla en el nombre, y ordenados por lo que más se parecen a la foto del
+// que no la trae (el índice: rasgos, color y descripción). Como lo haría un
+// vendedor: "de ese no hay, pero mira este".
+// Uno: "pero tenemos ESTE que te puede gustar" (dueño, 6-oct-2026).
+const PARECIDOS_CON_TALLA = 1;
+
+async function parecidosConTalla(env, { referencia, talla, categoria, excluir }) {
+  let catalogo = [];
+  try {
+    ({ productos: catalogo } = await traerCatalogoCompleto(env, 5000));
+  } catch {
+    return [];
+  }
+  let candidatos = catalogo.filter((p) => p.imagen && traeLaTalla(p.titulo, talla) === true && !excluir.has(clave(p.titulo)));
+  const cat = categoria || "calzado";
+  const deLaCategoria = filtrarPorCategoria(candidatos, cat);
+  if (deLaCategoria.length || catalogo.some((p) => p.categoria)) candidatos = deLaCategoria;
+  if (!candidatos.length) return [];
+
+  const indice = await leerIndice(env.DB).catch(() => []);
+  const deLaReferencia = indice.find((r) => (referencia.imagen && r.imagen === referencia.imagen) || clave(r.titulo) === clave(referencia.titulo));
+  if (deLaReferencia?.rasgos) {
+    const porFoto = new Map(candidatos.map((p) => [p.imagen, p]));
+    const filas = indice.filter((r) => porFoto.has(r.imagen));
+    const orden = mejoresPorRasgos(filas, deLaReferencia.rasgos, PARECIDOS_CON_TALLA, deLaReferencia.color || "", deLaReferencia.visto || "");
+    if (orden.length) return orden.map((r) => porFoto.get(r.imagen));
+  }
+  // Sin la foto de referencia en el índice: los primeros de la categoría.
+  return candidatos.slice(0, PARECIDOS_CON_TALLA);
+}
+
+// Lo último que se le enseñó a este cliente, para "¿y en talla 46?".
+async function ultimosProductosMostrados(db, igsid) {
+  try {
+    const fila = await db
+      .prepare("SELECT productos FROM turnos WHERE igsid = ? AND productos != '[]' AND productos != '' AND cuando > ? ORDER BY id DESC LIMIT 1")
+      .bind(String(igsid), Date.now() - 24 * 60 * 60 * 1000)
+      .first();
+    const lista = JSON.parse(fila?.productos || "[]");
+    return Array.isArray(lista) ? lista.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
 }
 
 // LO QUE ES VERDAD EN ESTA TIENDA, para que el revisor compare (ver
