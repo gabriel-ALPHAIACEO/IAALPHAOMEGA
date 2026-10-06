@@ -32,6 +32,7 @@ const SUITES = [
   ["datos.mjs", "horario, envíos y delivery de El Emperador: que estén, que no se inventen"],
   ["botas.mjs", "que las botas de básquet no busquen las tácticas"],
   ["carpetas.mjs", "los modelos son las carpetas de Drive: la IA de texto y la de fotos los conocen, y la búsqueda los encuentra"],
+  ["tn.mjs", "los Nike TN y los New Balance: cómo se ven, las mismas palabras en el índice, y la red que corrige"],
   ["cercano.mjs", "si no hay lo que pidió, lo más cercano (otro color, sin la palabra que sobra, un parecido) y no diez cualquiera; el precio que la ficha no trae, al asesor"],
   ["tallas.mjs", "las tallas del nombre (36-45): sí hay → asesor; no hay → uno parecido que sí la trae"],
   ["drake.mjs", "los Drake son los AF1, y las fotos \"IMG 3212\" se encuentran por el modelo del índice"],

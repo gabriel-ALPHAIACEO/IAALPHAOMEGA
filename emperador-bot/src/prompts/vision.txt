@@ -157,6 +157,30 @@ NIKE AIR FORCE ONE
   Una pieza metálica colgando del último ojal. Cuero liso con paneles
   perforados en la punta. Etiqueta rectangular en el talón.
 
+NIKE AIR MAX PLUS — "TN" (de los que más vende la tienda: míralo con calma)
+  Lo inconfundible: ONDAS PLÁSTICAS en el lateral. Unas costillas de
+  plástico duro que suben desde la suela hacia los cordones, onduladas,
+  como llamas o como hojas de palmera, por encima de una malla. Casi
+  siempre con DEGRADADO de color (de oscuro abajo a claro arriba, o al
+  revés).
+  Más señas, para confirmar:
+  · Cámaras de aire visibles en el talón y también en la parte de adelante.
+  · Bajo el arco, una pieza de plástico duro en forma de "cola de ballena"
+    que se ve entre la suela del talón y la de adelante.
+  · El logo "TN" (una T y una N juntas, a veces dentro de un óvalo) en el
+    talón, y a veces en la plantilla y en la lengüeta.
+  · El swoosh es PEQUEÑO y suelto, cerca de la puntera o en medio de las
+    ondas, muchas veces con un borde de otro color. NUNCA es el swoosh
+    grande y recto de un Air Force.
+  Con ondas plásticas + TN en el talón, es TN aunque no veas nada más.
+  "buscar": "TN". En la tienda hay dos carpetas, TN y TN PLUS: buscando "TN"
+  salen las dos y el cotejo elige. Si las ondas son más rectas, gruesas y
+  pegadas (una versión más nueva), sigue siendo "TN" con
+  "pedirNombreExacto": true.
+  Cuidado con: la Air Max 97 (líneas horizontales finas como ondas de agua,
+  con cámara de aire de punta a punta, SIN costillas plásticas encima) y la
+  Air Max Plus de imitación sin el logo TN (igual es "TN").
+
 NIKE DUNK / SB DUNK
   Se parece a la Air Force One pero es MÁS PLANA: suela delgada y sin la
   pieza metálica en los cordones. Dos colores en bloques bien marcados.
@@ -259,13 +283,40 @@ RETRO 4 (Jordan 4)
   plásticas a los lados de los cordones. Logo Jumpman en la lengüeta.
   Soporte visible en el talón. Caña media.
 
-NEW BALANCE (550, 9060, 530)
-  Letra N grande en el lateral, siempre. La 550 es de caña baja, cuero
-  perforado, aire retro de basquet. La 9060 tiene suela gruesa ondulada y
-  paneles curvos. La 530 mezcla malla y sintético, silueta más redondeada.
-  La variante "Miu Miu" (NB 530) se ve más envejecida o "deconstruida": el
-  forro interior queda visible en el talón como si el cuero exterior
-  estuviera despegado a propósito, con acentos plateados o metálicos.
+NEW BALANCE (de los que más vende la tienda: míralos con calma)
+  Lo de todas: la LETRA N en el lateral. Lo que cambia de un modelo a otro
+  es la suela, la forma de la N y lo que lleva escrito. Mira primero si se
+  LEE un número (en la lengüeta, el talón, la plantilla o la suela): si se
+  lee, ESE es el modelo.
+
+  9060   Suela MUY gruesa y escalonada, con capas onduladas como olas que se
+         abren hacia atrás y terminan en "picos" en el talón. Cápsulas de
+         amortiguación visibles en el talón. Gamuza y malla. Silueta grande.
+  530    Corredora retro de los 2000: malla con muchas capas sintéticas,
+         casi siempre PLATEADAS o metalizadas; suela blanca de altura media
+         con cápsulas; N de tamaño medio. Silueta redondeada. La "Miu Miu"
+         es una 530 "envejecida": forro del talón a la vista, como si el
+         cuero estuviera despegado a propósito, con acentos plateados.
+  550    Retro de BÁSQUET: cuero liso, puntera perforada, suela plana tipo
+         taza (como un Air Force, sin cápsulas), N grande de un color que
+         contrasta. Caña baja. Parece más "de cancha" que de correr.
+  2002R  Corredora: gamuza y malla, N con contorno, suela con cápsula
+         visible en el talón y una pieza de plástico de soporte detrás.
+  1906R  Corredora técnica: muchas piezas de plástico y sintético encima
+         de la malla (como una jaula), tonos plateados; N pequeña.
+  327    N GIGANTE que ocupa casi todo el lateral y se corta con la suela;
+         suela con tacos que suben por detrás del talón; mezcla de gamuza
+         y nylon.
+  574    El clásico: gamuza y malla, N mediana con borde, suela de altura
+         media sin cápsulas a la vista, look de los 80-90.
+  990    Gamuza gris y malla, muy acolchada, "990" en la lengüeta (si lo
+         lees, es 990).
+  2000   Ver NEW BALANCE 2000 arriba: mediasuela esculpida con cápsulas
+         segmentadas, malla técnica con capas termoselladas.
+  Otros de la tienda: 1000, 204, 509, More, Course Rebel.
+  Si no encaja con ninguno o dudas entre dos, "buscar": "Balance" (la
+  familia) con "pedirNombreExacto": true. NUNCA un número que no leíste ni
+  cuya firma cumpla la foto entera: ver EL NÚMERO DEL MODELO NO SE ADIVINA.
 
 ADIDAS SUPERSTAR
   Puntera de goma con ranuras, tipo concha. Tres bandas perforadas en el
@@ -707,6 +758,11 @@ CÓMO SE VEN LOS MODELOS QUE MÁS VENDES
    Drake           DRAKE, NOCTA, CERTIFIED LOVER BOY o LOVE YOU FOREVER (en el
                    zapato, la lengüeta, el talón o la plantilla). Solo si lo
                    lees; sin eso escrito son "Air Force One" a secas
+  TN               ONDAS PLÁSTICAS onduladas que suben por el lateral,
+                   degradado de color, logo TN en el talón, swoosh pequeño,
+                   aire en talón y adelante. Ver NIKE AIR MAX PLUS — "TN"
+  New Balance      la letra N; el modelo por la suela (ver NEW BALANCE).
+                   Sin leer el número ni cumplir la firma: "Balance"
   Nike metcon      zapatilla de gimnasio, plana, talón ancho y rígido,
                    goma que sube por los lados
   On cloud         suela de "nubes" huecas, como bloques con agujeros. Es lo

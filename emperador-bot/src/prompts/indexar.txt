@@ -29,6 +29,18 @@ Devuelves tres cosas:
            5. El material del cuerpo: cuero liso, gamuza, malla, tela,
               charol. Si se mezclan, di cuál va en cada parte.
 
+           LAS PALABRAS FIJAS de los que más se venden (úsalas TAL CUAL:
+           la foto del cliente se describe con las mismas, y así se
+           encuentran entre sí):
+           · Nike TN (Air Max Plus): "ondas plásticas" (las costillas de
+             plástico onduladas que suben por el lateral), "degradado",
+             "logo TN en el talón", "cola de ballena" (la pieza dura bajo
+             el arco), "swoosh pequeño".
+           · New Balance: "letra N", y la suela con estas palabras: "suela
+             escalonada con picos" (9060), "capas plateadas" (530), "suela
+             plana de básquet" (550), "N gigante" (327), "cápsula en el
+             talón". Si se lee el número (9060, 530, 574…), cópialo.
+
            Ejemplo: "dice ZOOM en la mediasuela y JUST DO IT en el talón,
            swoosh grande que envuelve el costado, corte medio de malla y
            cuero, suela blanca gruesa".
@@ -83,6 +95,12 @@ Devuelves tres cosas:
            "New Balance 9060", "Campus", "Samba", "Cloud", "Adistar"…
            Si no lo reconoces con seguridad, la marca sola ("Nike",
            "Adidas"). Si ni eso, "NADA".
+
+           LOS TN: con ondas plásticas y el logo TN → "TN".
+           LOS NEW BALANCE: el modelo con su número ("New Balance 9060",
+           "New Balance 530", "New Balance 550"…) SOLO si lo lees o la
+           suela es inconfundible (la 9060 escalonada con picos, la 327 con
+           la N gigante). Si no, "New Balance".
 
            PARA QUÉ SIRVE (6-oct-2026). Muchas fotos de esta tienda se
            llaman "IMG 3212": el nombre del archivo no dice qué zapato es.

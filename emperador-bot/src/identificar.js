@@ -151,6 +151,37 @@ const REGLAS = [
     prohibe: [],
     marcaFallback: "Adidas",
   },
+  // LOS TN Y LOS NEW BALANCE (6-oct-2026, dueño: "son muy importantes").
+  // No hay un rasgo de la lista que los confirme (las ondas plásticas del TN
+  // y la N de New Balance no están entre los 15), así que no exigen nada:
+  // solo descartan lo que los contradice. Y por no exigir nada, nunca se
+  // proponen solos en terminosCompatibles().
+  {
+    // El TN tiene un swoosh PEQUEÑO; uno grande y recto, tres franjas,
+    // nubes o una burbuja entera son de otro zapato.
+    term: "tn",
+    requiere: [],
+    prohibe: ["swooshGrandeRecto", "tresFranjas", "suelaNubesHuecas", "suelaTransparente", "mallaPlasticaCuadros", "jumpman"],
+    marcaFallback: "Nike",
+  },
+  {
+    term: "new balance",
+    requiere: [],
+    prohibe: ["swooshGrandeRecto", "tresFranjas", "suelaNubesHuecas", "jumpman", "piezaMetalicaOjal"],
+    marcaFallback: "NADA",
+  },
+  {
+    term: "balance",
+    requiere: [],
+    prohibe: ["swooshGrandeRecto", "tresFranjas", "suelaNubesHuecas", "jumpman", "piezaMetalicaOjal"],
+    marcaFallback: "NADA",
+  },
+  {
+    term: "9060",
+    requiere: [],
+    prohibe: ["swooshGrandeRecto", "tresFranjas", "suelaNubesHuecas", "jumpman", "piezaMetalicaOjal"],
+    marcaFallback: "NADA",
+  },
 ];
 
 // Recibe lo que devolvió la IA de visión ya normalizado (buscar, rasgos,
@@ -278,9 +309,9 @@ export function validarIdentificacion({ buscar, rasgos, pedirNombreExacto, tipo 
 // rasgos satisfacen. Esos son los candidatos que valía la pena mirar.
 //
 // Solo se proponen términos cuyos rasgos EXIGIDOS estén todos
-// presentes. Como ninguna regla tiene la lista de exigidos vacía, un
-// término nunca aparece "gratis": hace falta que se haya visto algo
-// distintivo suyo.
+// presentes. Las reglas con la lista de exigidos vacía (TN, New Balance)
+// no se proponen nunca: un término no aparece "gratis", hace falta que se
+// haya visto algo distintivo suyo.
 export function terminosCompatibles(rasgos) {
   if (!rasgos || typeof rasgos !== "object") return [];
 
