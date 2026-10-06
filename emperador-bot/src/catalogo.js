@@ -235,6 +235,38 @@ export function corregirBusquedaDeBotas(texto, buscar, historial = "") {
   return { corregido: false, buscar };
 }
 
+// LOS DRAKE SON LOS AF1 (6-oct-2026, dueño). El 5-oct cinco clientes
+// pidieron "los AF1 Drake" y no vieron ninguno. El prompt ya lo enseña; esto
+// es la red por debajo: si el cliente nombra a Drake y la IA no buscó nada,
+// o buscó otra cosa que no es un Air Force, se buscan las Air Force One
+// Drake (y si ninguna foto dice "Drake", drive.js enseña las AF1).
+const DICE_DRAKE = /\b(?:drake|drakes|dreik|dreak|certified lover boy|love you forever)\b/;
+const ES_AF1 = /\b(?:air ?force|af ?0?1)\b/;
+const GENERO = /\b(?:dama|caballero|nino|nina|unisex)\b/g;
+
+export function corregirBusquedaDeApodos(texto, buscar) {
+  const dice = despejarConNumeros(texto);
+  if (!DICE_DRAKE.test(dice)) return { corregido: false, buscar };
+  const busca = despejarConNumeros(buscar);
+  const nada = !busca || busca === "nada";
+  if (!nada && busca.includes("drake")) return { corregido: false, buscar };
+  // Otro modelo con nombre ("Retro 4"): el cliente puede estar pidiendo
+  // dos cosas. Solo se corrige lo vacío, lo genérico o un AF1 sin Drake.
+  if (!nada && !ES_AF1.test(busca) && !/^(?:nike|calzado|zapatos?|tenis|nocta)\b/.test(busca)) {
+    return { corregido: false, buscar };
+  }
+  const genero = [...new Set(busca.match(GENERO) || [])].join(" ");
+  const nuevo = `Air Force One Drake${genero ? ` ${genero}` : ""}`;
+  return {
+    corregido: true,
+    buscar: nuevo,
+    // La frase solo cambia si la IA no iba a enseñar nada (estaba
+    // preguntando "¿qué estás buscando?" a alguien que ya lo dijo).
+    respuesta: nada ? "¡Claro! Te muestro las Air Force One 👟👇" : "",
+    nota: `Pidió las Drake (Air Force One). Ya busqué: ${nuevo}.`,
+  };
+}
+
 function despejarConNumeros(texto) {
   return String(texto || "")
     .normalize("NFD")

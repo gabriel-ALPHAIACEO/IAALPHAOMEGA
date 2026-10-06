@@ -944,6 +944,9 @@ export async function rasgosDeProducto(env, urlImagen, { modelo = "" } = {}) {
     // "" si la IA no se atrevió a nombrarlo: se guarda así, y no NULL,
     // para que esa foto no se vuelva a mirar en cada pasada.
     color: nombreDeColor(datos.color),
+    // El modelo que reconoció ("Air Force One", "Retro 4"…), o "" si no.
+    // drive.js lo usa para encontrar las fotos que se llaman "IMG 3212".
+    modelo: /^nada$/i.test(String(datos.buscar || "").trim()) ? "" : String(datos.buscar || "").trim(),
   };
 }
 

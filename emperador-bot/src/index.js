@@ -86,7 +86,7 @@ import { anotar, leerRastro, hace } from "./rastro.js";
 import { conPresupuesto, limiteDeSubpeticiones } from "./presupuesto.js";
 import { paginaDePrivacidad, paginaDeEliminacion, html200 } from "./legal.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
-import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo, corregirBusquedaDeBotas } from "./catalogo.js";
+import { pideElCatalogo, pideMasVariedad, fraseDeCatalogo, corregirBusquedaDeBotas, corregirBusquedaDeApodos } from "./catalogo.js";
 import { alternativasPara } from "./parecidos.js";
 import { separarColor, filtrarPorColor, terminoDeColor, nombreDeColor } from "./color.js";
 import { comoDataUri } from "./imagen.js";
@@ -131,7 +131,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-06 (46) · la tienda ve y baja los errores de la IA (Excel y texto)";
+const VERSION = "2026-10-06 (47) · los Drake son los AF1; se busca también por el modelo del índice (fotos IMG); sin doble respuesta en anuncios";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1393,6 +1393,25 @@ async function atenderConRed(env, mensaje) {
   }
 }
 
+// ¿Mandó el cliente un mensaje con texto unos segundos antes o después de
+// este? Se mira tras una espera corta, para darle tiempo al otro a llegar.
+const ESPERA_MENSAJE_VACIO_MS = 4000;
+const VENTANA_MENSAJE_VACIO_MS = 15000;
+
+async function llegoTextoAlLado(db, igsid) {
+  const ahora = Date.now();
+  await new Promise((seguir) => setTimeout(seguir, ESPERA_MENSAJE_VACIO_MS));
+  try {
+    const fila = await db
+      .prepare("SELECT COUNT(*) AS n FROM mensajes WHERE igsid = ? AND de = 'cliente' AND cuando > ? AND length(trim(texto)) > 0")
+      .bind(String(igsid), ahora - VENTANA_MENSAJE_VACIO_MS)
+      .first();
+    return Number(fila?.n) > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function atenderMeta(env, mensaje, rastro = {}) {
   // ENVIAR Y ANOTAR TIENEN QUE SER UNA SOLA COSA (crítico).
   //
@@ -1554,6 +1573,19 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (estaPausado(contacto)) {
     console.log(`Bot pausado para ${mensaje.igsid}: no respondo`);
     await avisarQueYaLoAtienden(env, mensaje, contacto, mandar);
+    return;
+  }
+
+  // UN MENSAJE VACÍO PEGADO A UNO DE VERDAD (6-oct-2026). Cuando el cliente
+  // escribe desde un anuncio, Instagram manda a veces DOS mensajes en el
+  // mismo segundo: uno sin texto (la tarjeta del anuncio) y otro con la
+  // pregunta ("¿Cuál es el precio de los zapatos Retro 3?"). El vacío se
+  // contestaba con "¡Hola! ¿Qué estás buscando?" al lado de la respuesta
+  // buena: cuatro 🔴 en el informe de errores del 5 y 6 de octubre.
+  // Ahora el vacío espera unos segundos y, si llegó texto, no contesta: ya
+  // lo hace el otro.
+  if (mensaje.tipo === "texto" && !mensaje.texto && (await llegoTextoAlLado(env.DB, mensaje.igsid))) {
+    console.log(`Mensaje vacío de ${mensaje.igsid} pegado a uno con texto: contesta el otro`);
     return;
   }
 
@@ -2533,6 +2565,15 @@ async function decidir({
     salida.buscar = botas.buscar;
     salida.respuesta = botas.respuesta;
     salida.historial = conNota(salida.historial || historialPrevio, botas.nota);
+  }
+
+  // LOS DRAKE SON LOS AF1 (ver catalogo.js).
+  const apodo = corregirBusquedaDeApodos(texto, salida.buscar);
+  if (apodo.corregido) {
+    console.log(`Apodo: "${salida.buscar}" → busco "${apodo.buscar}"`);
+    salida.buscar = apodo.buscar;
+    if (apodo.respuesta) salida.respuesta = apodo.respuesta;
+    salida.historial = conNota(salida.historial || historialPrevio, apodo.nota);
   }
 
   const termino = salida.buscar.toUpperCase() === "NADA" ? "" : sinTalla(salida.buscar);

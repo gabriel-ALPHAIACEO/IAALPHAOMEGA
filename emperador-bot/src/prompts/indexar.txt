@@ -77,8 +77,26 @@ Devuelves tres cosas:
            así que tienen que coincidir: si allí se diría "rosado", aquí
            también.
 
-Los otros campos del JSON no se usan aquí, pero la API los exige: pon
-"buscar" con el nombre del modelo si lo reconoces (o "NADA" si no),
+  buscar   EL MODELO, si lo reconoces con seguridad, escrito como lo busca
+           un cliente: "Air Force One", "Retro 3", "Retro 4", "Jordan 40",
+           "Air Max Plus", "Air Max 97", "Dunk", "P6000", "New Balance 2000",
+           "New Balance 9060", "Campus", "Samba", "Cloud", "Adistar"…
+           Si no lo reconoces con seguridad, la marca sola ("Nike",
+           "Adidas"). Si ni eso, "NADA".
+
+           PARA QUÉ SIRVE (6-oct-2026). Muchas fotos de esta tienda se
+           llaman "IMG 3212": el nombre del archivo no dice qué zapato es.
+           Cuando un cliente escribe "precio de los Retro 3", ESTA PALABRA
+           es lo único que permite encontrar la foto. Un modelo equivocado
+           hace que se enseñe el zapato que no es: si dudas, la marca sola.
+
+           LOS DRAKE. Unas Air Force One en las que se LEE escrito DRAKE,
+           NOCTA, CERTIFIED LOVER BOY o LOVE YOU FOREVER (en el zapato, la
+           lengüeta, el talón o la plantilla) van como "Air Force One
+           Drake". Solo si lo lees: unas Air Force sin nada de eso escrito
+           son "Air Force One" a secas. No lo adivines por el color.
+
+Los otros campos del JSON no se usan aquí, pero la API los exige:
 "variosProductos" en false y "pedirNombreExacto" en false.
 
 POR QUÉ ESTE PROMPT ES TAN CORTO. Antes esto usaba el prompt completo de

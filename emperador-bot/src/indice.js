@@ -88,6 +88,7 @@ export async function asegurarIndice(db) {
   // Va DESPUÉS de migrar: la migración vieja recrea la tabla sin esta
   // columna, así que añadirla antes sería añadirla a una tabla que se tira.
   await asegurarColumnaColor(db);
+  await asegurarColumnaModelo(db);
 
   tablaLista = true;
 }
@@ -129,6 +130,35 @@ async function asegurarColumnaColor(db) {
     // Si esto falla el bot sigue igual que antes: sin color guardado, el
     // orden cae al del título, que es lo que hacía hasta hoy.
     console.error("No pude añadir la columna color al índice:", error?.message || error);
+  }
+}
+
+// EL MODELO DE CADA FOTO (6-oct-2026).
+//
+// EL FALLO QUE ARREGLA. En la carpeta de Drive de El Emperador la mayoría
+// de las fotos se llaman "IMG 3212", "329/36-44" o "20260702 131111": el
+// nombre no dice qué zapato es. La búsqueda por texto mira el nombre y la
+// carpeta, así que "Precio de los AF1 Drake" no encontraba nada y el bot
+// contestaba "ese justo no me queda" con diez calzados cualquiera (cinco
+// veces el 5-oct, en el informe de errores de la tienda).
+//
+// Lo absurdo, otra vez, es que el dato ya existía: al indexar, la IA mira
+// cada foto y devuelve en "buscar" el modelo que reconoce —el esquema lo
+// exige—, y se tiraba. Ahora se guarda y drive.js busca también aquí.
+//
+// NULL → esta foto no se miró buscando el modelo: se vuelve a mirar (una
+// vez, en las próximas pasadas del cron). "" → se miró y no lo reconoció.
+async function asegurarColumnaModelo(db) {
+  try {
+    const { results } = await db.prepare("PRAGMA table_info(catalogo)").all();
+    if ((results || []).some((f) => String(f.name) === "modelo")) return;
+    await db.prepare("ALTER TABLE catalogo ADD COLUMN modelo TEXT").run();
+    console.log(
+      "Índice: columna \"modelo\" creada. Las fotos ya indexadas se vuelven a " +
+        "mirar solas en las próximas pasadas del cron para rellenarla."
+    );
+  } catch (error) {
+    console.error("No pude añadir la columna modelo al índice:", error?.message || error);
   }
 }
 
@@ -188,7 +218,7 @@ export async function leerIndice(db) {
   let results;
   try {
     ({ results } = await db
-      .prepare("SELECT titulo, imagen, precio, url, visto, rasgos, color FROM catalogo")
+      .prepare("SELECT titulo, imagen, precio, url, visto, rasgos, color, modelo FROM catalogo")
       .all());
   } catch (error) {
     // La tabla se daba por hecha y no estaba. Se apunta para que el
@@ -206,6 +236,8 @@ export async function leerIndice(db) {
     rasgos: leerRasgos(fila.rasgos),
     // null a propósito, no "": ver asegurarColumnaColor.
     color: fila.color ?? null,
+    // Igual: null = sin mirar todavía (ver asegurarColumnaModelo).
+    modelo: fila.modelo ?? null,
   }));
 }
 
@@ -220,8 +252,8 @@ export async function guardarIndexados(db, filas) {
       db
         .prepare(
           `INSERT OR REPLACE INTO catalogo
-             (imagen, titulo, precio, url, visto, rasgos, color, actualizado)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+             (imagen, titulo, precio, url, visto, rasgos, color, modelo, actualizado)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           fila.imagen || "",
@@ -231,6 +263,7 @@ export async function guardarIndexados(db, filas) {
           String(fila.visto || "").slice(0, 300),
           JSON.stringify(fila.rasgos || {}),
           String(fila.color || ""),
+          String(fila.modelo || "").slice(0, 80),
           ahora
         )
     )
@@ -531,7 +564,8 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
   // Y TAMBIÉN el que se indexó antes de que existiera el color (NULL): así
   // el catálogo entero se completa solo, de a una tanda por pasada, sin que
   // nadie tenga que acordarse de correr /indexar-catalogo?rehacer=si.
-  const guardados = new Set(indice.filter((p) => p.color !== null).map((p) => p.imagen));
+  // Y el que se indexó antes de que se guardara el modelo (6-oct-2026).
+  const guardados = new Set(indice.filter((p) => p.color !== null && p.modelo !== null).map((p) => p.imagen));
 
   // Un producto sin featuredImage no se puede indexar: el cotejo compara
   // imágenes y aquí no hay ninguna. Se cuentan aparte para que el
@@ -597,7 +631,7 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
         // Prompt propio, no el de visión completo: ver rasgosDeProducto().
         const visto = await rasgosDeProducto(env, producto.imagen, { modelo });
         return visto
-          ? { ...producto, visto: visto.visto, rasgos: visto.rasgos, color: visto.color || "" }
+          ? { ...producto, visto: visto.visto, rasgos: visto.rasgos, color: visto.color || "", modelo: visto.modelo || "" }
           : null;
       })
     );

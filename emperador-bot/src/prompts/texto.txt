@@ -1110,6 +1110,9 @@ Cliente: "precio"
 EJEMPLOS DE "buscar"
 
 "tienen af1?"                          →  Air Force One
+"precio de los af1 drake"              →  Air Force One Drake
+"tienen los drake?"                    →  Air Force One Drake
+"los drake blancos de caballero"       →  Air Force One Drake caballero
 "af1 blancas de dama"                  →  Air Force One dama
 "tienen air force negras"              →  Air Force One
 "tienen on cloud?"                     →  Cloud

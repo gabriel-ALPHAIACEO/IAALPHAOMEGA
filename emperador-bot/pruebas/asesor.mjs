@@ -9,6 +9,7 @@
 //   3. El asesor entra MIENTRAS la IA está pensando: no sale nada más.
 //
 // Cada caso espera los 4 segundos reales del "segundo vistazo".
+//   4. Un mensaje vacío pegado al de un anuncio: una sola respuesta.
 
 import crypto from "node:crypto";
 import { prepararSrc, baseDeMentira, ok, titulo, terminar } from "./ayuda.mjs";
@@ -45,20 +46,26 @@ globalThis.fetch = async (url, op = {}) => {
   return new Response("ok");
 };
 
-async function webhook(evento) {
+async function webhookCrudo(evento) {
   const cuerpo = JSON.stringify({ object: "instagram", entry: [{ id: CUENTA, time: Date.now(), messaging: [evento] }] });
   const firma = "sha256=" + crypto.createHmac("sha256", SECRETO).update(cuerpo).digest("hex");
   const tareas = [];
+  await worker.fetch(new Request("https://bot.test/webhook", { method: "POST", headers: { "x-hub-signature-256": firma }, body: cuerpo }), ENV, { waitUntil: (p) => tareas.push(p) });
+  await Promise.all(tareas);
+}
+// Varios a la vez, con la consola callada UNA vez para todos (si cada uno
+// la callara y la devolviera por su cuenta, se cruzan y no se ve nada).
+async function aLaVez(...eventos) {
   const [l, e] = [console.log, console.error];
   console.log = console.error = () => {};
   try {
-    await worker.fetch(new Request("https://bot.test/webhook", { method: "POST", headers: { "x-hub-signature-256": firma }, body: cuerpo }), ENV, { waitUntil: (p) => tareas.push(p) });
-    await Promise.all(tareas);
+    await Promise.all(eventos.map(webhookCrudo));
   } finally {
     console.log = l;
     console.error = e;
   }
 }
+const webhook = (evento) => aLaVez(evento);
 const delCliente = (igsid, texto) => webhook({ sender: { id: igsid }, recipient: { id: CUENTA }, timestamp: Date.now(), message: { mid: `m-${Math.random()}`, text: texto } });
 const eco = (igsid, texto) => webhook({ sender: { id: CUENTA }, recipient: { id: igsid }, timestamp: Date.now(), message: { mid: `m-ajeno-${Math.random()}`, is_echo: true, ...(texto ? { text: texto } : { attachments: [{ type: "template", payload: {} }] }) } });
 const pausado = async (igsid) => E.estaPausado(await E.cargarContacto(DB, igsid));
@@ -82,6 +89,20 @@ titulo("2. el eco del propio bot (mid sin guardar) no pausa");
   ok(!(await pausado("200")), "su mismo texto, aunque el mid no cuadre: es del bot, no pausa");
   await eco("200", "");
   ok(!(await pausado("200")), "un eco sin texto justo después (el carrusel de fichas): tampoco");
+}
+
+titulo("4. el mensaje vacío pegado al del anuncio: una sola respuesta (6-oct-2026)");
+{
+  enviados = [];
+  // Instagram, desde un anuncio: la tarjeta (sin texto) y la pregunta, a la vez.
+  await aLaVez(
+    { sender: { id: "400" }, recipient: { id: CUENTA }, timestamp: Date.now(), message: { mid: `m-${Math.random()}`, attachments: [{ type: "fallback", payload: {} }] } },
+    { sender: { id: "400" }, recipient: { id: CUENTA }, timestamp: Date.now(), message: { mid: `m-${Math.random()}`, text: "¿Cuál es el precio de los zapatos Retro 3?" } }
+  );
+  ok(enviados.filter((t) => t === RESPUESTA).length === 1, "se contesta una sola vez (la pregunta), no un '¿qué estás buscando?' de más", enviados.join(" | "));
+  enviados = [];
+  await webhook({ sender: { id: "401" }, recipient: { id: CUENTA }, timestamp: Date.now(), message: { mid: `m-${Math.random()}`, attachments: [{ type: "fallback", payload: {} }] } });
+  ok(enviados.length >= 1, "un vacío SOLO (sin nada al lado) sigue teniendo respuesta: nadie se queda sin contestar", enviados.join(" | "));
 }
 
 titulo("3. el asesor entra mientras la IA piensa: no sale nada");

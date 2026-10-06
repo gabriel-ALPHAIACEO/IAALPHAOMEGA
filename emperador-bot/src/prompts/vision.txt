@@ -535,6 +535,7 @@ productos y el cliente cree que no hay stock.
   Lo que reconoces          buscar
   ───────────────────────   ──────────────────
   Air Force 1 · AF1         Air Force One
+  AF1 Drake · los Drake     Air Force One Drake
   Jordan 1                  Retro 1
   Jordan 3                  Retro 3
   Jordan 4                  Retro 4
@@ -695,6 +696,10 @@ CÓMO SE VEN LOS MODELOS QUE MÁS VENDES
                    pieza metálica en el ojal de abajo
   Air Force One    igual que el anterior pero con bloques de color grandes y
    Kobe            el logo de Kobe. Si ves los colores en bloques, es Kobe
+  Air Force One    las de Drake: Air Force One en las que se LEE escrito
+   Drake           DRAKE, NOCTA, CERTIFIED LOVER BOY o LOVE YOU FOREVER (en el
+                   zapato, la lengüeta, el talón o la plantilla). Solo si lo
+                   lees; sin eso escrito son "Air Force One" a secas
   Nike metcon      zapatilla de gimnasio, plana, talón ancho y rígido,
                    goma que sube por los lados
   On cloud         suela de "nubes" huecas, como bloques con agujeros. Es lo

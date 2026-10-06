@@ -633,11 +633,32 @@ export async function categoriasPorImagen(env) {
 /* ── Lo mismo que shopify.js, para que nadie más se entere ───────── */
 
 function despejar(texto) {
-  return String(texto || "")
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase();
+  return modelosEnUnaPalabra(
+    String(texto || "")
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+  );
 }
+
+// EL MISMO MODELO ESCRITO DE MIL MANERAS (6-oct-2026). "Air Force One",
+// "Air Force 1", "airforce", "AF1", "af 1", "af01" son el mismo zapato. Se
+// vuelven una sola palabra —"af1"— tanto en lo que se busca como en el
+// título, la carpeta y el modelo del índice, así que cualquiera encuentra a
+// cualquiera. Pasó el 5-oct: "Precio de los AF1 Drake" buscó "Air Force One
+// Drake" y no salió nada.
+export function modelosEnUnaPalabra(texto) {
+  return String(texto || "")
+    .replace(/\bair\s*force\s*(?:one|1|uno)\b|\bairforce(?:one|1)?\b|\bair\s*force\b|\baf\s*0?1\b/g, "af1");
+}
+
+// LOS APODOS (6-oct-2026, dueño: "los zapatos drake son los af1"). Si con
+// el apodo no sale nada (ningún título ni ninguna foto del índice lo
+// dice), se busca el modelo del que es apodo: mejor enseñar los AF1 que
+// decir "ese no me queda".
+export const APODOS = {
+  drake: "af1",
+};
 
 // LAS MISMAS ZAPATILLAS CON OTRO NOMBRE. El prompt (heredado de Invictus,
 // donde Shopify las llama "Retro") busca "Retro 4" cuando el cliente pide
@@ -671,8 +692,8 @@ function estaLaPalabra(donde, p) {
 
 // Todas las palabras tienen que estar (como en Shopify). Las cortas y los
 // números, como palabra completa: "4" no puede encontrar "40".
-function coincide(producto, palabras) {
-  const donde = despejar(`${producto.titulo} ${producto.codigo} ${producto.carpetas}`);
+function coincide(producto, palabras, modelo = "") {
+  const donde = despejar(`${producto.titulo} ${producto.codigo} ${producto.carpetas} ${modelo}`);
   return palabras.every((p) => alternativas(p).some((alt) => estaLaPalabra(donde, alt)));
 }
 
@@ -681,8 +702,49 @@ export async function buscarEnDrive(env, termino, cuantos = 10) {
   if (!palabras.length) return { productos: [], hayMas: false };
 
   const { productos } = await catalogoDeDrive(env);
-  const encontrados = productos.filter((p) => coincide(p, palabras)).map(sinInternos);
-  return { productos: encontrados.slice(0, cuantos), hayMas: encontrados.length > cuantos };
+  const modelos = await modelosPorFoto(env);
+  let encontrados = buscarConPalabras(productos, palabras, modelos);
+
+  // El apodo no salió en ningún lado: el modelo del que es apodo.
+  if (!encontrados.length && palabras.some((p) => APODOS[p])) {
+    const sinApodo = [...new Set(palabras.map((p) => APODOS[p] || p))];
+    console.log(`Apodo sin resultados: "${palabras.join(" ")}" → busco "${sinApodo.join(" ")}"`);
+    encontrados = buscarConPalabras(productos, sinApodo, modelos);
+  }
+
+  return { productos: encontrados.slice(0, cuantos).map(sinInternos), hayMas: encontrados.length > cuantos };
+}
+
+// EL NOMBRE Y, DETRÁS, EL ÍNDICE (6-oct-2026). En la carpeta de Drive la
+// mayoría de las fotos se llaman "IMG 3212" o "329/36-44": el nombre no
+// dice el modelo, y buscar "Air Force One" no las encontraba nunca. Pero al
+// indexar, la IA ya miró cada foto y dijo qué modelo es (ver indice.js,
+// columna "modelo"). Primero van las que lo dicen en el nombre o la
+// carpeta; después, las que el índice reconoció. El modelo del índice
+// cuenta como si estuviera en el nombre: "Retro 3 caballero" encuentra la
+// foto "IMG 3213" de la carpeta CABALLERO.
+function buscarConPalabras(productos, palabras, modelos) {
+  const porNombre = productos.filter((p) => coincide(p, palabras));
+  if (!modelos.size) return porNombre;
+  const ya = new Set(porNombre.map((p) => p.imagen));
+  const porIndice = productos.filter((p) => !ya.has(p.imagen) && modelos.has(p.imagen) && coincide(p, palabras, modelos.get(p.imagen)));
+  return [...porNombre, ...porIndice];
+}
+
+// El modelo que la IA reconoció en cada foto al indexar: una consulta a D1
+// por búsqueda, sin modelo de IA de por medio.
+async function modelosPorFoto(env) {
+  if (!env?.DB) return new Map();
+  try {
+    const { results } = await env.DB
+      .prepare("SELECT imagen, modelo FROM catalogo WHERE modelo IS NOT NULL AND modelo != ''")
+      .all();
+    return new Map((results || []).map((f) => [f.imagen, f.modelo]));
+  } catch (error) {
+    // Sin la columna todavía (el cron aún no pasó) o sin índice: solo el nombre.
+    console.error("No pude leer los modelos del índice:", error?.message || error);
+    return new Map();
+  }
 }
 
 export async function catalogoCompletoDeDrive(env, maximo = 1000) {

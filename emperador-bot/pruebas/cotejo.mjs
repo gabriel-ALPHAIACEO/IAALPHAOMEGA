@@ -110,8 +110,8 @@ const pendientes = despues.filter((p) => p.color === null).map((p) => p.imagen);
 ok(pendientes.length === 1 && pendientes[0].endsWith("viejo-2.jpg"),
    "solo queda pendiente la que NUNCA se miró — la del color ilegible no vuelve",
    pendientes.join(", "));
-ok(/indice\.filter\(\(p\) => p\.color !== null\)/.test(fuente("indice.js")),
-   "y indexarTanda usa exactamente ese criterio");
+ok(/indice\.filter\(\(p\) => p\.color !== null && p\.modelo !== null\)/.test(fuente("indice.js")),
+   "y indexarTanda usa exactamente ese criterio (y lo mismo con el modelo, desde el 6-oct)");
 
 // Guardar sin color no puede dejar un null: se volvería a indexar en bucle.
 await I.guardarIndexados(env.DB, [
