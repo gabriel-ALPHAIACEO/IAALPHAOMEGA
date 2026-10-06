@@ -96,6 +96,10 @@ Devuelves tres cosas:
            Si no lo reconoces con seguridad, la marca sola ("Nike",
            "Adidas"). Si ni eso, "NADA".
 
+           LAS MIND: si es CHOLA (sandalia, el pie va destapado) →
+           "Mind 001". Si es ZAPATO cerrado → "Mind 002". Míralo en la foto,
+           aunque estén en la misma carpeta: es lo que separa una de otra.
+
            LOS TN: con ondas plásticas y el logo TN → "TN".
            LOS NEW BALANCE: el modelo con su número ("New Balance 9060",
            "New Balance 530", "New Balance 550"…) SOLO si lo lees o la

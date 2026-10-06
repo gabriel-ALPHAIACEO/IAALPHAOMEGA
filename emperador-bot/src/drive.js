@@ -751,7 +751,27 @@ function buscarConPalabras(productos, palabras, modelos) {
   if (!modelos.size) return porNombre;
   const ya = new Set(porNombre.map((p) => p.imagen));
   const porIndice = productos.filter((p) => !ya.has(p.imagen) && modelos.has(p.imagen) && coincide(p, palabras, modelos.get(p.imagen)));
-  return [...porNombre, ...porIndice];
+  return [...porNombre, ...porIndice].filter((p) => !contradiceElNumero(modelos.get(p.imagen), palabras));
+}
+
+// EL NÚMERO DEL MODELO MANDA (6-oct-2026, dueño: "le digo Mind 002 y me
+// manda una chola 001 y demás 002; debe mandar solo 002"). En la carpeta
+// "Nike Mind 002" hay también cholas Mind 001: el nombre de la carpeta dice
+// 002, pero la IA, al indexar, miró la foto y dijo "Mind 001". Cuando la
+// foto contradice el número que se pide, manda la foto: fuera.
+//   pide "mind 002", la foto es "Mind 001"  → fuera
+//   pide "airmax 90", la foto es "Air Max 97" → fuera
+//   la foto no dice número, o dice el mismo → se queda
+function contradiceElNumero(modelo, palabras) {
+  if (!modelo) return false;
+  const esNumero = (p) => /^\d{2,4}$/.test(p);
+  const pedidos = palabras.filter(esNumero);
+  if (!pedidos.length) return false;
+  const delModelo = despejar(modelo).split(/\s+/).filter(Boolean);
+  const suyos = delModelo.filter(esNumero);
+  if (!suyos.length) return false;
+  const mismaFamilia = palabras.some((p) => !esNumero(p) && delModelo.includes(p));
+  return mismaFamilia && !pedidos.some((n) => suyos.includes(n));
 }
 
 // El modelo que la IA reconoció en cada foto al indexar: una consulta a D1

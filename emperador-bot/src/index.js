@@ -132,7 +132,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-06 (52) · la IA reconoce por foto los Nike TN y todos los New Balance";
+const VERSION = "2026-10-06 (53) · Mind 002 es Mind 002 (la foto manda sobre la carpeta; el número del modelo no se suelta)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -2603,6 +2603,15 @@ async function decidir({
     salida.historial = conNota(salida.historial || historialPrevio, apodo.nota);
   }
 
+  // EL NÚMERO QUE ESCRIBIÓ EL CLIENTE VA EN LA BÚSQUEDA (6-oct-2026). Pidió
+  // "mind 002" y la IA buscó "Mind": eso trae también las cholas 001. Un
+  // número de modelo con ceros delante (001, 002…) no es talla ni precio.
+  const numeroDelCliente = (String(texto || "").match(/\b0\d{2}\b/) || [])[0];
+  if (numeroDelCliente && salida.buscar && salida.buscar.toUpperCase() !== "NADA" && !/\b\d{2,4}\b/.test(salida.buscar)) {
+    console.log(`Número del modelo: "${salida.buscar}" → "${salida.buscar} ${numeroDelCliente}"`);
+    salida.buscar = `${salida.buscar} ${numeroDelCliente}`;
+  }
+
   const termino = salida.buscar.toUpperCase() === "NADA" ? "" : sinTalla(salida.buscar);
 
   // QUÉ TIPO DE PRODUCTO (5-oct-2026): calzado, bolso, camisa, pantalón o
@@ -3038,11 +3047,19 @@ async function buscarLoMasCercano(env, { aBuscar, sinColor, colores, categoria, 
   const palabras = base
     .split(/\s+/)
     .filter((p) => p && !PALABRAS_QUE_NO_SON_MODELO.has(p.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()));
+  // EL NÚMERO NO SE SUELTA (6-oct-2026): si pidió "Mind 002", lo más
+  // cercano nunca es "Mind" a secas, que trae también las 001. Cada intento
+  // conserva los números del modelo y al menos una palabra.
+  const numeros = palabras.filter((p) => /^\d{2,4}$/.test(p));
+  const conservaElNumero = (t) => numeros.every((n) => t.split(/\s+/).includes(n)) && /[a-z]/i.test(t);
   const intentos = [];
   if (palabras.length > 1) {
     for (let i = palabras.length - 1; i >= 0; i--) intentos.push(palabras.filter((_, j) => j !== i).join(" "));
     for (const p of [...palabras].sort((a, b) => b.length - a.length)) if (!/^\d+$/.test(p)) intentos.push(p);
   }
+  const validos = intentos.filter(conservaElNumero);
+  intentos.length = 0;
+  intentos.push(...validos);
   const vistos = new Set([base.toLowerCase()]);
   for (const termino of intentos) {
     if (vistos.has(termino.toLowerCase()) || vistos.size > INTENTOS_DE_CERCANO) continue;
@@ -3061,6 +3078,9 @@ async function buscarLoMasCercano(env, { aBuscar, sinColor, colores, categoria, 
     }
   }
 
+  // Con número pedido ("Mind 002", "9060"), un "parecido" de otro número es
+  // justo lo que no quiere: se pasa al asesor en vez de inventar.
+  if (numeros.length) return null;
   for (const otro of alternativasPara(base).slice(0, MAXIMO_ALTERNATIVAS)) {
     const { productos } = await buscarProductos(env, otro, MAXIMO_EN_CARRUSEL + 1, { categoria });
     if (productos.length) {
