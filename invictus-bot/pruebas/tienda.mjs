@@ -487,6 +487,17 @@ titulo("la puerta del panel central (/api/central)");
 
   const err = (await api("errores")).datos;
   ok(err?.some((e) => /No pude leer la hoja/.test(e.texto) && e.tipo === "error"), "los errores, con su texto", JSON.stringify(err).slice(0, 160));
+  {
+    // Una respuesta señalada, para que el informe la traiga con su contexto.
+    const t = await DB.prepare("SELECT id FROM turnos WHERE igsid = '123' ORDER BY id DESC LIMIT 1").first();
+    await DB.prepare("UPDATE turnos SET marca = 'indebida', motivo = 'Prueba del informe' WHERE id = ?").bind(t.id).run();
+    const inf = (await api("informe-errores?dias=30")).datos;
+    ok(inf?.dias === 30 && inf.errores.some((e) => /No pude leer la hoja/.test(e.texto)), "el informe de errores: los técnicos", JSON.stringify(inf?.errores?.[0] || {}).slice(0, 120));
+    const s = inf?.senaladas?.find((x) => x.motivo === "Prueba del informe");
+    ok(s && s.igsid === "123" && s.simbolo === "🔴" && typeof s.cliente === "string" && typeof s.respuesta === "string" && Array.isArray(s.productos), "y las señaladas con lo que escribió el cliente, lo que respondió el bot y lo que pensó la IA", JSON.stringify(s || {}).slice(0, 160));
+    ok((await api("informe-errores?dias=999")).datos?.dias === 60, "como mucho 60 días (lo que guarda la tienda)");
+    await DB.prepare("UPDATE turnos SET marca = '', motivo = '' WHERE id = ?").bind(t.id).run();
+  }
 
   ok((await api("chats")).datos?.[0]?.id === "123", "la lista de chats");
   const p = await api("pausar", { metodo: "POST", cuerpo: JSON.stringify({ id: "123" }) });

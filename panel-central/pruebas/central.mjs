@@ -432,6 +432,37 @@ titulo("métricas, ganadores, errores y gastos");
   ok(/Productos ganadores/.test((await abrir("/ganadores")).html), "ganadores de todas");
   const errores = await abrir("/errores");
   ok(/Errores de todas las tiendas/.test(errores.html), "errores de todas");
+
+  // EL INFORME DE ERRORES: agrupado, con contexto, a Excel y a texto.
+  BASE1.sql.exec("CREATE TABLE IF NOT EXISTS errores (id INTEGER PRIMARY KEY AUTOINCREMENT, cuando INTEGER NOT NULL, texto TEXT NOT NULL DEFAULT '')");
+  for (const n of [500, 502, 503]) BASE1.sql.prepare("INSERT INTO errores (cuando, texto) VALUES (?, ?)").run(Date.now() - n * 1000, `Shopify falló: ${n} en https://x.test/a?b=${n}`);
+  BASE1.sql.prepare("INSERT INTO errores (cuando, texto) VALUES (?, ?)").run(Date.now() - 9000, "No pude mandar el mensaje a Meta: (#10) fuera de la ventana");
+  BASE1.sql.prepare("INSERT INTO errores (cuando, texto) VALUES (?, ?)").run(Date.now() - 8000, "PRECIO INVENTADO: lo cambio por el de la tienda");
+  const inf = await abrir("/errores/informe?dias=30");
+  ok(inf.estado === 200 && /Informe de errores/.test(inf.html) && /errores\/informe\.csv\?dias=30/.test(inf.html) && /errores\/informe\.md\?dias=30/.test(inf.html), "el informe de errores, con los dos botones para bajarlo");
+  ok(/Shopify falló/.test(inf.html) && /<td class="num"><b>3<\/b><\/td>/.test(inf.html), "el mismo error 3 veces (con distinto número y enlace) es UN problema con 3 veces");
+  ok(/Incoherente — prueba/.test(inf.html), "y salen las respuestas señaladas (🔴) con su motivo");
+  ok(/href="\/errores\/informe\?dias=30"/.test(errores.html), "desde Errores se llega al informe");
+  const csv = await abrir("/errores/informe.csv?dias=30");
+  const textoCsv = await csv.r.text();
+  ok(/text\/csv/.test(csv.r.headers.get("content-type")) && /attachment; filename="errores-/.test(csv.r.headers.get("content-disposition")), "el Excel se descarga");
+  const lineasCsv = textoCsv.trim().split("\r\n");
+  ok(/^Problema #;Veces/.test(lineasCsv[0]) && lineasCsv.some((x) => /Shopify falló/.test(x) && /;3;/.test(x)) && lineasCsv.some((x) => /Incoherente — prueba/.test(x) && /central\.test\/t\/invictus\/c\//.test(x)), "una fila por vez, con el número de problema, las veces y el enlace a la conversación", lineasCsv[0]);
+  const md = await abrir("/errores/informe.md?dias=30");
+  const textoMd = await md.r.text();
+  ok(/text\/markdown/.test(md.r.headers.get("content-type")) && /^# Informe de errores/.test(textoMd), "el informe en texto se descarga");
+  ok(/⚙️ Errores técnicos/.test(textoMd) && /3 veces/.test(textoMd) && /Motivo: Incoherente — prueba/.test(textoMd) && /El bot respondió:/.test(textoMd) && /PRECIO INVENTADO/.test(textoMd), "con los técnicos agrupados, las señaladas con su conversación y las correcciones aparte");
+  ok(textoMd.indexOf("Shopify falló") < textoMd.indexOf("No pude mandar"), "de lo más repetido a lo menos");
+  const sinSesion = await abrir("/errores/informe.csv?dias=30", { sinSesion: true });
+  ok(!/text\/csv/.test(sinSesion.r.headers.get("content-type") || "") && !/Shopify/.test(sinSesion.html) && /clave/i.test(sinSesion.html), "sin sesión no se baja nada: pide la clave", String(sinSesion.estado));
+
+  // Una tienda con la versión de antes solo manda la lista de errores.
+  const I = await import("../src/informe.js");
+  const viejo = I.informeDeErrores([{ tienda: { id: "v", nombre: "Vieja" }, ok: true, datos: [{ cuando: 1, texto: "falló 1", tipo: "error" }, { cuando: 2, texto: "falló 2", tipo: "error" }] }], { dias: 7 });
+  ok(viejo.tiendas[0].viejo && viejo.totales.tecnicos === 2 && viejo.problemas.length === 1 && /versión de antes/.test(I.textoDelInforme(viejo)), "una tienda con la versión de antes: sus errores igual, y el aviso");
+  ok(I.huella("Error 500 en https://a.test/x?1 id 9f8e7d6c5b4a") === I.huella("Error 502 en https://b.test/y id 0a1b2c3d4e5f"), "la huella ignora números, enlaces e ids");
+  const conFormula = await import("../src/alpha.js").then((A) => A.aCsv(["x"], [["=HYPERLINK(1)"], [-5]]));
+  ok(/'=HYPERLINK/.test(conFormula) && /\r\n-5\r\n/.test(conFormula), "en el Excel, un texto que empieza por = no se vuelve fórmula (los números sí quedan igual)");
   const gastos = await abrir("/gastos");
   ok(/Gastos de OpenAI/.test(gastos.html) && /Invictus/.test(gastos.html), "gastos de todas");
   ok(/13\. Panel central/.test((await abrir("/como-funciona")).html), "el diagrama de cómo funciona");

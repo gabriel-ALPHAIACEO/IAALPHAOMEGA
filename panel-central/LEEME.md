@@ -16,6 +16,7 @@ puerta `/api/central` de cada una, con una clave que solo conocen los dos.
 | **Métricas** | Números día por día (7, 14, 30 o 90 días), de todas las tiendas juntas y tienda por tienda. Gráficos y la tabla. |
 | **Ganadores** | Los productos que más se venden (avisos de compra con ese producto delante) y los que más gente vio. |
 | **Errores** | Los errores técnicos ⚙️ y las correcciones de las redes de seguridad 🛡️, de todas las tiendas. |
+| **Informe de errores** (`/errores/informe`) | Todo lo que salió mal en todas las tiendas (7, 14, 30 o 60 días), **agrupado por problema** con las veces que pasó, y las respuestas señaladas ❌🔴⚠️👎 con su conversación. Se baja en **Excel** (una fila por vez, con una columna "Arreglado") o en **texto** (para guardarlo o mandarlo a arreglar). Las tiendas guardan los errores 30 días y las señaladas 60: lo que se quiera conservar, se baja. |
 | **Gastos** | Lo que lleva cada tienda en OpenAI este mes, lo que saldrá el mes completo y el gasto por modelo. |
 | **Estado** | Si cada tienda responde. Se comprueba solo cada 2 minutos; también hay un botón para comprobar ahora. |
 | **Cómo funciona** | El diagrama de los pasos que sigue el bot con cada mensaje. |

@@ -222,7 +222,9 @@ ${avisos.map((a) => `<div class="aviso">⚠️ ${esc(a)}</div>`).join("")}</div>
 // punto y coma (el separador de Excel cuando la coma es el decimal).
 export function aCsv(encabezados, filas) {
   const celda = (v) => {
-    const t = String(v ?? "");
+    // Un texto que empieza por = + - @ Excel lo toma como fórmula: un cliente
+    // podría escribir una. Con el apóstrofo delante queda como texto.
+    const t = typeof v === "string" && /^[=+\-@\t\r]/.test(v) ? `'${v}` : String(v ?? "");
     return /[";\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
   };
   return "\uFEFF" + [encabezados, ...filas].map((f) => f.map(celda).join(";")).join("\r\n") + "\r\n";
@@ -300,6 +302,8 @@ button{cursor:pointer}button:hover{background:rgba(255,255,255,.08)}button:activ
 button.principal{background:linear-gradient(135deg,#2f7bff,#0a5cf5);border-color:transparent;color:#fff;font-weight:600;box-shadow:0 6px 20px -6px rgba(10,92,245,.75)}
 button.principal:hover{filter:brightness(1.12);box-shadow:0 8px 28px -6px rgba(10,92,245,.95)}
 button.peligro{color:var(--mal);border-color:rgba(255,107,107,.45)}button.peligro:hover{background:rgba(255,107,107,.1)}
+a.boton{display:inline-flex;align-items:center;gap:6px;padding:9px 14px;border-radius:12px;background:linear-gradient(135deg,#2f7bff,#0a5cf5);color:#fff;font-weight:600;text-decoration:none;box-shadow:0 6px 20px -6px rgba(10,92,245,.75);transition:filter .2s}
+a.boton:hover{filter:brightness(1.12);text-decoration:none}
 .acciones{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
 details>summary{cursor:pointer;color:var(--suave);list-style:none}details>summary::-webkit-details-marker{display:none}
 details>summary::before{content:"›";display:inline-block;margin-right:8px;transition:transform .2s}details[open]>summary::before{transform:rotate(90deg)}

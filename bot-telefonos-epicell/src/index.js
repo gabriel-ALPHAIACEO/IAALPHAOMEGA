@@ -157,7 +157,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-05 (37) · CRM para la tienda en /panel (clientes, etapas, notas, etiquetas, métricas, ganadores, Excel); el estado técnico solo en ALPHA IA";
+const VERSION = "2026-10-06 (38) · informe de errores para el panel ALPHA IA (todo lo que salió mal, con su contexto)";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA

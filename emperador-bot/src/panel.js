@@ -691,6 +691,50 @@ ${formularioBorrarConversacion("/panel/borrar-conversacion", id)}`,
   );
 }
 
+/* ── El informe de errores (6-oct-2026) ───────────────────────────
+   Todo lo que salió mal, con su contexto, para el panel ALPHA IA:
+   - los errores técnicos ⚙️ y las correcciones 🛡️ de la tabla errores
+     (se guardan 30 días: ver registro.js, ERRORES_DIAS);
+   - las respuestas señaladas ❌ 🔴 ⚠️ 👎, con lo que escribió el cliente,
+     lo que respondió el bot, lo que pensó la IA y el motivo (60 días).
+   El panel central lo junta de todas las tiendas, lo agrupa por problema y
+   lo baja a Excel o a un texto para arreglarlo. */
+const INFORME_DIAS_MAX = 60;
+
+async function informeDeErrores(env, url, opciones = {}) {
+  const dias = Math.min(Math.max(Number(url.searchParams.get("dias")) || 30, 1), INFORME_DIAS_MAX);
+  const desde = Date.now() - dias * DIA_MS;
+  const corto = (x, n) => String(x ?? "").slice(0, n);
+  const errores = await leerTabla(env.DB, TABLAS.CREAR_ERRORES, "SELECT cuando, texto FROM errores WHERE cuando > ? ORDER BY cuando DESC LIMIT 2000", desde).catch(() => []);
+  const turnos = await leerTabla(
+    env.DB,
+    TABLAS.CREAR_TURNOS,
+    "SELECT id, igsid, cuando, cliente, pienso, respuesta, productos, notas, marca, motivo FROM turnos WHERE cuando > ? AND marca != '' ORDER BY cuando DESC LIMIT 1000",
+    desde
+  ).catch(() => []);
+  return {
+    tienda: opciones.tienda || "",
+    version: opciones.version || "",
+    dias,
+    desde,
+    errores: errores.map((e) => ({ cuando: Number(e.cuando) || 0, texto: corto(e.texto, 4000), tipo: tipoDeError(e.texto) })),
+    senaladas: turnos.map((t) => ({
+      id: Number(t.id) || 0,
+      igsid: String(t.igsid || ""),
+      cuando: Number(t.cuando) || 0,
+      marca: t.marca,
+      tipo: MARCAS[t.marca]?.nombre || t.marca,
+      simbolo: MARCAS[t.marca]?.simbolo || "•",
+      motivo: corto(t.motivo, 1000),
+      cliente: corto(t.cliente, 1500),
+      respuesta: corto(t.respuesta, 2000),
+      pienso: corto(t.pienso, 1500),
+      productos: leer(t.productos).map((p) => (typeof p === "string" ? p : p?.titulo || "")).filter(Boolean).slice(0, 10),
+      notas: leer(t.notas).map(String).slice(0, 10),
+    })),
+  };
+}
+
 /* ── Métricas y ganadores, para la tienda (5-oct-2026) ─────────────
    Lo mismo que ve el dueño en ALPHA IA, menos lo confidencial: ni el gasto
    de la IA ni los errores técnicos. Con el calendario (7, 14, 30, 90 días
@@ -1541,6 +1585,10 @@ export async function atenderApiCentral(request, env, opciones = {}) {
       const filas = await leerTabla(env.DB, TABLAS.CREAR_ERRORES, "SELECT cuando, texto FROM errores WHERE cuando > ? ORDER BY cuando DESC LIMIT 300", desde);
       return json(filas.map((e) => ({ cuando: Number(e.cuando), texto: e.texto, tipo: tipoDeError(e.texto) })));
     }
+
+    // EL INFORME DE ERRORES (6-oct-2026): todo lo que salió mal en el
+    // período, para descargarlo en el panel ALPHA IA y arreglarlo después.
+    if (ruta === "informe-errores") return json(await informeDeErrores(env, url, opciones));
 
     if (ruta === "estado") {
       return json({ texto: opciones.verTexto ? await opciones.verTexto("/estado") : "" });

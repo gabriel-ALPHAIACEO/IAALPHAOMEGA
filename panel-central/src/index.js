@@ -29,7 +29,8 @@
 //   CLAVE_<TIENDA>       una por tienda: la misma que esa tienda tiene en
 //                        su PANEL_API_CLAVE (p. ej. CLAVE_EPICELL)
 
-import { imagenDeAlpha, imagenesDeAdjuntos } from "./alpha.js";
+import { imagenDeAlpha, imagenesDeAdjuntos, kpi, respuestaCsv } from "./alpha.js";
+import { INFORME_DIAS, informeDeErrores, csvDelInforme, textoDelInforme, respuestaTexto, vistaInforme } from "./informe.js";
 import { leerTiendas, claveDe, pedir, pedirATodas, tiendaDeLaClave, mismoTexto } from "./tiendas.js";
 import { TIPOS, guardarAlerta, listarAlertas, sinLeer, marcarLeidas, anotarSalud, leerSalud } from "./alertas.js";
 import { claveLista, cookieNueva, COOKIE_FUERA, sesionValida, vieneDelPanel, demasiadosIntentos, anotarIntento, olvidarIntentos } from "./sesion.js";
@@ -60,7 +61,7 @@ import {
   vistaEnPausa,
 } from "./vistas.js";
 
-const VERSION = "2026-10-05 (14) · las piezas de diseño compartidas (alpha.js) con el CRM de las tiendas";
+const VERSION = "2026-10-06 (15) · informe de errores: todas las tiendas, agrupado por problema, a Excel y a texto";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");
@@ -127,6 +128,19 @@ function tituloDelRango(prefijo, respuestas, periodo, rangoDe) {
 
 const filasDeGanadores = (datos) => (Array.isArray(datos) ? datos : Array.isArray(datos?.filas) ? datos.filas : null);
 const rangoDeGanadores = (datos) => (Array.isArray(datos) ? null : datos?.rango);
+
+// El informe de cada tienda. Una tienda con la versión de antes no tiene
+// informe-errores ("No existe"): se le piden sus errores de siempre.
+async function pedirInformes(env, n) {
+  const respuestas = await pedirATodas(env, `informe-errores?dias=${n}`, { espera: 15000 });
+  return Promise.all(
+    respuestas.map(async (r) => {
+      if (r.ok || r.error !== "No existe") return r;
+      const viejo = await pedir(env, r.tienda, `errores?dias=${Math.min(n, 30)}`);
+      return { tienda: r.tienda, ...viejo };
+    })
+  );
+}
 
 function dias(url, porDefecto) {
   return Math.min(Math.max(Number(url.searchParams.get("dias")) || porDefecto, 1), 90);
@@ -657,6 +671,18 @@ async function atender(request, env) {
     return pagina("Ganadores", vistaGanadores(filas, { conTienda: true, cabecera }), opciones);
   }
 
+  // EL INFORME DE ERRORES (ver informe.js): todas las tiendas, agrupado,
+  // y para bajar en Excel o en texto.
+  if (url.pathname === "/errores/informe" || url.pathname === "/errores/informe.csv" || url.pathname === "/errores/informe.md") {
+    const pedido = Number(url.searchParams.get("dias")) || 30;
+    const n = INFORME_DIAS.includes(pedido) ? pedido : Math.min(Math.max(pedido, 1), 60);
+    const informe = informeDeErrores(await pedirInformes(env, n), { dias: n, base: url.origin });
+    const dia = new Date().toISOString().slice(0, 10);
+    if (url.pathname.endsWith(".csv")) return respuestaCsv(`errores-${dia}-${n}dias.csv`, csvDelInforme(informe));
+    if (url.pathname.endsWith(".md")) return respuestaTexto(`informe-errores-${dia}-${n}dias.md`, textoDelInforme(informe));
+    return pagina("Informe de errores", vistaInforme(informe, { kpi }), opciones);
+  }
+
   if (url.pathname === "/errores") {
     const n = Math.min(dias(url, 7), 30);
     const respuestas = await pedirATodas(env, `errores?dias=${n}`);
@@ -666,7 +692,7 @@ async function atender(request, env) {
       .sort((a, b) => b.cuando - a.cuando)
       .slice(0, 300);
     const caidas = respuestas.filter((r) => !r.ok).map((r) => `<div class="tarjeta mal">🚨 ${esc(r.tienda.nombre)}: ${esc(r.error)}</div>`).join("");
-    return pagina("Errores", vistaErrores(filas, `<h2>Errores de todas las tiendas</h2>${caidas}`, { soloErrores: url.searchParams.get("solo") === "1" }), opciones);
+    return pagina("Errores", vistaErrores(filas, `<h2>Errores de todas las tiendas</h2><p><a class="boton" href="/errores/informe?dias=30">🧾 Informe de errores: agrupado y para bajar (Excel o texto)</a></p>${caidas}`, { soloErrores: url.searchParams.get("solo") === "1" }), opciones);
   }
 
   if (url.pathname === "/gastos") {
