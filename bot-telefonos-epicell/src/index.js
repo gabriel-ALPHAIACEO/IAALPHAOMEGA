@@ -42,6 +42,7 @@ vigilarErrores();
 import { revisarTono } from "./tono.js";
 import { revisarPrecio, contestaElPrecio } from "./precio.js";
 import { contestarCuotas, equipoDeLaCuenta } from "./cuotas.js";
+import { todasLasEspecificaciones, fichasDeLaCharla, notaTecnica, botonDeLaPagina } from "./especificaciones.js";
 import { revisarDisponibilidad, marcasNombradas, marcasQueHay, fraseDeMarcaQueNoHay } from "./disponible.js";
 import { referenciaEnTexto } from "./referencias.js";
 import {
@@ -158,7 +159,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-06 (42) · informe de errores del 6-oct: la cuenta de Cashea por nivel la hace el código, el precio se escribe cuando lo preguntan, \"¿cuánto cuesta?\" sin equipo, Redmi 7 ≈ A7, sin precios inventados en lo que ya vio";
+const VERSION = "2026-10-06 (43) · especificaciones de los teléfonos en la base (la IA contesta lo técnico con datos reales y manda la página oficial) + arreglos del informe del 6-oct (Cashea por nivel, precio escrito, ¿cuánto cuesta?, Redmi 7 ≈ A7)";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -404,7 +405,7 @@ function hayQueDecirQueHayMas(env) {
 // Cashea y Krece y las contesta él. Lo que de esas dos no se sabe lo
 // decide el prompt, no esta lista.
 const CONSULTA_DE_ASESOR =
-  /\b(garant[ií]a|permuta|parte de pago|factura|repara\w*|liberad[oa]|liberaci[óo]n|seguro|bater[ií]a|ciclos)\b/i;
+  /\b(garant[ií]a|permuta|parte de pago|factura|repara\w*|liberad[oa]|liberaci[óo]n|seguro|(?:salud|condici[oó]n|estado|desgaste)\s+de\s+(?:la\s+)?bater[ií]a|ciclos)\b/i;
 
 // LAS FORMAS DE PAGO A CUOTAS YA NO ESCALAN (23-sep-2026).
 //
@@ -3070,11 +3071,21 @@ async function atenderMeta(env, mensaje, rastro = {}) {
         : marcarSinVer(porQueNo, esHistoria)
       : "";
 
+  // LA FICHA TÉCNICA DE LO QUE SE HABLA (6-oct-2026, ver especificaciones.js).
+  // "Lo técnico no pasa a un asesor: la IA lo dice, pero con información."
+  // Van las de lo que nombra, el anuncio y lo último que vio (máximo 4).
+  const especificaciones = await todasLasEspecificaciones(env.DB);
+  const vioAntes = especificaciones.length ? await ultimosQueVio(env, contacto) : [];
+  const nombraAhora = especificaciones.length ? nombraDelCatalogo(mensaje.texto, await catalogoCompleto(env)) : "";
+  const titulosDeLaCharla = [nombraAhora, productoDelAnuncio?.titulo, ...vioAntes.map((p) => p.titulo)].filter(Boolean);
+  const fichasTecnicas = fichasDeLaCharla(especificaciones, { titulos: titulosDeLaCharla, texto: mensaje.texto });
+  if (fichasTecnicas.length) console.log(`Ficha técnica para la IA: ${fichasTecnicas.map((f) => f.modelo).join(", ")}`);
+
   const entrada = contexto(
     nombre,
     historialPrevio,
     textoCliente,
-    [notaVoz, marca, notaDelAnuncio, notaDelLocal].filter(Boolean).join("\n"),
+    [notaVoz, marca, notaDelAnuncio, notaTecnica(fichasTecnicas), notaDelLocal].filter(Boolean).join("\n"),
     esHistoria,
     minutosCallado,
     catalogo,
@@ -3308,6 +3319,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // No se usa donde la respuesta tiene que salir EXACTA o avisa a una
   // persona: las tablas de pago, las preguntas de asesor (colores,
   // garantía…), la publicación que no se sabe cuál es, la pregunta de marca.
+  // Con lo que salió en la búsqueda, la ficha técnica de ESO va primero.
+  const fichasTecnicasFinal = fichasDeLaCharla(especificaciones, {
+    titulos: [...paraMostrar.map((p) => p.titulo), ...titulosDeLaCharla],
+    texto: mensaje.texto,
+  });
+
   const cambioElCodigo = respuestaCliente.trim() !== String(salida.respuesta || "").trim();
   if (
     redaccionLibre(env) &&
@@ -3328,7 +3345,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
         texto: textoCliente,
         // Los de la hoja; a la IA le llega UN precio, el que toca (ver precioParaLaIa).
         productos: productos.filter((p) => paraMostrar.some((f) => f.titulo === p.titulo)),
-        anuncio: notaDelAnuncio,
+        anuncio: [notaDelAnuncio, notaTecnica(fichasTecnicasFinal)].filter(Boolean).join("\n"),
         queMostrar: soloTexto ? "texto" : modo,
         paso: cambioElCodigo ? respuestaCliente : "",
         borrador: salida.respuesta,
@@ -3418,6 +3435,13 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     await mandar(() => enviarTexto(env, mensaje.igsid, leDigo), leDigo);
   }
 
+  // "PÁSAME TODAS LAS ESPECIFICACIONES": un botón a la página oficial de la
+  // marca (6-oct-2026), si el equipo la tiene puesta en la base.
+  const botonFicha = sinSaberQueEs || marcasParaElegir.length ? null : botonDeLaPagina(mensaje.texto, fichasTecnicasFinal);
+  if (botonFicha) {
+    await mandar(() => enviarConBoton(env, mensaje.igsid, botonFicha.texto, { titulo: botonFicha.titulo, url: botonFicha.url }), botonFicha.texto);
+  }
+
   // LO QUE PENSÓ LA IA, PARA EL PANEL (2-oct-2026, ver panel.js): qué
   // entendió, qué buscó, qué fichas salieron y qué corrigieron las redes.
   const turnoDelPanel = {
@@ -3442,6 +3466,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       cuentaDeCuotas?.asesor && "se avisó al asesor para el monto",
       precioSinEquipo && "preguntó el precio sin decir de qué equipo (y no llegó anuncio que lo diga)",
       precioEscrito.corregido && "preguntó el precio: se le escribió el de la ficha",
+      fichasTecnicasFinal.length &&
+        `la IA tenía la FICHA TÉCNICA REAL (de la base) de: ${fichasTecnicasFinal
+          .map((f) => `${f.modelo} [${["pantalla", "procesador", "memoria", "camara", "frontal", "bateria", "carga", "sistema", "extras"].map((c) => f[c]).filter(Boolean).join("; ")}]`)
+          .join(" | ")
+          .slice(0, 1500)}`,
+      botonFicha && `se le mandó el botón a la página oficial (${botonFicha.url})`,
     ],
   };
   // El revisor lo mira cuando todo ya salió (ver atenderConRed y revisor.js).

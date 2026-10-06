@@ -37,6 +37,8 @@ for %f in (pruebas\*.mjs) do node pruebas\%f
 | `lista.mjs` | La lista de productos, las marcas y los botones |
 | `sinlista.mjs` | Que la lista escrita no se pegue encima de las fotos |
 | `pagos.mjs` | Cashea y Krece: que quepan, que no se crucen y que se lean |
+| `especificaciones.mjs` | La ficha técnica de cada teléfono en la base (SQLite real) y el botón a la página oficial |
+| `informe6oct.mjs` | Los casos del informe de errores del 6-oct (Cashea por nivel, precio escrito, "¿cuánto cuesta?") |
 | `pausas.mjs` | Que el bot reconozca su propio eco y no se pause solo |
 | `adjuntos.mjs` | Los tipos de adjunto con los que Meta manda un post compartido |
 | `feed.mjs` | Leer una publicación nuestra por la API de Instagram |

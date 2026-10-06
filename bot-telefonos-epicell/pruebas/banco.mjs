@@ -2,6 +2,20 @@
 // OpenAI simulados, y una D1 de mentira. Es lo que permite comprobar lo
 // que el cliente recibe de verdad, no solo las piezas por separado.
 import { atenderMeta } from "./.stub/index.js";
+import { DatabaseSync } from "node:sqlite";
+
+// La tabla de especificaciones va en SQLite de verdad (6-oct-2026): así el
+// turno completo lee la ficha técnica igual que en D1.
+function sqliteReal() {
+  const db = new DatabaseSync(":memory:");
+  const preparada = (sql, args = []) => ({
+    bind: (...a) => preparada(sql, a),
+    run: async () => db.prepare(sql).run(...args),
+    all: async () => ({ results: db.prepare(sql).all(...args) }),
+    first: async () => db.prepare(sql).get(...args) ?? null,
+  });
+  return (sql) => preparada(sql);
+}
 
 export const HOJA = `Nombre,Precio Divisas ($),Precio Cashea,Foto
 Samsung A57,310,95,https://x/a57.jpg
@@ -22,13 +36,16 @@ export function baseFalsa(filaInicial = {}) {
   // La tabla de comentarios ya contestados: un id solo entra una vez,
   // igual que en D1 (PRIMARY KEY).
   const comentarios = new Set();
+  let especificaciones = null;
   if (filaInicial.id) filas.set(filaInicial.id, { nombre: "", historial: "", pausado_hasta: 0, mids_enviados: "[]", ultimo_envio: 0, mostrados: "[]", ultima_respuesta: "", ultimos_productos: "[]", ultimos_textos: "[]", publicacion: "", ...filaInicial });
 
   const columnas = ["id","nombre","nombre_completo","usuario","historial","pausado_hasta","mids_enviados","ultimo_envio","mostrados","ultima_respuesta","ultimos_productos","ultimos_textos","publicacion"];
 
   return {
     filas,
+    batch: async (lista) => { for (const p of lista) await p.run(); },
     prepare(sql) {
+      if (/\bespecificaciones\b/i.test(sql)) return (especificaciones ||= sqliteReal())(sql);
       return {
         bind(...args) {
           const correr = async () => {

@@ -112,6 +112,9 @@ ESTO ESTÁ BIEN (no lo marques nunca):
     qué busca está bien; no hay ninguna pregunta que contestar.
   · Un "ok", "👍", "gracias", "listo" del cliente: no pregunta nada, así
     que una respuesta corta de cortesía está bien. No es "no_responde".
+  · Datos técnicos (pantalla, procesador, cámara, batería…) que coinciden
+    con la "FICHA TÉCNICA REAL" de LO QUE HIZO EL CÓDIGO: vienen de la base
+    de la tienda, no son inventados.
   · Un dato que la tienda NO tiene y manda al asesor (precio en bolívares,
     tasa del día, monto con Krece, garantía): "te lo confirma un asesor"
     ES la respuesta. No es "no_responde".
