@@ -40,7 +40,8 @@ import { anotarGasto } from "./gasto.js";
 // (ver registro.js), además de salir en el registro como siempre.
 vigilarErrores();
 import { revisarTono } from "./tono.js";
-import { revisarPrecio } from "./precio.js";
+import { revisarPrecio, contestaElPrecio } from "./precio.js";
+import { contestarCuotas, equipoDeLaCuenta } from "./cuotas.js";
 import { revisarDisponibilidad, marcasNombradas, marcasQueHay, fraseDeMarcaQueNoHay } from "./disponible.js";
 import { referenciaEnTexto } from "./referencias.js";
 import {
@@ -157,7 +158,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-06 (41) · revisor compartido: menos falsas alarmas (talla al asesor, precio en la ficha, catálogo enviado, mensaje vacío)";
+const VERSION = "2026-10-06 (42) · informe de errores del 6-oct: la cuenta de Cashea por nivel la hace el código, el precio se escribe cuando lo preguntan, \"¿cuánto cuesta?\" sin equipo, Redmi 7 ≈ A7, sin precios inventados en lo que ya vio";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -601,6 +602,25 @@ function ordenarPorParecido(productos, termino) {
     .map(({ producto }) => producto);
 }
 
+// "redmi 7 pro" y "Redmi A7 pro 5G": las mismas palabras, y el número con
+// una letra delante. Nada más que eso (un 15 no es un 17).
+function casiElMismo(pedido, titulo) {
+  const partes = (t) => despejar(t).split(/\s+/).filter((w) => w && w !== "5g" && w !== "4g");
+  const a = partes(pedido);
+  const b = partes(titulo);
+  if (a.length < 2 || !a.some((w) => /^\d+$/.test(w))) return false;
+  let conLetra = false;
+  for (const w of a) {
+    if (b.includes(w)) continue;
+    if (/^\d+$/.test(w) && b.some((x) => new RegExp(`^[a-z]${w}$`).test(x))) {
+      conLetra = true;
+      continue;
+    }
+    return false;
+  }
+  return conLetra && b.length <= a.length + 1;
+}
+
 function noEsePeroMira(termino, productos, porCategoria = "") {
   const pedido = comoLoPidio(termino);
   const alternativa = productos[0]?.titulo || "";
@@ -614,6 +634,13 @@ function noEsePeroMira(termino, productos, porCategoria = "") {
     !despejar(pedido).includes(despejar(alternativa));
 
   if (!distintos) return alAzar(NO_ESE_PERO_MIRA);
+
+  // CASI EL MISMO NOMBRE (6-oct-2026): pidió "Redmi 7 pro" y el primero es
+  // el "Redmi A7 pro". Decirle "no tengo el Redmi 7 Pro" con el A7 Pro
+  // delante es negarle lo que seguramente buscaba: se le pregunta si es ese.
+  if (casiElMismo(pedido, alternativa)) {
+    return `¿Te refieres al ${alternativa}? 😊 Te lo muestro 👇 y también otros que se le parecen`;
+  }
 
   const esFamilia = String(porCategoria || "").trim().split(/\s+/).filter(Boolean).length >= 2;
 
@@ -3100,6 +3127,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     historialPrevio,
     senalado: equipoSenalado,
     productoAnuncio: productoDelAnuncio,
+    recientes: await ultimosQueVio(env, contacto),
   });
 
   // No es const: las redes de abajo pueden cambiar lo que se le dice o lo
@@ -3230,6 +3258,48 @@ async function atenderMeta(env, mensaje, rastro = {}) {
 
   const paraMostrar = sinSaberQueEs ? [] : fichas;
 
+  // CUÁNTO LE QUEDA CON CASHEA: LA CUENTA LA HACE EL CÓDIGO (6-oct-2026,
+  // ver cuotas.js). "Estoy en nivel 3, ¿en cuánto me quedan las cuotas?"
+  // recibía "Mira los precios 👇": la IA no puede hacer la cuenta, y la red
+  // de precios borraba la que hacía. Aquí sale exacta, del precio Cashea
+  // de la hoja. No con la tabla general de pagos (ya va sola) ni cuando no
+  // se sabe de qué equipo habla.
+  const cuentaDeCuotas =
+    segundoMensaje || sinSaberQueEs || imagenCruda
+      ? null
+      : contestarCuotas({
+          texto: mensaje.texto,
+          historial: historialPrevio,
+          equipo: equipoDeLaCuenta({ productos, productoAnuncio: productoDelAnuncio, recientes: await ultimosQueVio(env, contacto) }),
+        });
+  // El saludo del modelo se queda si es el primer mensaje.
+  const saludoDelModelo = historialPrevio ? "" : (String(salida.respuesta || "").match(SU_BIENVENIDA)?.[0] || "").trim();
+  if (cuentaDeCuotas) {
+    respuestaCliente = [saludoDelModelo, cuentaDeCuotas.respuesta].filter(Boolean).join(" ");
+    console.log(`CUOTAS: ${cuentaDeCuotas.motivo}`);
+  }
+
+  // "¿CUÁNTO CUESTA?" Y NADA MÁS, DE ALGUIEN NUEVO (6-oct-2026, 4 casos
+  // en un día). Es la pregunta que trae escrita el botón de un anuncio,
+  // pero Meta no mandó de cuál: no hay equipo del que hablar. Antes salía
+  // "¿Qué equipo estás buscando?", que ignora lo que preguntó. Ahora se le
+  // contesta a SU pregunta: con gusto, ¿de cuál?, y cómo decírnoslo rápido.
+  const precioSinEquipo =
+    !cuentaDeCuotas &&
+    !historialPrevio &&
+    !paraMostrar.length &&
+    !productoDelAnuncio &&
+    !publicacion &&
+    !imagenCruda &&
+    !segundoMensaje &&
+    PRECIO_A_SECAS.test(String(mensaje.texto || ""));
+  if (precioSinEquipo) {
+    respuestaCliente = [saludoDelModelo || "¡Hola! Soy la asistente virtual de EPICCELL 👋", PRECIO_DE_CUAL].join(" ");
+    console.log(
+      `"${mensaje.texto}" sin saber de qué equipo: le pregunto cuál${mensaje.anuncio ? " (llegó de un anuncio que no dice cuál: revisa ADS_TOKEN y ANUNCIOS_EQUIPOS)" : ""}`
+    );
+  }
+
   // LA IA REDACTA VIENDO LO QUE HAY (2-oct-2026, ver redactarConResultados
   // en ia.js). Cuando hay fichas que enseñar, o cuando el código tuvo que
   // cambiar lo que la IA había escrito a ciegas, se le pide la respuesta
@@ -3245,6 +3315,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     !segundoMensaje &&
     !esConsultaDeAsesor &&
     !preguntarMarca &&
+    !cuentaDeCuotas &&
+    !precioSinEquipo &&
     (paraMostrar.length > 0 || cambioElCodigo) &&
     tiempoParaLaIa(rastro) > 4000
   ) {
@@ -3271,7 +3343,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       let revisada = revisarTono(redactada).respuesta;
       revisada = revisarDisponibilidad(revisada, enLaHojaAhora).respuesta;
       const conPrecioDeVerdad = productoDelAnuncio ? [...productos, productoDelAnuncio] : productos;
-      revisada = sinCerrarLaPuerta(sinPreciosInventados(revisada, conPrecioDeVerdad, { divisas: PREGUNTA_DIVISAS.test(mensaje.texto) }), paraMostrar);
+      revisada = sinCerrarLaPuerta(sinPreciosInventados(revisada, conPrecioDeVerdad, { divisas: PREGUNTA_DIVISAS.test(mensaje.texto), tambien: await ultimosQueVio(env, contacto) }), paraMostrar);
       revisada = revisarPrecio(revisada, { hayFichas: paraMostrar.length > 0, yaLasVio: soloTexto }).respuesta;
       if (historialPrevio) revisada = sinBienvenida(revisada);
       // Sin fichas debajo, una flecha que apunta a nada no puede salir.
@@ -3294,9 +3366,18 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     }
   }
 
+  // PREGUNTÓ EL PRECIO: SE LE ESCRIBE (6-oct-2026, ver precio.js). "¿Qué
+  // precio tiene el A57?" recibía "Aquí tienes el precio del Samsung A57:"
+  // y nada más. Con 1 a 3 fichas, su precio va escrito (el mismo de la
+  // ficha: un solo precio, el que toca).
+  const precioEscrito = cuentaDeCuotas || sinSaberQueEs
+    ? { corregido: false }
+    : contestaElPrecio(respuestaCliente, { texto: mensaje.texto, fichas: paraMostrar });
+  if (precioEscrito.corregido) respuestaCliente = precioEscrito.respuesta;
+
   const leDigo = sinSaberQueEs
     ? alAzar(PUBLICACION_SIN_IDENTIFICAR)
-    : paraMostrar.length
+    : paraMostrar.length && !cuentaDeCuotas
       ? sinListaPegada(respuestaCliente)
       : respuestaCliente;
 
@@ -3357,6 +3438,10 @@ async function atenderMeta(env, mensaje, rastro = {}) {
         `su borrador era: "${String(salida.respuesta || "").slice(0, 140)}"`,
       preguntarMarca && "prometió fotos sin buscar: se le preguntó la marca",
       sinSaberQueEs && "no se supo de qué equipo era la publicación",
+      cuentaDeCuotas && `la cuenta de cuotas la hizo el código: ${cuentaDeCuotas.motivo}`,
+      cuentaDeCuotas?.asesor && "se avisó al asesor para el monto",
+      precioSinEquipo && "preguntó el precio sin decir de qué equipo (y no llegó anuncio que lo diga)",
+      precioEscrito.corregido && "preguntó el precio: se le escribió el de la ficha",
     ],
   };
   // El revisor lo mira cuando todo ya salió (ver atenderConRed y revisor.js).
@@ -3376,7 +3461,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const escalada = hayEscalada({
     respuesta: leDigo,
     productos: paraMostrar,
-    esConsultaDeAsesor: esConsultaDeAsesor && !sinSaberQueEs,
+    esConsultaDeAsesor: (esConsultaDeAsesor || Boolean(cuentaDeCuotas?.asesor)) && !sinSaberQueEs,
     buscoSinExito: buscoSinExito && !sinSaberQueEs,
   });
 
@@ -3386,7 +3471,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       igsid: mensaje.igsid,
       mensaje: textoCliente,
       respuesta: leDigo,
-      motivo: motivo({ esConsultaDeAsesor }),
+      motivo: cuentaDeCuotas?.asesor ? "MONTO CON KRECE (el bot dio el % y las cuotas)" : motivo({ esConsultaDeAsesor }),
       historial: salida.historial || historialPrevio,
       busco: termino,
       productos,
@@ -4054,11 +4139,11 @@ function preciosDeVerdad(productos, { divisas = false } = {}) {
   return buenos;
 }
 
-function sinPreciosInventados(texto, productos, { divisas = false } = {}) {
+function sinPreciosInventados(texto, productos, { divisas = false, tambien = [] } = {}) {
   const dichas = cifrasDeDinero(texto);
   if (!dichas.length) return texto;
 
-  const verdaderos = preciosDeVerdad(productos, { divisas });
+  const verdaderos = preciosDeVerdad([...productos, ...(tambien || [])], { divisas });
   const inventadas = dichas.filter((cifra) => !verdaderos.has(cifra));
 
   if (!inventadas.length) return texto;
@@ -4069,8 +4154,32 @@ function sinPreciosInventados(texto, productos, { divisas = false } = {}) {
       "Le cambio la respuesta."
   );
 
-  return productos.length ? alAzar(EL_PRECIO_EN_LAS_FICHAS) : EL_PRECIO_LO_CONFIRMA_UN_ASESOR;
+  if (productos.length) return alAzar(EL_PRECIO_EN_LAS_FICHAS);
+
+  // SIN FICHAS, SE QUITA SOLO LA FRASE DE LA CIFRA (6-oct-2026). "Es un
+  // regalo" recibía "Déjame confirmarte ese precio con un asesor": no había
+  // preguntado ningún precio. Lo demás que escribió se queda; si no queda
+  // nada, la frase del asesor.
+  const resto = String(texto)
+    .split(/(?<=[.!?😊📱🎁👌🙌])\s+/)
+    .filter((frase) => !cifrasDeDinero(frase).some((cifra) => !verdaderos.has(cifra)))
+    .join(" ")
+    .trim();
+  return /[\p{L}]{3}/u.test(resto) ? resto : EL_PRECIO_LO_CONFIRMA_UN_ASESOR;
 }
+
+// Los equipos del último carrusel que vio, tal como están hoy en la hoja.
+async function ultimosQueVio(env, contacto) {
+  const vistos = contacto?.ultimos_productos || [];
+  if (!vistos.length) return [];
+  const hoja = await catalogoCompleto(env);
+  return hoja.filter((p) => vistos.some((t) => despejar(t) === despejar(p.titulo)));
+}
+
+// "¿Cuánto cuesta?" y nada más (ver precioSinEquipo).
+const PRECIO_A_SECAS = /^[\s¿¡]*(?:hola[\s,!.]*)?(?:(?:y\s+)?cu[aá]nto\s+(?:cuesta|cuestan|vale|valen|sale|salen|es)|(?:qu[eé]\s+)?precios?|cu[aá]l\s+es\s+el\s+precio)[\s?!.]*$/i;
+const PRECIO_DE_CUAL =
+  "¡Con gusto te digo el precio! 😊 ¿De cuál equipo es? Si lo viste en un anuncio o una publicación, mándamela por aquí y te lo digo al momento 📱";
 
 /* ── EL BOT NO LE CIERRA LA PUERTA A NADIE ─────────────────────────
 
@@ -4533,7 +4642,7 @@ function sinBienvenida(respuesta) {
 // De lo que escribió el modelo a lo que se le manda al cliente: se limpia el
 // término, se le quita el color, se busca en la hoja y se decide si la
 // respuesta del modelo sirve o hay que sustituirla.
-async function decidir({ env, salida, texto, historialPrevio, senalado = "", productoAnuncio = null }) {
+async function decidir({ env, salida, texto, historialPrevio, senalado = "", productoAnuncio = null, recientes = [] }) {
   // El color se busca en lo que escribió EL CLIENTE, no en el término que
   // escribió el modelo: si el modelo ya lo quitó por su cuenta, el cliente
   // igual lo preguntó y el asesor tiene que enterarse.
@@ -4992,7 +5101,9 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
   const sinInventos = sinCerrarLaPuerta(
     // Los precios del equipo del anuncio también son de verdad: la IA los
     // tiene delante y puede decirlos.
-    sinPreciosInventados(salida.respuesta, productoAnuncio ? [...productos, productoAnuncio] : productos, { divisas: PREGUNTA_DIVISAS.test(texto) }),
+    // Y los del último carrusel que vio: puede repetir un precio que ya le
+    // enseñamos ("el Redmi 15c que te mostré está en $182") sin fichas.
+    sinPreciosInventados(salida.respuesta, productoAnuncio ? [...productos, productoAnuncio] : productos, { divisas: PREGUNTA_DIVISAS.test(texto), tambien: recientes }),
     productos
   );
 

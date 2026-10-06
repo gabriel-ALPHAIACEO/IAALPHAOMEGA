@@ -37,6 +37,7 @@ ABIERTAS = [
     "fraseSinResultados", "marcarIdentificacion", "marcarPublicacionSinVer",
     "PAGOS_CASHEA", "PAGOS_KRECE", "NO_PUDE_ABRIRLO", "NO_ESE_PERO_MIRA",
     "atenderComentario", "modoComentarios", "equipoQueNombra",
+    "casiElMismo", "noEsePeroMira", "sinPreciosInventados", "PRECIO_A_SECAS",
 ]
 
 indice = os.path.join(destino, "index.js")

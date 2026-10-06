@@ -110,6 +110,11 @@ ESTO ESTÁ BIEN (no lo marques nunca):
     que fue el botón del catálogo: se le mandó de verdad.
   · Un mensaje del cliente VACÍO (sin texto ni foto): saludar o preguntar
     qué busca está bien; no hay ninguna pregunta que contestar.
+  · Un "ok", "👍", "gracias", "listo" del cliente: no pregunta nada, así
+    que una respuesta corta de cortesía está bien. No es "no_responde".
+  · Un dato que la tienda NO tiene y manda al asesor (precio en bolívares,
+    tasa del día, monto con Krece, garantía): "te lo confirma un asesor"
+    ES la respuesta. No es "no_responde".
 
 CONFIANZA:
   · "alta": lo puedes señalar con el dedo (citas la frase y sabes por qué

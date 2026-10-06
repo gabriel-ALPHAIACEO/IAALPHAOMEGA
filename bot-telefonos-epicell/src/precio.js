@@ -63,3 +63,37 @@ export function revisarPrecio(respuesta, { hayFichas = false, yaLasVio = false }
   console.log(`PRECIO: la IA ${motivos.join(" y ")} con las fichas a la vista. Lo cambio por "${explicacion}".`);
   return { corregido: true, respuesta: limpia, motivos };
 }
+
+// PREGUNTÓ EL PRECIO: SE LE ESCRIBE (6-oct-2026, informe de errores).
+//
+// "Buenas tardes, ¿qué precio sale el Samsung A57?" recibía "Aquí tienes
+// el precio del Samsung A57: ¿Cuál de estos te interesa más?" y las fichas.
+// El precio estaba debajo de cada foto, pero a una pregunta directa se le
+// contesta directo: con 1 a 3 fichas, su precio va escrito en el mensaje
+// (el MISMO que la ficha: un solo precio, el que toca). Con más, se le dice
+// que está en cada foto. Si la respuesta ya dice una cifra, no se toca.
+const PIDE_PRECIO = /\b(?:precios?|cu[aá]nto\s+(?:cuesta|cuestan|sale|salen|vale|valen|es)|costo|valor)\b/i;
+const YA_DICE_PRECIO = /\$\s*\d|\d\s*\$|\d\s*(?:usd|d[oó]lares)\b|precios?\s+(?:est[aá]n?|va[n]?|salen?|aparecen?)/i;
+const MAXIMO_ESCRITOS = 3;
+
+export function contestaElPrecio(respuesta, { texto = "", fichas = [] } = {}) {
+  const r = String(respuesta || "").trim();
+  if (!PIDE_PRECIO.test(String(texto || "")) || !fichas.length || YA_DICE_PRECIO.test(r)) {
+    return { corregido: false, respuesta: r };
+  }
+  const conPrecio = fichas.filter((f) => /\d/.test(String(f.precio || "")));
+  if (!conPrecio.length) return { corregido: false, respuesta: r };
+
+  let agregado;
+  if (fichas.length <= MAXIMO_ESCRITOS) {
+    agregado = conPrecio.map((f) => `💵 ${f.titulo}: ${f.precio}`).join("\n");
+  } else {
+    agregado = r.includes("👇") ? PRECIOS_EN_LAS_FOTOS.replace("👇", "😊") : PRECIOS_EN_LAS_FOTOS;
+  }
+  // "Aquí tienes el precio del Samsung A57:" — los dos puntos ya anuncian
+  // lo que viene: se pone justo detrás.
+  const base = r.replace(/:\s*(?=[¿¡]|$)/, ":\n" + agregado + "\n").trim();
+  const final = base.includes(agregado) ? base : `${r}\n${agregado}`;
+  console.log(`PRECIO: preguntó el precio y no estaba escrito; se le pone el de ${conPrecio.length} ficha(s)`);
+  return { corregido: true, respuesta: final.replace(/\n{3,}/g, "\n\n") };
+}

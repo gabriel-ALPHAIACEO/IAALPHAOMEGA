@@ -157,7 +157,9 @@ for (const dicho of ["En imágenes", "Mandalos", "Mándalos", "Ahora muéstrame,
   const lo = JSON.stringify(r.alModelo.find((x) => !x.redaccion)?.messages || []);
   comprobar("la IA sabe que viene del anuncio del A57", /LLEGÓ POR UN ANUNCIO DEL SAMSUNG A57/.test(lo), true);
   comprobar("y tiene su precio real: SOLO el de Cashea (el de divisas no lo ve)", /Precio con Cashea \(el ÚNICO que dices\): \$95/.test(lo) && !/\$310/.test(lo), true);
-  comprobar("si aun así dice los DOS precios, no sale ninguno de los dos", textos(r.enviados).some((t) => /\$310|\$95/.test(t)), false);
+  comprobar("si aun así dice los DOS precios, el de divisas no sale", textos(r.enviados).some((t) => /\$310/.test(t)), false);
+  // (6-oct-2026) Preguntó "precio?": el código le escribe UNO, el de la ficha (Cashea).
+  comprobar("y el que sale es el de la ficha, escrito por el código", textos(r.enviados).some((t) => /💵 Samsung A57[^\n]*: [^\n]*\$95/.test(t)), true);
   comprobar("y la ficha del A57 va debajo", titulos(r.enviados), ["Samsung A57"]);
 
   const AYER = JSON.stringify({ titulo: ANUNCIO.titulo, descripcion: "", cuando: Date.now() - 20 * 60 * 60 * 1000, atendida: true, deAnuncio: true, equipo: "Samsung A57" });
