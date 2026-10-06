@@ -162,6 +162,59 @@ export function pideElCatalogo(texto) {
   return palabras.some((p) => NUCLEO.has(p));
 }
 
+// "¿TIENEN CALZADOS NUEVOS?" → EL CATÁLOGO, SIN FICHAS (6-oct-2026).
+//
+// El dueño: "cuando pregunten por nuevos calzados, mándame el catálogo
+// completo, no mandes fichas: 'Sí, claro, tenemos todos los calzados nuevos
+// en el catálogo'". Y: "el 'sí claro' cambia, no tiene que ser tal cual".
+//
+// Solo cuando pregunta por LO NUEVO EN GENERAL: "¿tienen zapatos nuevos?",
+// "¿qué llegó?", "¿novedades?", "¿qué hay de nuevo?". Si nombra algo
+// concreto ("¿tienen Jordan nuevos?") es una búsqueda: lo atiende la IA. Y
+// "¿son nuevos?" pregunta por el estado de un zapato, no por lo que llegó.
+const LO_NUEVO =
+  /\b(?:nuev[oa]s?|novedad(?:es)?|recien\s+llegad[oa]s?|lo\s+ultimo|ultim[oa]s?\s+(?:modelos?|llegad[oa]s?|zapatos?|calzados?|tenis|zapatillas)|coleccion|que\s+(?:les\s+|te\s+)?(?:llego|llegaron|entro|entraron|trajeron)|llegaron|mercancia)\b/;
+// Lo que dice que habla de calzado o de lo que llegó (no del estado de uno).
+const DE_CALZADO_O_LLEGADA =
+  /\b(?:calzados?|zapatos?|tenis|zapatillas|sneakers|modelos?|coleccion|mercancia|novedad(?:es)?|llego|llegaron|llegado|llegados|entraron|trajeron|recien|lo\s+nuevo|de\s+nuevo|ultimo)\b/;
+// "¿son nuevos?", "¿vienen nuevos?": pregunta si es nuevo o usado.
+const ESTADO_DEL_ZAPATO = /\b(?:son|es|estan|esta|vienen|viene)\s+(?:nuev|originales?|usad)/;
+const VOCABULARIO_DE_LO_NUEVO = new Set([
+  "nuevo", "nuevos", "nueva", "nuevas", "novedad", "novedades", "recien", "llegado", "llegados",
+  "llegada", "llegadas", "llego", "llegaron", "llegan", "llega", "entro", "entraron", "trajeron",
+  "traen", "ultimo", "ultimos", "ultima", "ultimas", "coleccion", "mercancia", "temporada",
+  "tenis", "zapatillas", "sneakers", "hola", "buenas", "buenos", "buen", "dia", "dias", "tardes",
+  "noches", "les", "hoy", "semana", "esta", "este", "mes", "alguno", "algunos", "alguna",
+  "algunas", "han", "ha", "hay", "cuales", "como", "saber", "info", "informacion",
+]);
+
+export function pideLoNuevo(texto) {
+  const palabras = despejar(texto);
+  if (!palabras.length || palabras.length > 12) return false;
+  const plano = palabras.join(" ");
+  // "Mándamelos de nuevo" es volver a ver lo mismo; "¿qué hay de nuevo?" sí es lo nuevo.
+  if (pideVerOtraVez(texto) && !/\bque\s+hay\s+de\s+nuevo\b/.test(plano)) return false;
+  if (!LO_NUEVO.test(plano) && !/\bque\s+hay\s+de\s+nuevo\b/.test(plano)) return false;
+  if (!DE_CALZADO_O_LLEGADA.test(plano) || ESTADO_DEL_ZAPATO.test(plano)) return false;
+  return palabras.every((p) => VOCABULARIO_DE_LO_NUEVO.has(p) || ACOMPANAN.has(p) || NUCLEO.has(p));
+}
+
+// Lo que se le contesta: el "sí, claro" cambia cada vez (pedido del dueño).
+const FRASES_LO_NUEVO = [
+  "¡Sí, claro! Todos los calzados nuevos los tienes en el catálogo 👇",
+  "¡Claro que sí! Lo nuevo que nos llegó está todo en el catálogo 👇 Si ves alguno que te guste, me dices 😊",
+  "¡Por supuesto! En el catálogo están todos los modelos nuevos 👇",
+  "¡Sí! Tenemos calzados nuevos, y los tienes todos en el catálogo 👇 Dime cuál te gustó y te ayudo 😊",
+  "¡Claro! Todo lo que acaba de llegar está en el catálogo 👇",
+  "¡Sí tenemos! Los calzados nuevos están todos en el catálogo 👇 Échale un ojo 👟",
+];
+
+export function fraseDeLoNuevo(nombre = "") {
+  const frase = FRASES_LO_NUEVO[Math.floor(Math.random() * FRASES_LO_NUEVO.length)];
+  // Con su nombre, a veces: "¡Sí, claro, María! …"
+  return nombre ? frase.replace(/^(¡[^!]*?)!/, `$1, ${nombre}!`) : frase;
+}
+
 export function fraseDeCatalogo(nombre) {
   const lista = nombre ? FRASES_CON_NOMBRE : FRASES;
   const frase = lista[Math.floor(Math.random() * lista.length)];

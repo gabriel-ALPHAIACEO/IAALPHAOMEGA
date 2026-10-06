@@ -101,6 +101,8 @@ import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import {
   pideElCatalogo,
+  pideLoNuevo,
+  fraseDeLoNuevo,
   pideMasVariedad,
   fraseDeCatalogo,
   corregirBusquedaDeBotas,
@@ -153,7 +155,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-06 (72) · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · informe de errores del 6-oct: el precio se dice cuando lo preguntan, tallas al asesor sin contradecir, colores que sí hay, Cashea de su nivel, mensaje vacío del anuncio, aviso de OpenAI sin saldo · revisor: menos falsas alarmas";
+const VERSION = "2026-10-06 (73) · ¿calzados nuevos? → el catálogo completo, sin fichas, con un \"sí, claro\" que cambia · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · informe de errores del 6-oct: el precio se dice cuando lo preguntan, tallas al asesor sin contradecir, colores que sí hay, Cashea de su nivel, mensaje vacío del anuncio, aviso de OpenAI sin saldo · revisor: menos falsas alarmas";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1734,6 +1736,22 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   //
   // La talla va PRIMERO a propósito: "¿tienen más tallas?" es una pregunta
   // para el asesor, no un pedido de catálogo.
+  // "¿TIENEN CALZADOS NUEVOS?" (6-oct-2026, dueño): el catálogo completo,
+  // sin fichas, con un "sí, claro" que cambia cada vez (ver catalogo.js).
+  if (!imagenCruda && !PREGUNTA_TALLA.test(mensaje.texto) && pideLoNuevo(mensaje.texto)) {
+    const respuesta = fraseDeLoNuevo(nombre);
+    console.log(`Preguntó por lo nuevo → el catálogo: ${JSON.stringify(respuesta)}`);
+    await mandar(() => enviarBotonCatalogo(env, mensaje.igsid, respuesta), respuesta);
+    await guardarContacto(env.DB, {
+      ...contacto,
+      nombre,
+      historial: conNota(historialPrevio, "Preguntó por los calzados nuevos y le pasé el catálogo."),
+      mids_enviados: mids,
+      ultimo_envio: enviadoEn || Date.now(),
+    });
+    return;
+  }
+
   if (!imagenCruda && !PREGUNTA_TALLA.test(mensaje.texto) && pideElCatalogo(mensaje.texto)) {
     const respuesta = fraseDeCatalogo(nombre);
     console.log(`Pidió el catálogo → ${JSON.stringify(respuesta)}`);

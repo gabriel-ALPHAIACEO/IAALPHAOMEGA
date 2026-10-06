@@ -457,4 +457,32 @@ titulo("informe del 6-oct: lo que se arregló en el código");
   ok(c.textos.length >= 2 && /j40n|Jordan 40 negro/.test(c.todo), "y se le enseñan los colores que sí (no 'déjame confirmarte' + catálogo)");
 }
 
+titulo('"¿tienen calzados nuevos?" → el catálogo completo, sin fichas (6-oct)');
+{
+  const carrusel = (r) => r.textos.filter((t) => /"template_type":"generic"/.test(t)).length;
+  for (const texto of ["tienen calzados nuevos?", "Hola, que hay de nuevo?", "llegaron modelos nuevos?", "novedades?"]) {
+    const r = await conversar(texto, {
+      productos: JORDAN,
+      respuestaModelo: { respuesta: "¡Sí! Mira estos nuevos 👇", buscar: "Jordan", historial: "Pidió lo nuevo." },
+    });
+    ok(r.botones.some((b) => /Ver catálogo → https:\/\/tienda\.test/.test(b)), `"${texto}" → el botón del catálogo`, r.botones.join(" | "));
+    ok(carrusel(r) === 0, `"${texto}" → sin fichas`, String(carrusel(r)));
+    ok(/cat[aá]logo/i.test(r.todo) && /nuev|lleg/i.test(r.todo), `"${texto}" → "sí, claro… lo nuevo está en el catálogo"`, r.todo.slice(0, 90));
+  }
+  const frases = new Set();
+  const src = await prepararSrc();
+  const K = await src.cargar("catalogo.js");
+  for (let i = 0; i < 40; i++) frases.add(K.fraseDeLoNuevo(""));
+  ok(frases.size >= 3, "el 'sí, claro' cambia cada vez (no es siempre la misma frase)", String(frases.size));
+  for (const t of ["tienen jordan nuevos?", "son nuevos?", "los zapatos son nuevos o usados?", "mándamelos de nuevo", "quiero unos tenis nuevos para correr"]) {
+    ok(!K.pideLoNuevo(t), `"${t}" → no es pedir lo nuevo (lo atiende la IA)`);
+  }
+  src.limpiar();
+  const concreto = await conversar("tienen jordan nuevos?", {
+    productos: JORDAN,
+    respuestaModelo: { respuesta: "¡Sí tengo! Mira 👇", buscar: "Jordan", historial: "Pidió Jordan." },
+  });
+  ok(carrusel(concreto) > 0, "\"¿tienen Jordan nuevos?\" sigue mostrando los Jordan (es una búsqueda)", String(carrusel(concreto)));
+}
+
 terminar();
