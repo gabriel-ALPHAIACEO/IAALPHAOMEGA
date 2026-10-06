@@ -37,7 +37,8 @@ const CREAR = `
     texto   TEXT NOT NULL,
     igsid   TEXT NOT NULL DEFAULT '',
     veces   INTEGER NOT NULL DEFAULT 1,
-    leida   INTEGER NOT NULL DEFAULT 0
+    leida   INTEGER NOT NULL DEFAULT 0,
+    resuelta INTEGER NOT NULL DEFAULT 0
   )
 `;
 
@@ -49,6 +50,12 @@ const preparadas = new WeakSet();
 async function preparar(db) {
   if (preparadas.has(db)) return;
   await db.prepare(CREAR).run();
+  // "Solucionada" (6-oct-2026): la tabla de antes no la tenía.
+  try {
+    await db.prepare("ALTER TABLE alertas ADD COLUMN resuelta INTEGER NOT NULL DEFAULT 0").run();
+  } catch {
+    // Ya estaba.
+  }
   await db.prepare("CREATE INDEX IF NOT EXISTS alertas_leida ON alertas (leida)").run();
   preparadas.add(db);
 }
@@ -63,7 +70,8 @@ export async function guardarAlerta(db, { tienda, tipo, texto, igsid = "", cuand
     .bind(tienda, clase, limpio, Date.now() - REPETIDA_MS)
     .first();
   if (igual) {
-    await db.prepare("UPDATE alertas SET veces = veces + 1, cuando = ?, leida = 0 WHERE id = ?").bind(Date.now(), igual.id).run();
+    // Si vuelve a pasar, vuelve a estar sin solucionar.
+    await db.prepare("UPDATE alertas SET veces = veces + 1, cuando = ?, leida = 0, resuelta = 0 WHERE id = ?").bind(Date.now(), igual.id).run();
     return igual.id;
   }
   await db
@@ -77,10 +85,11 @@ export async function guardarAlerta(db, { tienda, tipo, texto, igsid = "", cuand
   return Number(fila?.id) || 0;
 }
 
-export async function listarAlertas(db, { tienda = "", tipo = "", limite = 200, desdeId = 0 } = {}) {
+export async function listarAlertas(db, { tienda = "", tipo = "", limite = 200, desdeId = 0, todas = false } = {}) {
   if (!db) return [];
   await preparar(db);
-  const condiciones = ["id > ?"];
+  // Las solucionadas no salen (salvo que se pidan todas).
+  const condiciones = todas ? ["id > ?"] : ["id > ?", "resuelta = 0"];
   const args = [Number(desdeId) || 0];
   if (tienda) {
     condiciones.push("tienda = ?");
@@ -101,8 +110,19 @@ export async function sinLeer(db) {
   if (!db) return 0;
   await preparar(db);
   const tiposAvisables = Object.entries(TIPOS).filter(([, t]) => t.avisar).map(([k]) => `'${k}'`).join(",");
-  const r = await db.prepare(`SELECT COUNT(*) AS n FROM alertas WHERE leida = 0 AND tipo IN (${tiposAvisables})`).first();
+  const r = await db.prepare(`SELECT COUNT(*) AS n FROM alertas WHERE leida = 0 AND resuelta = 0 AND tipo IN (${tiposAvisables})`).first();
   return Number(r?.n) || 0;
+}
+
+// ✅ SOLUCIONAR (6-oct-2026): dejan de salir (y de contar en la campana).
+// No se borran: con "ver también las solucionadas" se ven.
+export async function solucionarAlertas(db, { tienda = "" } = {}) {
+  if (!db) return 0;
+  await preparar(db);
+  const r = tienda
+    ? await db.prepare("UPDATE alertas SET resuelta = 1, leida = 1 WHERE resuelta = 0 AND tienda = ?").bind(tienda).run()
+    : await db.prepare("UPDATE alertas SET resuelta = 1, leida = 1 WHERE resuelta = 0").run();
+  return Number(r?.meta?.changes) || 0;
 }
 
 export async function marcarLeidas(db) {

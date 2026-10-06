@@ -485,6 +485,37 @@ titulo("🧠 Aprendido: lo que la IA aprendió sola, y el 🛠️ de lo que va a
   ok(A.TIPOS.codigo?.simbolo === "🛠️" && A.TIPOS.codigo.avisar, "y la alerta 🛠️ existe (suena)");
 }
 
+titulo("✅ solucionar errores: dejan de salir en rojo (6-oct-2026)");
+{
+  // Una respuesta señalada y un error técnico en Invictus, y alertas aquí.
+  await abrir("/t/invictus/errores");
+  const t = BASE1.sql.prepare("SELECT MAX(id) AS id FROM turnos").get().id;
+  BASE1.sql.prepare("UPDATE turnos SET marca = 'indebida', motivo = 'Prueba de solucionar' WHERE id = ?").run(t);
+  BASE1.sql.prepare("INSERT INTO errores (cuando, texto) VALUES (?, 'No pude leer la hoja (prueba de solucionar)')").run(Date.now());
+  const antes = await abrir("/errores");
+  ok(/✅ Solucionar errores/.test(antes.html) && /prueba de solucionar/.test(antes.html), "en /errores: el botón, y el error todavía sale");
+  const alertasAntes = BASE_C.sql.prepare("SELECT COUNT(*) AS n FROM alertas WHERE resuelta = 0").get().n;
+  ok(alertasAntes > 0, "hay alertas sin solucionar", String(alertasAntes));
+  const ajena = await abrir("/solucionar", { metodo: "POST", form: { volver: "/errores" }, origen: "https://otro.test" });
+  ok(ajena.estado === 403, "desde otra página no se puede");
+  const r = await abrir("/solucionar", { metodo: "POST", form: { volver: "/errores" } });
+  ok(r.estado === 303 && /\/errores\?aviso=/.test(r.r.headers.get("location") || ""), "✅ Solucionar errores vuelve a /errores con el aviso", r.r.headers.get("location"));
+  const despues = await abrir("/errores");
+  ok(!/prueba de solucionar/.test(despues.html), "el error técnico ya no sale");
+  ok(BASE1.sql.prepare("SELECT resuelto, marca FROM turnos WHERE id = ?").get(t).resuelto === 1 && BASE1.sql.prepare("SELECT marca FROM turnos WHERE id = ?").get(t).marca === "indebida", "la respuesta señalada de la tienda quedó solucionada (sin borrarla)");
+  ok(BASE_C.sql.prepare("SELECT COUNT(*) AS n FROM alertas WHERE resuelta = 0").get().n === 0, "y las alertas de aquí también");
+  const al = await abrir("/alertas");
+  ok(!/Alucinó — un precio/.test(al.html), "/alertas ya no las enseña");
+  const inf = await abrir("/errores/informe?dias=30");
+  ok(!/Prueba de solucionar/.test(inf.html), "ni el informe de errores");
+  // Por tienda: lo de una sola.
+  BASE1.sql.prepare("UPDATE turnos SET resuelto = 0, motivo = 'Otra vez' WHERE id = ?").run(t);
+  const una = await abrir("/t/invictus/solucionar", { metodo: "POST", form: { volver: "errores" } });
+  ok(una.estado === 303 && BASE1.sql.prepare("SELECT resuelto FROM turnos WHERE id = ?").get(t).resuelto === 1, "desde la página de una tienda, solo lo suyo");
+  const pag = await abrir("/t/invictus/errores");
+  ok(/✅ Solucionar errores/.test(pag.html), "y su pestaña de errores tiene el botón");
+}
+
 titulo("las bases de datos: ver y editar desde el central");
 {
   const tablas = await abrir("/t/invictus/bases");

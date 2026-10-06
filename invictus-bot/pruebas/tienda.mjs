@@ -438,6 +438,36 @@ titulo("los errores de la IA, para la tienda (con Excel y texto)");
   ok(/Sin errores de la IA en este período/.test(r.texto), "un período sin nada sale vacío");
   r = await pedir("/panel/errores.csv?dias=7");
   ok(!/Dijo una talla/.test(r.texto), "sin sesión, nada");
+
+  // ✅ SOLUCIONAR (6-oct-2026): dejan de salir en rojo, pero no se borran.
+  r = await pedir("/panel/errores?dias=7", { cookie });
+  ok(/✅ Solucionar todos/.test(r.texto) && /✅ Solucionado/.test(r.texto), "botones: ✅ Solucionar todos y ✅ Solucionado en cada una");
+  const uno = new FormData(); uno.set("id", String(t.id)); uno.set("volver", "/panel/errores?dias=7");
+  r = await pedir("/panel/errores/solucionar", { metodo: "POST", cookie, cuerpo: uno, origen: "https://otro.test" });
+  ok(r.estado === 403, "desde otra página no se puede (como los demás botones)");
+  r = await pedir("/panel/errores/solucionar", { metodo: "POST", cookie, cuerpo: uno, origen: "https://bot.test" });
+  ok(r.estado === 303 && r.donde === "/panel/errores?dias=7", "solucionar una vuelve a la misma página");
+  r = await pedir("/panel/errores?dias=7", { cookie });
+  ok(!/Dijo una talla que no buscó/.test(r.texto) && /Falla técnica/.test(r.texto), "la solucionada ya no sale; la otra sigue");
+  ok((await DB.prepare("SELECT marca FROM turnos WHERE id = ?").bind(t.id).first()).marca === "indebida", "…y no se borró: la marca sigue en la base");
+  r = await pedir("/panel/c/123", { cookie });
+  ok(!/Dijo una talla que no buscó/.test(r.texto), "en el chat ya no sale el sello rojo de la solucionada");
+  const todos = new FormData();
+  r = await pedir("/panel/errores/solucionar", { metodo: "POST", cookie, cuerpo: todos, origen: "https://bot.test" });
+  r = await pedir("/panel/errores?dias=7", { cookie });
+  ok(/Sin errores de la IA en este período/.test(r.texto), "✅ Solucionar todos: no queda ninguna en rojo");
+  r = await pedir("/panel", { cookie });
+  ok(!/class="etiqueta pausa" title=/.test(r.texto), "y en la lista de chats ya no quedan los símbolos rojos de cada cliente");
+  await (await src.cargar("registro.js")).marcarTurno(DB, t.id, "queja", "El cliente se quejó después");
+  r = await pedir("/panel/errores?dias=7", { cookie });
+  ok(/El cliente se quejó después/.test(r.texto), "si después sale mal otra vez, vuelve a aparecer (es un problema nuevo)");
+  const API_S = "s".repeat(12) + "-clave-larga-del-central";
+  const resp = await callado(() => worker.fetch(new Request("https://bot.test/api/central/solucionar", { method: "POST", headers: { authorization: `Bearer ${API_S}` }, body: "{}" }), { ...ENV, PANEL_API_CLAVE: API_S }, { waitUntil() {} }));
+  const hecho = await resp.json();
+  ok(hecho.ok === true, "desde ALPHA IA también (/api/central/solucionar)", JSON.stringify(hecho));
+  r = await pedir("/panel/errores?dias=7", { cookie });
+  ok(/Sin errores de la IA en este período/.test(r.texto), "…y quedan solucionadas");
+  await DB.prepare("UPDATE turnos SET resuelto = 0").run();
   await DB.prepare("UPDATE turnos SET marca = '', motivo = '' WHERE id = ?").bind(t.id).run();
   await DB.prepare("DELETE FROM turnos WHERE marca = 'error' AND cliente = 'hola?'").run();
 }

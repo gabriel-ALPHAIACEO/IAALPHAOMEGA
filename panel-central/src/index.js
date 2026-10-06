@@ -32,7 +32,7 @@
 import { imagenDeAlpha, imagenesDeAdjuntos, kpi, respuestaCsv } from "./alpha.js";
 import { INFORME_DIAS, informeDeErrores, csvDelInforme, textoDelInforme, respuestaTexto, vistaInforme } from "./informe.js";
 import { leerTiendas, claveDe, pedir, pedirATodas, tiendaDeLaClave, mismoTexto } from "./tiendas.js";
-import { TIPOS, guardarAlerta, listarAlertas, sinLeer, marcarLeidas, anotarSalud, leerSalud } from "./alertas.js";
+import { TIPOS, guardarAlerta, listarAlertas, sinLeer, marcarLeidas, solucionarAlertas, anotarSalud, leerSalud } from "./alertas.js";
 import { claveLista, cookieNueva, COOKIE_FUERA, sesionValida, vieneDelPanel, demasiadosIntentos, anotarIntento, olvidarIntentos } from "./sesion.js";
 import {
   esc,
@@ -62,7 +62,7 @@ import {
   vistaAprendido,
 } from "./vistas.js";
 
-const VERSION = "2026-10-06 (17) · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · 🧠 Aprendido: lo que la IA aprendió sola, y la alerta 🛠️ de lo que hay que poner en el código";
+const VERSION = "2026-10-06 (18) · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · 🧠 Aprendido: lo que la IA aprendió sola, y la alerta 🛠️ de lo que hay que poner en el código";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");
@@ -457,10 +457,20 @@ async function atenderTienda(request, env, url, t, resto, opciones) {
     return p("Ganadores", filas ? vistaGanadores(filas, { cabecera }) : cabecera + errorDe(r));
   }
 
+  // ✅ SOLUCIONAR (6-oct-2026): sus errores y sus alertas dejan de salir en rojo.
+  if (resto === "solucionar" && esPost) {
+    const r = await pedir(env, t, "solucionar", { metodo: "POST", cuerpo: {} });
+    await solucionarAlertas(env.DB, { tienda: t.id });
+    console.log(`PANEL CENTRAL: errores de ${t.nombre} solucionados`);
+    const volver = String(formulario?.get("volver") || "errores").replace(/[^a-z-]/g, "") || "errores";
+    const aviso = r.ok ? "✅ Listo: lo de esta tienda quedó solucionado y ya no sale en rojo." : `Las alertas quedaron solucionadas, pero la tienda no respondió (${r.error || "despliega su versión nueva"}).`;
+    return redirigir(`/t/${encodeURIComponent(t.id)}/${volver}?aviso=${encodeURIComponent(aviso)}`);
+  }
+
   if (resto === "errores") {
     const n = Math.min(dias(url, 7), 30);
     const r = await pedir(env, t, `errores?dias=${n}`);
-    const cabecera = pestanasDeTienda(t, "errores");
+    const cabecera = pestanasDeTienda(t, "errores") + avisoDe(url) + botonSolucionar(`/t/${t.id}/solucionar`, "errores", `todo lo de ${t.nombre}`);
     return p("Errores", r.ok && Array.isArray(r.datos) ? vistaErrores(r.datos, cabecera, { soloErrores: url.searchParams.get("solo") === "1" }) : cabecera + errorDe(r));
   }
 
@@ -479,7 +489,7 @@ async function atenderTienda(request, env, url, t, resto, opciones) {
   }
 
   if (resto === "alertas") {
-    return p("Alertas", pestanasDeTienda(t, "alertas") + listaDeAlertas(await listarAlertas(env.DB, { tienda: t.id, limite: 100 }), nombres(env)));
+    return p("Alertas", pestanasDeTienda(t, "alertas") + avisoDe(url) + botonSolucionar(`/t/${t.id}/solucionar`, "alertas", `todo lo de ${t.nombre}`) + listaDeAlertas(await listarAlertas(env.DB, { tienda: t.id, limite: 100 }), nombres(env)));
   }
 
   if (resto === "estado") {
@@ -636,6 +646,23 @@ async function atender(request, env) {
   if (url.pathname === "/en-pausa") return pagina("En pausa", vistaEnPausa((await pedirATodas(env, "chats?f=pausados")).map((r) => (r.ok && !Array.isArray(r.datos) ? { ...r, ok: false, error: "respuesta rara de la tienda: despliega su versión nueva" } : r))), { ...opciones, vivo: true, marca: "/marca" });
   if (url.pathname === "/en-vivo/datos") return enVivo(env, url);
 
+  // ✅ SOLUCIONAR TODO (6-oct-2026): los errores y las respuestas señaladas
+  // de TODAS las tiendas, y las alertas de aquí. No se borra nada: deja de
+  // salir en rojo. Lo que pase después vuelve a salir.
+  if (url.pathname === "/solucionar" && request.method === "POST") {
+    if (!vieneDelPanel(request)) return new Response("No", { status: 403 });
+    const datos = await request.formData().catch(() => null);
+    const respuestas = await pedirATodas(env, "solucionar", { metodo: "POST", cuerpo: {} });
+    await solucionarAlertas(env.DB);
+    const fallaron = respuestas.filter((r) => !r.ok).map((r) => r.tienda.nombre);
+    console.log(`PANEL CENTRAL: todo solucionado${fallaron.length ? ` (no respondieron: ${fallaron.join(", ")})` : ""}`);
+    const aviso = fallaron.length
+      ? `Las alertas quedaron solucionadas. Estas tiendas no respondieron (despliega su versión nueva): ${fallaron.join(", ")}.`
+      : "✅ Listo: todos los errores quedaron solucionados y ya no salen en rojo.";
+    const volver = ["/errores", "/alertas", "/"].includes(String(datos?.get("volver"))) ? String(datos.get("volver")) : "/errores";
+    return redirigir(`${volver}?aviso=${encodeURIComponent(aviso)}`);
+  }
+
   if (url.pathname === "/alertas") {
     if (request.method === "POST") {
       if (!vieneDelPanel(request)) return new Response("No", { status: 403 });
@@ -653,7 +680,7 @@ async function atender(request, env) {
     return pagina(
       "Alertas",
       `<h2>🔔 Alertas</h2><p class="suave">Llegan solas, en el momento: con el panel abierto suena un pitido, sale un aviso y (si lo activas) una notificación del navegador.</p>
-<div class="pestanas">${filtros}</div>${listaDeAlertas(lista, nombres(env))}`,
+${avisoDe(url)}${botonSolucionar("/solucionar", "/alertas", "todo, en todas las tiendas")}<div class="pestanas">${filtros}</div>${listaDeAlertas(lista, nombres(env))}`,
       { ...opciones, sinLeer: 0, vivo: true }
     );
   }
@@ -707,7 +734,7 @@ async function atender(request, env) {
       .sort((a, b) => b.cuando - a.cuando)
       .slice(0, 300);
     const caidas = respuestas.filter((r) => !r.ok).map((r) => `<div class="tarjeta mal">🚨 ${esc(r.tienda.nombre)}: ${esc(r.error)}</div>`).join("");
-    return pagina("Errores", vistaErrores(filas, `<h2>Errores de todas las tiendas</h2><p><a class="boton" href="/errores/informe?dias=30">🧾 Informe de errores: agrupado y para bajar (Excel o texto)</a></p>${caidas}`, { soloErrores: url.searchParams.get("solo") === "1" }), opciones);
+    return pagina("Errores", vistaErrores(filas, `<h2>Errores de todas las tiendas</h2>${avisoDe(url)}<div class="acciones"><a class="boton" href="/errores/informe?dias=30">🧾 Informe de errores: agrupado y para bajar (Excel o texto)</a>${botonSolucionar("/solucionar", "/errores", "todo, en todas las tiendas", true)}</div>${caidas}`, { soloErrores: url.searchParams.get("solo") === "1" }), opciones);
   }
 
   if (url.pathname === "/gastos") {
@@ -756,3 +783,14 @@ const trabajador = {
 
 export default trabajador;
 export { VERSION, comprobarTiendas, juntarMetricas };
+
+// ✅ El botón "Solucionar" (6-oct-2026) y el aviso que sale al volver.
+function botonSolucionar(accion, volver, que, enLinea = false) {
+  const boton = `<form method="post" action="${esc(accion)}" onsubmit="return confirm('¿Marcar ${esc(que)} como solucionado? Deja de salir en rojo (no se borra nada).')"><input type="hidden" name="volver" value="${esc(volver)}"><button class="principal">✅ Solucionar errores</button></form>`;
+  return enLinea ? boton : `<div class="acciones">${boton}<span class="suave">Ya lo arreglaste: que deje de salir en rojo. Lo que pase después vuelve a salir.</span></div>`;
+}
+
+function avisoDe(url) {
+  const aviso = String(url.searchParams.get("aviso") || "").slice(0, 300);
+  return aviso ? `<div class="tarjeta">${esc(aviso)}</div>` : "";
+}

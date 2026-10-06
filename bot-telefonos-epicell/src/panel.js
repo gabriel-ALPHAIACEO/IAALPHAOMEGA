@@ -31,7 +31,7 @@
 
 import { cargarContacto, pausar, despausar, asegurarColumnas } from "./estado.js";
 import { gastoDelMes } from "./gasto.js";
-import { TABLAS, leerTabla, tipoDeError, esIntencionDeCompra, asegurarTurnos, MARCAS } from "./registro.js";
+import { TABLAS, leerTabla, tipoDeError, esIntencionDeCompra, asegurarTurnos, asegurarErrores, solucionarErrores, MARCA_VISIBLE, MARCAS } from "./registro.js";
 import { ESTILO_ALPHA, SCRIPT_ALPHA, imagenDeAlpha, marcaAlpha, cajaDeEntrada, adjuntosLimpios, leerAdjuntos, textoDeAdjuntos, textoVisible, htmlDeAdjuntos, kpi, barras, selectorDePeriodo, aCsv, respuestaCsv } from "./alpha.js";
 import { listarLecciones, olvidarLeccion, aprendeActivo, VECES_PARA_CODIGO } from "./lecciones.js";
 import { clientesDelCrm, guardarCrm, htmlListaDeClientes, htmlFichaDeCliente, filtrarClientes, filasCsvDeClientes } from "./crm.js";
@@ -229,6 +229,8 @@ async function turnosDe(db, igsid) {
       .all();
     return (r?.results || []).reverse().map((t) => ({
       ...t,
+      // Lo solucionado ya no sale en rojo (ver solucionarErrores).
+      marca: Number(t.resuelto) ? "" : t.marca,
       cuando: Number(t.cuando) || 0,
       productos: leer(t.productos),
       notas: leer(t.notas),
@@ -301,6 +303,7 @@ const ESTILO = `${ESTILO_ALPHA}
 .filtros a:hover{color:var(--texto);border-color:var(--borde-fuerte)}
 .filtros a.activo{color:#fff;background:linear-gradient(135deg,#2f7bff,#0a5cf5);border-color:transparent;box-shadow:0 4px 16px -6px rgba(10,92,245,.8)}
 form.buscar{display:flex;gap:8px;margin-bottom:12px}
+.solucionar-uno{float:right;margin:0 0 6px 10px}.solucionar-uno button{font-size:12.5px;padding:5px 10px}
 input{flex:1;min-width:0}
 textarea{width:100%}
 `;
@@ -528,7 +531,7 @@ async function contactosParaLista(db, { q = "", filtro = "" } = {}) {
   try {
     await asegurarTurnos(db);
     const m = await db
-      .prepare("SELECT igsid, marca, COUNT(*) AS n FROM turnos WHERE marca != '' AND cuando > ? GROUP BY igsid, marca")
+      .prepare("SELECT igsid, marca, COUNT(*) AS n FROM turnos WHERE marca != '' AND resuelto = 0 AND cuando > ? GROUP BY igsid, marca")
       .bind(Date.now() - 7 * 86400000)
       .all();
     for (const f of m?.results || []) {
@@ -706,7 +709,8 @@ async function informeDeErrores(env, url, opciones = {}) {
   const dias = Math.min(Math.max(Number(url.searchParams.get("dias")) || 30, 1), INFORME_DIAS_MAX);
   const desde = Date.now() - dias * DIA_MS;
   const corto = (x, n) => String(x ?? "").slice(0, n);
-  const errores = await leerTabla(env.DB, TABLAS.CREAR_ERRORES, "SELECT cuando, texto FROM errores WHERE cuando > ? ORDER BY cuando DESC LIMIT 2000", desde).catch(() => []);
+  await asegurarErrores(env.DB).catch(() => {});
+  const errores = await leerTabla(env.DB, TABLAS.CREAR_ERRORES, "SELECT cuando, texto FROM errores WHERE cuando > ? AND resuelto = 0 ORDER BY cuando DESC LIMIT 2000", desde).catch(() => []);
   return {
     tienda: opciones.tienda || "",
     version: opciones.version || "",
@@ -720,10 +724,12 @@ async function informeDeErrores(env, url, opciones = {}) {
 // Las respuestas señaladas ❌ 🔴 ⚠️ 👎 entre "desde" y "hasta", con su contexto.
 async function senaladasDelPeriodo(db, desde, hasta = Infinity) {
   const corto = (x, n) => String(x ?? "").slice(0, n);
+  await asegurarTurnos(db).catch(() => {});
+  // Sin las solucionadas (ver solucionarErrores).
   const turnos = await leerTabla(
     db,
     TABLAS.CREAR_TURNOS,
-    "SELECT id, igsid, cuando, cliente, pienso, respuesta, productos, notas, marca, motivo FROM turnos WHERE cuando > ? AND cuando <= ? AND marca != '' ORDER BY cuando DESC LIMIT 1000",
+    "SELECT id, igsid, cuando, cliente, pienso, respuesta, productos, notas, marca, motivo FROM turnos WHERE cuando > ? AND cuando <= ? AND marca != '' AND resuelto = 0 ORDER BY cuando DESC LIMIT 1000",
     desde,
     Number.isFinite(hasta) ? hasta : Number.MAX_SAFE_INTEGER
   ).catch(() => []);
@@ -769,17 +775,19 @@ function vistaDeErroresDelCliente(datos, url) {
     .map(([m, v]) => kpi(cuenta(m), `${v.simbolo} ${v.nombre}`))
     .join("");
   const MAX = 200;
+  const volverA = conLaMismaConsulta("/panel/errores", url);
   const tarjetas = datos.casos
     .slice(0, MAX)
     .map(
-      (c) => `<div class="tarjeta" data-k="e${c.id}"><b>${c.simbolo} ${esc(c.tipo)}</b> · <span class="suave">${esc(horaExacta(c.cuando))}</span> · <a href="/panel/c/${encodeURIComponent(c.igsid)}">${esc(c.nombre || c.igsid)}</a>
+      (c) => `<div class="tarjeta" data-k="e${c.id}"><form class="solucionar-uno" method="post" action="/panel/errores/solucionar"><input type="hidden" name="id" value="${c.id}"><input type="hidden" name="volver" value="${esc(volverA)}"><button title="Ya está arreglado: que no salga más en rojo">✅ Solucionado</button></form><b>${c.simbolo} ${esc(c.tipo)}</b> · <span class="suave">${esc(horaExacta(c.cuando))}</span> · <a href="/panel/c/${encodeURIComponent(c.igsid)}">${esc(c.nombre || c.igsid)}</a>
 ${c.motivo ? `<div><b>Motivo:</b> ${esc(c.motivo)}</div>` : ""}${c.cliente ? `<div><b>El cliente escribió:</b> ${esc(c.cliente)}</div>` : ""}${c.respuesta ? `<div><b>El bot respondió:</b> ${esc(c.respuesta)}</div>` : ""}${c.pienso ? `<div class="suave"><b>La IA pensó:</b> ${esc(c.pienso)}</div>` : ""}${c.productos.length ? `<div class="suave"><b>Productos:</b> ${esc(c.productos.join(" · "))}</div>` : ""}</div>`
     )
     .join("");
   return `<h2>🧾 Errores de la IA</h2>${selector}
 <p class="suave">Las respuestas del bot que salieron mal en tus conversaciones: 🔴 incoherentes o inventadas (las detecta el revisor), ⚠️ la IA inventó algo y se corrigió sola, 👎 el cliente se quejó, ❌ el bot no pudo responder. Bájalas para revisarlas y arreglarlas.</p>
 <div class="kpis">${kpi(datos.casos.length, "en total")}${kpis}</div>
-<p class="acciones"><a class="boton" href="${esc(conLaMismaConsulta("/panel/errores.csv", url))}">⬇️ Excel</a> <a class="boton" href="${esc(conLaMismaConsulta("/panel/errores.md", url))}">⬇️ Informe en texto</a></p>
+<div class="acciones"><a class="boton" href="${esc(conLaMismaConsulta("/panel/errores.csv", url))}">⬇️ Excel</a> <a class="boton" href="${esc(conLaMismaConsulta("/panel/errores.md", url))}">⬇️ Informe en texto</a>${datos.casos.length ? `<form method="post" action="/panel/errores/solucionar" onsubmit="return confirm('¿Marcar TODOS los errores como solucionados? Dejan de salir en rojo (no se borran).')"><input type="hidden" name="volver" value="${esc(volverA)}"><button class="principal">✅ Solucionar todos</button></form>` : ""}</div>
+<p class="suave">✅ Solucionado: ya está arreglado, deja de salir en rojo (no se borra). Lo que salga mal después vuelve a aparecer. Baja el Excel antes si lo quieres guardar.</p>
 ${datos.casos.length ? tarjetas : '<div class="tarjeta suave">Sin errores de la IA en este período ✅</div>'}${datos.casos.length > MAX ? `<p class="suave">Se ven los ${MAX} más recientes; el Excel y el texto los traen todos (${datos.casos.length}).</p>` : ""}`;
 }
 
@@ -1041,6 +1049,16 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
     }
     return pagina("Métricas", vistaDeMetricasDelCliente(datos, url), { tienda, conAnuncios });
   }
+  // ✅ SOLUCIONAR (6-oct-2026): todas, o una (id). Dejan de salir en rojo.
+  if (url.pathname === "/panel/errores/solucionar" && request.method === "POST") {
+    if (!vieneDelPanel(request, url)) return new Response("No", { status: 403 });
+    const datos = await request.formData().catch(() => null);
+    const id = Number(datos?.get("id")) || 0;
+    const hecho = await solucionarErrores(env.DB, { id });
+    console.log(`PANEL: ${id ? `respuesta ${id} solucionada` : `todo solucionado (${hecho.respuestas} respuestas)`}`);
+    const volver = String(datos?.get("volver") || "/panel/errores");
+    return redirigir(volver.startsWith("/panel") ? volver : "/panel/errores");
+  }
   if (url.pathname === "/panel/errores" || url.pathname === "/panel/errores.csv" || url.pathname === "/panel/errores.md") {
     const datos = await erroresDeLaIaParaLaTienda(env, url.searchParams);
     const nombre = `errores-ia-${datos.rango.desde}-a-${datos.rango.hasta}`;
@@ -1194,12 +1212,13 @@ async function lodelPeriodo(db, desde) {
   try {
     await asegurarTurnos(db);
     await asegurarMensajes(db);
+    await asegurarErrores(db);
   } catch {}
   const [mensajes, turnos, avisos, errores, anuncios] = await Promise.all([
     filasDesde(db, CREAR_MENSAJES, "SELECT igsid, cuando, de, substr(texto, 1, 4) AS inicio FROM mensajes WHERE cuando > ? LIMIT 50000", desde),
-    filasDesde(db, TABLAS.CREAR_TURNOS, "SELECT igsid, cuando, productos, notas, marca FROM turnos WHERE cuando > ? LIMIT 20000", desde),
+    filasDesde(db, TABLAS.CREAR_TURNOS, `SELECT igsid, cuando, productos, notas, ${MARCA_VISIBLE} FROM turnos WHERE cuando > ? LIMIT 20000`, desde),
     filasDesde(db, TABLAS.CREAR_AVISOS, "SELECT igsid, cuando, motivo, productos, busco FROM avisos WHERE cuando > ? LIMIT 20000", desde),
-    filasDesde(db, TABLAS.CREAR_ERRORES, "SELECT cuando, texto FROM errores WHERE cuando > ? ORDER BY cuando DESC LIMIT 5000", desde),
+    filasDesde(db, TABLAS.CREAR_ERRORES, "SELECT cuando, texto FROM errores WHERE cuando > ? AND resuelto = 0 ORDER BY cuando DESC LIMIT 5000", desde),
     // Solo existe en las tiendas con panel de anuncios (EPICELL).
     db
       .prepare("SELECT anuncio, igsid, primera AS cuando FROM anuncios_clientes WHERE primera > ? LIMIT 20000")
@@ -1409,7 +1428,7 @@ async function vivoCentral(env, url) {
   await asegurarMensajes(db);
   const mensajes = await ultimos("SELECT id, igsid, cuando, de, texto, adjuntos FROM mensajes", desde, 40);
   const turnos = await ultimos(
-    "SELECT id, igsid, cuando, cliente, pienso, respuesta, productos, notas, marca, motivo FROM turnos",
+    `SELECT id, igsid, cuando, cliente, pienso, respuesta, productos, notas, ${MARCA_VISIBLE}, motivo FROM turnos`,
     desdeTurno,
     20
   ).catch(() => []);
@@ -1418,7 +1437,7 @@ async function vivoCentral(env, url) {
   // turno que ya se había enseñado): se mandan para ponerle el símbolo.
   const marcas = desdeTurno
     ? await db
-        .prepare(`SELECT id, marca, motivo FROM turnos WHERE id > ? AND id <= ? AND marca != ''${deUno}`)
+        .prepare(`SELECT id, marca, motivo FROM turnos WHERE id > ? AND id <= ? AND marca != '' AND resuelto = 0${deUno}`)
         .bind(...conUno([Math.max(desdeTurno - 40, 0), desdeTurno]))
         .all()
         .then((r) => r?.results || [])
@@ -1668,7 +1687,8 @@ export async function atenderApiCentral(request, env, opciones = {}) {
 
     if (ruta === "errores") {
       const desde = Date.now() - Math.min(Math.max(Number(url.searchParams.get("dias")) || 7, 1), 30) * DIA_MS;
-      const filas = await leerTabla(env.DB, TABLAS.CREAR_ERRORES, "SELECT cuando, texto FROM errores WHERE cuando > ? ORDER BY cuando DESC LIMIT 300", desde);
+      await asegurarErrores(env.DB).catch(() => {});
+      const filas = await leerTabla(env.DB, TABLAS.CREAR_ERRORES, "SELECT cuando, texto FROM errores WHERE cuando > ? AND resuelto = 0 ORDER BY cuando DESC LIMIT 300", desde);
       return json(filas.map((e) => ({ cuando: Number(e.cuando), texto: e.texto, tipo: tipoDeError(e.texto) })));
     }
 
@@ -1679,6 +1699,13 @@ export async function atenderApiCentral(request, env, opciones = {}) {
     // LO QUE LA IA APRENDIÓ SOLA (ver lecciones.js), para el panel ALPHA IA.
     if (ruta === "lecciones") {
       return json({ activo: aprendeActivo(env), vecesParaCodigo: VECES_PARA_CODIGO, lecciones: await listarLecciones(env.DB) });
+    }
+    // SOLUCIONAR ERRORES (6-oct-2026, ver solucionarErrores en registro.js).
+    if (ruta === "solucionar" && request.method === "POST") {
+      const { id } = await request.json().catch(() => ({}));
+      const hecho = await solucionarErrores(env.DB, { id: Number(id) || 0 });
+      console.log(`PANEL: errores solucionados desde ALPHA IA (${hecho.respuestas} respuestas, ${hecho.errores} del registro)`);
+      return json({ ok: true, ...hecho });
     }
     if (ruta === "olvidar-leccion" && request.method === "POST") {
       const { id } = await request.json().catch(() => ({}));

@@ -53,11 +53,25 @@ export function vigilarErrores() {
 
 const CREAR_ERRORES = `
   CREATE TABLE IF NOT EXISTS errores (
-    id     INTEGER PRIMARY KEY AUTOINCREMENT,
-    cuando INTEGER NOT NULL,
-    texto  TEXT NOT NULL
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    cuando   INTEGER NOT NULL,
+    texto    TEXT NOT NULL,
+    resuelto INTEGER NOT NULL DEFAULT 0
   )
 `;
+
+// La tabla de antes no tenía "resuelto": se añade sola (6-oct-2026).
+let erroresListos = false;
+export async function asegurarErrores(db) {
+  if (erroresListos || !db) return;
+  await db.prepare(CREAR_ERRORES).run();
+  try {
+    await db.prepare("ALTER TABLE errores ADD COLUMN resuelto INTEGER NOT NULL DEFAULT 0").run();
+  } catch {
+    // Ya estaba.
+  }
+  erroresListos = true;
+}
 
 // Al terminar de atender: lo que se juntó, a la base. Y si hay panel
 // central, también allá, en el momento.
@@ -73,7 +87,7 @@ export async function guardarErrores(db, env = null) {
   }
   if (!db) return;
   try {
-    await db.prepare(CREAR_ERRORES).run();
+    await asegurarErrores(db);
     for (const e of lote.slice(0, 30)) {
       await db.prepare("INSERT INTO errores (cuando, texto) VALUES (?, ?)").bind(e.cuando, e.texto).run();
     }
@@ -194,6 +208,13 @@ export async function asegurarTurnos(db) {
       // Ya estaba.
     }
   }
+  // "Solucionado" (6-oct-2026): la marca se queda (es la historia), pero
+  // deja de salir en rojo en los paneles.
+  try {
+    await db.prepare("ALTER TABLE turnos ADD COLUMN resuelto INTEGER NOT NULL DEFAULT 0").run();
+  } catch {
+    // Ya estaba.
+  }
   // Para abrir un chat y contar el día sin leer la tabla entera.
   await db.prepare("CREATE INDEX IF NOT EXISTS turnos_igsid ON turnos (igsid, cuando)").run();
   await db.prepare("CREATE INDEX IF NOT EXISTS turnos_cuando ON turnos (cuando)").run();
@@ -260,11 +281,13 @@ export async function marcarTurno(db, id, marca, motivo = "") {
   if (!db || !id || !MARCAS[marca]) return;
   try {
     await asegurarTurnos(db);
-    const fila = await db.prepare("SELECT marca FROM turnos WHERE id = ?").bind(Number(id)).first();
-    if (!fila || (GRAVEDAD[fila.marca] || 0) > GRAVEDAD[marca]) return;
+    const fila = await db.prepare("SELECT marca, resuelto FROM turnos WHERE id = ?").bind(Number(id)).first();
+    // Una marca ya solucionada no pesa: lo que llega ahora es un problema nuevo.
+    const actual = Number(fila?.resuelto) ? "" : fila?.marca;
+    if (!fila || (GRAVEDAD[actual] || 0) > GRAVEDAD[marca]) return;
     // 900: el motivo del revisor trae también lo que la asistente debió
     // decir (6-oct-2026), y con 300 se cortaba a la mitad.
-    await db.prepare("UPDATE turnos SET marca = ?, motivo = ? WHERE id = ?").bind(marca, String(motivo).slice(0, 900), Number(id)).run();
+    await db.prepare("UPDATE turnos SET marca = ?, motivo = ?, resuelto = 0 WHERE id = ?").bind(marca, String(motivo).slice(0, 900), Number(id)).run();
   } catch {}
 }
 
@@ -282,6 +305,31 @@ export async function marcarUltimoTurno(db, igsid, marca, motivo = "") {
 }
 
 export const TABLAS = { CREAR_ERRORES, CREAR_AVISOS, CREAR_TURNOS };
+
+/* ── SOLUCIONAR ERRORES (6-oct-2026) ──────────────────────────────────
+   El dueño: "que la interfaz tenga la opción de solucionar errores, y que
+   no aparezcan más esas cositas rojas en el panel". Lo solucionado NO se
+   borra (la marca y el registro quedan, por si hace falta mirarlos): se
+   marca "resuelto" y los paneles dejan de enseñarlo en rojo. Lo que salga
+   mal DESPUÉS vuelve a salir, como debe.
+     · sin id → todo: las respuestas señaladas (❌ 🔴 ⚠️ 👎) y el registro
+       de errores técnicos (⚙️)
+     · con id → solo esa respuesta señalada */
+export async function solucionarErrores(db, { id = 0 } = {}) {
+  if (!db) return { respuestas: 0, errores: 0 };
+  await asegurarTurnos(db);
+  await asegurarErrores(db);
+  if (Number(id)) {
+    const r = await db.prepare("UPDATE turnos SET resuelto = 1 WHERE id = ? AND marca != ''").bind(Number(id)).run();
+    return { respuestas: Number(r?.meta?.changes) || 0, errores: 0 };
+  }
+  const t = await db.prepare("UPDATE turnos SET resuelto = 1 WHERE marca != '' AND resuelto = 0").run();
+  const e = await db.prepare("UPDATE errores SET resuelto = 1 WHERE resuelto = 0").run();
+  return { respuestas: Number(t?.meta?.changes) || 0, errores: Number(e?.meta?.changes) || 0 };
+}
+
+// Para leer la marca como la ven los paneles: lo solucionado, sin marca.
+export const MARCA_VISIBLE = "CASE WHEN resuelto = 1 THEN '' ELSE marca END AS marca";
 
 /* ── EN TIEMPO REAL, AL PANEL CENTRAL ─────────────────────────────── */
 
