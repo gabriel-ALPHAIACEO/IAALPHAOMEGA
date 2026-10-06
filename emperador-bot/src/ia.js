@@ -29,7 +29,7 @@ import { comoDataUri } from "./imagen.js";
 import { metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
 import { anotarGasto } from "./gasto.js";
 import { llamarDeepSeek, modeloDeDeepSeek } from "./deepseek.js";
-import { usaDrive, titulosDeDrive, categoriasDeDrive } from "./drive.js";
+import { usaDrive, titulosDeDrive, categoriasDeDrive, listaDeModelosParaFotos } from "./drive.js";
 import { esCategoria, categoriasParaElPrompt } from "./categorias.js";
 import { datosParaElPrompt } from "./datos.js";
 import { hayCashea, hayTablaCashea } from "./cashea.js";
@@ -248,14 +248,36 @@ function textoConCatalogo(env = {}) {
 // color, ~640 tokens. Que hay 17 "New Balance 9060" por color no le hace
 // falta saberlo; de elegir el color se encarga el cotejo, que mira la foto.
 let promptVisionArmado = "";
+// CON EL CATÁLOGO EN DRIVE, LOS MODELOS SON LAS CARPETAS (6-oct-2026): la
+// lista sale de Drive (ver listaDeModelosParaFotos) y se relee cada media
+// hora, igual que el catálogo del prompt de texto. Una carpeta nueva es un
+// modelo que la IA de fotos ya conoce, sin tocar modelos.txt.
+let modelosDeDrive = "";
+let modelosVencen = 0;
+
+async function visionConModelosDe(env) {
+  if (usaDrive(env) && Date.now() > modelosVencen) {
+    const lista = await listaDeModelosParaFotos(env).catch(() => "");
+    // Sin lista (la carpeta todavía no se leyó), se reintenta en la próxima
+    // foto: leerla sale de D1 y no cuesta nada.
+    if (lista) modelosVencen = Date.now() + MINUTOS_PROMPT_DRIVE * 60 * 1000;
+    if (lista && lista !== modelosDeDrive) {
+      modelosDeDrive = lista;
+      promptVisionArmado = "";
+    }
+  }
+  return visionConModelos();
+}
 
 function visionConModelos() {
   if (!promptVisionArmado) {
-    const lista = listaModelos
-      .split("\n")
-      .filter((linea) => !linea.trimStart().startsWith("#"))
-      .join("\n")
-      .trim();
+    const lista =
+      modelosDeDrive ||
+      listaModelos
+        .split("\n")
+        .filter((linea) => !linea.trimStart().startsWith("#"))
+        .join("\n")
+        .trim();
 
     // Sin lista, el prompt sigue sirviendo: se queda con sus firmas
     // visuales y su tabla de términos. Es el estado de una tienda recién
@@ -658,7 +680,7 @@ export async function responderTexto(env, entrada) {
 export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) {
   const salida = await llamar(
     env,
-    visionConModelos(),
+    await visionConModelosDe(env),
     [
       // detail:"high" fuerza la resolución máxima que admite el modelo. Sin
       // esto, OpenAI decide solo ("auto") y en fotos de producto —donde hay

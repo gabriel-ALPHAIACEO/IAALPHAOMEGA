@@ -21,11 +21,19 @@ export async function avisarAsesor(
     productos,
     historia,
     busco,
+    // false: se guarda (panel, ganadores) pero NO suena en Slack. Para lo
+    // de Cashea (dueño, 6-oct-2026: "todo menos preguntaron por Cashea").
+    slack = true,
   }
 ) {
   // Queda guardado aunque no haya Slack: el panel central lo cuenta (ver
   // registro.js). Es de donde salen los productos ganadores.
   await anotarAviso(env.DB, { igsid, motivo, mensaje, busco, productos });
+
+  if (!slack) {
+    console.log("Aviso guardado en el panel, sin Slack:", motivo || "sin motivo");
+    return "OK - guardado en el panel, sin Slack";
+  }
 
   if (!env.SLACK_WEBHOOK) {
     console.error("No hay SLACK_WEBHOOK cargado: el aviso no sale.");

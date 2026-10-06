@@ -31,6 +31,7 @@ const SUITES = [
   ["cashea.mjs", "las cuentas de Cashea (con 0%), sus fechas, y la ubicación tal cual"],
   ["datos.mjs", "horario, envíos y delivery de El Emperador: que estén, que no se inventen"],
   ["botas.mjs", "que las botas de básquet no busquen las tácticas"],
+  ["carpetas.mjs", "los modelos son las carpetas de Drive: la IA de texto y la de fotos los conocen, y la búsqueda los encuentra"],
   ["tallas.mjs", "las tallas del nombre (36-45): sí hay → asesor; no hay → uno parecido que sí la trae"],
   ["drake.mjs", "los Drake son los AF1, y las fotos \"IMG 3212\" se encuentran por el modelo del índice"],
   ["tono.mjs", "todo tipo de clientes: ni groserías ni regaños del bot, y el prompt que lo enseña"],

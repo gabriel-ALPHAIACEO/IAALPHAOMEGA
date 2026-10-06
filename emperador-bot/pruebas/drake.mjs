@@ -56,7 +56,8 @@ titulo("AF1, Air Force 1, Air Force One: el mismo zapato");
     ok(r.productos.length === 2, `"${t}" encuentra las dos AF1 (una se llama "AF1", la otra "Air Force 1")`, titulos(r));
   }
   ok(D.modelosEnUnaPalabra("nike air force one blanco") === "nike af1 blanco", "se vuelven una sola palabra");
-  ok(D.modelosEnUnaPalabra("air max 90") === "air max 90", "y no toca otros modelos");
+  ok(D.modelosEnUnaPalabra("jordan 4 retro") === "jordan 4 retro", "y no toca otros modelos");
+  ok(D.modelosEnUnaPalabra("air max 90") === "airmax 90", '"Air Max 90" = la carpeta "AIRMAX 90"');
 }
 
 titulo("las fotos que se llaman 'IMG 3212' se encuentran por el índice");

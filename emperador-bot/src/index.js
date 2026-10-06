@@ -132,7 +132,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-06 (48) · tallas leídas del nombre (36-45): sí hay → asesor; no hay → uno parecido que sí la trae";
+const VERSION = "2026-10-06 (49) · los modelos son las carpetas de Drive (texto y fotos); Slack sin Cashea";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -2187,18 +2187,31 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // transfiero?"—, también, aunque se le estén enseñando zapatos: es lo
   // único de pagos que va al asesor (pedido del dueño, 30-sep-2026).
   const pidioDatos = pideDatosDePago(mensaje.texto);
-  const escalada =
-    casheaFueraDeFecha ||
-    casheaMontosAlAsesor ||
-    casheaSinTabla ||
+
+  // CASHEA NO SUENA EN SLACK (6-oct-2026, dueño: "todo menos preguntaron
+  // por Cashea"). Se sigue guardando como aviso —sale en el panel y en
+  // ALPHA IA—, pero sin notificación. Si en el mismo mensaje hay OTRA razón
+  // (quiere comprar, talla, datos de pago, foto que no reconoció), el aviso
+  // sí suena, por esa razón. La frase "Lo de Cashea te lo confirma un
+  // asesor en un momento" no cuenta como otra razón.
+  const porCashea = casheaFueraDeFecha || casheaMontosAlAsesor || casheaSinTabla;
+  const otraRazon =
     pidioDatos ||
     hayEscalada({
-      respuesta: respuestaCliente,
+      respuesta: respuestaCliente === CASHEA_FUERA_DE_FECHA ? "" : respuestaCliente,
       productos,
       preguntoTalla,
       buscoSinExito,
       noReconociLaFoto,
     });
+  const escalada = porCashea || otraRazon;
+  const motivoDeCashea = casheaFueraDeFecha
+    ? `PREGUNTO POR CASHEA FUERA DE LA PROMOCION${fechasDeLaPromocion() ? ` (${fechasDeLaPromocion().toUpperCase()})` : ""}`
+    : casheaMontosAlAsesor
+      ? `CASHEA${nivelCashea ? ` NIVEL ${nivelCashea}` : ""}: CONFIRMARLE LOS MONTOS DE LA INICIAL Y LAS CUOTAS`
+      : casheaSinTabla
+        ? `QUIERE PAGAR CON CASHEA${nivelCashea ? ` (NIVEL ${nivelCashea})` : ""}: CONFIRMARLE LA INICIAL`
+        : "CASHEA";
 
   // Si ya se avisó por los datos de pago, no se avisa otra vez: la frase
   // con la que se corrigió lleva "en un momento" y hayEscalada la leería
@@ -2209,15 +2222,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       igsid: mensaje.igsid,
       mensaje: textoCliente,
       respuesta: respuestaCliente,
-      motivo: casheaFueraDeFecha
-        ? `PREGUNTO POR CASHEA FUERA DE LA PROMOCION${fechasDeLaPromocion() ? ` (${fechasDeLaPromocion().toUpperCase()})` : ""}`
-        : casheaMontosAlAsesor
-          ? `CASHEA${nivelCashea ? ` NIVEL ${nivelCashea}` : ""}: CONFIRMARLE LOS MONTOS DE LA INICIAL Y LAS CUOTAS`
-        : casheaSinTabla
-          ? `QUIERE PAGAR CON CASHEA${nivelCashea ? ` (NIVEL ${nivelCashea})` : ""}: CONFIRMARLE LA INICIAL`
-        : pidioDatos && !preguntoTalla
+      slack: Boolean(otraRazon),
+      motivo: otraRazon
+        ? pidioDatos && !preguntoTalla
           ? "PIDE LOS DATOS PARA PAGAR"
-          : motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo, categoria }),
+          : motivoDeLaEscalada({ preguntoTalla, noReconociLaFoto, sinCupo, categoria })
+        : motivoDeCashea,
       historial: salida.historial,
       busco: termino,
       productos,

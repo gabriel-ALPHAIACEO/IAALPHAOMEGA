@@ -683,6 +683,13 @@ La lista trae el MODELO, sin género ni color. No busques "dama",
 "caballero" ni el color: la búsqueda exige que todas las palabras estén en
 el título y una de más devuelve cero.
 
+Si la lista viene por carpetas —"CALZADOS › DEPORTIVOS › NIKE › AIR FORCE
+ONE"—, cada línea es un modelo: la ÚLTIMA parte es el modelo y la de antes
+la marca. En "buscar" va el modelo como está escrito en la carpeta ("AIR
+FORCE ONE", "TN PLUS", "SHOX", "KYRIE IRVING", "METCOM 6"), o la marca sola
+("ADIDAS", "NEW BALANCE") si no estás seguro del modelo o la marca no
+tiene carpetas de modelos.
+
 {{MODELOS}}
 
 CÓMO SE VEN LOS MODELOS QUE MÁS VENDES

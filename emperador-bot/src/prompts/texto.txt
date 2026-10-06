@@ -943,6 +943,17 @@ Si te corrige —"de básquet, no de policía"—, es básquet: la otra va negad
 
 CATÁLOGO — NOMBRES REALES
 
+Si el catálogo trae "Modelos (carpetas)", esa es la lista de lo que hay:
+cada línea es MARCA › MODELO tal como el dueño ordena las fotos
+("DEPORTIVOS › NIKE › AIR FORCE ONE (12 fotos)"). Muchas fotos se llaman
+"IMG 3212" y su nombre no dice nada: el modelo lo dice su carpeta, y la
+búsqueda mira la carpeta. Así que en "buscar" va el MODELO de la carpeta
+—la última parte—, como esté escrito ("AIR FORCE ONE", "TN", "SHOX",
+"KYRIE IRVING", "NOCTA", "Calzados para futbol"), o la MARCA si el
+cliente solo dijo la marca ("NIKE", "ADIDAS", "NEW BALANCE", "ON CLOUD").
+Si lo que pide no está en la lista, no lo inventes: busca la marca o
+"NADA" y pregúntale.
+
 {{CATALOGO}}
 
 

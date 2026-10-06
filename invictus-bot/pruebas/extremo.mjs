@@ -315,7 +315,18 @@ titulo('"X cuanto me lo dejan en cashea soy level 6" después de ver los Jordan 
   ok(/Nivel 6/.test(r.todo) && !/Bajada de inicial/.test(r.todo), "le contesta con su Nivel 6, sin el párrafo de la tabla", r.todo.slice(0, 160));
   const deCashea = r.textos.filter((t) => /Cashea/.test(t)).join(" ");
   ok(deCashea && !/\d+\s*USD|Inicial:\s*\d|cuotas? de \d/.test(deCashea), "la tarjeta de Cashea va sin montos de dinero", deCashea.slice(0, 200));
-  ok(r.slack.some((t) => /CONFIRMARLE LOS MONTOS/.test(t)), "y el asesor recibe el aviso para confirmar los montos", r.slack.join(" | ").slice(0, 120));
+  // Cashea NO suena en Slack (dueño, 6-oct-2026: "todo menos preguntaron
+  // por Cashea"), pero queda guardado: sale en el panel.
+  ok(!r.slack.some((t) => /CASHEA/i.test(t)), "lo de Cashea NO suena en Slack", r.slack.join(" | ").slice(0, 120));
+  const guardado = sesion.base.sql.prepare("SELECT motivo FROM avisos WHERE instr(motivo, 'CONFIRMARLE LOS MONTOS') > 0").get();
+  ok(Boolean(guardado), "pero el aviso queda guardado para el panel", JSON.stringify(guardado));
+
+  // Cashea + OTRA razón en el mismo mensaje: el aviso suena, por la otra.
+  const r2 = await conversar("y talla 42 tienen? lo pago con cashea nivel 3", {
+    sesion, ahora: DIA, productos: J40,
+    respuestaModelo: { pienso: "Talla 42 y Cashea.", respuesta: "¡Claro! 🙌", buscar: "Jordan 40", historial: "Pidió Jordan 40 talla 42 y Cashea. Ya busqué: Jordan 40." },
+  });
+  ok(r2.slack.some((t) => /TALLAS/.test(t)) && !r2.slack.some((t) => /^\*CASHEA|CONFIRMARLE LOS MONTOS/.test(t)), "Cashea + talla en el mismo mensaje: suena, por la talla", r2.slack.join(" | ").slice(0, 160));
   ok(!/Habla del Jordan 40/.test(r.todo), "lo que la IA pensó NO le llega al cliente");
   sesion.src.limpiar();
 }

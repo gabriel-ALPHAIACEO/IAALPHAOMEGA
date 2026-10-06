@@ -257,6 +257,9 @@ function aProducto(archivo, carpetas) {
     // Las carpetas ("Nike", "Dama") también se buscan, aunque no salgan en
     // el título: "Nike" encuentra lo que está en la carpeta Nike.
     carpetas: carpetas.join(" "),
+    // La ruta tal cual (["CALZADOS", "DEPORTIVOS", "NIKE", "AIR FORCE ONE"]):
+    // de aquí sale la lista de modelos de la tienda (ver modelosDeDrive).
+    ruta: carpetas,
     categoria: categoriaDeLaRuta(carpetas),
   };
 }
@@ -649,7 +652,9 @@ function despejar(texto) {
 // Drake" y no salió nada.
 export function modelosEnUnaPalabra(texto) {
   return String(texto || "")
-    .replace(/\bair\s*force\s*(?:one|1|uno)\b|\bairforce(?:one|1)?\b|\bair\s*force\b|\baf\s*0?1\b/g, "af1");
+    .replace(/\bair\s*force\s*(?:one|1|uno)\b|\bairforce(?:one|1)?\b|\bair\s*force\b|\baf\s*0?1\b/g, "af1")
+    // "Air Max 90" y la carpeta "AIRMAX 90" (6-oct-2026).
+    .replace(/\bair\s*max\b/g, "airmax");
 }
 
 // LOS APODOS (6-oct-2026, dueño: "los zapatos drake son los af1"). Si con
@@ -673,6 +678,20 @@ export const APODOS = {
 const SINONIMOS = {
   retro: ["retro", "jordan"],
   jordan: ["jordan", "retro"],
+  // Como están escritas las carpetas de El Emperador (6-oct-2026):
+  // "METCOM 6", "ZOON GT". El cliente (y la IA) escriben Metcon y Zoom.
+  metcon: ["metcon", "metcom"],
+  metcom: ["metcom", "metcon"],
+  zoom: ["zoom", "zoon"],
+  zoon: ["zoon", "zoom"],
+  // Los Dunk están en la carpeta "NIKE SB".
+  dunk: ["dunk", "sb"],
+  // Los de fútbol: carpeta "Calzados para futbol".
+  tacos: ["tacos", "futbol"],
+  guayos: ["guayos", "futbol"],
+  botines: ["botines", "futbol"],
+  // "TN" y "Air Max Plus" son el mismo zapato.
+  tn: ["tn", "plus"],
 };
 
 // La palabra, sus sinónimos, y su singular ("shorts" → "short", "bolsos" →
@@ -756,19 +775,95 @@ export async function catalogoCompletoDeDrive(env, maximo = 1000) {
 // prompts/catalogo.txt). Sin repetir.
 // Agrupados por categoría, para que la IA sepa qué es cada cosa: no es lo
 // mismo "Nike blanco" en CALZADOS que en GORRAS.
+//
+// 6-oct-2026: van PRIMERO los modelos (las carpetas: ver modelosDeDrive) y
+// después solo los nombres de foto que dicen algo. Antes iban todos los
+// nombres, y en El Emperador casi todos eran "IMG 3212": la IA no sabía
+// qué modelos había y escribía "buscar" a ciegas.
+const MAXIMO_NOMBRES_POR_CATEGORIA = 120;
+
 export async function titulosDeDrive(env) {
   const { productos } = await catalogoDeDrive(env);
+  const modelos = new Map((await modelosDeDrive(env)).map((m) => [m.categoria, m.modelos]));
   const grupos = new Map();
   for (const p of productos) {
     const cat = p.categoria || "OTROS";
     if (!grupos.has(cat)) grupos.set(cat, new Set());
-    grupos.get(cat).add(p.titulo);
+    if (nombreQueNoDiceNada(p.titulo)) continue;
+    // Sin el código: "ADISTAR TALLAS 36-40 · Cód. AD1" una sola vez.
+    grupos.get(cat).add(p.titulo.replace(/\s*·\s*C[oó]d\..*$/i, "").trim());
   }
-  if (grupos.size === 1 && grupos.has("OTROS")) return [...grupos.get("OTROS")].join("\n");
-  return [...grupos.entries()].map(([cat, titulos]) => `${cat}:\n${[...titulos].join("\n")}`).join("\n\n");
+  for (const cat of modelos.keys()) if (!grupos.has(cat)) grupos.set(cat, new Set());
+  if (grupos.size === 1 && grupos.has("OTROS") && !modelos.size) return [...grupos.get("OTROS")].join("\n");
+  return [...grupos.entries()]
+    .map(([cat, titulos]) => {
+      const deModelos = (modelos.get(cat) || []).map((m) => `  ${m.ruta} (${m.fotos} ${m.fotos === 1 ? "foto" : "fotos"})`);
+      const nombres = [...titulos].slice(0, MAXIMO_NOMBRES_POR_CATEGORIA);
+      return [
+        `${cat}:`,
+        deModelos.length ? `Modelos (carpetas):\n${deModelos.join("\n")}` : "",
+        nombres.length ? `Nombres de fotos:\n${nombres.join("\n")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .join("\n\n");
+}
+
+// Los MODELOS en una lista corta, para la IA que mira fotos: una línea por
+// modelo, "NIKE › AIR FORCE ONE". Solo lo que tiene marca y modelo.
+export async function listaDeModelosParaFotos(env) {
+  const lineas = [];
+  for (const { categoria, modelos } of await modelosDeDrive(env)) {
+    for (const m of modelos) lineas.push(`${categoria} › ${m.ruta}`);
+  }
+  return lineas.join("\n");
 }
 
 // Las categorías que hay, con cuántos productos cada una.
+// LOS MODELOS DE LA TIENDA, SACADOS DE LAS CARPETAS (6-oct-2026).
+//
+// El dueño ordena las fotos por carpeta: CALZADOS › DEPORTIVOS › NIKE ›
+// AIR FORCE ONE. Los nombres de los archivos no dicen nada ("IMG 3212"),
+// pero las carpetas son la lista de modelos de la tienda, y sale sola de
+// Drive: una carpeta nueva es un modelo nuevo, sin tocar ningún archivo.
+//
+// Devuelve, por categoría, cada ruta de modelo con cuántas fotos tiene:
+//   [{ categoria: "CALZADOS", modelos: [{ ruta: "DEPORTIVOS › NIKE › AIR FORCE ONE", fotos: 12 }, …] }]
+// La ruta va SIN la categoría ni las carpetas de lote ("CNTND 1").
+export async function modelosDeDrive(env) {
+  const { productos } = await catalogoDeDrive(env);
+  const porCategoria = new Map();
+  for (const p of productos) {
+    const ruta = (p.ruta || []).map((c) => String(c).trim()).filter((c) => c && !ES_CONTENEDOR.test(c));
+    if (!ruta.length) continue;
+    const [categoria, ...resto] = ruta;
+    if (!resto.length) continue;
+    const clave = resto.join(" › ");
+    if (!porCategoria.has(categoria)) porCategoria.set(categoria, new Map());
+    const modelos = porCategoria.get(categoria);
+    modelos.set(clave, (modelos.get(clave) || 0) + 1);
+  }
+  return [...porCategoria.entries()].map(([categoria, modelos]) => ({
+    categoria,
+    modelos: [...modelos.entries()].map(([ruta, fotos]) => ({ ruta, fotos })).sort((a, b) => a.ruta.localeCompare(b.ruta)),
+  }));
+}
+
+// Un nombre de foto que no dice nada: "IMG 3212", "IMG-20260630-WA0192",
+// "20260702 131111", "329/36-44/". Esos no se le pasan a la IA.
+export function nombreQueNoDiceNada(titulo) {
+  const t = String(titulo || "")
+    .replace(/·\s*C[oó]d\.?.*$/i, "")
+    .replace(/\btallas?\b/gi, " ")
+    .trim();
+  if (/^(?:img|image|imagen|foto|photo|dsc|wa|screenshot|captura|whatsapp)\b/i.test(t)) return true;
+  // Un código de modelo ("K6066", "A2000") sí dice algo.
+  if (/\b[a-z]{1,3}\d{3,}\b/i.test(t)) return false;
+  // Sin una palabra de 3 letras o más, son números y signos.
+  return !/[a-záéíóúñ]{3,}/i.test(t.replace(/\b(?:img|wa)\d*\b/gi, ""));
+}
+
 export async function categoriasDeDrive(env) {
   const { productos } = await catalogoDeDrive(env);
   const cuenta = new Map();
