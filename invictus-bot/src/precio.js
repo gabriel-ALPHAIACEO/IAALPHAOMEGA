@@ -63,3 +63,47 @@ export function revisarPrecio(respuesta, { hayFichas = false, yaLasVio = false }
   console.log(`PRECIO: la IA ${motivos.join(" y ")} con las fichas a la vista. Lo cambio por "${explicacion}".`);
   return { corregido: true, respuesta: limpia, motivos };
 }
+
+// CUANDO PREGUNTA EL PRECIO, SE LE DICE (6-oct-2026, informe de errores).
+//
+// QUÉ PASÓ. En el mes, 81 de las 197 respuestas marcadas 🔴 fueron un
+// cliente preguntando "¿Precio?" —casi siempre tras una historia o una
+// foto— y el bot contestando "¡Ese mismo lo manejamos! 👟 Mira 👇" con la
+// ficha. El precio iba debajo de la foto, pero nadie se lo dijo, y muchos
+// no lo ven ("No sé ve el precio").
+//
+// AHORA. Si pregunta el precio y van fichas:
+//   · de 1 a 3 → se le escribe el precio de cada una, tal cual la ficha
+//     (lo pone el código, no la IA: no hay forma de que se lo invente);
+//   · más de 3 → "Los precios están en cada foto 👇".
+// Si la respuesta ya dice un precio o dónde está, no se toca.
+const PIDE_PRECIO = /\b(?:precios?|cu[aá]nto\s+(?:cuesta|cuestan|sale|salen|vale|valen|es)|cu[aá]nto|costo|valor)\b/i;
+const YA_LO_DICE = /\$\s*\d|\d\s*\$|\d\s*(?:usd|d[oó]lares)\b|precios?\s+(?:est[aá]n?|va[n]?|salen?|aparecen?)|con\s+sus?\s+precios?\s+(?:debajo|abajo)/i;
+const MAXIMO_PRECIOS_ESCRITOS = 3;
+
+function nombreCorto(titulo) {
+  return String(titulo || "")
+    .replace(/\s+(?:dama|caballero|ni[ñn][oa]s?|unisex)(?:\s*\/\s*(?:dama|caballero))?\s*$/i, "")
+    .trim()
+    .slice(0, 40);
+}
+
+export function contestaElPrecio(respuesta, { texto = "", fichas = [], yaLasVio = false } = {}) {
+  const r = String(respuesta || "").trim();
+  if (!PIDE_PRECIO.test(String(texto || "")) || YA_LO_DICE.test(r)) return { corregido: false, respuesta: r };
+  const conPrecio = (fichas || []).filter((p) => p?.precio);
+  let agregado = "";
+  if (conPrecio.length && conPrecio.length === fichas.length && fichas.length <= MAXIMO_PRECIOS_ESCRITOS) {
+    agregado =
+      fichas.length === 1
+        ? `Cuesta ${conPrecio[0].precio} 💵`
+        : conPrecio.map((p) => `💵 ${nombreCorto(p.titulo)}: ${p.precio}`).join("\n");
+  } else if (fichas.length) {
+    agregado = r.includes("👇") ? "Los precios están en cada foto 😊" : PRECIOS_EN_LAS_FOTOS;
+  } else if (yaLasVio) {
+    agregado = PRECIOS_EN_LAS_FOTOS_YA_ENVIADAS;
+  }
+  if (!agregado) return { corregido: false, respuesta: r };
+  console.log(`PRECIO: preguntó el precio; se lo digo: ${agregado.replace(/\n/g, " · ")}`);
+  return { corregido: true, respuesta: r ? `${r}\n${agregado}` : agregado };
+}

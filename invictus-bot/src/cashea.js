@@ -480,7 +480,11 @@ const INICIAL_CON_PORCENTAJE =
 const MONTO_DE_CASHEA =
   /\b(?:inicial|cuotas?)\b[^.!?\n]{0,30}?(?:\$\s*\d|\d+(?:[.,]\d+)?\s*(?:\$|usd|d[oó]lares?|bs\.?|bol[ií]vares))|(?:\$\s*\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:\$|usd|d[oó]lares?))[^.!?\n]{0,25}?\b(?:de\s+inicial|por\s+cuota|cada\s+cuota|en\s+cuotas|mensual|quincenal)/i;
 
-export function revisarCashea(respuesta, ahora = Date.now()) {
+// "nivel" (6-oct-2026, informe de errores): con el nivel del cliente
+// conocido, la inicial que se le diga tiene que ser LA DE SU NIVEL. "Con tu
+// nivel 2 te toca una inicial del 30%" pasaba la red porque el 30% existe…
+// para otro nivel. Y el cliente leía 30% en el texto y 40% en la tarjeta.
+export function revisarCashea(respuesta, ahora = Date.now(), { nivel = null } = {}) {
   const texto = String(respuesta || "");
   // La condición de la promoción ("la compra debe ser de 100$ en adelante")
   // no es un monto que se le promete: se quita antes de mirar.
@@ -515,15 +519,17 @@ export function revisarCashea(respuesta, ahora = Date.now()) {
   }
 
   const validos = new Set(leer().niveles.values());
+  const deSuNivel = nivel != null ? inicialDelNivel(nivel) : null;
   for (const m of texto.matchAll(INICIAL_CON_PORCENTAJE)) {
     const dicho = Number((m[1] || m[2]).replace(",", "."));
     if (!validos.has(dicho)) motivos.push(`inventó una inicial de ${dicho}%`);
+    else if (deSuNivel !== null && dicho !== deSuNivel) motivos.push(`le dijo ${dicho}% a un Nivel ${nivel} (es ${deSuNivel}%)`);
   }
 
   if (!motivos.length) return { respuesta: texto, corregido: false };
 
   console.error(`CASHEA: ${motivos.join(" y ")}. Lo cambio por la tabla de verdad.`);
-  return { respuesta: tarjetaCashea(), corregido: true, motivos };
+  return { respuesta: tarjetaCashea(deSuNivel !== null ? { nivel } : {}), corregido: true, motivos };
 }
 
 function sinTildes(texto) {

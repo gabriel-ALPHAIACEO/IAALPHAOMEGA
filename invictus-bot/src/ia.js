@@ -504,7 +504,15 @@ async function llamar(
     // 429 = límite de tokens por minuto de la organización. No es un
     // fallo del código ni de la petición: es que no queda cupo en este
     // minuto. Se anota para que el barrido no siga machacando.
-    if (respuesta.status === 429) {
+    // OJO: OpenAI SIN SALDO también responde 429, con "insufficient_quota".
+    // Eso no es cupo de un minuto: no vuelve solo. El 4 y 5 de octubre
+    // fueron 56 mensajes con "se me trabó el sistema" y nadie se enteró
+    // de la causa. Ahora sale como error técnico (⚙️ en ALPHA IA) con lo
+    // que hay que hacer.
+    if (respuesta.status === 429 && /insufficient_quota|exceeded your current quota|billing/i.test(detalle)) {
+      console.error(`OPENAI SIN SALDO: la cuenta de OpenAI se quedó sin crédito (429 insufficient_quota). El bot no puede responder hasta recargar en platform.openai.com → Billing. ${detalle.slice(0, 160)}`);
+      anotarLimite(cuerpo.model, detalle);
+    } else if (respuesta.status === 429) {
       anotarLimite(cuerpo.model, detalle);
     } else {
       console.error("El modelo respondió", respuesta.status, detalle);

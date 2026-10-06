@@ -100,6 +100,16 @@ ESTO ESTÁ BIEN (no lo marques nunca):
   · Los datos de la tienda dichos con otras palabras (mismo contenido).
   · Ofrecer pasarlo con un asesor, o decir que un asesor lo atiende.
   · Una respuesta corta o sencilla: corta no es mala.
+  · A una pregunta de TALLA: "La talla 42 te la confirma un asesor" (o
+    "eso te lo confirma un asesor") ES LA RESPUESTA CORRECTA: en esta
+    tienda las tallas las confirma una persona. No es "no_responde".
+  · A una pregunta de PRECIO con fichas que llevan su precio: el precio va
+    debajo de cada foto, así que está contestado (más aún si la respuesta
+    dice el precio o que está en las fotos).
+  · "Aquí tienes el catálogo" cuando en "LO QUE SE LE MANDÓ ADEMÁS" dice
+    que fue el botón del catálogo: se le mandó de verdad.
+  · Un mensaje del cliente VACÍO (sin texto ni foto): saludar o preguntar
+    qué busca está bien; no hay ninguna pregunta que contestar.
 
 CONFIANZA:
   · "alta": lo puedes señalar con el dedo (citas la frase y sabes por qué
@@ -297,6 +307,9 @@ export async function revisarTurno(env, turno) {
     `LO QUE PENSÓ LA ASISTENTE: ${turno.pienso || "(nada)"}`,
     `LO QUE RESPONDIÓ: ${turno.respuesta}`,
     `LO QUE SE LE ENSEÑÓ EN FICHAS: ${(turno.fichas || turno.productos || []).join(" | ") || "(nada)"}`,
+    // El botón del catálogo, la tarjeta de Cashea, la nota de voz… (6-oct:
+    // sin esto, "aquí tienes el catálogo" se marcaba 🔴 aunque se mandó).
+    (turno.notas || []).filter(Boolean).length ? `LO QUE SE LE MANDÓ ADEMÁS / LO QUE HIZO EL CÓDIGO: ${(turno.notas || []).filter(Boolean).join(" · ")}` : "",
     turno.categoria ? `LA CATEGORÍA QUE PIDIÓ: ${turno.categoria}` : "",
     turno.vision ? `LO QUE HIZO LA IA DE IMÁGENES CON LA FOTO: ${turno.vision}` : "",
     turno.contexto ? `\nLOS DATOS DE LA TIENDA (la verdad):\n${String(turno.contexto).slice(0, 3000)}` : "",

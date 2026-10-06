@@ -64,7 +64,7 @@ import {
 } from "./datos.js";
 import { hayQueRescatar, FRASE_DE_RESCATE, MOTIVO_DE_RESCATE } from "./rescate.js";
 import { revisarTono } from "./tono.js";
-import { revisarPrecio } from "./precio.js";
+import { revisarPrecio, contestaElPrecio } from "./precio.js";
 import { estadoDeLaClaveApi, esTextoDelBot, pausadoAhora, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral, estadoCompletoPermitido, estadoPublico, pedidoInterno } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
 import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDelRevisor } from "./revisor.js";
@@ -153,7 +153,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-06 (66) · el revisor piensa (gpt-5) y la IA aprende sola de sus errores (texto e imágenes); solo avisa 🛠️ cuando hay que tocar el código";
+const VERSION = "2026-10-06 (67) · informe de errores del 6-oct: el precio se dice cuando lo preguntan, tallas al asesor sin contradecir, colores que sí hay, Cashea de su nivel, mensaje vacío del anuncio, aviso de OpenAI sin saldo";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -165,6 +165,18 @@ const SIN_RESULTADOS =
 // La talla la confirma una persona: el catálogo no guarda qué tallas quedan.
 const SOLO_TALLA = "Eso te lo confirma un asesor en un momento 😊";
 
+// LA TALLA, NOMBRADA (6-oct-2026). Que la talla la confirme un asesor es la
+// regla de Invictus y sigue igual; pero "Eso te lo confirma un asesor", a
+// secas, parecía no haber entendido la pregunta (31 🔴 en el informe). Se le
+// dice QUÉ le van a confirmar: "La talla 42 te la confirma un asesor…".
+function fraseDeTalla(texto) {
+  const t = String(texto || "");
+  const m = t.match(/\b(?:tallas?|calzo|calza|n[uú]mero|nro)\s*[:#]?\s*(\d{1,2}(?:[.,]5)?)\b/i) || t.match(/^\s*(\d{2}(?:[.,]5)?)\s*\??\s*$/);
+  return m
+    ? `La talla ${m[1].replace(",", ".")} te la confirma un asesor en un momento 😊`
+    : "Las tallas te las confirma un asesor en un momento 😊";
+}
+
 // Cuando el cotejo visual encontró en el catálogo el zapato de la foto.
 //
 // Sustituye a lo que escribió la IA de texto, que en este punto casi
@@ -175,6 +187,15 @@ const SOLO_TALLA = "Eso te lo confirma un asesor en un momento 😊";
 //
 // Ninguna afirma el modelo por su nombre —el título va en la ficha,
 // debajo— ni promete talla o stock, que eso no lo sabemos.
+// Cuando detrás del suyo van otros (su familia, lo que encontró la búsqueda):
+// "Es este" con cinco modelos distintos confundía —16 🔴 en el informe del
+// 6-oct—. Se le dice que el suyo es el PRIMERO.
+const ENCONTRE_EL_DE_LA_FOTO_CON_OTROS = [
+  "¡Ese sí lo tenemos! 😍 Es el primero 👇 Detrás te dejo otros parecidos",
+  "¡Lo encontré! 😊 El tuyo es el primero 👇 y después van otros que te pueden gustar",
+  "¡Ese mismo lo manejamos! 👟 Es el primero 👇 Te dejo también otros parecidos",
+];
+
 const ENCONTRE_EL_DE_LA_FOTO = [
   "¡Ese sí lo tenemos! 😍 Mira 👇",
   "¡Claro que sí! Es este 👟 Te lo muestro 👇",
@@ -1302,6 +1323,25 @@ async function atenderConRed(env, mensaje) {
   }
 }
 
+// ¿Mandó el cliente un mensaje con texto unos segundos antes o después de
+// este? Se mira tras una espera corta, para darle tiempo al otro a llegar.
+const ESPERA_MENSAJE_VACIO_MS = 4000;
+const VENTANA_MENSAJE_VACIO_MS = 15000;
+
+async function llegoTextoAlLado(db, igsid) {
+  const ahora = Date.now();
+  await new Promise((seguir) => setTimeout(seguir, ESPERA_MENSAJE_VACIO_MS));
+  try {
+    const fila = await db
+      .prepare("SELECT COUNT(*) AS n FROM mensajes WHERE igsid = ? AND de = 'cliente' AND cuando > ? AND length(trim(texto)) > 0")
+      .bind(String(igsid), ahora - VENTANA_MENSAJE_VACIO_MS)
+      .first();
+    return Number(fila?.n) > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function atenderMeta(env, mensaje, rastro = {}) {
   // ENVIAR Y ANOTAR TIENEN QUE SER UNA SOLA COSA (crítico).
   //
@@ -1472,6 +1512,19 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (estaPausado(contacto)) {
     console.log(`Bot pausado para ${mensaje.igsid}: no respondo`);
     await avisarQueYaLoAtienden(env, mensaje, contacto, mandar);
+    return;
+  }
+
+  // UN MENSAJE VACÍO PEGADO A UNO DE VERDAD (6-oct-2026). Cuando el cliente
+  // escribe desde un anuncio, Instagram manda a veces DOS mensajes en el
+  // mismo segundo: uno sin texto (la tarjeta del anuncio) y otro con la
+  // pregunta ("¿Cuál es el precio de los zapatos Retro 3?"). El vacío se
+  // contestaba con "¡Hola! ¿Qué estás buscando?" al lado de la respuesta
+  // buena: cuatro 🔴 en el informe de errores del 5 y 6 de octubre.
+  // Ahora el vacío espera unos segundos y, si llegó texto, no contesta: ya
+  // lo hace el otro.
+  if (mensaje.tipo === "texto" && !mensaje.texto && (await llegoTextoAlLado(env.DB, mensaje.igsid))) {
+    console.log(`Mensaje vacío de ${mensaje.igsid} pegado a uno con texto: contesta el otro`);
     return;
   }
 
@@ -1781,8 +1834,11 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       // UNA VITRINA NO SE ADIVINA. Solo cuenta si el cliente no nombró
       // nada: si escribió "las Nike blancas", eso manda aunque la foto
       // sea un estante lleno.
+      // Y si la IA de imágenes NOMBRÓ un modelo (Uplift, Dunk…), es ese
+      // zapato aunque en la foto salgan más: "¡Esa es la tienda!" con el
+      // catálogo a quien mandó las Uplift fue un 🔴 del informe del 6-oct.
       eraLaVitrina =
-        Boolean(identificacion.variosProductos) && !textoPideAlgo(mensaje.texto);
+        Boolean(identificacion.variosProductos) && !textoPideAlgo(mensaje.texto) && !modeloNombrado;
 
       if (eraLaVitrina) {
         console.log(
@@ -1948,7 +2004,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const revisionDeTono = revisarTono(respuestaCliente);
   if (revisionDeTono.corregido) respuestaCliente = revisionDeTono.respuesta;
 
-  const revisionDeCashea = revisarCashea(respuestaCliente);
+  const revisionDeCashea = revisarCashea(respuestaCliente, Date.now(), {
+    nivel: nivelDelCliente(mensaje.texto) ?? nivelEnElHistorial(historialPrevio),
+  });
   if (revisionDeCashea.corregido) respuestaCliente = revisionDeCashea.respuesta;
 
   const nivelCashea = nivelDelCliente(mensaje.texto) ?? nivelEnElHistorial(historialPrevio);
@@ -2042,6 +2100,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // está.
   const revisionDePrecio = revisarPrecio(respuestaCliente, { hayFichas: fichas.length > 0, yaLasVio: soloTexto });
   if (revisionDePrecio.corregido) respuestaCliente = revisionDePrecio.respuesta;
+  // Y si PREGUNTÓ el precio, se le dice (6-oct-2026, ver precio.js).
+  const precioDicho = contestaElPrecio(respuestaCliente, { texto: mensaje.texto, fichas, yaLasVio: soloTexto });
+  if (precioDicho.corregido) respuestaCliente = precioDicho.respuesta;
 
   // EL CATÁLOGO EXISTE (2-oct-2026, ver catalogo.js). Si el cliente lo
   // nombró —"¿tienen catálogo de dama?"— y no se le enseña ningún zapato,
@@ -2623,10 +2684,22 @@ async function decidir({
     // Solo se filtra cuando el color no ES la búsqueda: si ya buscamos
     // "negr" en Shopify, volver a filtrar por negro no aporta nada.
     if (colores.length && sinColor) {
+      const delModelo = productos;
       productos = filtrarPorColor(productos, colores);
       console.log(
         `Del modelo había ${habiaDelModelo}; en ${colores.join(" + ")} quedan ${productos.length}`
       );
+      // EN ESE COLOR NO HAY, PERO EL MODELO SÍ (6-oct-2026, informe: "Los
+      // Nike verdes", "Todos blancos", "en negro con blanco" acababan en
+      // "déjame confirmarte con un asesor" + catálogo). Se le dice la
+      // verdad —en ese color no— y se le enseñan los colores que sí hay.
+      if (!productos.length && delModelo.length && !foto) {
+        productos = delModelo.slice(0, MAXIMO_EN_CARRUSEL);
+        hayMasEnCatalogo = delModelo.length > MAXIMO_EN_CARRUSEL;
+        salida.respuesta = `De ese en ${colores.join(" y ")} no tengo ahora 😕 Pero mira los colores que sí hay 👟👇`;
+        salida.historial = conNota(salida.historial || historialPrevio, `No había "${aBuscar}" en ${colores.join(" y ")}; le enseñé los otros colores.`);
+        console.log(`En ${colores.join(" + ")} no hay: le enseño los ${productos.length} colores que sí`);
+      }
       // Ahora sí, al tamaño del carrusel.
       if (productos.length > MAXIMO_EN_CARRUSEL) {
         hayMasEnCatalogo = true;
@@ -2687,7 +2760,7 @@ async function decidir({
 
       // La IA de texto redactó ANTES del cotejo, con una marcaFoto que
       // decía que no se reconocía el modelo. Lo que escribió ya no vale.
-      salida.respuesta = alAzar(ENCONTRE_EL_DE_LA_FOTO);
+      salida.respuesta = alAzar(productos.length > 1 ? ENCONTRE_EL_DE_LA_FOTO_CON_OTROS : ENCONTRE_EL_DE_LA_FOTO);
       salida.historial = conNota(
         salida.historial,
         `Le mostré ${cotejo.elegido.titulo} (identificado por la foto).`
@@ -2868,7 +2941,7 @@ async function decidir({
   // la búsqueda — no sabe que se repitió ni que no había nada.
   let respuestaCliente = respuestaFinal;
   if (soloTalla) {
-    respuestaCliente = SOLO_TALLA;
+    respuestaCliente = fraseDeTalla(texto);
   } else if (hayMasDelCatalogo) {
     respuestaCliente = alAzar(HAY_MAS_EN_CATALOGO);
   } else if (seAcabaron) {
@@ -2877,6 +2950,12 @@ async function decidir({
     respuestaCliente = alAzar(TE_OFREZCO_PARECIDOS);
   } else if (buscoSinExito) {
     respuestaCliente = SIN_RESULTADOS;
+  }
+
+  // Si la IA escribió "Eso te lo confirma un asesor" a una pregunta de
+  // talla, se le dice qué: la talla.
+  if (preguntoTalla && /^eso te lo confirma un asesor/i.test(respuestaCliente)) {
+    respuestaCliente = respuestaCliente.replace(/^eso te lo confirma un asesor en un momento 😊?/i, fraseDeTalla(texto));
   }
 
   return {

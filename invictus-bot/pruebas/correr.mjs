@@ -32,6 +32,7 @@ const SUITES = [
   ["rescate.mjs", "que un \"no es ese\" pase a una persona en vez de seguir adivinando"],
   ["extremo.mjs", "de punta a punta: lo que de verdad le llega al cliente"],
   ["asesor.mjs", "la IA se calla cuando habla el asesor (también a mitad del turno)"],
+  ["informe6oct.mjs", "lo que salió del informe de errores del 6-oct: el precio cuando lo pregunta, Cashea de su nivel, OpenAI sin saldo"],
   ["aprende.mjs", "la IA aprende sola: el revisor (que piensa) escribe la regla, la IA de texto o de imágenes la recibe, y solo avisa 🛠️ cuando hay que tocar el código"],
   ["tienda.mjs", "el panel /panel: la clave, los mensajes, lo que pensó la IA, pausar y devolver"],
   ["instagram.mjs", "/probar-instagram: en qué paso se corta (token, suscripción, firma, envío)"],

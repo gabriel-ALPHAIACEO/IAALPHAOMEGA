@@ -432,4 +432,29 @@ titulo('el rescate, en una conversación real de dos mensajes');
   variante.src.limpiar();
 }
 
+titulo("informe del 6-oct: lo que se arregló en el código");
+{
+  const J40 = [
+    { titulo: "Jordan 40 negro caballero", precio: 120, imagen: "https://cdn.test/j40n.jpg" },
+    { titulo: "Jordan 40 blanco caballero", precio: 110, imagen: "https://cdn.test/j40b.jpg" },
+  ];
+  // 81 🔴: "¿Precio?" y el bot no lo decía.
+  const p = await conversar("precio de los jordan 40?", { productos: J40, respuestaModelo: { respuesta: "¡Claro! Mira 👇", buscar: "Jordan 40", historial: "Pidió precio de Jordan 40." } });
+  ok(/💵 Jordan 40 negro: 120 USD/.test(p.todo) && /💵 Jordan 40 blanco: 110 USD/.test(p.todo), "pregunta el precio con 2 fichas: se le escribe el de cada una (el de la ficha)", p.textos[0]);
+  const uno = await conversar("cuanto cuesta?", { productos: J40.slice(0, 1), respuestaModelo: { respuesta: "¡Este es! 👇", buscar: "Jordan 40", historial: "Precio." } });
+  ok(/Cuesta 120 USD 💵/.test(uno.todo), "con una sola ficha: 'Cuesta 120 USD'", uno.textos[0]);
+  const sin = await conversar("tienen jordan 40?", { productos: J40, respuestaModelo: { respuesta: "¡Sí tengo! Mira 👇", buscar: "Jordan 40", historial: "Pidió Jordan 40." } });
+  ok(!/💵/.test(sin.todo), "si no preguntó el precio, nada cambia (el precio va en la foto, como siempre)");
+
+  // 31 🔴: "Eso te lo confirma un asesor" a secas ante una talla.
+  const t = await conversar("tienen talla 42?", { respuestaModelo: { respuesta: "Eso te lo confirma un asesor en un momento 😊", buscar: "NADA", historial: "Preguntó talla 42." } });
+  ok(/La talla 42 te la confirma un asesor en un momento/.test(t.todo), "la talla sigue yendo al asesor (regla de Invictus), pero diciendo cuál", t.textos[0]);
+  ok(t.slack.some((x) => /TALLAS/.test(x)), "y el asesor recibe el aviso, como siempre");
+
+  // "Los Nike verdes", "todos blancos": en ese color no hay, el modelo sí.
+  const c = await conversar("tienen los jordan 40 verdes?", { productos: J40, respuestaModelo: { respuesta: "¡Sí tengo! 👇", buscar: "Jordan 40 verde", historial: "Pidió Jordan 40 verdes." } });
+  ok(/De ese en verde no tengo ahora 😕 Pero mira los colores que sí hay/.test(c.todo), "en verde no hay: se le dice la verdad", c.textos[0]);
+  ok(c.textos.length >= 2 && /j40n|Jordan 40 negro/.test(c.todo), "y se le enseñan los colores que sí (no 'déjame confirmarte' + catálogo)");
+}
+
 terminar();
