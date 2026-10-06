@@ -163,7 +163,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-06 (48) · relojes: mi band, miband, smart band, band 10, smartwatch y relojes xiaomi se reconocen; \"mi band 9\" ofrece la 10; \"apple watch\" ya no manda AirPods · columna Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max, inventario del 6-oct";
+const VERSION = "2026-10-06 (49) · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -663,6 +663,15 @@ function noEsePeroMira(termino, productos, porCategoria = "") {
     .replaceAll("{alternativa}", alternativa)
     .replaceAll("{marca}", marca);
 }
+
+const mayuscula = (t) => String(t || "").charAt(0).toUpperCase() + String(t || "").slice(1);
+
+// Lo que sobra en "¿y los redmi?", "y de samsung?", "¿hay de xiaomi?".
+const RELLENO_DEL_SEGUIMIENTO = new Set([
+  "y", "e", "los", "las", "el", "la", "lo", "de", "del", "que", "hay", "tienes", "tienen",
+  "tiene", "algun", "alguno", "alguna", "algunos", "algunas", "marca", "otro", "otros",
+  "otra", "otras", "también", "tambien", "mas", "más", "unos", "unas", "un", "una", "y?",
+]);
 
 // Los usos que se escriben en un título ("para carro", "para moto").
 const USOS_CON_NOMBRE = ["carro", "moto"];
@@ -4932,6 +4941,34 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
     termino = loQueSeLeOfrece;
   }
 
+  // SIGUE EL TEMA (6-oct-2026, dueño: "si le estoy pidiendo relojes y le
+  // digo '¿y los redmi?', seguimos hablando de relojes"). Si lo último que
+  // vio era UNA clase de accesorio (relojes, cargadores, soportes…) y ahora
+  // escribe solo una marca, corto y sin decir qué es, se busca ESA clase de
+  // esa marca. Si no hay, se le dice y se le enseña lo que hay de esa clase.
+  const tipoDeLaCharla = (() => {
+    const tipos = [...new Set((recientes || []).map((p) => tipoDelProducto(p.titulo)))];
+    return tipos.length === 1 && tipos[0] !== "telefono" ? tipos[0] : "";
+  })();
+  const sigueElTema =
+    Boolean(tipoDeLaCharla) &&
+    !tipoQuePide(texto) &&
+    !/\d/.test(texto) &&
+    String(texto || "").trim().split(/\s+/).length <= 6;
+  if (sigueElTema && !termino) {
+    const marca = String(texto || "")
+      .toLowerCase()
+      .replace(/[^a-záéíóúñ0-9\s]/gi, " ")
+      .split(/\s+/)
+      .filter((p) => p && !RELLENO_DEL_SEGUIMIENTO.has(p))
+      .join(" ");
+    if (marca) termino = marca;
+  }
+  if (sigueElTema && termino) console.log(`Sigue hablando de ${tipoDeLaCharla}: "${texto}" se busca como ${tipoDeLaCharla} de "${termino}"`);
+  // Lo que se le dice si de esa marca no hay de esa clase.
+  let otraCasaDelTipo = "";
+  let deEsaMarcaNoHay = "";
+
   let productos = [];
   let hayMas = false;
   if (termino) {
@@ -4940,9 +4977,42 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
     // cargador…), se buscan solo cosas de ese tipo (6-oct-2026).
     const tipoDelCliente = tipoQuePide(texto);
     const soloMarca = !tipoQuePide(termino) && !/\d/.test(termino);
-    const conSuTipo = tipoDelCliente && tipoDelCliente !== "telefono" && soloMarca ? { tipo: tipoDelCliente } : {};
+    const conSuTipo =
+      tipoDelCliente && tipoDelCliente !== "telefono" && soloMarca
+        ? { tipo: tipoDelCliente }
+        : sigueElTema && soloMarca
+          ? { tipo: tipoDeLaCharla }
+          : {};
     ({ productos, hayMas } = await buscarProductos(env, termino, 10, conSuTipo));
     if (conSuTipo.tipo) console.log(`Buscó "${termino}" y el cliente pidió ${conSuTipo.tipo}: solo eso`);
+
+    // De esa marca no hay de esa clase. Redmi y Poco son de la casa Xiaomi:
+    // un reloj "Redmi" que no hay puede ser un reloj Xiaomi que sí.
+    const tipoBuscado = conSuTipo.tipo || (tipoQuePide(termino) !== "telefono" ? tipoQuePide(termino) : "");
+    if (!productos.length && tipoBuscado) {
+      const marcaPedida = palabrasDe(termino).find((p) => ["redmi", "poco"].includes(p));
+      if (marcaPedida) {
+        const deLaCasa = await buscarProductos(env, termino.replace(new RegExp(marcaPedida, "i"), "xiaomi"), 10, { tipo: tipoBuscado });
+        if (deLaCasa.productos.length) {
+          productos = deLaCasa.productos;
+          hayMas = deLaCasa.hayMas;
+          otraCasaDelTipo = `${nombreDelTipo(tipoBuscado)}|${marcaPedida}`;
+          console.log(`No hay ${tipoBuscado} ${marcaPedida}: le enseño los de Xiaomi, la misma casa`);
+        }
+      }
+      if (!productos.length && (sigueElTema || conSuTipo.tipo)) {
+        const delTipo = (await catalogoCompleto(env)).filter((p) => tipoDelProducto(p.titulo) === tipoBuscado);
+        if (delTipo.length) {
+          productos = delTipo.slice(0, 10);
+          hayMas = delTipo.length > 10;
+          // La marca sola, sin la palabra de la clase: "Relojes Samsung", no
+          // "Relojes Reloj Samsung".
+          const soloLaMarca = termino.split(/\s+/).filter((p) => !tipoQuePide(p)).join(" ");
+          deEsaMarcaNoHay = `${nombreDelTipo(tipoBuscado)}|${loQuePidioDicho(soloLaMarca) || soloLaMarca}`;
+          console.log(`No hay ${tipoBuscado} de "${termino}": le digo y le enseño los ${delTipo.length} que hay`);
+        }
+      }
+    }
     console.log(
       productos.length
         ? `Busqué "${termino}": ${productos.length} resultado(s)${hayMas ? " (y hay más)" : ""}`
@@ -5100,7 +5170,9 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
   // teléfonos, que es exactamente lo que el cliente NO pidió. Si nombró un
   // tipo, el rescate solo puede traer cosas de ese tipo; si de ese tipo no
   // hay nada, no hay rescate que valga y se le dice que no hay.
-  const tipoPedido = tipoQuePide(`${texto} ${termino}`);
+  // (Y el de la charla, si sigue el tema: "¿y los honor?" después de los
+  // relojes pide relojes, no "teléfonos de esa marca".)
+  const tipoPedido = tipoQuePide(`${texto} ${termino}`) || (sigueElTema ? tipoDeLaCharla : "");
 
   //
   // PRIMERO LA FAMILIA, DESPUÉS LA MARCA (29-sep-2026, pedido del dueño:
@@ -5334,6 +5406,12 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
     // Los equipos se le muestran igual: lo único que no sabemos es la
     // capacidad, no el producto.
     respuestaCliente = alAzar(SIN_DATO_DE_CAPACIDAD);
+  } else if (otraCasaDelTipo && productos.length) {
+    const [clase, marca] = otraCasaDelTipo.split("|");
+    respuestaCliente = conSuSaludo(`${mayuscula(clase)} ${mayuscula(marca)} como tal no tengo, pero de Xiaomi, que es la misma casa, mira lo que hay 👇`);
+  } else if (deEsaMarcaNoHay && productos.length) {
+    const [clase, marca] = deEsaMarcaNoHay.split("|");
+    respuestaCliente = conSuSaludo(`${mayuscula(clase)} ${mayuscula(marca)} no tengo ahora mismo 😕 Pero mira los ${clase} que sí tengo 👇`);
   } else if (noHayParaSuUso && productos.length) {
     const queEs = nombreDelTipo(tipoPedido || tipoDelProducto(productos[0].titulo));
     respuestaCliente = conSuSaludo(`${queEs.charAt(0).toUpperCase()}${queEs.slice(1)} para ${noHayParaSuUso} no me quedan ahora mismo 😕 Pero mira estos que sí tengo 👇`);

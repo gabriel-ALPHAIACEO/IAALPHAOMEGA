@@ -201,6 +201,10 @@ erratas, así que menos es más seguro.
 - "¿hay más?", "¿qué más tienes?": busca otra marca o categoría que no esté
   en "Ya busqué" del historial. Si pide ver "todo", elige UNA marca.
 - "de esos mismos" = el último término de "Ya busqué".
+- SIGUE EL TEMA: si lo último que buscó era una CLASE de producto (relojes,
+  cargadores, soportes, audífonos…) y ahora solo dice una marca ("¿y los
+  redmi?", "¿y de samsung?"), sigue siendo ESA clase: buscar "reloj redmi".
+  Solo cambia de clase si la nombra ("¿y teléfonos redmi?").
 
 Términos que ayudan:
   redmi / redmy → Redmi · note 17 → Redmi Note 17 · poco / poko → Poco
