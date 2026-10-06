@@ -69,6 +69,8 @@ import {
 import {
   tipoQuePide,
   tipoDelProducto,
+  usoQuePide,
+  sirveParaElUso,
   esDeOtroNegocio,
   comoSeLlama as nombreDelTipo,
 } from "./tipos.js";
@@ -159,7 +161,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-06 (44) · especificaciones de los teléfonos en la base (la IA contesta lo técnico con datos reales y manda la página oficial) + arreglos del informe del 6-oct (Cashea por nivel, precio escrito, ¿cuánto cuesta?, Redmi 7 ≈ A7)";
+const VERSION = "2026-10-06 (45) · soportes para carro y moto: \"soporte\", \"holder\" o \"porta celular\" encuentran las Base (Xbyte…), y para carro o para moto se separan · especificaciones de los teléfonos en la base · arreglos del informe del 6-oct";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -4881,7 +4883,15 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
   if (!productos.length) {
     const referencia = referenciaEnTexto(texto);
 
-    if (referencia && referencia.toLowerCase() !== termino.toLowerCase()) {
+    // Si dijo QUÉ es ("holder", "cargador"), la referencia no puede traer
+    // otro tipo: "holder para el carro" no es un cargador de carro.
+    // ("teléfono" no cuenta: "algo para poner el teléfono en la moto" pide
+    // un accesorio PARA el teléfono.)
+    const tipoDelTexto = tipoQuePide(texto) === "telefono" ? "" : tipoQuePide(texto);
+    const otroTipo = referencia && tipoDelTexto && tipoQuePide(referencia) && tipoQuePide(referencia) !== tipoDelTexto;
+    if (otroTipo) console.log(`"${referencia}" no es ${tipoDelTexto}, que es lo que pidió: no lo uso`);
+
+    if (referencia && !otroTipo && referencia.toLowerCase() !== termino.toLowerCase()) {
       const porReferencia = await buscarProductos(env, referencia);
       // La tabla de referencias traduce a un tipo ("cascos" → "Audifonos"),
       // así que lo que devuelve YA es del tipo que pidió.
@@ -5003,6 +5013,19 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
           `(${productos.length}), con foto y precio`
       );
       break;
+    }
+  }
+
+  // PARA EL CARRO, PARA LA MOTO (6-oct-2026, ver usoQuePide en tipos.js).
+  // "Soporte para moto" ya no trae las bases para carro: si el título dice
+  // para qué es, va solo lo de su uso. Si ninguno lo dice, van todos.
+  const uso = usoQuePide(`${texto} ${termino}`);
+  if (uso && productos.length > 1) {
+    const paraEso = productos.filter((p) => sirveParaElUso(p.titulo, uso));
+    if (paraEso.length && paraEso.length < productos.length) {
+      console.log(`Lo quiere para ${uso}: dejo ${paraEso.length} de ${productos.length}`);
+      productos = paraEso;
+      hayMas = false;
     }
   }
 

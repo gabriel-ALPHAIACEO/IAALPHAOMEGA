@@ -85,7 +85,20 @@ export async function buscarProductos(env, termino, cuantos = 10, opciones = {})
   const grupos = comoLasDiceLaHoja(pedidas, productos);
   const palabras = grupos.map((grupo) => grupo[0]);
 
-  if (!grupos.length) return { productos: [], hayMas: false };
+  // SOLO DIJO EL TIPO (6-oct-2026): "¿tienen soportes?", "holder". Ningún
+  // título dice "soporte" (en la hoja son "Base para carro"), así que no
+  // quedaba ni una palabra que buscar y salía "no tengo". Si lo que pidió
+  // es un tipo de accesorio, van todos los de ese tipo.
+  if (!grupos.length) {
+    const tipo = opciones.tipo !== undefined ? opciones.tipo : tipoQuePide(termino);
+    if (!tipo || tipo === "telefono") return { productos: [], hayMas: false };
+    const delTipo = productos.filter((p) => tipoDelProducto(p.titulo) === tipo);
+    if (delTipo.length) console.log(`"${termino}" es un tipo (${tipo}) y ningún título lo dice así: van los ${delTipo.length} de ese tipo`);
+    return {
+      productos: delTipo.slice(0, cuantos).map(({ busqueda, ...producto }) => producto),
+      hayMas: delTipo.length > cuantos,
+    };
+  }
 
   // TODAS las palabras del término tienen que estar en el título. Es más
   // estricto, pero evita que pedir un modelo concreto devuelva media tienda.

@@ -207,9 +207,12 @@ Términos que ayudan:
   sansung / samsun → Samsung · tekno → Tecno · infinis → Infinix
   onor → Honor · audífonos / auriculares / cascos → audifonos
   buds → redmi buds · smartwatch / mi band → reloj · funda / case → forro
-  mica / protector → vidrio · soporte / trípode → base · pila portátil →
+  mica / protector → vidrio · pila portátil →
   powerbank · taco / cubo → cargador · webcam → camara web · wifi / modem
   → router
+  soporte / holder / porta celular / agarrador → base: "Base para carro"
+  si es para el carro, "Base para moto" si es para la moto, y con la marca
+  si la dijo ("Xbyte Base para carro") · x byte / xbite → Xbyte
 
 
 CADA MENSAJE AVANZA

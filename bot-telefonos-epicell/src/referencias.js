@@ -61,7 +61,16 @@ const REFERENCIAS = [
   [["soporte", "soporte para el carro", "soporte de telefono", "porta telefono",
     "sujetador", "base para el carro", "base de moto", "agarradera",
     "poner el telefono en el carro", "sostener el telefono",
-    "sujetar el telefono", "para llevar el telefono en el carro"], "Base"],
+    "sujetar el telefono", "para llevar el telefono en el carro",
+    // 6-oct-2026: "un holder para el carro" caía en "para el carro" y le
+    // llegaba un cargador. La frase más larga gana.
+    "holder", "holders", "holder para el carro", "holder para carro", "porta celular",
+    "portacelular", "porta celular para el carro", "soporte para carro",
+    "soporte de carro", "soporte para moto", "soporte de moto", "soporte magnetico",
+    "base para carro", "base para moto", "base de carro", "para la moto",
+    "poner el telefono en la moto", "telefono en la moto", "celular en la moto",
+    "telefono en el carro", "celular en el carro", "poner el celular en el carro",
+    "poner el celular en la moto"], "Base"],
 
   [["ventilador para el telefono", "enfriador", "cooler"], "Fan Cooler"],
   [["palo de selfie", "palo para selfies", "monopod", "tripode"], "Selfie Stick"],

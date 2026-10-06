@@ -48,7 +48,13 @@ const TIPOS = [
   ["corneta", ["corneta", "cornetas", "bocina", "bocinas", "parlante", "parlantes",
     "speaker", "speakers"]],
 
-  ["soporte", ["soporte", "soportes", "tripode", "tripodes", "holder", "selfie"]],
+  // En la hoja se llaman "Base" ("Xbyte Base para carro Xb-4978", "Base
+  // Metálica para moto YC28"); el cliente dice soporte, holder, porta
+  // celular… (6-oct-2026: sin "base" aquí, una base para carro contaba como
+  // TELÉFONO y "soporte para carro" no encontraba ninguna).
+  ["soporte", ["soporte", "soportes", "tripode", "tripodes", "holder", "holders", "selfie",
+    "base", "bases", "porta", "portacelular", "portacelulares", "portatelefono",
+    "sujetador", "sujetadores", "agarrador", "agarradores", "pinza", "montura"]],
 
   ["microfono", ["microfono", "microfonos"]],
 
@@ -114,7 +120,11 @@ for (const [rubro, palabras] of OTRO_NEGOCIO) {
 
 // ¿Lo que pide es de otro rubro? Devuelve la palabra que lo delata, para
 // poder nombrarla en la respuesta ("neveras no manejamos").
+//
+// Si además nombra algo de esta tienda, no es de otro rubro: "soporte para
+// carro" o "cargador de moto" son accesorios, no vehículos.
 export function esDeOtroNegocio(texto) {
+  if (tipoQuePide(texto)) return "";
   for (const palabra of palabras(texto)) {
     if (DE_OTRO_NEGOCIO.has(palabra)) return palabra;
   }
@@ -185,4 +195,33 @@ const COMO_SE_LLAMA = new Map([
 
 export function comoSeLlama(tipo) {
   return COMO_SE_LLAMA.get(tipo) || tipo;
+}
+
+/* ── PARA QUÉ LO QUIERE: EL CARRO, LA MOTO, LA MESA (6-oct-2026) ──────
+
+   "Soporte para moto" traía también las bases para carro y la de mesa: el
+   tipo (soporte) era el mismo. Lo que las distingue es PARA QUÉ, y eso
+   está escrito en el título ("Base para carro", "Base Metálica para moto").
+   Sirve igual para los cargadores ("cargador de carro").
+   ───────────────────────────────────────────────────────────────── */
+const USOS = [
+  ["carro", ["carro", "carros", "auto", "autos", "vehiculo", "vehiculos", "coche", "camioneta",
+    "rejilla", "tablero", "parabrisas", "encendedor"]],
+  ["moto", ["moto", "motos", "motocicleta", "bicicleta", "bici", "manubrio"]],
+  ["mesa", ["mesa", "escritorio"]],
+];
+
+// Lo que pide: "carro", "moto", "mesa" o "".
+export function usoQuePide(texto) {
+  const dichas = palabras(texto);
+  for (const [uso, formas] of USOS) {
+    if (dichas.some((p) => formas.includes(p))) return uso;
+  }
+  return "";
+}
+
+// ¿Este producto es para eso? Lo dice su título.
+export function sirveParaElUso(titulo, uso) {
+  const formas = USOS.find(([u]) => u === uso)?.[1] || [];
+  return palabras(titulo).some((p) => formas.includes(p));
 }
