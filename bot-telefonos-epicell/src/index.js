@@ -157,7 +157,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-06 (38) · informe de errores para el panel ALPHA IA (todo lo que salió mal, con su contexto)";
+const VERSION = "2026-10-06 (39) · la tienda ve y baja los errores de la IA (Excel y texto)";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA

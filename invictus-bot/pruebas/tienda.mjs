@@ -417,6 +417,31 @@ titulo("métricas y ganadores para la tienda (sin lo confidencial)");
   ok(!/Clientes por día/.test(r.texto), "sin sesión no se ven");
 }
 
+titulo("los errores de la IA, para la tienda (con Excel y texto)");
+{
+  const t = await DB.prepare("SELECT id FROM turnos WHERE igsid = '123' ORDER BY id DESC LIMIT 1").first();
+  await DB.prepare("UPDATE turnos SET marca = 'indebida', motivo = 'Dijo una talla que no buscó' WHERE id = ?").bind(t.id).run();
+  await DB.prepare("INSERT INTO turnos (igsid, cuando, cliente, respuesta, marca, motivo) VALUES ('123', ?, 'hola?', '(EL BOT NO PUDO RESPONDER)', 'error', 'TypeError: x is undefined at index.js:1280 token sk-123')").bind(Date.now() - 1000).run();
+  console.error("(prueba) Shopify 500 con detalle interno");
+  r = await pedir("/panel", { cookie });
+  ok(/href="\/panel\/errores"/.test(r.texto), "en el menú: Errores IA");
+  r = await pedir("/panel/errores?dias=7", { cookie });
+  ok(r.estado === 200 && /Errores de la IA/.test(r.texto) && /class="periodo/.test(r.texto), "la página, con el calendario");
+  ok(/Dijo una talla que no buscó/.test(r.texto) && /Ana Pérez/.test(r.texto) && /El bot respondió/.test(r.texto), "la respuesta señalada 🔴 con su motivo, el cliente y lo que respondió el bot");
+  ok(/Falla técnica: el bot no pudo responder/.test(r.texto) && !/TypeError|sk-123|index\.js:1280/.test(r.texto), "un ❌ sale sin el detalle técnico (ese es del dueño)");
+  ok(!/Shopify 500 con detalle interno/.test(r.texto), "y el registro de errores técnicos ⚙️ no sale aquí");
+  r = await pedir("/panel/errores.csv?dias=7", { cookie });
+  ok(/^Cuándo;Tipo;Cliente;Motivo/.test(r.texto) && /Dijo una talla que no buscó/.test(r.texto) && !/TypeError/.test(r.texto) && /;Arreglado/.test(r.texto.split("\n")[0]), "a Excel (sin lo técnico), con la columna Arreglado", r.texto.split("\n")[0]);
+  r = await pedir("/panel/errores.md?desde=2026-01-01&hasta=2099-01-01", { cookie });
+  ok(/^# Errores de la IA — /.test(r.texto) && /## 🔴 /.test(r.texto) && /Motivo: Dijo una talla que no buscó/.test(r.texto) && !/TypeError/.test(r.texto), "a texto, por tipo", r.texto.slice(0, 60));
+  r = await pedir("/panel/errores?desde=2026-09-01&hasta=2026-09-02", { cookie });
+  ok(/Sin errores de la IA en este período/.test(r.texto), "un período sin nada sale vacío");
+  r = await pedir("/panel/errores.csv?dias=7");
+  ok(!/Dijo una talla/.test(r.texto), "sin sesión, nada");
+  await DB.prepare("UPDATE turnos SET marca = '', motivo = '' WHERE id = ?").bind(t.id).run();
+  await DB.prepare("DELETE FROM turnos WHERE marca = 'error' AND cliente = 'hola?'").run();
+}
+
 titulo("el /estado público es confidencial cuando el panel central está conectado");
 {
   const API = "y".repeat(10) + "-clave-larga-del-central";

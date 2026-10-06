@@ -131,7 +131,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-06 (45) · informe de errores para el panel ALPHA IA (todo lo que salió mal, con su contexto)";
+const VERSION = "2026-10-06 (46) · la tienda ve y baja los errores de la IA (Excel y texto)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo

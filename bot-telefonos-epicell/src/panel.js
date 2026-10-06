@@ -306,7 +306,7 @@ textarea{width:100%}
 
 function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnuncios = true, enVivo = false, entrada = false } = {}) {
   const menu = conMenu
-    ? `<nav class="menu"><a href="/panel">Chats</a><a href="/panel/clientes">Clientes</a><a href="/panel/metricas">Métricas</a><a href="/panel/ganadores">Ganadores</a>${conAnuncios ? '<a href="/panel/anuncios">Anuncios</a>' : ""}<a href="/panel/salir">Salir</a></nav>`
+    ? `<nav class="menu"><a href="/panel">Chats</a><a href="/panel/clientes">Clientes</a><a href="/panel/metricas">Métricas</a><a href="/panel/ganadores">Ganadores</a><a href="/panel/errores">Errores IA</a>${conAnuncios ? '<a href="/panel/anuncios">Anuncios</a>' : ""}<a href="/panel/salir">Salir</a></nav>`
     : "";
   const vivo = enVivo ? '<span class="en-vivo" title="Se pone al día sola en cuanto llega un mensaje"><i></i>en vivo</span>' : "";
   const arriba = entrada ? "" : `<header><div class="fila">${marcaAlpha("/panel", tienda)}${menu}${vivo}</div></header>`;
@@ -706,19 +706,27 @@ async function informeDeErrores(env, url, opciones = {}) {
   const desde = Date.now() - dias * DIA_MS;
   const corto = (x, n) => String(x ?? "").slice(0, n);
   const errores = await leerTabla(env.DB, TABLAS.CREAR_ERRORES, "SELECT cuando, texto FROM errores WHERE cuando > ? ORDER BY cuando DESC LIMIT 2000", desde).catch(() => []);
-  const turnos = await leerTabla(
-    env.DB,
-    TABLAS.CREAR_TURNOS,
-    "SELECT id, igsid, cuando, cliente, pienso, respuesta, productos, notas, marca, motivo FROM turnos WHERE cuando > ? AND marca != '' ORDER BY cuando DESC LIMIT 1000",
-    desde
-  ).catch(() => []);
   return {
     tienda: opciones.tienda || "",
     version: opciones.version || "",
     dias,
     desde,
     errores: errores.map((e) => ({ cuando: Number(e.cuando) || 0, texto: corto(e.texto, 4000), tipo: tipoDeError(e.texto) })),
-    senaladas: turnos.map((t) => ({
+    senaladas: await senaladasDelPeriodo(env.DB, desde),
+  };
+}
+
+// Las respuestas señaladas ❌ 🔴 ⚠️ 👎 entre "desde" y "hasta", con su contexto.
+async function senaladasDelPeriodo(db, desde, hasta = Infinity) {
+  const corto = (x, n) => String(x ?? "").slice(0, n);
+  const turnos = await leerTabla(
+    db,
+    TABLAS.CREAR_TURNOS,
+    "SELECT id, igsid, cuando, cliente, pienso, respuesta, productos, notas, marca, motivo FROM turnos WHERE cuando > ? AND cuando <= ? AND marca != '' ORDER BY cuando DESC LIMIT 1000",
+    desde,
+    Number.isFinite(hasta) ? hasta : Number.MAX_SAFE_INTEGER
+  ).catch(() => []);
+  return turnos.map((t) => ({
       id: Number(t.id) || 0,
       igsid: String(t.igsid || ""),
       cuando: Number(t.cuando) || 0,
@@ -731,8 +739,74 @@ async function informeDeErrores(env, url, opciones = {}) {
       pienso: corto(t.pienso, 1500),
       productos: leer(t.productos).map((p) => (typeof p === "string" ? p : p?.titulo || "")).filter(Boolean).slice(0, 10),
       notas: leer(t.notas).map(String).slice(0, 10),
-    })),
-  };
+    }));
+}
+
+/* ── Los errores de la IA, para la tienda (6-oct-2026) ─────────────
+   Las respuestas señaladas de SUS conversaciones (❌ 🔴 ⚠️ 👎), con lo que
+   escribió el cliente, lo que respondió el bot y lo que pensó la IA, para
+   revisarlas y bajarlas (Excel o texto). Lo técnico sigue siendo
+   confidencial: el registro de errores ⚙️ no sale aquí, y en un ❌ el
+   detalle técnico se cambia por una frase (lo ve el dueño en ALPHA IA). */
+const MOTIVO_TECNICO = "Falla técnica: el bot no pudo responder (el detalle lo tiene ALPHA IA)";
+
+async function erroresDeLaIaParaLaTienda(env, params) {
+  const p = periodoPedido(params, 30);
+  const casos = (await senaladasDelPeriodo(env.DB, p.inicio - 1, p.fin + DIA_MS - 1)).map((c) => ({ ...c, motivo: c.marca === "error" ? MOTIVO_TECNICO : c.motivo }));
+  const nombres = new Map();
+  if (casos.length) {
+    for (const c of await clientesDelCrm(env.DB).catch(() => [])) nombres.set(String(c.id), c.nombre || (c.usuario ? `@${c.usuario}` : ""));
+  }
+  for (const c of casos) c.nombre = nombres.get(c.igsid) || "";
+  return { casos, rango: rangoDe(p), primerDato: await primerDato(env.DB) };
+}
+
+function vistaDeErroresDelCliente(datos, url) {
+  const selector = selectorDePeriodo({ periodo: periodoDeLaUrl(url, 30), rango: datos.rango, primerDato: datos.primerDato, hoy: diaDe(Date.now()) });
+  const cuenta = (m) => datos.casos.filter((c) => c.marca === m).length;
+  const kpis = Object.entries(MARCAS)
+    .map(([m, v]) => kpi(cuenta(m), `${v.simbolo} ${v.nombre}`))
+    .join("");
+  const MAX = 200;
+  const tarjetas = datos.casos
+    .slice(0, MAX)
+    .map(
+      (c) => `<div class="tarjeta" data-k="e${c.id}"><b>${c.simbolo} ${esc(c.tipo)}</b> · <span class="suave">${esc(horaExacta(c.cuando))}</span> · <a href="/panel/c/${encodeURIComponent(c.igsid)}">${esc(c.nombre || c.igsid)}</a>
+${c.motivo ? `<div><b>Motivo:</b> ${esc(c.motivo)}</div>` : ""}${c.cliente ? `<div><b>El cliente escribió:</b> ${esc(c.cliente)}</div>` : ""}${c.respuesta ? `<div><b>El bot respondió:</b> ${esc(c.respuesta)}</div>` : ""}${c.pienso ? `<div class="suave"><b>La IA pensó:</b> ${esc(c.pienso)}</div>` : ""}${c.productos.length ? `<div class="suave"><b>Productos:</b> ${esc(c.productos.join(" · "))}</div>` : ""}</div>`
+    )
+    .join("");
+  return `<h2>🧾 Errores de la IA</h2>${selector}
+<p class="suave">Las respuestas del bot que salieron mal en tus conversaciones: 🔴 incoherentes o inventadas (las detecta el revisor), ⚠️ la IA inventó algo y se corrigió sola, 👎 el cliente se quejó, ❌ el bot no pudo responder. Bájalas para revisarlas y arreglarlas.</p>
+<div class="kpis">${kpi(datos.casos.length, "en total")}${kpis}</div>
+<p class="acciones"><a class="boton" href="${esc(conLaMismaConsulta("/panel/errores.csv", url))}">⬇️ Excel</a> <a class="boton" href="${esc(conLaMismaConsulta("/panel/errores.md", url))}">⬇️ Informe en texto</a></p>
+${datos.casos.length ? tarjetas : '<div class="tarjeta suave">Sin errores de la IA en este período ✅</div>'}${datos.casos.length > MAX ? `<p class="suave">Se ven los ${MAX} más recientes; el Excel y el texto los traen todos (${datos.casos.length}).</p>` : ""}`;
+}
+
+function csvDeErroresDelCliente(datos) {
+  return aCsv(
+    ["Cuándo", "Tipo", "Cliente", "Motivo", "Lo que escribió el cliente", "Lo que respondió el bot", "Lo que pensó la IA", "Productos que mostró", "Id del cliente", "Arreglado"],
+    datos.casos.map((c) => [horaExacta(c.cuando), `${c.simbolo} ${c.tipo}`, c.nombre, c.motivo, c.cliente, c.respuesta, c.pienso, c.productos.join(" · "), c.igsid, ""])
+  );
+}
+
+function textoDeErroresDelCliente(datos, tienda) {
+  const l = [`# Errores de la IA — ${tienda}`, "", `Del ${datos.rango.desde} al ${datos.rango.hasta} (${datos.rango.dias} días) · ${datos.casos.length} en total`, ""];
+  for (const [m, v] of Object.entries(MARCAS)) l.push(`- ${v.simbolo} ${v.nombre}: **${datos.casos.filter((c) => c.marca === m).length}**`);
+  for (const [m, v] of Object.entries(MARCAS)) {
+    const casos = datos.casos.filter((c) => c.marca === m);
+    if (!casos.length) continue;
+    l.push("", `## ${v.simbolo} ${v.nombre} (${casos.length})`);
+    for (const c of casos) {
+      l.push("", `**${horaExacta(c.cuando)}** · ${c.nombre || "cliente"} (${c.igsid})`);
+      if (c.motivo) l.push(`- Motivo: ${c.motivo}`);
+      if (c.cliente) l.push(`- El cliente escribió: ${c.cliente.replace(/\s+/g, " ")}`);
+      if (c.respuesta) l.push(`- El bot respondió: ${c.respuesta.replace(/\s+/g, " ")}`);
+      if (c.pienso) l.push(`- La IA pensó: ${c.pienso.replace(/\s+/g, " ")}`);
+      if (c.productos.length) l.push(`- Productos que mostró: ${c.productos.join(" · ")}`);
+    }
+  }
+  l.push("");
+  return l.join("\n");
 }
 
 /* ── Métricas y ganadores, para la tienda (5-oct-2026) ─────────────
@@ -965,6 +1039,17 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
       return respuestaCsv(`metricas-${datos.rango.desde}-a-${datos.rango.hasta}.csv`, aCsv(campos.map((c) => c[1]), datos.dias.map((d) => campos.map(([c]) => (c === "dia" ? d.dia : Number(d[c]) || 0)))));
     }
     return pagina("Métricas", vistaDeMetricasDelCliente(datos, url), { tienda, conAnuncios });
+  }
+  if (url.pathname === "/panel/errores" || url.pathname === "/panel/errores.csv" || url.pathname === "/panel/errores.md") {
+    const datos = await erroresDeLaIaParaLaTienda(env, url.searchParams);
+    const nombre = `errores-ia-${datos.rango.desde}-a-${datos.rango.hasta}`;
+    if (url.pathname.endsWith(".csv")) return respuestaCsv(`${nombre}.csv`, csvDeErroresDelCliente(datos));
+    if (url.pathname.endsWith(".md")) {
+      return new Response(textoDeErroresDelCliente(datos, tienda), {
+        headers: { "content-type": "text/markdown; charset=utf-8", "content-disposition": `attachment; filename="${nombre}.md"`, "cache-control": "no-store" },
+      });
+    }
+    return pagina("Errores de la IA", vistaDeErroresDelCliente(datos, url), { tienda, conAnuncios });
   }
   if (url.pathname === "/panel/ganadores" || url.pathname === "/panel/ganadores.csv") {
     const params = new URLSearchParams(url.searchParams);

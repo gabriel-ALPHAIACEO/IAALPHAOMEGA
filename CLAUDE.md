@@ -27,7 +27,7 @@ Como los archivos se pegan a mano, **cada entrega sube la constante `VERSION` de
 
 **`src/alpha.js` es idéntico en las 3 tiendas Y en `panel-central/src/`** (5-oct-2026): es la cara de ALPHA IA en los dos paneles — el logo (dentro del archivo, en base64), el estilo oscuro, el script que pone la página al día sin parpadear, y cómo se pintan la foto del cliente y el carrusel de fichas. Un cambio de diseño se pega en las cuatro carpetas.
 
-**El `/panel` de cada tienda es el panel del CLIENTE (5-oct-2026)**: chats, CRM (`src/crm.js`: ficha, etapas, notas, etiquetas, Excel), métricas y ganadores con calendario. Lo confidencial —gastos de la IA, estado técnico y errores, bases de datos— queda SOLO en el panel ALPHA IA. Con `PANEL_API_CLAVE` puesta, el `/estado` público solo dice "vivo" y la versión; completo con `/estado?clave=<PANEL_API_CLAVE>` o desde ALPHA IA.
+**El `/panel` de cada tienda es el panel del CLIENTE (5-oct-2026)**: chats, CRM (`src/crm.js`: ficha, etapas, notas, etiquetas, Excel), métricas y ganadores con calendario, y **Errores IA** (6-oct: las respuestas señaladas ❌🔴⚠️👎 con su conversación, a Excel y texto; en un ❌ sin el detalle técnico). Lo confidencial —gastos de la IA, estado técnico y errores, bases de datos— queda SOLO en el panel ALPHA IA. Con `PANEL_API_CLAVE` puesta, el `/estado` público solo dice "vivo" y la versión; completo con `/estado?clave=<PANEL_API_CLAVE>` o desde ALPHA IA.
 
 **UN WORKER POR TIENDA, y así se queda (decidido el 29-sep-2026).** Se probó
 la vía multi-tienda —un solo Worker que atendía a varias con `tienda.js` y
