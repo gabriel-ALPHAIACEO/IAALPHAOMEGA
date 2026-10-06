@@ -206,7 +206,8 @@ Términos que ayudan:
   redmi / redmy → Redmi · note 17 → Redmi Note 17 · poco / poko → Poco
   sansung / samsun → Samsung · tekno → Tecno · infinis → Infinix
   onor → Honor · audífonos / auriculares / cascos → audifonos
-  buds → redmi buds · smartwatch / mi band → reloj · funda / case → forro
+  buds → redmi buds · smartwatch / reloj inteligente → reloj · miband /
+  smart band / xiaomi smart band → "mi band" (con su número si lo dijo) · funda / case → forro
   mica / protector → vidrio · pila portátil →
   powerbank · taco / cubo → cargador · webcam → camara web · wifi / modem
   → router

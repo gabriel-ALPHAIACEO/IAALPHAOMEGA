@@ -502,8 +502,14 @@ function paraBuscar(texto) {
     .trim();
 }
 
+// "miband 10" encontraba el Honor Play 10 (6-oct-2026): "miband" no está
+// en ningún título, se tiraba, y quedaba el "10" solo. Pegado o con
+// "smart", es la Band: "miband", "smartband", "mi band", "smart band".
 function palabrasDeBusqueda(termino) {
-  return paraBuscar(termino).split(" ").filter(Boolean);
+  return paraBuscar(termino)
+    .replace(/\b(?:mi|smart)band\b/g, "band")
+    .split(" ")
+    .filter(Boolean);
 }
 
 // LA BÚSQUEDA MIRA TODA LA FILA, NO SOLO EL TÍTULO.

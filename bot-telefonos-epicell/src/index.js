@@ -163,7 +163,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-06 (47) · la columna Existencia se entiende en mayúscula o minúscula (0, NO, no hay, AGOTADO esconden; SI, hay o un número muestran), y todas las columnas de existencia cuentan · fichas que no salían, Redmi 17 Pro Max, inventario del 6-oct, /probar-fotos";
+const VERSION = "2026-10-06 (48) · relojes: mi band, miband, smart band, band 10, smartwatch y relojes xiaomi se reconocen; \"mi band 9\" ofrece la 10; \"apple watch\" ya no manda AirPods · columna Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max, inventario del 6-oct";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -4543,6 +4543,36 @@ const PIDE_OTROS = /\b(otros?|otras?|dem[aá]s|m[aá]s\s+(modelos|opciones|equip
 // Y lo mismo un accesorio, aunque lleve cifras ("Cargador original 45w"):
 // el parentesco de modelo.js es para teléfonos, y con un cargador daría
 // "familia" por cualquier palabra de menos.
+// Lo mismo para lo que escribió el cliente, pero con el número: "band 10"
+// o "xiaomi smart band 10" ES el "Reloj Xiaomi Mi band 10" (le faltan
+// palabras, no es otro), y "mi band 9" NO lo es (6-oct-2026). En los
+// teléfonos manda modelo.js, como siempre.
+function relacionDeLoQueEscribio(texto, titulo, hoja = []) {
+  // Pidió OTRA clase de cosa ("apple watch" y lo más parecido son unos
+  // AirPods): no es pariente de nada.
+  const tipoDelTexto = tipoQuePide(texto);
+  if (tipoDelProducto(titulo) === "telefono") return parentesco(texto, titulo);
+  if (tipoDelTexto && tipoDelTexto !== "telefono" && tipoDelTexto !== tipoDelProducto(titulo)) return "";
+  const trozos = (t) => despejar(t).split(/[^a-z0-9]+/).filter(Boolean);
+  const delTitulo = new Set(trozos(titulo));
+  const enLaHojaHay = new Set(hoja.flatMap((p) => trozos(p.titulo)));
+  // Lo que escribió y la hoja conoce tiene que estar en ESTE título: "xiaomi
+  // watch" no es la "Mi band 10" (el "watch" es de otro reloj).
+  const leFalta = trozos(texto).filter((p) => !/^\d+$/.test(p) && p.length > 2 && enLaHojaHay.has(p) && !delTitulo.has(p));
+  const numeros = trozos(texto).filter((p) => /^\d+$/.test(p));
+  // No dijo QUÉ es ni un número ("¿tienen iphone?" y sale un cargador de
+  // iPhone): eso no es pedir ESE accesorio. Como antes, lo decide modelo.js.
+  if ((!tipoDelTexto || tipoDelTexto === "telefono") && !numeros.length) return parentesco(texto, titulo);
+  // Dijo la clase y quizá la marca, pero ningún modelo ("soportes xbyte",
+  // "cargador samsung 45w"): no es UNO, es la búsqueda de siempre.
+  if (!numeros.length) return "";
+  if (!partesDelTitulo(titulo)) return leFalta.length ? "familia" : "mismo";
+  if (numeros.every((n) => delTitulo.has(n)) && !leFalta.length) return "mismo";
+  // Otro número del mismo producto ("mi band 9" y la hoja tiene la 10): es
+  // su familia, y se le dice "ese no, pero tengo este".
+  return "familia";
+}
+
 function relacionConElTexto(texto, titulo) {
   if (!partesDelTitulo(titulo) || tipoDelProducto(titulo) !== "telefono") return "mismo";
   return parentesco(texto, titulo);
@@ -4850,7 +4880,7 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
   // Dónde se nombró: en su mensaje o en el anuncio.
   const dondeLoNombro = loQueEscribio ? texto : textoDelAnuncio;
   const relacion = loQueEscribio
-    ? parentesco(texto, loQueEscribio)
+    ? relacionDeLoQueEscribio(texto, loQueEscribio, enLaHoja)
     : delAnuncio
       ? relacionConElTexto(textoDelAnuncio, delAnuncio)
       : "";
@@ -4905,7 +4935,14 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
   let productos = [];
   let hayMas = false;
   if (termino) {
-    ({ productos, hayMas } = await buscarProductos(env, termino));
+    // "¿Tienen relojes xiaomi?" y la IA busca "xiaomi": salían teléfonos.
+    // Si el término es solo una marca y el cliente dijo QUÉ es (reloj,
+    // cargador…), se buscan solo cosas de ese tipo (6-oct-2026).
+    const tipoDelCliente = tipoQuePide(texto);
+    const soloMarca = !tipoQuePide(termino) && !/\d/.test(termino);
+    const conSuTipo = tipoDelCliente && tipoDelCliente !== "telefono" && soloMarca ? { tipo: tipoDelCliente } : {};
+    ({ productos, hayMas } = await buscarProductos(env, termino, 10, conSuTipo));
+    if (conSuTipo.tipo) console.log(`Buscó "${termino}" y el cliente pidió ${conSuTipo.tipo}: solo eso`);
     console.log(
       productos.length
         ? `Busqué "${termino}": ${productos.length} resultado(s)${hayMas ? " (y hay más)" : ""}`
@@ -4926,7 +4963,9 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
   // 17" no dijo "Note". Se quedan los que EMPIEZAN por el modelo que nombró
   // —el Redmi 17 y, si hubiera, el Redmi 17 de 256—, que es su familia de
   // verdad. Si el filtro dejara la búsqueda vacía, no se aplica.
-  if (relacion === "mismo" && productos.length > 1) {
+  // (Solo en teléfonos: "cargador samsung 45w" son el original Y el
+  // certificado, los dos de 45W, no "el que más se parece".)
+  if (relacion === "mismo" && productos.length > 1 && tipoDelProducto(elQuePidio) === "telefono") {
     // La raíz es MARCA + LÍNEA + NÚMERO, sin la capacidad: el A57 de 128 y
     // el de 512 son el mismo modelo y los dos se quedan.
     const partes = partesDelTitulo(elQuePidio);

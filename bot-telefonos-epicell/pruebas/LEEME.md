@@ -37,6 +37,7 @@ for %f in (pruebas\*.mjs) do node pruebas\%f
 | `lista.mjs` | La lista de productos, las marcas y los botones |
 | `sinlista.mjs` | Que la lista escrita no se pegue encima de las fotos |
 | `pagos.mjs` | Cashea y Krece: que quepan, que no se crucen y que se lean |
+| `relojes.mjs` | Los relojes: mi band / miband / smart band / band 10, relojes xiaomi, smartwatch; otra versión → "esa no, pero esta" |
 | `existencia.mjs` | La columna Existencia/Cantidad: mayúsculas o minúsculas, SI/NO/AGOTADO/0, y varias columnas a la vez |
 | `imagenes.mjs` | Que las fichas salgan cuando las pide o se le prometen (👇), aunque ya las haya visto |
 | `nombres.mjs` | "Redmi 17 Pro Max" es el Note 17 Pro Max; "Redmi 17" a secas no |

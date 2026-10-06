@@ -41,7 +41,7 @@ const TIPOS = [
   ["powerbank", ["powerbank", "powerbanks", "pila", "pilas", "bateria", "baterias"]],
 
   ["reloj", ["reloj", "relojes", "smartwatch", "smartwatches", "watch", "band", "banda",
-    "pulsera", "pulseras"]],
+    "pulsera", "pulseras", "miband", "mibands", "smartband", "smartbands", "bands"]],
 
   ["memoria", ["memoria", "memorias", "microsd", "pendrive", "pendrives"]],
 

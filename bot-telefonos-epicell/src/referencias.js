@@ -45,7 +45,12 @@ const REFERENCIAS = [
   [["cascos", "manos libres", "audifono", "auriculares inalambricos",
     "audifonos bluetooth", "earbuds", "airpods", "diadema", "auricular"], "Audifonos"],
 
-  [["reloj inteligente", "smartwatch", "smart watch", "reloj de pulsera"], "Reloj"],
+  [["reloj inteligente", "smartwatch", "smart watch", "reloj de pulsera",
+    // 6-oct-2026: lo que describe un reloj sin nombrar un modelo. Los que
+    // SÍ nombran uno ("redmi watch", "apple watch", "mi band 9") no van:
+    // si no está, hay que decirle "ese no, pero mira estos".
+    "banda inteligente", "reloj xiaomi", "relojes xiaomi",
+    "reloj", "relojes"], "Reloj"],
   [["pulsera de actividad", "pulsera inteligente", "manilla"], "Mi band"],
 
   [["cable de datos", "cable cargador", "cable de carga", "cablecito",
