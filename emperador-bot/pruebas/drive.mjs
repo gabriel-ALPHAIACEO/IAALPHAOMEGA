@@ -20,6 +20,12 @@ for (const [nombre, titulo_, codigo, precio] of [
   ["Campus gris_precio 40.jpeg", "Campus gris", "", "$40"],
   ["Samba blanca ref S12 35,50$", "Samba blanca", "S12", "$35.50"],
   ["New Balance 9060.jpg", "New Balance 9060", "", ""],
+  // "Ref" + número ES EL PRECIO (dueño, 6-oct-2026). Antes salía "Cód. 60".
+  ["329/36-44/ Ref.60.jpg", "329/36-44/", "", "$60"],
+  ["A2000 Tallas 40-45 Ref.60.jpg", "A2000 Tallas 40-45", "", "$60"],
+  ["K6066 Tallas 36-40 REF 55.jpg", "K6066 Tallas 36-40", "", "$55"],
+  ["3057 / / tallas 40-45 ref:60", "3057 / / tallas 40-45", "", "$60"],
+  ["A3-2 / 40-45 / Ref. 60.jpeg", "A3-2 / 40-45 /", "", "$60"],
 ]) {
   const r = D.leerNombre(nombre);
   ok(r.titulo === titulo_ && r.codigo === codigo && r.precio === precio,

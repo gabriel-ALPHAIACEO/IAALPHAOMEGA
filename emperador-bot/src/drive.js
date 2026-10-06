@@ -93,6 +93,10 @@ const EXTENSION = /\.(jpe?g|png|webp|heic|heif|gif|avif)$/i;
 // salía "$45" y el título "Tallas 40- . 60").
 const PRECIO = [
   /(?:\$|usd\b)[\s.:]*(\d{1,4}(?:[.,]\d{1,2})?)/i, //   "$45", "USD 45", "$. 60"
+  // "Ref.60", "REF 55", "ref: 45" (6-oct-2026, dueño: "los que tengan Ref,
+  // es el precio"). Solo con un número detrás: "ref S12" sigue siendo un
+  // código. Antes salía "Cód. 60" en la ficha y ningún precio.
+  /\bref(?:erencia)?\b\s*[.:#\-]?\s*(\d{1,4}(?:[.,]\d{1,2})?)(?![\w])/i,
   /(?<![\d\-])(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:\$|usd\b|d[oó]lares?\b|verdes\b)/i, // "45$", "45 USD"
   /\bprecio\s*[:=\-]?\s*(\d{1,4}(?:[.,]\d{1,2})?)/i, //   "precio 45", "precio: 45"
 ];
