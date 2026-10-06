@@ -28,6 +28,7 @@ import { urlPequena } from "./shopify.js";
 import { comoDataUri } from "./imagen.js";
 import { metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
 import { anotarGasto } from "./gasto.js";
+import { reglasParaLaIA } from "./lecciones.js";
 import { hayCashea } from "./cashea.js";
 import { hayUbicacion, mensajeDeUbicacion } from "./ubicacion.js";
 
@@ -532,10 +533,13 @@ async function llamar(
 }
 
 export async function responderTexto(env, entrada) {
+  // LO QUE YA APRENDIÓ (ver lecciones.js). Va en el mensaje y no en el
+  // prompt fijo: así el prompt sigue igual y OpenAI lo cobra cacheado.
+  const reglas = await reglasParaLaIA(env, "texto");
   const salida = await llamar(
     env,
     textoConCatalogo(env),
-    [{ type: "text", text: entrada }],
+    [{ type: "text", text: reglas ? `${reglas}\n\n${entrada}` : entrada }],
     { schema: ESQUEMA_RESPUESTA }
   );
   return normalizar(salida);
@@ -543,6 +547,13 @@ export async function responderTexto(env, entrada) {
 
 // SOLO identifica: no redacta nada para el cliente. Devuelve
 // { visto, rasgos, buscar, color, variosProductos, pedirNombreExacto } o null.
+// Lo que la IA de imágenes ya aprendió (ver lecciones.js). No a la hora de
+// indexar el catálogo (modelo dado): ahí las fotos son del catálogo.
+async function conReglasDeFotos(env, pedido) {
+  const reglas = await reglasParaLaIA(env, "imagen");
+  return reglas ? `${reglas}\n\n${pedido}` : pedido;
+}
+
 export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) {
   const salida = await llamar(
     env,
@@ -554,7 +565,7 @@ export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) 
       // cordones— vale la pena pagar los tokens de más para no perder el
       // detalle fino.
       { type: "image_url", image_url: { url: urlImagen, detail: "high" } },
-      { type: "text", text: "Identifica el calzado de esta foto." },
+      { type: "text", text: await conReglasDeFotos(env, "Identifica el calzado de esta foto.") },
     ],
     {
       schema: ESQUEMA_IDENTIFICACION,

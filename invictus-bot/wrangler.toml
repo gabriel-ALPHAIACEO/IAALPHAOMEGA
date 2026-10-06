@@ -153,17 +153,36 @@ OPENAI_MODELO_INDICE = "gpt-4o-mini"
 # contradijo, no contestó lo que le preguntaron o tuvo mal tono. El cliente
 # no espera nada: ya le llegó la respuesta.
 #   REVISOR_IA         "si" lo enciende, "no" lo apaga
-#   REVISOR_MODELO     "gpt-4o-mini": ~$0,0004 por respuesta. "gpt-4o" es
-#                      más fino pero ~15 veces más caro (~$0,006).
+#   REVISOR_MODELO     el modelo del REVISOR, y solo de él: son tres IA
+#                      distintas (la de texto es OPENAI_MODELO, la de imagen
+#                      OPENAI_MODELO_VISION). "gpt-5" (6-oct-2026, dueño:
+#                      "una IA potente que piense bien las cosas y corrija
+#                      todo"): razona antes de decidir y escribe lo que el
+#                      bot debió decir. ~$0,015 por respuesta revisada.
+#   REVISOR_ESFUERZO   cuánto piensa: "low" (rápido), "medium", "high" (más
+#                      fino, más lento y más caro).
+#   REVISOR_RESPALDO   si el de arriba no está disponible en la cuenta de
+#                      OpenAI, revisa con este (no se apaga nunca).
 #   REVISOR_CONFIANZA  "alta": solo marca lo que está seguro (pocas falsas
 #                      alarmas). "media": marca también las dudas.
 #   REVISOR_TOPE_MES   cuántos dólares al mes puede gastar como mucho; al
 #                      llegar, deja de revisar hasta el mes siguiente (el bot
 #                      sigue respondiendo igual). "no" = sin tope.
 REVISOR_IA = "si"
-REVISOR_MODELO = "gpt-4o-mini"
+REVISOR_MODELO = "gpt-5"
+REVISOR_ESFUERZO = "medium"
+REVISOR_RESPALDO = "gpt-4o"
 REVISOR_CONFIANZA = "alta"
 REVISOR_TOPE_MES = "10"
+
+# LA IA APRENDE SOLA (ver src/lecciones.js, 6-oct-2026). Cada error que
+# encuentra el revisor se guarda como una regla y la IA de texto (o la de
+# imágenes) la recibe en cada mensaje: deja de repetirlo sin tocar el código.
+# Las alertas rojas (🔴 ⚠️ 👎) ya no suenan en ALPHA IA: solo te llega 🛠️
+# cuando una regla no basta y hay que ponerlo en el código (y los ❌/⚙️ de
+# fallos técnicos). Lo aprendido se ve y se olvida en ALPHA IA › la tienda ›
+# 🧠 Aprendido. "no" lo apaga (y vuelven las alertas rojas).
+APRENDER = "si"
 
 # Cuantas horas se calla el bot despues de que un asesor le escribe a un
 # cliente a mano desde la app de Instagram (para no hablar por encima).

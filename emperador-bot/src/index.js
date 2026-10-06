@@ -132,7 +132,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-06 (53) · Mind 002 es Mind 002 (la foto manda sobre la carpeta; el número del modelo no se suelta)";
+const VERSION = "2026-10-06 (54) · piezas compartidas: el revisor que piensa y el aprendizaje (apagado aquí: APRENDER)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo

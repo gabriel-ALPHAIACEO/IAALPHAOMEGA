@@ -33,6 +33,7 @@ import { cargarContacto, pausar, despausar, asegurarColumnas } from "./estado.js
 import { gastoDelMes } from "./gasto.js";
 import { TABLAS, leerTabla, tipoDeError, esIntencionDeCompra, asegurarTurnos, MARCAS } from "./registro.js";
 import { ESTILO_ALPHA, SCRIPT_ALPHA, imagenDeAlpha, marcaAlpha, cajaDeEntrada, adjuntosLimpios, leerAdjuntos, textoDeAdjuntos, textoVisible, htmlDeAdjuntos, kpi, barras, selectorDePeriodo, aCsv, respuestaCsv } from "./alpha.js";
+import { listarLecciones, olvidarLeccion, aprendeActivo, VECES_PARA_CODIGO } from "./lecciones.js";
 import { clientesDelCrm, guardarCrm, htmlListaDeClientes, htmlFichaDeCliente, filtrarClientes, filasCsvDeClientes } from "./crm.js";
 
 // Se reexporta para que index.js lo siga importando desde aquí.
@@ -1674,6 +1675,17 @@ export async function atenderApiCentral(request, env, opciones = {}) {
     // EL INFORME DE ERRORES (6-oct-2026): todo lo que salió mal en el
     // período, para descargarlo en el panel ALPHA IA y arreglarlo después.
     if (ruta === "informe-errores") return json(await informeDeErrores(env, url, opciones));
+
+    // LO QUE LA IA APRENDIÓ SOLA (ver lecciones.js), para el panel ALPHA IA.
+    if (ruta === "lecciones") {
+      return json({ activo: aprendeActivo(env), vecesParaCodigo: VECES_PARA_CODIGO, lecciones: await listarLecciones(env.DB) });
+    }
+    if (ruta === "olvidar-leccion" && request.method === "POST") {
+      const { id } = await request.json().catch(() => ({}));
+      if (!Number(id)) return json({ error: "Falta el id" }, 400);
+      await olvidarLeccion(env.DB, id);
+      return json({ ok: true });
+    }
 
     if (ruta === "estado") {
       return json({ texto: opciones.verTexto ? await opciones.verTexto("/estado") : "" });

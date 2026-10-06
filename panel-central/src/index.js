@@ -59,9 +59,10 @@ import {
   vistaComoFunciona,
   vistaEnVivo,
   vistaEnPausa,
+  vistaAprendido,
 } from "./vistas.js";
 
-const VERSION = "2026-10-06 (15) · informe de errores: todas las tiendas, agrupado por problema, a Excel y a texto";
+const VERSION = "2026-10-06 (16) · 🧠 Aprendido: lo que la IA aprendió sola, y la alerta 🛠️ de lo que hay que poner en el código";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");
@@ -461,6 +462,20 @@ async function atenderTienda(request, env, url, t, resto, opciones) {
     const r = await pedir(env, t, `errores?dias=${n}`);
     const cabecera = pestanasDeTienda(t, "errores");
     return p("Errores", r.ok && Array.isArray(r.datos) ? vistaErrores(r.datos, cabecera, { soloErrores: url.searchParams.get("solo") === "1" }) : cabecera + errorDe(r));
+  }
+
+  // LO QUE LA IA APRENDIÓ SOLA (ver vistaAprendido).
+  if (resto === "aprendido") {
+    const r = await pedir(env, t, "lecciones");
+    const aviso = String(url.searchParams.get("aviso") || "").slice(0, 200);
+    return p("Aprendido", r.ok && Array.isArray(r.datos?.lecciones) ? vistaAprendido(t, r.datos, aviso) : pestanasDeTienda(t, "aprendido") + errorDe(r));
+  }
+  if (resto === "olvidar-leccion" && esPost) {
+    const id = Number(formulario?.get("id"));
+    const r = await pedir(env, t, "olvidar-leccion", { metodo: "POST", cuerpo: { id } });
+    if (!r.ok) return p("No se pudo", errorDe(r));
+    console.log(`PANEL CENTRAL: regla ${id} olvidada en ${t.nombre}`);
+    return redirigir(`/t/${encodeURIComponent(t.id)}/aprendido?aviso=${encodeURIComponent("Listo: esa regla ya no se le pasa a la IA.")}`);
   }
 
   if (resto === "alertas") {

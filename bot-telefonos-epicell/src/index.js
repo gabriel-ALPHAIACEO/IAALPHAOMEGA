@@ -157,7 +157,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-06 (39) · la tienda ve y baja los errores de la IA (Excel y texto)";
+const VERSION = "2026-10-06 (40) · piezas compartidas: el revisor que piensa y el aprendizaje (apagado aquí: APRENDER)";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA

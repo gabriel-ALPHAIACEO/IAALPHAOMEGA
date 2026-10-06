@@ -34,6 +34,7 @@
 
 import { anotarGasto } from "./gasto.js";
 import { marcarTurno, alertarCentral } from "./registro.js";
+import { aprendeActivo, aprender } from "./lecciones.js";
 
 const API = "https://api.openai.com/v1/chat/completions";
 const API_DEEPSEEK = "https://api.deepseek.com/chat/completions";
@@ -43,6 +44,9 @@ const VEREDICTOS = {
   incoherente: "Incoherente",
   no_responde: "No contestó lo que le preguntaron",
   tono: "Tono indebido",
+  // La IA de imágenes se equivocó de zapato: lo que se le enseñó no es lo
+  // de la foto (6-oct-2026: el revisor mira la foto y las fichas).
+  foto_equivocada: "La IA de imágenes se equivocó de zapato",
 };
 
 const INSTRUCCIONES = `Eres el supervisor de calidad de una asistente virtual de ventas por Instagram.
@@ -83,6 +87,9 @@ VEREDICTOS:
     zapatos).
   · "no_responde": ignora la pregunta concreta y contesta otra cosa.
   · "tono": grosera, burlona, regañona o fuera de lugar.
+  · "foto_equivocada": SOLO si te llegan imágenes: el cliente mandó la foto
+    de un zapato y lo que se le enseñó en las fichas NO es ese zapato (otro
+    modelo, otra marca). Otro color del mismo modelo NO es equivocarse.
 
 ESTO ESTÁ BIEN (no lo marques nunca):
   · "Eso te lo confirma un asesor en un momento 😊" (o parecido).
@@ -101,8 +108,35 @@ CONFIANZA:
   · "baja": dudas.
 Si es "bien", la confianza da igual.
 
+LAS IMÁGENES: a veces te llegan la FOTO DEL CLIENTE y las fotos de las
+FICHAS que se le enseñaron. Míralas: ¿es el mismo zapato? Fíjate en lo que
+separa un modelo de otro (la suela, los logos, las piezas de plástico, lo
+que lleva escrito), no en el color.
+
+QUÉ IA SE EQUIVOCÓ ("ia"): "imagen" si el error fue reconocer mal el
+zapato de la foto; "texto" en todo lo demás.
+
+LA REGLA ("regla"): si NO está bien, una regla GENERAL, en una frase y en
+imperativo, para que esa IA no lo vuelva a hacer con NINGÚN cliente. No el
+caso concreto: la lección. Ej.: "No confirmes una talla si ninguna ficha la
+dice: pásaselo a un asesor." / "Unas ondas de plástico que suben por el
+lateral con el logo TN en el talón son TN, no Air Max 270."
+
+¿HACE FALTA TOCAR EL CÓDIGO? ("necesitaCodigo"): casi siempre va vacío.
+Escribe ahí por qué SOLO si una regla no puede arreglarlo: el catálogo
+tiene un dato mal o le falta (precio, nombre, foto), la búsqueda trajo
+productos que no son, el bot repitió un mensaje, se mandó algo cortado.
+Eso no lo arregla enseñarle a la IA: lo arregla una persona en el código.
+
+LA CORRECCIÓN: si NO está bien, escribe en "correccion" lo que la
+asistente DEBIÓ responder: una respuesta corta, en español neutro, lista
+para mandarla al cliente, que use SOLO datos de las fichas, la conversación
+o los datos de la tienda. Si el dato no está en ningún lado, la corrección
+es pasárselo a un asesor ("Eso te lo confirma un asesor en un momento 😊").
+Si está bien, "correccion" va vacío.
+
 Responde SOLO con este JSON:
-{"pienso":"2 o 3 frases: qué pidió, qué datos dio y de dónde salen","veredicto":"bien|alucino|incoherente|no_responde|tono","confianza":"alta|media|baja","cita":"la frase EXACTA de la respuesta que está mal (vacío si está bien)","explicacion":"una frase corta en español: qué está mal y por qué"}`;
+{"pienso":"2 o 3 frases: qué pidió, qué datos dio y de dónde salen","veredicto":"bien|alucino|incoherente|no_responde|tono","confianza":"alta|media|baja","cita":"la frase EXACTA de la respuesta que está mal (vacío si está bien)","explicacion":"una frase corta en español: qué está mal y por qué","correccion":"lo que debió responder (vacío si está bien)","ia":"texto|imagen","regla":"la regla general (vacía si está bien)","necesitaCodigo":"por qué hay que tocar el código (casi siempre vacío)"}`;
 
 function conDeepSeek(env) {
   return String(env?.PROVEEDOR || "").toLowerCase() === "deepseek";
@@ -138,6 +172,31 @@ export async function gastoDelRevisor(db) {
   }
 }
 
+// LOS MODELOS QUE PIENSAN (6-oct-2026, dueño: "una IA potente, inteligente,
+// que pueda pensar bien las cosas y corregir absolutamente todo"). Los de la
+// familia gpt-5 y los "o" (o3, o4-mini) razonan por dentro antes de
+// contestar: más lentos, pero mucho más finos para encontrar lo que está
+// mal. Se llaman distinto: sin "temperature", con espacio para pensar
+// ("max_completion_tokens" grande) y con "reasoning_effort".
+//   REVISOR_ESFUERZO   "low", "medium" (por defecto) o "high"
+//   REVISOR_RESPALDO   si el modelo no está disponible en la cuenta, este
+//                      (por defecto "gpt-4o"): el revisor no se apaga.
+export function piensaPorDentro(modelo) {
+  return /^(?:o\d|gpt-5)/i.test(String(modelo || ""));
+}
+
+function esfuerzoDelRevisor(env) {
+  const e = String(env?.REVISOR_ESFUERZO || "medium").trim().toLowerCase();
+  return ["minimal", "low", "medium", "high"].includes(e) ? e : "medium";
+}
+
+// El revisor corre después de que el cliente ya tiene su respuesta, dentro
+// del tiempo que Cloudflare le da al mensaje (~30 s en total). Uno que
+// piensa puede tardar: se le dan 25 s y, si no llega, esa respuesta queda
+// sin revisar (el cliente no nota nada).
+const ESPERA_NORMAL_MS = 12000;
+const ESPERA_PENSANDO_MS = 25000;
+
 export function modeloDelRevisor(env) {
   return env?.REVISOR_MODELO || (conDeepSeek(env) ? env?.DEEPSEEK_MODELO_VISION || "deepseek-chat" : "gpt-4o-mini");
 }
@@ -151,31 +210,54 @@ export function revisorActivo(env) {
 // JSON de la respuesta, o null.
 async function preguntar(env, modelo, mensajes) {
   const deepseek = conDeepSeek(env);
-  const cuerpo = {
-    model: modelo,
-    temperature: 0,
-    response_format: { type: "json_object" },
-    messages: mensajes,
-    ...(deepseek ? { max_tokens: 400, thinking: { type: "disabled" } } : { max_completion_tokens: 400 }),
-  };
+  const piensa = !deepseek && piensaPorDentro(modelo);
+  const cuerpoPara = (m) =>
+    piensaPorDentro(m) && !deepseek
+      ? {
+          model: m,
+          response_format: { type: "json_object" },
+          messages: mensajes,
+          // Lo que piensa por dentro sale de aquí: 400 no le alcanzaba ni
+          // para empezar y devolvía vacío.
+          max_completion_tokens: 8000,
+          reasoning_effort: esfuerzoDelRevisor(env),
+        }
+      : {
+          model: m,
+          temperature: 0,
+          response_format: { type: "json_object" },
+          messages: mensajes,
+          ...(deepseek ? { max_tokens: 400, thinking: { type: "disabled" } } : { max_completion_tokens: 600 }),
+        };
   const enviar = (c) =>
     fetch(deepseek ? API_DEEPSEEK : API, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${deepseek ? env.DEEPSEEK_API_KEY : env.OPENAI_API_KEY}` },
       body: JSON.stringify(c),
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(piensaPorDentro(c.model) && !deepseek ? ESPERA_PENSANDO_MS : ESPERA_NORMAL_MS),
     });
+  const cuerpo = cuerpoPara(modelo);
+  let usado = modelo;
   let r = await enviar(cuerpo);
   // Un modelo de DeepSeek que no entiende "thinking": sin él.
   if (deepseek && r.status === 400) {
     const { thinking, ...sinThinking } = cuerpo;
     r = await enviar(sinThinking);
   }
+  // El modelo que piensa no está en esta cuenta de OpenAI (o no acepta algo):
+  // el de respaldo. Así el revisor nunca se apaga por el nombre de un modelo.
+  if (piensa && (r.status === 400 || r.status === 404 || r.status === 403)) {
+    const detalle = (await r.text().catch(() => "")).slice(0, 200);
+    usado = env?.REVISOR_RESPALDO || "gpt-4o";
+    console.log(`REVISOR: ${modelo} no respondió (${r.status}: ${detalle}); reviso con ${usado}`);
+    r = await enviar(cuerpoPara(usado));
+  }
   if (!r.ok) {
     console.log(`REVISOR: ${deepseek ? "DeepSeek" : "OpenAI"} respondió ${r.status}, no reviso esta respuesta`);
     return null;
   }
-  return r.json();
+  const datos = await r.json();
+  return { ...datos, usado };
 }
 
 async function conversacionReciente(db, igsid) {
@@ -216,17 +298,31 @@ export async function revisarTurno(env, turno) {
     `LO QUE RESPONDIÓ: ${turno.respuesta}`,
     `LO QUE SE LE ENSEÑÓ EN FICHAS: ${(turno.fichas || turno.productos || []).join(" | ") || "(nada)"}`,
     turno.categoria ? `LA CATEGORÍA QUE PIDIÓ: ${turno.categoria}` : "",
+    turno.vision ? `LO QUE HIZO LA IA DE IMÁGENES CON LA FOTO: ${turno.vision}` : "",
     turno.contexto ? `\nLOS DATOS DE LA TIENDA (la verdad):\n${String(turno.contexto).slice(0, 3000)}` : "",
   ]
     .filter((linea) => linea !== "")
     .join("\n");
 
   const modelo = modeloDelRevisor(env);
+  // LA FOTO DEL CLIENTE Y LAS DE LAS FICHAS (6-oct-2026): así el revisor
+  // también corrige a la IA de imágenes. Solo con OpenAI (DeepSeek no ve
+  // fotos) y en baja resolución: es para comparar modelos, no detalles.
+  const fotos = !conDeepSeek(env) && turno.foto
+    ? [
+        { type: "text", text: "LA FOTO DEL CLIENTE:" },
+        { type: "image_url", image_url: { url: turno.foto, detail: "low" } },
+        ...(turno.imagenes || []).slice(0, 3).flatMap((url, i) => [
+          { type: "text", text: `FICHA ${i + 1} QUE SE LE ENSEÑÓ:` },
+          { type: "image_url", image_url: { url, detail: "low" } },
+        ]),
+      ]
+    : [];
   let datos;
   try {
     datos = await preguntar(env, modelo, [
       { role: "system", content: INSTRUCCIONES },
-      { role: "user", content: contenido },
+      { role: "user", content: fotos.length ? [{ type: "text", text: contenido }, ...fotos] : contenido },
     ]);
     if (!datos) return null;
   } catch (error) {
@@ -238,7 +334,7 @@ export async function revisarTurno(env, turno) {
     await anotarGasto(env, {
       // Aparte del que conversa: así se ve en /estado y cuenta para el tope.
       // (La tarifa se busca por el comienzo del nombre: es la del modelo.)
-      modelo: `${modelo} (revisor)`,
+      modelo: `${datos.usado || modelo} (revisor)`,
       entrada: datos.usage.prompt_tokens || 0,
       cacheadas: datos.usage.prompt_cache_hit_tokens || datos.usage.prompt_tokens_details?.cached_tokens || 0,
       salida: datos.usage.completion_tokens || 0,
@@ -255,6 +351,7 @@ export async function revisarTurno(env, turno) {
   const clave = String(veredicto?.veredicto || "bien").toLowerCase();
   const explicacion = String(veredicto?.explicacion || "").slice(0, 240);
   const cita = String(veredicto?.cita || "").trim().slice(0, 160);
+  const correccion = String(veredicto?.correccion || "").trim().slice(0, 400);
   // Sin "confianza" (un modelo que no la mandó): se toma como segura, que es
   // como funcionaba antes de pedirla.
   const confianza = ["alta", "media", "baja"].includes(String(veredicto?.confianza || "").toLowerCase())
@@ -273,13 +370,31 @@ export async function revisarTurno(env, turno) {
     return { veredicto: "bien", explicacion, dudoso: clave, confianza };
   }
 
-  const motivo = `${VEREDICTOS[clave]}${explicacion ? ` — ${explicacion}` : ""}${cita ? ` · «${cita}»` : ""}`;
+  const motivo = `${VEREDICTOS[clave]}${explicacion ? ` — ${explicacion}` : ""}${cita ? ` · «${cita}»` : ""}${correccion ? ` → Debió decir: «${correccion}»` : ""}`;
   console.log(`REVISOR: 🔴 ${motivo}`);
   await marcarTurno(env.DB, turno.id, "indebida", motivo);
+
+  // LA IA APRENDE (ver lecciones.js). Con APRENDER = "si", el error se
+  // guarda como regla y NO suena la alerta roja: solo se avisa al dueño
+  // cuando hay que tocar el código. Sin aprender, como siempre: alerta 🔴.
+  const ia = clave === "foto_equivocada" || String(veredicto?.ia || "").toLowerCase() === "imagen" ? "imagen" : "texto";
+  const regla = String(veredicto?.regla || "").trim();
+  const necesitaCodigo = String(veredicto?.necesitaCodigo || "").trim();
+  if (aprendeActivo(env)) {
+    const aprendido = await aprender(env, {
+      tipo: ia,
+      regla: regla || explicacion,
+      cliente: turno.cliente,
+      dijo: cita || turno.respuesta,
+      correcto: correccion,
+      codigo: necesitaCodigo,
+    });
+    return { veredicto: clave, explicacion, cita, confianza, correccion, ia, regla, necesitaCodigo, aprendido };
+  }
   await alertarCentral(env, [
     { tipo: "indebida", texto: `${motivo}\nRespondió: "${String(turno.respuesta).slice(0, 200)}"`, igsid: turno.igsid },
   ]);
-  return { veredicto: clave, explicacion, cita, confianza };
+  return { veredicto: clave, explicacion, cita, confianza, correccion, ia, regla, necesitaCodigo };
 }
 
 const NIVELES = { baja: 0, media: 1, alta: 2 };

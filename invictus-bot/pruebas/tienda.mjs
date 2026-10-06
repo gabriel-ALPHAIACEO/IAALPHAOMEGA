@@ -585,6 +585,41 @@ titulo("las respuestas señaladas: 🔴 ❌ 👎 (y el revisor)");
   const fallida = await DB.prepare("SELECT marca FROM turnos WHERE igsid = '123' ORDER BY id DESC LIMIT 1").first();
   ok(fallida?.marca === "error", "si la IA no responde, el turno queda ❌", JSON.stringify(fallida));
   ok(R.MARCAS.error.simbolo === "❌" && R.MARCAS.corregida.simbolo === "⚠️", "los símbolos");
+
+  // EL REVISOR QUE PIENSA (6-oct-2026, dueño: "una IA potente, que piense
+  // bien las cosas y corrija todo"). Solo el revisor: el de texto y el de
+  // imagen no se tocan.
+  {
+    const pedidos = [];
+    const veredicto = { pienso: "Dijo talla 44 sin fichas.", veredicto: "alucino", confianza: "alta", cita: "Sí tenemos la 44", explicacion: "afirmó una talla que nadie confirmó", correccion: "Eso te lo confirma un asesor en un momento 😊" };
+    globalThis.fetch = async (u, op) => {
+      const cuerpo = JSON.parse(op.body);
+      pedidos.push(cuerpo);
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(veredicto) } }], usage: { prompt_tokens: 2000, completion_tokens: 1500 } }), { status: 200 });
+    };
+    const piensa = await callado(() => V.revisarTurno({ DB, OPENAI_API_KEY: "x", REVISOR_MODELO: "gpt-5", REVISOR_TOPE_MES: "no" }, { id: fila.id, igsid: "123", cliente: "tienen la 44?", respuesta: "Sí tenemos la 44" }));
+    globalThis.fetch = real;
+    const p = pedidos[0] || {};
+    ok(p.model === "gpt-5" && p.reasoning_effort === "medium" && p.max_completion_tokens >= 4000 && !("temperature" in p), "gpt-5 se llama como modelo que piensa: con esfuerzo, espacio para pensar y sin temperature", JSON.stringify({ model: p.model, esfuerzo: p.reasoning_effort, max: p.max_completion_tokens, temp: p.temperature }));
+    ok(piensa?.correccion && /asesor/.test(piensa.correccion), "y además de marcar, dice lo que debió responder", piensa?.correccion);
+    const conCorreccion = await DB.prepare("SELECT motivo FROM turnos WHERE id = ?").bind(fila.id).first();
+    ok(/Debió decir: «Eso te lo confirma un asesor/.test(conCorreccion.motivo), "la corrección queda guardada entera con el 🔴 (sale en Errores IA y en el informe)", conCorreccion.motivo);
+    const gasto5 = await DB.prepare("SELECT dolares FROM gasto WHERE modelo = 'gpt-5 (revisor)'").first();
+    ok(gasto5 && Math.abs(gasto5.dolares - (2000 * 1.25 + 1500 * 10) / 1e6) < 1e-6, "su gasto, con la tarifa de gpt-5 (lo que piensa cuenta como salida)", JSON.stringify(gasto5));
+
+    // El modelo no está en la cuenta: revisa igual, con el de respaldo.
+    const modelos = [];
+    globalThis.fetch = async (u, op) => {
+      const cuerpo = JSON.parse(op.body);
+      modelos.push(cuerpo.model);
+      if (cuerpo.model === "gpt-5") return new Response(JSON.stringify({ error: { message: "The model `gpt-5` does not exist" } }), { status: 404 });
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"veredicto":"bien"}' } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }), { status: 200 });
+    };
+    const respaldo = await callado(() => V.revisarTurno({ DB, OPENAI_API_KEY: "x", REVISOR_MODELO: "gpt-5", REVISOR_TOPE_MES: "no" }, { id: fila.id, igsid: "123", cliente: "x", respuesta: "y" }));
+    globalThis.fetch = real;
+    ok(respaldo?.veredicto === "bien" && modelos.join(",") === "gpt-5,gpt-4o", "si gpt-5 no está disponible, revisa con gpt-4o (no se apaga)", modelos.join(","));
+    ok(V.piensaPorDentro("gpt-5-mini") && V.piensaPorDentro("o3") && V.piensaPorDentro("o4-mini") && !V.piensaPorDentro("gpt-4o") && !V.piensaPorDentro("gpt-4o-mini"), "qué modelos piensan por dentro");
+  }
 }
 
 titulo("las bases de datos: ver, editar, borrar, SQL y deshacer");

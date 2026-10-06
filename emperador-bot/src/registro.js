@@ -262,7 +262,9 @@ export async function marcarTurno(db, id, marca, motivo = "") {
     await asegurarTurnos(db);
     const fila = await db.prepare("SELECT marca FROM turnos WHERE id = ?").bind(Number(id)).first();
     if (!fila || (GRAVEDAD[fila.marca] || 0) > GRAVEDAD[marca]) return;
-    await db.prepare("UPDATE turnos SET marca = ?, motivo = ? WHERE id = ?").bind(marca, String(motivo).slice(0, 300), Number(id)).run();
+    // 900: el motivo del revisor trae también lo que la asistente debió
+    // decir (6-oct-2026), y con 300 se cortaba a la mitad.
+    await db.prepare("UPDATE turnos SET marca = ?, motivo = ? WHERE id = ?").bind(marca, String(motivo).slice(0, 900), Number(id)).run();
   } catch {}
 }
 
@@ -307,7 +309,18 @@ export function centralConectado(env) {
 // Le manda al panel central lo que acaba de pasar. Nunca lanza, y nunca
 // espera más de 4 segundos: un aviso que no sale no puede costar una
 // respuesta al cliente.
+// CON LA IA APRENDIENDO (APRENDER = "si", ver lecciones.js), al dueño solo
+// le llega lo que pide una persona: un fallo técnico (❌, ⚙️) o "hay que
+// ponerlo en el código" (🛠️). Los 🔴 ⚠️ 👎 se guardan igual —salen en
+// Errores IA y en el informe— pero no suenan: de eso se encarga la IA.
+// (Dueño, 6-oct-2026: "que solo aparezcan cuando se tenga que mover el
+// código".)
+const SILENCIOSAS_AL_APRENDER = new Set(["indebida", "corregida", "queja", "correccion"]);
+
 export async function alertarCentral(env, alertas = []) {
+  if (/^(si|sí|true|1|on)$/i.test(String(env?.APRENDER || "").trim())) {
+    alertas = alertas.filter((a) => !SILENCIOSAS_AL_APRENDER.has(a?.tipo));
+  }
   if (!centralConectado(env) || !alertas.length) return false;
   try {
     const r = await fetch(`${String(env.PANEL_CENTRAL_URL).replace(/\/+$/, "")}/api/alerta`, {

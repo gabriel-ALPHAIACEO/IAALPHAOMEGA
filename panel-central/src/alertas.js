@@ -23,6 +23,9 @@ export const TIPOS = {
   caida: { simbolo: "🚨", nombre: "Tienda sin responder", avisar: true },
   volvio: { simbolo: "✅", nombre: "La tienda volvió", avisar: true },
   correccion: { simbolo: "🛡", nombre: "Red de seguridad", avisar: false },
+  // La IA aprende sola sus errores (ver lecciones.js de la tienda); esto
+  // llega solo cuando una regla no basta y hay que tocar el código.
+  codigo: { simbolo: "🛠️", nombre: "Hay que ponerlo en el código", avisar: true },
 };
 
 const CREAR = `

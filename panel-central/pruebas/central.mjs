@@ -468,6 +468,23 @@ titulo("métricas, ganadores, errores y gastos");
   ok(/13\. Panel central/.test((await abrir("/como-funciona")).html), "el diagrama de cómo funciona");
 }
 
+titulo("🧠 Aprendido: lo que la IA aprendió sola, y el 🛠️ de lo que va al código");
+{
+  const vacia = await abrir("/t/invictus/aprendido");
+  ok(vacia.estado === 200 && /🧠 Aprendido/.test(vacia.html) && /El aprendizaje está apagado/.test(vacia.html), "la pestaña existe y dice si el aprendizaje está apagado (APRENDER)");
+  const ahora = Date.now();
+  BASE1.sql.prepare("INSERT INTO lecciones (cuando, ultima, tipo, regla, cliente, dijo, correcto, veces, codigo) VALUES (?, ?, 'texto', 'No confirmes una talla si ninguna ficha la dice.', 'tienen la 44?', 'Sí tenemos la 44', 'Eso te lo confirma un asesor', 3, '')").run(ahora, ahora);
+  BASE1.sql.prepare("INSERT INTO lecciones (cuando, ultima, tipo, regla, veces) VALUES (?, ?, 'imagen', 'Ondas plásticas con logo TN son TN.', 1)").run(ahora, ahora);
+  const pag = await abrir("/t/invictus/aprendido");
+  ok(/🛠️ Hay que ponerlo en el código/.test(pag.html) && /No confirmes una talla/.test(pag.html) && /lo repitió 3 veces/.test(pag.html), "la que se repitió 3 veces sale arriba: hay que ponerla en el código");
+  ok(/📷 Lo que aprendió la IA de imágenes/.test(pag.html) && /son TN/.test(pag.html), "y las de la IA de imágenes, aparte");
+  const id = BASE1.sql.prepare("SELECT id FROM lecciones WHERE tipo = 'imagen'").get().id;
+  const r = await abrir("/t/invictus/olvidar-leccion", { metodo: "POST", form: { id: String(id) } });
+  ok(r.estado === 303 && BASE1.sql.prepare("SELECT activa FROM lecciones WHERE id = ?").get(id).activa === 0, "olvidar una regla desde el panel", String(r.estado));
+  const A = await import("../src/alertas.js");
+  ok(A.TIPOS.codigo?.simbolo === "🛠️" && A.TIPOS.codigo.avisar, "y la alerta 🛠️ existe (suena)");
+}
+
 titulo("las bases de datos: ver y editar desde el central");
 {
   const tablas = await abrir("/t/invictus/bases");

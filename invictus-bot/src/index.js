@@ -96,7 +96,7 @@ import {
   NOTA_UBICACION_ENVIADA,
 } from "./ubicacion.js";
 import { gastoDelMes } from "./gasto.js";
-import { buscarProductos } from "./shopify.js";
+import { buscarProductos, urlPequena } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import {
@@ -153,7 +153,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-06 (65) · Slack avisa de todo menos de Cashea (Cashea queda guardado en el panel)";
+const VERSION = "2026-10-06 (66) · el revisor piensa (gpt-5) y la IA aprende sola de sus errores (texto e imágenes); solo avisa 🛠️ cuando hay que tocar el código";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1741,6 +1741,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   let colorFoto = "";
   // La frase de lo que la IA vio. Desempata los zapatos sin logo.
   let vistoFoto = "";
+  // Lo que la IA de imágenes decidió buscar: el revisor lo compara con la
+  // foto y, si se equivocó, ella aprende (ver lecciones.js).
+  let buscarFoto = "";
   // La visión llegó al MODELO, no se quedó en la marca.
   let modeloNombrado = false;
   // La foto era una vitrina: la tienda entera, un estante, muchos pares.
@@ -1772,6 +1775,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       rasgosFoto = identificacion.rasgos;
       colorFoto = nombreDeColor(identificacion.color);
       vistoFoto = identificacion.visto || "";
+      buscarFoto = buscar;
       modeloNombrado = !pedirNombreExacto && String(buscar).toUpperCase() !== "NADA";
 
       // UNA VITRINA NO SE ADIVINA. Solo cuenta si el cliente no nombró
@@ -2164,6 +2168,11 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     fichas: fichas.map((p) => `${p.titulo}${p.precio ? ` · ${p.precio}` : ""}`),
     // Para el revisor: con qué comparar lo que dijo (ver revisor.js).
     contexto: datosParaElRevisor(env),
+    // Y para que corrija también a la IA de IMÁGENES (6-oct-2026): la foto
+    // del cliente, las de las fichas y lo que ella vio y buscó.
+    foto: foto && !eraLaVitrina ? foto : "",
+    imagenes: fichas.slice(0, 3).map((p) => (p.imagen ? urlPequena(p.imagen) : "")).filter(Boolean),
+    vision: foto ? `vio "${vistoFoto}" y buscó "${buscarFoto}"` : "",
   };
 
   // La tarjeta de Cashea, cuando no fue dentro del mensaje de arriba: va

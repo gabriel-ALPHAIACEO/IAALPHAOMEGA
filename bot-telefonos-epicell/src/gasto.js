@@ -34,6 +34,16 @@
 const TARIFAS = {
   "gpt-4o": { entrada: 2.5, cacheada: 1.25, salida: 10 },
   "gpt-4o-mini": { entrada: 0.15, cacheada: 0.075, salida: 0.6 },
+  // LOS QUE PIENSAN, para el revisor (6-oct-2026, dueño: "una IA potente
+  // que piense bien las cosas"). Lo que piensan por dentro se cobra como
+  // salida, y OpenAI ya lo cuenta en completion_tokens.
+  "gpt-5": { entrada: 1.25, cacheada: 0.125, salida: 10 },
+  "gpt-5-mini": { entrada: 0.25, cacheada: 0.025, salida: 2 },
+  "gpt-5-nano": { entrada: 0.05, cacheada: 0.005, salida: 0.4 },
+  "o3": { entrada: 2, cacheada: 0.5, salida: 8 },
+  "o4-mini": { entrada: 1.1, cacheada: 0.275, salida: 4.4 },
+  "gpt-4.1": { entrada: 2, cacheada: 0.5, salida: 8 },
+  "gpt-4.1-mini": { entrada: 0.4, cacheada: 0.1, salida: 1.6 },
   // Las notas de voz (voz.js): la entrada son los tokens del audio.
   "gpt-4o-mini-transcribe": { entrada: 3, cacheada: 3, salida: 5 },
 };

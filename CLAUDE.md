@@ -29,6 +29,8 @@ Como los archivos se pegan a mano, **cada entrega sube la constante `VERSION` de
 
 **El `/panel` de cada tienda es el panel del CLIENTE (5-oct-2026)**: chats, CRM (`src/crm.js`: ficha, etapas, notas, etiquetas, Excel), métricas y ganadores con calendario, y **Errores IA** (6-oct: las respuestas señaladas ❌🔴⚠️👎 con su conversación, a Excel y texto; en un ❌ sin el detalle técnico). Lo confidencial —gastos de la IA, estado técnico y errores, bases de datos— queda SOLO en el panel ALPHA IA. Con `PANEL_API_CLAVE` puesta, el `/estado` público solo dice "vivo" y la versión; completo con `/estado?clave=<PANEL_API_CLAVE>` o desde ALPHA IA.
 
+**Las tres IA son distintas** (6-oct-2026): la de TEXTO (`OPENAI_MODELO`) redacta, la de IMAGEN (`OPENAI_MODELO_VISION`) mira fotos, y el REVISOR (`REVISOR_MODELO`) encuentra los errores. Solo el revisor usa un modelo que piensa (gpt-5 en Invictus, con `REVISOR_RESPALDO` por si no está). **La IA aprende sola** (`src/lecciones.js`, igual en las 3 tiendas, se enciende con `APRENDER = "si"`): el revisor escribe una regla por error y la IA de texto o de imágenes la recibe en cada mensaje; las alertas rojas no suenan y solo llega 🛠️ al panel ALPHA IA cuando hay que tocar el código. El código NO se reescribe solo: lo aprendido vive en la base y se ve/olvida en ALPHA IA › la tienda › 🧠 Aprendido.
+
 **UN WORKER POR TIENDA, y así se queda (decidido el 29-sep-2026).** Se probó
 la vía multi-tienda —un solo Worker que atendía a varias con `tienda.js` y
 `tiendas/*.js`— y se descartó: con pocos clientes que son negocios de verdad,

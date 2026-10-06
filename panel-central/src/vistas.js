@@ -167,6 +167,7 @@ export function pestanasDeTienda(t, activa) {
     ["metricas", "Métricas"],
     ["ganadores", "Ganadores"],
     ["errores", "Errores"],
+    ["aprendido", "🧠 Aprendido"],
     ["alertas", "Alertas"],
     ["bases", "Bases de datos"],
     ["estado", "Estado"],
@@ -613,4 +614,35 @@ ${nodo("🧐", "12b. El revisor", "Con todo ya enviado, otra IA lee la respuesta
 ${nodo("🔔", "13. Panel central, en tiempo real", "Cada error ❌, respuesta indebida 🔴, corrección ⚠️ o queja del cliente 👎 llega aquí en el momento: campana, aviso en pantalla y notificación. Cada 2 minutos, además, se comprueba que cada tienda responda. Y en 🟢 En vivo ves entrar cada mensaje, con lo que pensó la IA.")}
 </div>
 <h3>Los símbolos</h3><div class="leyenda">${Object.values(MARCAS).map((m) => `<span>${m.simbolo} ${esc(m.nombre)}</span>`).join("")}<span>✅ Sin problemas</span></div>`;
+}
+
+/* ── Lo que la IA aprendió sola (6-oct-2026, ver lecciones.js de la tienda) ── */
+
+export function vistaAprendido(t, datos, aviso = "") {
+  const cabecera = pestanasDeTienda(t, "aprendido");
+  const lista = datos?.lecciones || [];
+  const activas = lista.filter((l) => l.activa);
+  const codigo = activas.filter((l) => l.hayQueTocarCodigo);
+  const deTexto = activas.filter((l) => l.tipo !== "imagen" && !l.hayQueTocarCodigo);
+  const deFotos = activas.filter((l) => l.tipo === "imagen" && !l.hayQueTocarCodigo);
+  const olvidadas = lista.filter((l) => !l.activa);
+  const boton = (l, texto) =>
+    `<form method="post" action="/t/${esc(t.id)}/olvidar-leccion" class="acciones"><input type="hidden" name="id" value="${l.id}"><button>${esc(texto)}</button></form>`;
+  const tarjeta = (l, { conCodigo = false } = {}) => `<div class="tarjeta">
+<b>${l.tipo === "imagen" ? "📷 IA de imágenes" : "💬 IA de texto"}</b> · <span class="suave">${l.veces} ${l.veces === 1 ? "vez" : "veces"} · última ${esc(horaExacta(l.ultima))}</span>
+<div style="margin:6px 0"><b>${esc(l.regla)}</b></div>
+${conCodigo ? `<div class="mal">🛠️ ${esc(l.codigo || `la IA lo repitió ${l.veces} veces aunque ya tenía la regla`)}</div>` : ""}
+<details><summary class="suave">El último caso</summary><div class="suave">Cliente: ${esc(l.cliente || "—")}<br>Respondió: ${esc(l.dijo || "—")}${l.correcto ? `<br>Lo correcto: ${esc(l.correcto)}` : ""}</div></details>
+${l.activa ? boton(l, conCodigo ? "Ya lo pusimos en el código: olvidar" : "Esta regla está mal: olvidar") : ""}
+</div>`;
+  if (!datos) return cabecera;
+  return `${cabecera}
+<p class="suave">El revisor (la IA que piensa) encuentra los errores y escribe una regla para que no se repitan. La IA de texto y la de imágenes las reciben en cada mensaje: aprenden solas, sin tocar el código. Aquí solo te llega aviso 🛠️ cuando una regla no basta y hay que ponerlo en el código.</p>
+${aviso ? `<div class="tarjeta">${esc(aviso)}</div>` : ""}
+${datos.activo ? "" : '<div class="tarjeta aviso">El aprendizaje está apagado en esta tienda. Se enciende con APRENDER = "si" en su wrangler.toml.</div>'}
+<div class="kpis">${kpi(codigo.length, "🛠️ para poner en el código", { clase: codigo.length ? "mal" : "" })}${kpi(deTexto.length, "💬 reglas de la IA de texto")}${kpi(deFotos.length, "📷 reglas de la IA de imágenes")}</div>
+${codigo.length ? `<h3>🛠️ Hay que ponerlo en el código</h3>${codigo.map((l) => tarjeta(l, { conCodigo: true })).join("")}` : ""}
+<h3>💬 Lo que aprendió la IA de texto</h3>${deTexto.length ? deTexto.map((l) => tarjeta(l)).join("") : '<div class="tarjeta suave">Nada todavía.</div>'}
+<h3>📷 Lo que aprendió la IA de imágenes</h3>${deFotos.length ? deFotos.map((l) => tarjeta(l)).join("") : '<div class="tarjeta suave">Nada todavía.</div>'}
+${olvidadas.length ? `<details><summary>Olvidadas (${olvidadas.length})</summary>${olvidadas.map((l) => tarjeta(l)).join("")}</details>` : ""}`;
 }
