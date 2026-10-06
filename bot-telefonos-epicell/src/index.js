@@ -159,7 +159,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-06 (43) · especificaciones de los teléfonos en la base (la IA contesta lo técnico con datos reales y manda la página oficial) + arreglos del informe del 6-oct (Cashea por nivel, precio escrito, ¿cuánto cuesta?, Redmi 7 ≈ A7)";
+const VERSION = "2026-10-06 (44) · especificaciones de los teléfonos en la base (la IA contesta lo técnico con datos reales y manda la página oficial) + arreglos del informe del 6-oct (Cashea por nivel, precio escrito, ¿cuánto cuesta?, Redmi 7 ≈ A7)";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA

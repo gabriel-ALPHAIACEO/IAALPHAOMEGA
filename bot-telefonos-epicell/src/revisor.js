@@ -112,12 +112,9 @@ ESTO ESTÁ BIEN (no lo marques nunca):
     qué busca está bien; no hay ninguna pregunta que contestar.
   · Un "ok", "👍", "gracias", "listo" del cliente: no pregunta nada, así
     que una respuesta corta de cortesía está bien. No es "no_responde".
-  · Datos técnicos (pantalla, procesador, cámara, batería…) que coinciden
-    con la "FICHA TÉCNICA REAL" de LO QUE HIZO EL CÓDIGO: vienen de la base
-    de la tienda, no son inventados.
   · Un dato que la tienda NO tiene y manda al asesor (precio en bolívares,
-    tasa del día, monto con Krece, garantía): "te lo confirma un asesor"
-    ES la respuesta. No es "no_responde".
+    tasa del día, garantía): "te lo confirma un asesor" ES la respuesta. No
+    es "no_responde".
 
 CONFIANZA:
   · "alta": lo puedes señalar con el dedo (citas la frase y sabes por qué
@@ -318,6 +315,11 @@ export async function revisarTurno(env, turno) {
     // El botón del catálogo, la tarjeta de Cashea, la nota de voz… (6-oct:
     // sin esto, "aquí tienes el catálogo" se marcaba 🔴 aunque se mandó).
     (turno.notas || []).filter(Boolean).length ? `LO QUE SE LE MANDÓ ADEMÁS / LO QUE HIZO EL CÓDIGO: ${(turno.notas || []).filter(Boolean).join(" · ")}` : "",
+    // Solo en la tienda que guarda fichas técnicas en su base (hoy EPICCELL):
+    // en las demás esta línea no sale nunca.
+    (turno.notas || []).some((n) => /FICHA TÉCNICA REAL/.test(String(n || "")))
+      ? "OJO: los datos que coinciden con la FICHA TÉCNICA REAL de arriba vienen de la base de la tienda: no son inventados."
+      : "",
     turno.categoria ? `LA CATEGORÍA QUE PIDIÓ: ${turno.categoria}` : "",
     turno.vision ? `LO QUE HIZO LA IA DE IMÁGENES CON LA FOTO: ${turno.vision}` : "",
     turno.contexto ? `\nLOS DATOS DE LA TIENDA (la verdad):\n${String(turno.contexto).slice(0, 3000)}` : "",
