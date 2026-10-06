@@ -3,7 +3,8 @@
 # ESTE ES EL ÚNICO LUGAR DONDE VIVE LA LISTA. ia.js la mete en el prompt
 # al arrancar, donde texto.txt dice {{CATALOGO}}.
 #
-# GENERADO DEL INVENTARIO REAL (INVENTARIO AL 050926, 28-sep-2026).
+# GENERADO DEL INVENTARIO REAL (INVENTARIO AL 050926, actualizado el
+# 6-oct-2026 con el que mandó el dueño: 99 productos).
 # Antes estaba escrito a mano y le faltaban productos —los Apple, el Fire
 # TV Stick— que la tienda sí vende: el modelo no podía nombrar lo que no
 # sabía que existía.
@@ -26,28 +27,22 @@
 # repetidos van UNA vez: en el inventario hay dos "Honor play 10" (dos
 # capacidades), pero al modelo le basta saber que existe.
 
-## Xiaomi
+## Redmi
 Redmi A7 pro
 Redmi 15c
 Redmi 15
-Redmi 17
+Redmi 17 4G
 Redmi Note 17
 Redmi Note 17 Pro 5G
 Redmi Note 17 Pro Max 5G
-Reloj Xiaomi Mi band 10
-Xiaomi Tablet Redmi Pad 2
-Audifonos redmi buds 8 Lite
-Audifonos redmi buds 8 Active
-Sheaver afeitadora
-
-## Redmi
 Redmi Note 15 Pro 5G
 Redmi Note 15 pro + 5G
+Redmi Pad 2
 
 ## Poco
-Poco X8 pro 5G
-Poco M8 pro 5G
-Poco C81 pro
+Poco x8 pro 5g
+Poco m8 pro 5g
+Poco c81 pro
 
 ## Tecno
 Tecno Camon 50 Ultra
@@ -78,11 +73,17 @@ Honor play 10
 Reloj Honor choice watch 2i
 Audifonos honor choice earbuds clip
 
+## Xiaomi
+Reloj Xiaomi Mi band 10
+Audifonos redmi buds 8 Lite
+Audifonos redmi buds 8 Active
+Sheaver afeitadora
+
 ## Tp link
-Ex141/ Router Ax1500
+Tplink router Ex141/ Router Ax1500
 
 ## Mercusys
-Mr62x/ Router Ax1500
+Mercusysy router Mr62x/ Router Ax1500
 
 ## Yookie
 Yookie Audifonos Headphone EB620
@@ -110,7 +111,7 @@ Maspower Camara web Q19 (4k)
 Maspower Camara Web Q20 Full HD
 Fan Cooler 3 velocidades
 
-## xbyte
+## Xbyte
 Xbyte Base para carro  Xb-4978
 xbyte OTG Sx-54
 xbyte Cable 100w XB4771
@@ -151,3 +152,5 @@ Apple Airpods PRO 2
 
 ## Amazon
 Amazon fire tv stick 4k
+Amazon Kindle Colorsoft ( usada)
+Amazon Kindle Basic ( usada)

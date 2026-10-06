@@ -99,7 +99,7 @@ export const SEMILLA = [
     fuente: "GSMArena, 6-oct-2026",
   },
   {
-    modelo: "Redmi 17",
+    modelo: "Redmi 17 4G",
     pantalla: '6,9" IPS LCD, 120 Hz, HD+ · Gorilla Glass 7i',
     procesador: "MediaTek Helio G91 Ultra (versión 4G)",
     memoria: "4 o 6 GB RAM · 128 o 256 GB, ampliable",
@@ -225,7 +225,7 @@ export const SEMILLA = [
     fuente: "91mobiles, 6-oct-2026",
   },
   {
-    modelo: "Xiaomi Tablet Redmi Pad 2",
+    modelo: "Redmi Pad 2",
     pantalla: '11" LCD 2.5K (2560x1600), 90 Hz',
     procesador: "MediaTek Helio G100 Ultra",
     memoria: "4, 6 u 8 GB RAM · 128 o 256 GB, ampliable con microSD",
@@ -398,6 +398,12 @@ export const SEMILLA = [
   },
 ];
 
+// Nombres viejos de la hoja → nuevos (inventario del 6-oct-2026).
+const RENOMBRADOS = [
+  ["Redmi 17", "Redmi 17 4G"],
+  ["Xiaomi Tablet Redmi Pad 2", "Redmi Pad 2"],
+];
+
 // ── La tabla ─────────────────────────────────────────────────────────
 let lista = false;
 async function asegurar(db) {
@@ -407,7 +413,12 @@ async function asegurar(db) {
   const sentencia = db.prepare(
     `INSERT OR IGNORE INTO especificaciones (modelo, ${CAMPOS.join(", ")}) VALUES (?, ${CAMPOS.map(() => "?").join(", ")})`
   );
-  const filas = SEMILLA.map((f) => sentencia.bind(f.modelo, ...CAMPOS.map((c) => f[c] || "")));
+  // Los que cambiaron de nombre en el inventario del 6-oct: se renombran
+  // (sin perder lo editado) antes de sembrar, para que no queden dos.
+  const renombres = RENOMBRADOS.map(([viejo, nuevo]) =>
+    db.prepare("UPDATE OR IGNORE especificaciones SET modelo = ? WHERE modelo = ?").bind(nuevo, viejo)
+  );
+  const filas = [...renombres, ...SEMILLA.map((f) => sentencia.bind(f.modelo, ...CAMPOS.map((c) => f[c] || "")))];
   if (typeof db.batch === "function") await db.batch(filas);
   else for (const f of filas) await f.run();
   lista = true;
@@ -440,6 +451,9 @@ export function clave(titulo) {
     .toLowerCase()
     .replace(/\b\d+\s*\/\s*\d+\b/g, " ")
     .replace(/\b\d+\s*(?:gb|tb)\b/g, " ")
+    // "Poco x8 pro 5g" y "Poco X8 pro 5G", "Redmi 17" y "Redmi 17 4G": la
+    // red no cambia de qué fila es.
+    .replace(/\b[45]g\b/g, " ")
     .replace(/[^a-z0-9+]+/g, " ")
     .replace(/\b(?:xiaomi|tablet|celular|telefono)\b/g, " ")
     .replace(/\s+/g, " ")

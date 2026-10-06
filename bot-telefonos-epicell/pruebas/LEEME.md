@@ -37,6 +37,8 @@ for %f in (pruebas\*.mjs) do node pruebas\%f
 | `lista.mjs` | La lista de productos, las marcas y los botones |
 | `sinlista.mjs` | Que la lista escrita no se pegue encima de las fotos |
 | `pagos.mjs` | Cashea y Krece: que quepan, que no se crucen y que se lean |
+| `imagenes.mjs` | Que las fichas salgan cuando las pide o se le prometen (👇), aunque ya las haya visto |
+| `nombres.mjs` | "Redmi 17 Pro Max" es el Note 17 Pro Max; "Redmi 17" a secas no |
 | `soportes.mjs` | Los soportes para carro y moto: "soporte", "holder", "porta celular" encuentran las "Base" de la hoja, separadas por carro o moto |
 | `especificaciones.mjs` | La ficha técnica de cada teléfono en la base (SQLite real) y el botón a la página oficial |
 | `informe6oct.mjs` | Los casos del informe de errores del 6-oct (Cashea por nivel, precio escrito, "¿cuánto cuesta?") |

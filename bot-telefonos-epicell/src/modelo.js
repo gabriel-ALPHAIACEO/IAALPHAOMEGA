@@ -107,6 +107,18 @@ export function parentesco(texto, titulo) {
   const dijoOtroNumero = numeros.some((n) => n !== partes.numero && !delTitulo.has(n));
 
   if (mismoNumero && lineaCompatible && !dijoOtroNumero) return "mismo";
+
+  // "REDMI 17 PRO MAX" ES EL "REDMI NOTE 17 PRO MAX 5G" (6-oct-2026, dueño:
+  // "dice que no hay y sí hay"). La gente se come el "Note". Si lo único
+  // que le falta es eso, y escribió sus variantes (pro, max…) igual que el
+  // título, es el mismo teléfono. Sin variantes no: "Redmi 17" a secas es
+  // otro equipo que el "Redmi Note 17".
+  const leFalta = partes.linea.filter((p) => !suyas.has(p));
+  const susVariantes = [...suyas].filter((p) => VARIANTES.has(p));
+  const sinElNote = leFalta.length > 0 && leFalta.every((p) => SE_LO_COMEN.has(p));
+  if (mismoNumero && !dijoOtroNumero && sinElNote && susVariantes.length && susVariantes.every((v) => delTitulo.has(v))) {
+    return "mismo";
+  }
   if ((mismoNumero && !lineaCompatible) || (mismaLinea && !mismoNumero)) return "familia";
   if (suyas.has(partes.marca)) return "marca";
   return "";
@@ -132,6 +144,9 @@ function comoSeDice(lista) {
     .map((p) => (tieneCifras(p) ? p.toUpperCase() : p[0].toUpperCase() + p.slice(1)))
     .join(" ");
 }
+
+// Las palabras de la línea que el cliente casi nunca escribe.
+const SE_LO_COMEN = new Set(["note", "galaxy"]);
 
 // Lo que un anuncio pone delante del modelo y no es su nombre.
 const RELLENO = new Set(["nuevo", "nueva", "nuevos", "oferta", "gran", "super", "llego", "llegaron", "ya", "con", "tu"]);
@@ -181,4 +196,18 @@ export function raizDeLaFamilia(texto, titulo) {
   return mismaLinea
     ? [partes.marca, ...partes.linea].join(" ")
     : [partes.marca, ...partes.linea, partes.numero].join(" ");
+}
+
+// LAS VARIANTES QUE ESCRIBIÓ (pro, max, plus…) CONTRA LAS DEL TÍTULO
+// (6-oct-2026). "Redmi 17 pro max" no es el "Redmi Note 17 Pro 5G": le
+// falta el Max. Devuelve true si el título trae exactamente las variantes
+// que escribió el cliente; null si el cliente no escribió ninguna.
+export function mismasVariantes(texto, titulo) {
+  const suyas = palabras(texto).filter((p) => VARIANTES.has(p));
+  if (!suyas.length) return null;
+  const partes = partesDelTitulo(titulo);
+  if (!partes) return null;
+  const todas = palabras(titulo);
+  const delTitulo = todas.slice(todas.indexOf(partes.numero) + 1).filter((p) => VARIANTES.has(p));
+  return new Set(suyas).size === new Set(delTitulo).size && suyas.every((v) => delTitulo.includes(v));
 }

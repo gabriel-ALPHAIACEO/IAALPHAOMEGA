@@ -307,6 +307,32 @@ async function fotosQueNoCargan(lista) {
   return rotas;
 }
 
+// /probar-fotos (6-oct-2026): cada foto de la hoja, con si carga, qué es y
+// cuánto tarda. Instagram descarga la foto al recibir la ficha: una foto
+// que no carga o tarda mucho deja al cliente con el texto y nada debajo.
+export async function revisarFotos(productos) {
+  const conFoto = productos.filter((p) => p.imagen);
+  const resultados = await Promise.all(
+    conFoto.map(async (p) => {
+      const inicio = Date.now();
+      try {
+        const r = await fetch(p.imagen, { redirect: "follow", signal: AbortSignal.timeout(8000) });
+        const tipo = r.headers?.get?.("content-type") || "";
+        try {
+          await r.body?.cancel?.();
+        } catch {
+          // da igual
+        }
+        const bien = r.ok && /^image\//i.test(tipo);
+        return { titulo: p.titulo, imagen: p.imagen, bien, detalle: `${r.status} ${tipo || "sin tipo"}`, ms: Date.now() - inicio };
+      } catch (error) {
+        return { titulo: p.titulo, imagen: p.imagen, bien: false, detalle: error?.name === "TimeoutError" ? "no contestó en 8 s" : String(error?.message || error), ms: Date.now() - inicio };
+      }
+    })
+  );
+  return { sinFoto: productos.filter((p) => !p.imagen).map((p) => p.titulo), resultados };
+}
+
 // El plan C: lo mismo que decían las fichas, escrito.
 function listaEscrita(lista) {
   return lista.map((p) => `🔹 ${p.titulo}${p.precio ? ` — ${p.precio}` : ""}`).join("\n");

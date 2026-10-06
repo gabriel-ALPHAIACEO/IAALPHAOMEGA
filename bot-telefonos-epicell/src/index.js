@@ -57,6 +57,7 @@ import {
 import { queDatoPide, respuestaDeDato } from "./datos.js";
 import {
   parentesco,
+  mismasVariantes,
   partesDelTitulo,
   nombraUnModelo,
   loQuePidioDicho,
@@ -157,11 +158,12 @@ import {
   responderComentario,
   privadoPorComentario,
   obtenerPerfil,
+  revisarFotos,
 } from "./instagram.js";
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-06 (45) · soportes para carro y moto: \"soporte\", \"holder\" o \"porta celular\" encuentran las Base (Xbyte…), y para carro o para moto se separan · especificaciones de los teléfonos en la base · arreglos del informe del 6-oct";
+const VERSION = "2026-10-06 (46) · las fichas no se quedan sin mandar (pide fotos o se le promete 👇 → van; más tiempo para el carrusel) · Redmi 17 Pro Max = Note 17 Pro Max · catálogo del inventario del 6-oct · /probar-fotos";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -662,6 +664,9 @@ function noEsePeroMira(termino, productos, porCategoria = "") {
     .replaceAll("{marca}", marca);
 }
 
+// Los usos que se escriben en un título ("para carro", "para moto").
+const USOS_CON_NOMBRE = ["carro", "moto"];
+
 // Lo que se le dice cuando vuelve a pedir lo mismo en divisas. No hace
 // falta buscar nada: son los equipos que acaba de ver.
 const PRECIOS_EN_DIVISAS = [
@@ -986,12 +991,17 @@ const ESPERA_POR_LA_PREGUNTA_MS = 5000;
 // silencio.
 const LIMITE_DEL_TURNO_MS = 30000;
 // Lo que se guarda al final para mandar el texto y las fichas.
-const PARA_ENVIAR_MS = 8000;
+// 12 s y no 8 (6-oct-2026): Instagram tarda en aceptar un carrusel lo que
+// tarda en bajar sus fotos, y con 8 s la segunda pasada de la IA se comía
+// el tiempo y el turno se cortaba entre el texto y las fichas.
+const PARA_ENVIAR_MS = 12000;
 
 // Cuánto se le puede dar a una llamada a OpenAI ahora mismo. "despues" es
 // lo que aún tiene que venir detrás (la IA de texto, detrás de la de
 // visión). Nunca menos de 3 s: con menos no contesta nadie, y es mejor
 // intentarlo que rendirse sin probar.
+const REDACCION_MAXIMO_MS = 7000;
+
 function tiempoParaLaIa(rastro, despues = 0) {
   const usado = Date.now() - (rastro?.llegoEn || Date.now());
   const queda = LIMITE_DEL_TURNO_MS - usado - PARA_ENVIAR_MS - despues;
@@ -1312,6 +1322,30 @@ const trabajador = {
     // Enseña qué ve el Worker cuando lee tu hoja: si la alcanza, qué
     // columnas reconoció y cuántos productos quedan visibles. Con
     // ?buscar=iphone 15 prueba además una búsqueda concreta.
+    // ¿Cargan las fotos de la hoja? (6-oct-2026) Si Instagram no puede bajar
+    // una foto, el carrusel no llega. Esto las prueba todas y dice cuáles
+    // arreglar (en Drive: compartir como «Cualquier persona con el enlace»).
+    if (url.pathname === "/probar-fotos") {
+      const { sinFoto, resultados } = await revisarFotos(await catalogoCompleto(env));
+      const malas = resultados.filter((r) => !r.bien);
+      const lentas = resultados.filter((r) => r.bien && r.ms > 4000);
+      return texto200(
+        [
+          `CÓDIGO DESPLEGADO: ${VERSION}`,
+          "",
+          `${resultados.length} fotos probadas: ${resultados.length - malas.length} cargan, ${malas.length} NO cargan, ${lentas.length} lentas (más de 4 s).`,
+          "",
+          malas.length ? "NO CARGAN (arréglalas en la hoja o en Drive):" : "",
+          ...malas.map((r) => `  ✗ ${r.titulo} — ${r.detalle}\n    ${r.imagen}`),
+          lentas.length ? "\nLENTAS (Instagram puede rendirse esperándolas):" : "",
+          ...lentas.map((r) => `  ⚠ ${r.titulo} — ${Math.round(r.ms / 100) / 10} s`),
+          sinFoto.length ? `\nSIN FOTO EN LA HOJA (${sinFoto.length}): ${sinFoto.join(" · ")}` : "",
+        ]
+          .filter((l) => l !== "")
+          .join("\n")
+      );
+    }
+
     if (url.pathname === "/probar-hoja") {
       let informe = `CÓDIGO DESPLEGADO: ${VERSION}\n\n` + (await diagnosticoHoja(env));
 
@@ -3211,7 +3245,16 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const modo = salida?.mostrar || "texto_e_imagenes";
   const vistos = [...(contacto.mostrados || []), ...(contacto.ultimos_productos || [])];
   const yaLosVio = productos.length > 0 && productos.every((p) => yaLoVio(vistos, p.titulo));
-  const soloTexto = modo === "texto" && productos.length > 0 && !imagenCruda && !publicacion && yaLosVio;
+  // NUNCA SOLO TEXTO SI PIDE VERLAS O SE LE PROMETEN (6-oct-2026, dueño: "la
+  // IA no está enviando imágenes": llegaba el texto y nada debajo). "Ya las
+  // vio" mira TODO lo que se le mostró alguna vez, y la IA elegía "texto"
+  // aunque el cliente pidiera "mándame las fotos" o ella escribiera "mira
+  // 👇". Si las pide o se le prometen, las fichas van.
+  const pideOPrometeFotos = prometeFotos(respuestaCliente, mensaje.texto);
+  const soloTexto = modo === "texto" && productos.length > 0 && !imagenCruda && !publicacion && yaLosVio && !pideOPrometeFotos;
+  if (modo === "texto" && productos.length > 0 && yaLosVio && pideOPrometeFotos) {
+    console.log(`La IA eligió SOLO TEXTO, pero pide verlas o se le prometen (👇): le mando las ${productos.length} ficha(s)`);
+  }
   if (modo === "texto" && productos.length > 0 && !yaLosVio) {
     console.log(`La IA eligió SOLO TEXTO, pero los ${productos.length} producto(s) son nuevos para él: se los mando igual`);
   }
@@ -3353,7 +3396,9 @@ async function atenderMeta(env, mensaje, rastro = {}) {
         borrador: salida.respuesta,
         yaSeConocen: Boolean(historialPrevio),
       }),
-      { esperaMs: tiempoParaLaIa(rastro) }
+      // La segunda pasada es un pulido: nunca a costa de las fichas. Tope de
+      // 7 s; si no le alcanza, sale la respuesta de la primera pasada.
+      { esperaMs: Math.min(REDACCION_MAXIMO_MS, tiempoParaLaIa(rastro)) }
     );
 
     if (redactada) {
@@ -3398,7 +3443,10 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     ? alAzar(PUBLICACION_SIN_IDENTIFICAR)
     : paraMostrar.length && !cuentaDeCuotas
       ? sinListaPegada(respuestaCliente)
-      : respuestaCliente;
+      : soloTexto
+        ? // Las fichas ya las vio ARRIBA: una flecha hacia abajo apunta a nada.
+          respuestaCliente.replace(/👇/g, "👆")
+        : respuestaCliente;
 
   // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO. El botón sale en dos casos:
   // buscamos lo que pidió y no apareció, o hay más de los que caben en el
@@ -3422,6 +3470,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     );
   } else if (paraMostrar.length) {
     await mandar(() => enviarTexto(env, mensaje.igsid, leDigo), leDigo);
+    // Si el turno ya va muy largo, que quede escrito: un corte de Cloudflare
+    // aquí deja el texto sin las fichas y no avisa (ver LIMITE_DEL_TURNO_MS).
+    const usado = Date.now() - (rastro?.llegoEn || Date.now());
+    if (usado > LIMITE_DEL_TURNO_MS - PARA_ENVIAR_MS) {
+      console.error(`FICHAS EN RIESGO: el turno lleva ${Math.round(usado / 1000)} s y quedan ${paraMostrar.length} ficha(s) por mandar`);
+    }
     await mandar(() => enviarFichas(env, mensaje.igsid, paraMostrar), "", { fichas: paraMostrar });
     // Solo si hay una tienda de verdad a la que mandarlo. Sin catálogo no
     // sale nada: el cliente se queda con sus fotos y su pregunta.
@@ -3463,6 +3517,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       respuestaCliente !== String(salida.respuesta || "").trim() && !revisionDeTono.corregido && !revisionDeDisponible.corregido && !revisionDePrecio.corregido &&
         `su borrador era: "${String(salida.respuesta || "").slice(0, 140)}"`,
       preguntarMarca && "prometió fotos sin buscar: se le preguntó la marca",
+      soloTexto && `respondió solo texto: ya había visto esas ${productos.length} ficha(s)`,
       sinSaberQueEs && "no se supo de qué equipo era la publicación",
       cuentaDeCuotas && `la cuenta de cuotas la hizo el código: ${cuentaDeCuotas.motivo}`,
       cuentaDeCuotas?.asesor && "se avisó al asesor para el monto",
@@ -4273,35 +4328,71 @@ function historialSinPrecios(historial) {
 // M8 Pro 8/256" cuando el cliente escribió justo eso) y las primeras
 // palabras del título ("Poco M8 Pro" dentro de un texto que dice "POCO M8
 // PRO", aunque el título del catálogo siga con la capacidad).
+// Lo que, escrito justo DESPUÉS de un nombre, lo convierte en otro equipo:
+// "Redmi 17" + "pro max" es otro teléfono que el "Redmi 17".
+const OTRO_MODELO_SI_SIGUE = new Set(["pro", "max", "plus", "+", "ultra", "lite", "mini", "fe", "prime", "neo", "turbo", "note"]);
+
+// ¿Dónde está "trozo" en "donde" como palabras enteras? -1 si no está.
+function conBordes(donde, trozo) {
+  let desde = 0;
+  for (;;) {
+    const i = donde.indexOf(trozo, desde);
+    if (i < 0) return -1;
+    const antes = donde[i - 1] || " ";
+    const despues = donde[i + trozo.length] || " ";
+    if (!/[a-z0-9]/.test(antes) && !/[a-z0-9]/.test(despues)) return i;
+    desde = i + 1;
+  }
+}
+
 function nombraDelCatalogo(texto, productos) {
   const donde = despejar(texto);
   if (!donde || !productos?.length) return "";
 
+  // EL MÁS LARGO GANA, Y "REDMI 17" NO ES "REDMI 17 PRO MAX" (6-oct-2026).
+  //
+  // EL FALLO: "¿tienen redmi 17 pro max?" encontraba escrito "redmi 17"
+  // —que en la hoja es otro teléfono— y se quedaba con ese: le llegaba el
+  // Redmi 17, o un "no hay", teniendo el Redmi Note 17 Pro Max. Ahora:
+  //   · el nombre tiene que estar como palabras enteras;
+  //   · si justo detrás el cliente escribió "pro", "max", "plus"… y el
+  //     título no sigue así, NO es ese equipo;
+  //   · entre varios, gana el que más texto acierta.
+  let mejor = "";
+  let largo = 0;
+
   for (const producto of productos) {
     const titulo = despejar(producto.titulo);
-    if (titulo.length >= 4 && donde.includes(titulo)) return producto.titulo;
+    const palabras = titulo.split(" ");
 
-    // Y POR EL PRINCIPIO DEL TÍTULO, DE MÁS LARGO A MÁS CORTO.
+    // El título entero, y si no, su principio (3 o 2 palabras).
     //
     // El cliente no escribe el título entero. Dice "el Poco M8 en divisas"
     // y en la hoja está como "Poco M8 pro 5G": ni el título completo ni
     // sus tres primeras palabras ("poco m8 pro") aparecen en su mensaje,
-    // pero "poco m8" sí.
-    //
-    // Esto lo pilló el banco de pruebas: sin las dos palabras, un "¿y el
-    // Poco M8 en divisas?" se tomaba por "los de antes en divisas" y el
-    // cliente recibía otra vez el equipo anterior.
-    //
-    // Dos palabras es el mínimo, y solo si juntas miden 6 letras o más:
-    // con una sola bastaría un "samsung" suelto para pescar cualquier cosa.
-    const palabras = titulo.split(" ");
-    for (const cuantas of [3, 2]) {
-      const principio = palabras.slice(0, cuantas).join(" ");
-      if (principio.length >= 6 && donde.includes(principio)) return producto.titulo;
+    // pero "poco m8" sí. Dos palabras es el mínimo, y solo si juntas miden
+    // 6 letras o más: con una sola bastaría un "samsung" suelto para
+    // pescar cualquier cosa.
+    const intentos = [
+      titulo.length >= 4 ? palabras.length : 0,
+      ...[3, 2].filter((n) => n < palabras.length && palabras.slice(0, n).join(" ").length >= 6),
+    ].filter(Boolean);
+
+    for (const n of intentos) {
+      const trozo = palabras.slice(0, n).join(" ");
+      const i = conBordes(donde, trozo);
+      if (i < 0) continue;
+      const siguiente = (donde.slice(i + trozo.length).trim().split(/\s+/)[0] || "").replace(/[^a-z0-9+]/g, "");
+      if (OTRO_MODELO_SI_SIGUE.has(siguiente) && siguiente !== (palabras[n] || "")) continue;
+      if (trozo.length > largo) {
+        mejor = producto.titulo;
+        largo = trozo.length;
+      }
+      break;
     }
   }
 
-  return "";
+  return mejor;
 }
 
 /* ── EL PIE DE LA PUBLICACIÓN NO ESTÁ ESCRITO COMO LA HOJA ─────────
@@ -4842,7 +4933,10 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
     const raiz = partes
       ? [partes.marca, ...partes.linea, partes.numero].join(" ")
       : despejar(elQuePidio);
-    const suyos = productos.filter((p) => despejar(p.titulo).startsWith(raiz));
+    let suyos = productos.filter((p) => despejar(p.titulo).startsWith(raiz));
+    // Y con SUS variantes: "pro max" es el Pro Max, no el Pro (6-oct-2026).
+    const conSusVariantes = suyos.filter((p) => mismasVariantes(texto, p.titulo) !== false);
+    if (conSusVariantes.length) suyos = conSusVariantes;
 
     if (suyos.length && suyos.length < productos.length) {
       console.log(
@@ -5020,12 +5114,18 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
   // "Soporte para moto" ya no trae las bases para carro: si el título dice
   // para qué es, va solo lo de su uso. Si ninguno lo dice, van todos.
   const uso = usoQuePide(`${texto} ${termino}`);
-  if (uso && productos.length > 1) {
+  // Y si de ese uso no queda ninguno (la de moto con Cantidad 0), se le dice
+  // así, en vez de "¡claro, mira!" con las de carro.
+  let noHayParaSuUso = "";
+  if (uso && productos.length) {
     const paraEso = productos.filter((p) => sirveParaElUso(p.titulo, uso));
     if (paraEso.length && paraEso.length < productos.length) {
       console.log(`Lo quiere para ${uso}: dejo ${paraEso.length} de ${productos.length}`);
       productos = paraEso;
       hayMas = false;
+    } else if (!paraEso.length && productos.some((p) => USOS_CON_NOMBRE.some((u) => sirveParaElUso(p.titulo, u)))) {
+      noHayParaSuUso = uso;
+      console.log(`Lo quiere para ${uso} y ahora no hay de eso: se lo digo y le enseño lo que hay`);
     }
   }
 
@@ -5195,6 +5295,9 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
     // Los equipos se le muestran igual: lo único que no sabemos es la
     // capacidad, no el producto.
     respuestaCliente = alAzar(SIN_DATO_DE_CAPACIDAD);
+  } else if (noHayParaSuUso && productos.length) {
+    const queEs = nombreDelTipo(tipoPedido || tipoDelProducto(productos[0].titulo));
+    respuestaCliente = conSuSaludo(`${queEs.charAt(0).toUpperCase()}${queEs.slice(1)} para ${noHayParaSuUso} no me quedan ahora mismo 😕 Pero mira estos que sí tengo 👇`);
   } else if (noEstaElQuePidio && productos.length) {
     // Lo que pidió no está: se le dice, nombrando las dos cosas, antes de
     // que ninguna otra frase le diga "¡claro, aquí lo tienes!".
