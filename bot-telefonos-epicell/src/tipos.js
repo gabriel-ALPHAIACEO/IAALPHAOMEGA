@@ -62,6 +62,16 @@ const TIPOS = [
 
   ["router", ["router", "routers", "modem", "repetidor"]],
 
+  // (7-oct-2026) Lo del inventario que no es teléfono y no tenía tipo: sin
+  // esto contaban como TELÉFONOS ("xbyte" traía solo el OTG y escondía las
+  // bases y los audífonos Xbyte).
+  ["teclado", ["teclado", "teclados", "mouse", "raton", "ratones"]],
+  ["conector", ["otg", "hub", "hubs", "multipuerto"]],
+  ["tv", ["tv", "firetv", "roku", "chromecast"]],
+  ["lector", ["kindle", "kindles", "ebook", "ebooks"]],
+  ["afeitadora", ["afeitadora", "afeitadoras", "rasuradora", "rasuradoras", "sheaver", "shaver"]],
+  ["cooler", ["cooler", "coolers", "fan", "ventilador", "ventiladores", "enfriador"]],
+
   // El teléfono es el tipo por defecto de esta tienda, pero también se
   // nombra: "¿qué celulares tienen?", "teléfonos Xiaomi". Nombrarlo sirve
   // para lo contrario que los demás: para dejar los accesorios FUERA.
@@ -190,6 +200,12 @@ const COMO_SE_LLAMA = new Map([
   ["microfono", "micrófonos"],
   ["camara", "cámaras"],
   ["router", "routers"],
+  ["teclado", "teclados y mouse"],
+  ["conector", "adaptadores y hubs"],
+  ["tv", "TV sticks"],
+  ["lector", "Kindle"],
+  ["afeitadora", "afeitadoras"],
+  ["cooler", "fan coolers"],
   ["telefono", "teléfonos"],
 ]);
 

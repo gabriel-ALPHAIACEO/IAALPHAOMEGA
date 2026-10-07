@@ -67,6 +67,7 @@ const SINONIMOS = {
 };
 
 import { tipoQuePide, tipoDelProducto } from "./tipos.js";
+import { juntarModelo } from "./modelo.js";
 import { resumenDeMarcas } from "./disponible.js";
 
 // Devuelve { productos, hayMas }. "hayMas" dice si había MÁS de los que se
@@ -492,7 +493,8 @@ function seParecen(a, b, margen) {
 }
 
 function paraBuscar(texto) {
-  return String(texto || "")
+  // "pro+" = "pro plus", "15 c" = "15c", "a 57" = "a57" (ver modelo.js).
+  return juntarModelo(texto)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()

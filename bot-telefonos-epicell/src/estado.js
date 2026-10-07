@@ -81,8 +81,13 @@ export async function cargarContacto(db, id) {
    cierre— y 400 caracteres por línea dejan pasar entera cualquier
    pregunta de un cliente. Lo que se salga de ahí lo sigue cubriendo el
    resumen del modelo, que es corto pero no se borra nunca.
+
+   (7-oct-2026, dueño: "que tenga memoria es lo más importante") Subió de
+   12 a 20: una venta con dudas de Cashea, capacidades y colores pasaba de
+   12 y lo primero que se perdía era justo QUÉ equipo quería. Son unos
+   500 tokens más por mensaje en el peor caso: centavos.
    ───────────────────────────────────────────────────────────────── */
-const TURNOS_GUARDADOS = 12;
+const TURNOS_GUARDADOS = 20;
 const LARGO_DE_UNA_LINEA = 400;
 
 function leerConversacion(crudo) {
@@ -111,6 +116,29 @@ export function conLoDicho(conversacion, de, texto) {
   if (ultima && ultima.de === linea.de && ultima.texto === linea.texto) return previa;
 
   return [...previa, linea].slice(-TURNOS_GUARDADOS);
+}
+
+// LO QUE VIO, NO SOLO LO QUE SE LE DIJO (7-oct-2026). Las fichas salen
+// sin texto, así que en la memoria quedaba "Aquí tienes 👇" y nada más: la
+// IA leía la charla y no sabía QUÉ equipos le enseñó. Se le pegan sus
+// nombres a la última línea del bot ("Aquí tienes 👇 [le enseñé: Redmi Pad
+// 2, Redmi Note 15]"). Los nombres van primero: si no cabe todo, lo que se
+// recorta es la frase, no los equipos.
+export function conLasFichas(conversacion, titulos = []) {
+  const previa = conversacion || [];
+  const nombres = [...new Set((titulos || []).map((t) => String(t || "").trim()).filter(Boolean))].slice(0, 10);
+  if (!nombres.length) return previa;
+
+  let nota = `[le enseñé: ${nombres.join(", ")}]`;
+  if (nota.length > 300) nota = `${nota.slice(0, 296)}…]`;
+
+  const ultima = previa[previa.length - 1];
+  if (ultima && ultima.de === "bot" && !ultima.texto.includes("[le enseñé:")) {
+    const cabe = LARGO_DE_UNA_LINEA - nota.length - 1;
+    const frase = ultima.texto.length > cabe ? `${ultima.texto.slice(0, Math.max(0, cabe - 1))}…` : ultima.texto;
+    return [...previa.slice(0, -1), { de: "bot", texto: `${frase} ${nota}`.trim() }];
+  }
+  return conLoDicho(previa, "bot", nota);
 }
 
 /* ── Los comentarios ya contestados ───────────────────────────────── */

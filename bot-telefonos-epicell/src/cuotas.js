@@ -48,13 +48,17 @@ export function nivelDeCashea(texto) {
 
 // Nivel de Krece: un color dicho como nivel ("platino de krece", "soy oro",
 // "nivel plata"). Un "azul" suelto puede ser el color del teléfono: hace
-// falta que diga Krece, "nivel" o "soy".
+// falta que diga Krece, "nivel" o "soy". Y el "nivel inicial / básico /
+// primer nivel" de Krece es el Azul (7-oct-2026, caso real).
 export function nivelDeKrece(texto) {
   const t = String(texto || "");
   const color = t.match(COLOR_KRECE)?.[1]?.toLowerCase();
-  if (!color) return null;
-  const esNivel = NOMBRA_KRECE.test(t) || new RegExp(`\\b(?:nivel|soy|estoy\\s+en)\\s+(?:el\\s+)?${color}\\b`, "i").test(t);
-  return esNivel ? color : null;
+  if (color) {
+    const esNivel = NOMBRA_KRECE.test(t) || new RegExp(`\\b(?:nivel|soy|estoy\\s+en)\\s+(?:el\\s+)?${color}\\b`, "i").test(t);
+    if (esNivel) return color;
+  }
+  if (NOMBRA_KRECE.test(t) && /\b(?:nivel\s+(?:inicial|b[aá]sico|1|uno)|primer\s+nivel|reci[eé]n\s+empiezo|nuevo\s+en)\b/i.test(t)) return "azul";
+  return null;
 }
 
 // El nivel de Cashea que ya dijo antes, si la conversación lo guarda
@@ -93,29 +97,80 @@ export function planCashea(precio, nivel) {
 //   texto:     lo que escribió ahora
 //   historial: la conversación guardada (para un nivel dicho antes)
 //   equipo:    el producto del que habla ({ titulo, precioCashea })
-export function contestarCuotas({ texto = "", historial = "", equipo = null } = {}) {
-  const t = String(texto || "");
-  const krece = nivelDeKrece(t);
-  const nivelAhora = nivelDeCashea(t);
-  const hablaDeCashea = NOMBRA_CASHEA.test(t);
-  const pide = PIDE_LA_CUENTA.test(t) || nivelAhora !== null || krece !== null || (hablaDeCashea && COMO_QUEDA.test(t));
-  if (!pide || !equipo?.titulo) return null;
-  if (/\b(divisas?|d[oó]lares?|usd|contado|efectivo|bol[ií]vares|bs)\b/i.test(t)) return null;
-
-  if (krece) {
-    const k = KRECE[krece];
+// LO QUE SE LE DICE DE KRECE: su nivel, o la tabla entera. El monto con
+// Krece lo confirma un asesor: la hoja no dice sobre qué precio va.
+function respuestaKrece(equipo, color) {
+  const delEquipo = equipo?.titulo ? ` del ${equipo.titulo}` : "";
+  if (color) {
+    const k = KRECE[color];
     return {
       respuesta:
         `Con Krece nivel ${k.nombre} ${k.emoji} la inicial es del ${k.inicial}% y el resto en ${k.cuotas} cuotas.\n\n` +
-        `El monto exacto del ${equipo.titulo} con Krece te lo confirma un asesor en un momento 😊`,
+        `El monto exacto${delEquipo} con Krece te lo confirma un asesor en un momento 😊`,
       asesor: true,
       motivo: `Krece nivel ${k.nombre}: % y cuotas; el monto, al asesor`,
     };
   }
+  const tabla = Object.values(KRECE).map((k) => `${k.emoji} ${k.nombre} — ${k.inicial}% inicial · ${k.cuotas} cuotas`).join("\n");
+  return {
+    respuesta:
+      `Con Krece la inicial y las cuotas van por nivel 👇\n\n${tabla}\n\n` +
+      `El monto exacto${delEquipo} con Krece te lo confirma un asesor en un momento 😊 ¿En qué nivel estás?`,
+    asesor: true,
+    motivo: "Krece sin nivel: la tabla; el monto, al asesor",
+  };
+}
 
-  // Sin Cashea nombrado ni nivel numérico ni Krece: "¿cuántas cuotas?" a
-  // secas también es Cashea (es el precio que ve en la ficha).
-  if (NOMBRA_KRECE.test(t) && !hablaDeCashea) return null;
+// ¿Está PREGUNTANDO (o diciendo su nivel)? "Gracias… aún no tengo la
+// inicial" o "esperaré a 6 cuotas" no piden ninguna cuenta (7-oct-2026:
+// a las dos se les mandó la tabla de Cashea).
+const PREGUNTA = /\?|\b(?:cu[aá]nto|cu[aá]nta|cu[aá]ntas|c[oó]mo|cu[aá]l|qu[eé]|precio|pre[cxs]io|monto|sale|saldr[ií]a|queda|quedan|quedar[ií]a)\b/i;
+const NO_PREGUNTA = /\b(?:gracias|me\s+pondr[eé]|esperar[eé]|luego\s+te|despu[eé]s\s+te|lo\s+pienso|ok|listo|dale)\b/i;
+
+// ¿De qué plataforma viene hablando? La última que nombró la charla.
+function plataformaDeLaCharla(historial) {
+  const t = String(historial || "").toLowerCase();
+  const k = Math.max(t.lastIndexOf("krece"), t.lastIndexOf("crece"));
+  const c = t.lastIndexOf("cashea");
+  if (k < 0 && c < 0) return "";
+  return k > c ? "krece" : "cashea";
+}
+
+export function contestarCuotas({ texto = "", historial = "", equipo = null } = {}) {
+  const t = String(texto || "");
+  if (/\b(divisas?|d[oó]lares?|usd|contado|efectivo|bol[ií]vares|bs)\b/i.test(t)) return null;
+
+  const hablaDeCashea = NOMBRA_CASHEA.test(t);
+  const hablaDeKrece = NOMBRA_KRECE.test(t);
+  const krece = nivelDeKrece(t);
+  const nivelAhora = nivelDeCashea(t);
+  const palabras = t.trim().split(/\s+/).filter(Boolean);
+  // "Cashea" o "¿y Krece?" a secas, con un equipo delante: cómo le queda.
+  const soloLaPlataforma = (hablaDeCashea || hablaDeKrece) && palabras.length <= 3;
+  const diceSuNivel = nivelAhora !== null || krece !== null;
+  const pregunta = PREGUNTA.test(t) && !(NO_PREGUNTA.test(t) && !/\?/.test(t));
+  const pide =
+    diceSuNivel ||
+    soloLaPlataforma ||
+    (pregunta && (PIDE_LA_CUENTA.test(t) || ((hablaDeCashea || hablaDeKrece) && (COMO_QUEDA.test(t) || PREGUNTA.test(t)))));
+  if (!pide) return null;
+
+  // KRECE: si lo nombra (o pide más de 3 cuotas, que solo da Krece).
+  const cuotasPedidas = Number(t.match(/\b(\d{1,2})\s+cuotas\b/i)?.[1]) || 0;
+  const esKrece = krece !== null || (hablaDeKrece && !hablaDeCashea) || (cuotasPedidas > CUOTAS_CASHEA && !hablaDeCashea);
+  // Con su nivel de Krece se le contesta aunque no se sepa el equipo.
+  if (esKrece && (equipo?.titulo || krece)) return respuestaKrece(equipo, krece);
+  if (!equipo?.titulo) return null;
+  if (esKrece) return respuestaKrece(equipo, krece);
+
+  // "Nivel 6" a secas: los niveles con NÚMERO son solo de Cashea (Krece
+  // va por colores y no tiene nivel 6). Se contesta con Cashea, que es lo
+  // correcto (7-oct-2026, dueño: "está bien respondido, déjalo"). Si venía
+  // hablando de Krece, se le aclara en una línea, sin dejar de contestarle.
+  const aclaraKrece =
+    nivelAhora !== null && !hablaDeCashea && plataformaDeLaCharla(historial) === "krece"
+      ? "\n\n(Los niveles con número son de Cashea; en Krece van por color: 🔵 Azul, ⚪ Plata, 🟡 Oro y 💎 Platino.)"
+      : "";
 
   const precio = precioComoNumero(equipo.precioCashea);
   if (!precio) return null;
@@ -128,7 +183,8 @@ export function contestarCuotas({ texto = "", historial = "", equipo = null } = 
         `Con nivel ${nivel} de Cashea, el ${equipo.titulo} (${dinero(precio)}) te queda así 👇\n\n` +
         `🔹 Inicial (${p.pct}%): ${dinero(p.inicial)}\n` +
         `🔹 ${CUOTAS_CASHEA} cuotas de ${dinero(p.cuota)}, una cada 14 días, sin intereses\n\n` +
-        "El monto exacto lo ves en tu app de Cashea al comprar 😊 ¿Te lo aparto?",
+        "El monto exacto lo ves en tu app de Cashea al comprar 😊 ¿Te lo aparto?" +
+        aclaraKrece,
       asesor: false,
       motivo: `Cashea nivel ${nivel}: inicial y cuotas calculadas por el código`,
     };
@@ -138,13 +194,17 @@ export function contestarCuotas({ texto = "", historial = "", equipo = null } = 
     const p = planCashea(precio, Number(n));
     return `🔹 Nivel ${n} — inicial ${dinero(p.inicial)} + ${CUOTAS_CASHEA} cuotas de ${dinero(p.cuota)}`;
   });
+  // Preguntó por las dos ("¿por Cashea o Krece?"): las dos.
+  const yKrece = hablaDeKrece
+    ? `\n\nY con Krece: ${Object.values(KRECE).map((k) => `${k.emoji} ${k.nombre} ${k.inicial}%·${k.cuotas} cuotas`).join(" · ")}. El monto con Krece te lo confirma un asesor 😊`
+    : "";
   return {
     respuesta:
       `El ${equipo.titulo} está en ${dinero(precio)} con Cashea 📱 Te queda así según tu nivel 👇\n\n` +
       `${lineas.join("\n")}\n\n` +
-      "Las cuotas van cada 14 días, sin intereses. ¿Cuál es tu nivel? 😊",
-    asesor: false,
-    motivo: "Cashea sin nivel: los 6 niveles con su monto, calculados por el código",
+      `Las cuotas van cada 14 días, sin intereses.${yKrece} ¿Cuál es tu nivel? 😊`,
+    asesor: Boolean(yKrece),
+    motivo: `Cashea sin nivel: los 6 niveles con su monto, calculados por el código${yKrece ? " (y Krece, al asesor)" : ""}`,
   };
 }
 

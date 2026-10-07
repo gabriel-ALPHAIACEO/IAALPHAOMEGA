@@ -112,6 +112,15 @@ ESTO ESTÁ BIEN (no lo marques nunca):
     qué busca está bien; no hay ninguna pregunta que contestar.
   · Un "ok", "👍", "gracias", "listo" del cliente: no pregunta nada, así
     que una respuesta corta de cortesía está bien. No es "no_responde".
+  · El cliente pregunta el precio o si está disponible SIN decir de qué
+    producto, y en la conversación no hay ninguno: preguntarle cuál es (o
+    pedirle que mande la publicación) ES la respuesta correcta.
+  · LO QUE PENSÓ LA ASISTENTE puede estar equivocado: juzga la respuesta
+    por lo que escribió el cliente y por LOS DATOS DE LA TIENDA, no por lo
+    que ella pensó (si pensó mal y respondió bien, la respuesta está bien).
+  · Un precio, un monto o una cuenta que está en LOS DATOS DE LA TIENDA (o
+    que ahí dice que calculó el código) es de verdad, aunque no haya
+    fichas en este mensaje.
   · Un dato que la tienda NO tiene y manda al asesor (precio en bolívares,
     tasa del día, garantía): "te lo confirma un asesor" ES la respuesta. No
     es "no_responde".
@@ -322,7 +331,7 @@ export async function revisarTurno(env, turno) {
       : "",
     turno.categoria ? `LA CATEGORÍA QUE PIDIÓ: ${turno.categoria}` : "",
     turno.vision ? `LO QUE HIZO LA IA DE IMÁGENES CON LA FOTO: ${turno.vision}` : "",
-    turno.contexto ? `\nLOS DATOS DE LA TIENDA (la verdad):\n${String(turno.contexto).slice(0, 3000)}` : "",
+    turno.contexto ? `\nLOS DATOS DE LA TIENDA (la verdad):\n${String(turno.contexto).slice(0, 6000)}` : "",
   ]
     .filter((linea) => linea !== "")
     .join("\n");
