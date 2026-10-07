@@ -7,6 +7,11 @@ import { leerAdjuntoCompartido } from "./publicacion.js";
 
 const GRAFO = "https://graph.instagram.com/v23.0";
 
+// WHATSAPP (7-oct-2026, ver whatsapp.js): un cliente cuyo id empieza por
+// "wa:" se atiende por WhatsApp. Cada envío de abajo mira el id y, si es
+// de WhatsApp, lo manda por allá. index.js no se entera del canal.
+import * as wa from "./whatsapp.js";
+
 /* ── Firma ───────────────────────────────────────────────────────── */
 
 // Meta firma cada webhook con el secreto de la app. Sin esta comprobación,
@@ -158,6 +163,7 @@ function resumirEnvio(mensaje) {
 }
 
 export function enviarTexto(env, igsid, texto) {
+  if (wa.esDeWhatsApp(igsid)) return wa.enviarTexto(env, igsid, texto);
   return enviar(env, igsid, { text: recortar(texto, 1000) });
 }
 
@@ -165,6 +171,7 @@ export function enviarTexto(env, igsid, texto) {
 // tarjeta con la foto, el texto y el botón de Maps. Sin foto: el texto con
 // el botón. Sin botón: el texto solo.
 export function enviarLocal(env, igsid, { texto, titulo, subtitulo, foto, mapa, boton }) {
+  if (wa.esDeWhatsApp(igsid)) return wa.enviarLocal(env, igsid, { texto, foto, mapa, boton });
   const hayMapa = /^https:\/\//i.test(String(mapa || ""));
   if (!hayMapa) return enviarTexto(env, igsid, texto);
   const botones = [{ type: "web_url", url: mapa, title: recortar(boton, 20) }];
@@ -203,6 +210,7 @@ export function enviarLocal(env, igsid, { texto, titulo, subtitulo, foto, mapa, 
 //      que el cliente preguntó.
 // Y en el registro queda, con nombre, qué foto hay que arreglar en la hoja.
 export async function enviarFichas(env, igsid, productos) {
+  if (wa.esDeWhatsApp(igsid)) return wa.enviarFichas(env, igsid, productos);
   const lista = productos.slice(0, 10);
   const armar = (sinFoto = new Set()) => ({
     attachment: {
@@ -356,6 +364,7 @@ export function hayCatalogo(env) {
 }
 
 export function enviarBotonCatalogo(env, igsid, texto) {
+  if (wa.esDeWhatsApp(igsid) && hayCatalogo(env)) return wa.enviarConBoton(env, igsid, texto, { titulo: "Ver catálogo", url: env.URL_CATALOGO });
   if (!hayCatalogo(env)) {
     console.log("URL_CATALOGO sin poner: mando el texto sin el botón del catálogo");
     return enviarTexto(env, igsid, texto);
@@ -378,6 +387,7 @@ export function enviarBotonCatalogo(env, igsid, texto) {
 // también sirve, pero un botón se toca sin pensar y no se ve como spam.
 // Si la dirección no es un enlace de verdad, sale el texto solo.
 export function enviarConBoton(env, igsid, texto, { titulo, url } = {}) {
+  if (wa.esDeWhatsApp(igsid)) return SIN_PONER.test(String(url || "")) ? wa.enviarTexto(env, igsid, texto) : wa.enviarConBoton(env, igsid, texto, { titulo, url });
   if (!/^https?:\/\//i.test(String(url || "")) || SIN_PONER.test(url)) {
     return enviarTexto(env, igsid, texto);
   }
@@ -408,6 +418,7 @@ export function enviarConBoton(env, igsid, texto, { titulo, url } = {}) {
 // Instagram admite 13 como máximo y recorta los títulos largos: 20
 // caracteres, y eso contando los emojis.
 export function enviarConOpciones(env, igsid, texto, opciones) {
+  if (wa.esDeWhatsApp(igsid)) return wa.enviarConOpciones(env, igsid, texto, opciones);
   const botones = (opciones || []).slice(0, 13).map(({ titulo, payload }) => ({
     content_type: "text",
     title: recortar(String(titulo || ""), 20),
@@ -539,6 +550,8 @@ export async function privadoPorComentario(env, comentarioId, texto) {
 // vacío: se volvía a pedir en cada mensaje y en Slack salía "sin nombre".
 // Ahora el @ se guarda siempre, aunque no sirva para saludar.
 export async function obtenerPerfil(env, igsid) {
+  // WhatsApp no tiene API de perfil: el nombre viene en el propio aviso.
+  if (wa.esDeWhatsApp(igsid)) return wa.perfilDeWhatsApp(igsid);
   try {
     const respuesta = await fetch(
       `${GRAFO}/${igsid}?fields=name,username&access_token=${env.IG_TOKEN}`,

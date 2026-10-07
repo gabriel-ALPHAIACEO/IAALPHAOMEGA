@@ -35,6 +35,11 @@ import { TABLAS, leerTabla, tipoDeError, esIntencionDeCompra, asegurarTurnos, as
 import { ESTILO_ALPHA, SCRIPT_ALPHA, imagenDeAlpha, marcaAlpha, cajaDeEntrada, adjuntosLimpios, leerAdjuntos, textoDeAdjuntos, textoVisible, htmlDeAdjuntos, kpi, barras, selectorDePeriodo, aCsv, respuestaCsv } from "./alpha.js";
 import { listarLecciones, olvidarLeccion, aprendeActivo, VECES_PARA_CODIGO } from "./lecciones.js";
 import { clientesDelCrm, guardarCrm, htmlListaDeClientes, htmlFichaDeCliente, filtrarClientes, filasCsvDeClientes } from "./crm.js";
+import { esDeWhatsApp, textoDesdeElPanel } from "./whatsapp.js";
+
+// El "usuario" de un cliente de WhatsApp es su teléfono ("+58…", ver
+// whatsapp.js): va con 📱 en vez de @.
+const arroba = (u) => (String(u || "").startsWith("+") ? "📱 " : "@");
 
 // Se reexporta para que index.js lo siga importando desde aquí.
 export { anotarTurno } from "./registro.js";
@@ -376,6 +381,20 @@ export async function mandarDesdeElPanel(env, igsid, texto, horasDePausa = 1) {
   if (!igsid) return { ok: false, error: "Falta el cliente." };
   if (!limpio) return { ok: false, error: "Escribe el mensaje." };
   if (limpio.length > MAXIMO_DESDE_EL_PANEL) return { ok: false, error: `Máximo ${MAXIMO_DESDE_EL_PANEL} letras por mensaje.` };
+
+  // Un cliente de WhatsApp ("wa:…", ver whatsapp.js) se contesta por allá.
+  if (esDeWhatsApp(igsid)) {
+    const r = await textoDesdeElPanel(env, String(igsid), limpio);
+    if (!r.ok) {
+      console.error(`PANEL: no salió el WhatsApp a ${igsid}: ${r.error}`);
+      return r;
+    }
+    await pausar(env.DB, String(igsid), horasDePausa);
+    await anotarMensaje(env.DB, String(igsid), "asesor", limpio);
+    console.log(`PANEL: el dueño le escribió por WhatsApp a ${igsid}; bot en pausa ${horasDePausa} h`);
+    return r;
+  }
+
   if (!env.IG_TOKEN) return { ok: false, error: "La tienda no tiene IG_TOKEN cargado." };
 
   let r;
@@ -585,7 +604,7 @@ async function paginaDeLista(env, url, tienda, conAnuncios = true) {
   const filas = contactos
     .map((c) => {
       const enlace = `<a class="${c.pausado ? "dentro" : "tarjeta"}"${c.pausado ? "" : ` data-k="c${esc(c.id)}"`} href="/panel/c/${encodeURIComponent(c.id)}">
-<span class="nombre">${esc(c.nombre || c.usuario || c.id)}</span>${c.usuario ? ` <span class="suave">@${esc(c.usuario)}</span>` : ""}
+<span class="nombre">${esc(c.nombre || c.usuario || c.id)}</span>${c.usuario ? ` <span class="suave">${arroba(c.usuario)}${esc(c.usuario)}</span>` : ""}
 ${Object.entries(c.problemas).map(([m, n]) => `<span class="etiqueta pausa" title="${esc(MARCAS[m]?.nombre || m)}">${MARCAS[m]?.simbolo || "!"} ${n}</span>`).join("")}${c.pausado ? `<span class="etiqueta pausa">⏸️ bot en pausa hasta ${esc(horaExacta(c.pausadoHasta))}</span>` : ""}${c.anuncio ? `<span class="etiqueta anuncio">anuncio · ${esc(String(c.anuncio).slice(0, 30))}</span>` : ""}
 <div class="suave">${esc(cuandoFue(c.ultimo))}${c.ultima ? ` · ${c.ultima.de === "bot" ? "Bot: " : c.ultima.de === "asesor" ? "Asesor: " : ""}${esc(String(c.ultima.texto || "").slice(0, 90))}` : ""}</div></a>`;
       if (!c.pausado) return enlace;
@@ -676,7 +695,7 @@ async function paginaDeConversacion(env, id, tienda, { horasDePausa = 1, conAnun
     `<p><a href="/panel">← Conversaciones</a> · <a href="/panel/clientes">Clientes</a></p>
 ${htmlFichaDeCliente(delCrm, { id })}
 <div data-zona="conversacion">
-<div class="tarjeta"><span class="nombre">${esc(nombre)}</span>${contacto.usuario ? ` <span class="suave">@${esc(contacto.usuario)}</span>` : ""}
+<div class="tarjeta"><span class="nombre">${esc(nombre)}</span>${contacto.usuario ? ` <span class="suave">${arroba(contacto.usuario)}${esc(contacto.usuario)}</span>` : ""}
 <div class="suave">Id ${esc(id)} · último mensaje del bot ${esc(cuandoFue(contacto.ultimo_envio))}</div>
 ${pub?.deAnuncio ? `<div>📣 Llegó por un anuncio${pub.equipo ? ` del <b>${esc(pub.equipo)}</b>` : ""} · ${esc(cuandoFue(pub.cuando))}</div>` : ""}
 ${contacto.historial ? `<div class="suave">Resumen: ${esc(contacto.historial)}</div>` : ""}
@@ -762,7 +781,7 @@ async function erroresDeLaIaParaLaTienda(env, params) {
   const casos = (await senaladasDelPeriodo(env.DB, p.inicio - 1, p.fin + DIA_MS - 1)).map((c) => ({ ...c, motivo: c.marca === "error" ? MOTIVO_TECNICO : c.motivo }));
   const nombres = new Map();
   if (casos.length) {
-    for (const c of await clientesDelCrm(env.DB).catch(() => [])) nombres.set(String(c.id), c.nombre || (c.usuario ? `@${c.usuario}` : ""));
+    for (const c of await clientesDelCrm(env.DB).catch(() => [])) nombres.set(String(c.id), c.nombre || (c.usuario ? `${arroba(c.usuario)}${c.usuario}` : ""));
   }
   for (const c of casos) c.nombre = nombres.get(c.igsid) || "";
   return { casos, rango: rangoDe(p), primerDato: await primerDato(env.DB) };

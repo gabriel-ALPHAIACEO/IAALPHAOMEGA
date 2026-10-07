@@ -28,6 +28,7 @@ import { urlPequena } from "./shopify.js";
 import { comoDataUri } from "./imagen.js";
 import { metodosDePago, bloqueDeMetodos, tasaDePago } from "./pagos.js";
 import { anotarGasto } from "./gasto.js";
+import { reglasParaLaIA } from "./lecciones.js";
 import { llamarDeepSeek, modeloDeDeepSeek } from "./deepseek.js";
 import { usaDrive, titulosDeDrive, categoriasDeDrive, listaDeModelosParaFotos } from "./drive.js";
 import { esCategoria, categoriasParaElPrompt } from "./categorias.js";
@@ -650,6 +651,16 @@ async function llamar(
   return datos.choices?.[0]?.message?.content || null;
 }
 
+
+// LO QUE YA APRENDIÓ (ver lecciones.js, 7-oct-2026). Con APRENDER = "si",
+// las reglas que escribió el revisor van delante del mensaje (no en el
+// prompt fijo: así el prompt sigue igual y sale cacheado). Antes se
+// guardaban en esta tienda pero no le llegaban a la IA.
+async function conLoAprendido(env, tipo, texto) {
+  const reglas = await reglasParaLaIA(env, tipo);
+  return reglas ? `${reglas}\n\n${texto}` : texto;
+}
+
 export async function responderTexto(env, entrada) {
   // CATÁLOGO EN DRIVE: los títulos de la carpeta van al prompt, igual que
   // los de catalogo.txt con Shopify. Se releen cada media hora.
@@ -669,7 +680,7 @@ export async function responderTexto(env, entrada) {
   const salida = await llamar(
     env,
     textoConCatalogo(env),
-    [{ type: "text", text: entrada }],
+    [{ type: "text", text: await conLoAprendido(env, "texto", entrada) }],
     { schema: ESQUEMA_RESPUESTA }
   );
   return normalizar(salida);
@@ -688,7 +699,9 @@ export async function identificarEnImagen(env, urlImagen, { modelo = "" } = {}) 
       // cordones— vale la pena pagar los tokens de más para no perder el
       // detalle fino.
       { type: "image_url", image_url: { url: urlImagen, detail: "high" } },
-      { type: "text", text: "Identifica el calzado de esta foto." },
+      // Lo aprendido, solo con la foto del cliente: al indexar el catálogo
+      // (modelo dado) las fotos son de la tienda.
+      { type: "text", text: modelo ? "Identifica el calzado de esta foto." : await conLoAprendido(env, "imagen", "Identifica el calzado de esta foto.") },
     ],
     {
       schema: ESQUEMA_IDENTIFICACION,

@@ -37,6 +37,8 @@ for %f in (pruebas\*.mjs) do node pruebas\%f
 | `lista.mjs` | La lista de productos, las marcas y los botones |
 | `sinlista.mjs` | Que la lista escrita no se pegue encima de las fotos |
 | `pagos.mjs` | Cashea y Krece: que quepan, que no se crucen y que se lean |
+| `whatsapp.mjs` | WhatsApp: lo que llega (texto, foto, voz, botones, anuncio, eco del asesor), lo que sale, el turno entero, no repetir, el panel |
+| `aprende.mjs` | Lo que aprendió el revisor le llega a la IA (APRENDER) |
 | `memoria.mjs` | La memoria: qué fichas vio, de qué vienen hablando, 20 mensajes, la nota nunca le llega al cliente |
 | `informe7oct.mjs` | El informe del 7-oct: Krece, cuotas solo si pregunta, pro+ = pro plus, comparar dos, Xbyte a secas, los "gracias", nivel 6 = Cashea |
 | `contexto.mjs` | Sigue el tema: viendo relojes, "¿y los redmi?" son relojes Redmi/Xiaomi, no teléfonos |

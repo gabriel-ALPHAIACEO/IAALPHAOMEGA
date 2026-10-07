@@ -15,6 +15,7 @@
 
 import promptTexto from "./prompts/texto.txt";
 import { anotarGasto } from "./gasto.js";
+import { reglasParaLaIA } from "./lecciones.js";
 import listaCatalogo from "./prompts/catalogo.txt";
 import promptVision from "./prompts/vision.txt";
 import promptRedactar from "./prompts/redactar.txt";
@@ -340,8 +341,18 @@ const ESQUEMA_RESPUESTA = {
   },
 };
 
+
+// LO QUE YA APRENDIÓ (ver lecciones.js, 7-oct-2026). Con APRENDER = "si",
+// las reglas que escribió el revisor van delante del mensaje (no en el
+// prompt fijo: así el prompt sigue igual y sale cacheado). Antes se
+// guardaban en esta tienda pero no le llegaban a la IA.
+async function conLoAprendido(env, tipo, texto) {
+  const reglas = await reglasParaLaIA(env, tipo);
+  return reglas ? `${reglas}\n\n${texto}` : texto;
+}
+
 export async function responderTexto(env, entrada, { esperaMs } = {}) {
-  const salida = await llamar(env, textoConCatalogo(env), [{ type: "text", text: entrada }], {
+  const salida = await llamar(env, textoConCatalogo(env), [{ type: "text", text: await conLoAprendido(env, "texto", entrada) }], {
     esperaMs,
     schema: ESQUEMA_RESPUESTA,
   });
@@ -415,7 +426,7 @@ export async function identificarEnImagen(
       // fotos de producto —donde hay que contar cámaras o distinguir una
       // isla dinámica de una muesca— vale la pena pagar los tokens de más.
       { type: "image_url", image_url: { url: urlImagen, detail: "high" } },
-      { type: "text", text: texto },
+      { type: "text", text: await conLoAprendido(env, "imagen", texto) },
     ],
     {
       schema: ESQUEMA_IDENTIFICACION,

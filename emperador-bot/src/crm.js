@@ -23,6 +23,10 @@
 
 import { esIntencionDeCompra } from "./registro.js";
 
+// El "usuario" de un cliente de WhatsApp es su teléfono ("+58…", ver
+// whatsapp.js): va con 📱 en vez de @.
+const arroba = (u) => (String(u || "").startsWith("+") ? "📱 " : "@");
+
 export const ETAPAS = [
   ["nuevo", "🆕 Nuevo"],
   ["interesado", "👀 Interesado"],
@@ -233,7 +237,7 @@ export function htmlListaDeClientes(clientes, { etapa = "", etiqueta = "", q = "
     .slice(0, 300)
     .map(
       (c) => `<tr data-k="c${esc(c.id)}">
-<td><a href="/panel/c/${encodeURIComponent(c.id)}"><b>${esc(c.nombre || (c.usuario ? `@${c.usuario}` : c.id))}</b></a>${c.usuario && c.nombre ? `<div class="suave">@${esc(c.usuario)}</div>` : ""}${c.anuncio ? `<div class="suave">📣 ${esc(String(c.anuncio).slice(0, 40))}</div>` : ""}</td>
+<td><a href="/panel/c/${encodeURIComponent(c.id)}"><b>${esc(c.nombre || (c.usuario ? `${arroba(c.usuario)}${c.usuario}` : c.id))}</b></a>${c.usuario && c.nombre ? `<div class="suave">${arroba(c.usuario)}${esc(c.usuario)}</div>` : ""}${c.anuncio ? `<div class="suave">📣 ${esc(String(c.anuncio).slice(0, 40))}</div>` : ""}</td>
 <td>${chipDeEtapa(c.etapa)}${c.etapaPuesta ? "" : '<div class="suave">sugerida</div>'}</td>
 <td>${c.etiquetas.map((e) => `<span class="etiqueta-crm">${esc(e)}</span>`).join("") || '<span class="suave">—</span>'}</td>
 <td class="num">${c.mensajes}</td>
@@ -293,7 +297,7 @@ export function filasCsvDeClientes(clientes) {
     encabezados: ["Nombre", "Usuario", "Id", "Etapa", "Etapa puesta a mano", "Etiquetas", "Notas", "Mensajes", "Productos que vio", "Veces que quiso comprar", "Llegó por anuncio", "Primer contacto", "Último mensaje"],
     filas: clientes.map((c) => [
       c.nombre,
-      c.usuario ? `@${c.usuario}` : "",
+      c.usuario ? `${arroba(c.usuario)}${c.usuario}` : "",
       c.id,
       NOMBRE_DE_ETAPA[c.etapa]?.replace(/^\S+\s/, "") || c.etapa,
       c.etapaPuesta ? "sí" : "no (sugerida)",

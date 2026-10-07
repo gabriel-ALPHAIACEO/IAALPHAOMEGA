@@ -18,6 +18,8 @@
 // SI NO SE PUEDE ESCUCHAR (el enlace caducó, OpenAI falló), no se queda
 // callado: le pide con amabilidad que lo escriba (ver PEDIR_QUE_ESCRIBA).
 
+import { bajarMedio } from "./whatsapp.js";
+
 const API = "https://api.openai.com/v1/audio/transcriptions";
 const MODELO_POR_DEFECTO = "gpt-4o-mini-transcribe";
 const MODELO_DE_RESPALDO = "whisper-1";
@@ -83,6 +85,17 @@ export function formatoDelAudio(datos, tipoDeclarado = "") {
 }
 
 async function bajarAudio(env, url) {
+  // WhatsApp (ver whatsapp.js): la nota de voz no trae enlace público, trae
+  // un id ("wamedia:…") y se baja con el token.
+  if (/^wamedia:/.test(String(url || ""))) {
+    const { datos, tipo } = await bajarMedio(env, url);
+    if (!datos.byteLength) throw new Error("WhatsApp mandó el audio vacío");
+    if (datos.byteLength / (1024 * 1024) > MAXIMO_MB) throw new Error("el audio es demasiado largo");
+    const formato = formatoDelAudio(datos, tipo);
+    const kb = Math.round(datos.byteLength / 1024);
+    console.log(`Voz: audio de WhatsApp bajado — ${kb} KB, ${tipo || "sin tipo"}, es ${formato.extension}`);
+    return { datos, tipo: formato.tipo, extension: formato.extension, declarado: tipo, kb };
+  }
   // Con un agente de navegador: sin él, algunos CDN contestan 403.
   const agente = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36" };
   let respuesta = await fetch(url, { headers: agente });

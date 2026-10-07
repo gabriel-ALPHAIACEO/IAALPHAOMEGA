@@ -232,9 +232,17 @@ export function revisorActivo(env) {
 
 // La llamada, a OpenAI o a DeepSeek (las dos hablan igual). Devuelve el
 // JSON de la respuesta, o null.
+// CON DEEPSEEK TAMBIÉN PIENSA (7-oct-2026). Con REVISOR_PIENSA = "si", el
+// revisor de DeepSeek razona antes de decidir (como gpt-5 en Invictus). Si
+// el modelo no lo acepta, se repite sin pensar: el revisor nunca se apaga.
+function deepseekPiensa(env) {
+  return conDeepSeek(env) && /^(si|sí|true|1|on)$/i.test(String(env?.REVISOR_PIENSA || "").trim());
+}
+
 async function preguntar(env, modelo, mensajes) {
   const deepseek = conDeepSeek(env);
   const piensa = !deepseek && piensaPorDentro(modelo);
+  const dsPiensa = deepseekPiensa(env);
   const cuerpoPara = (m) =>
     piensaPorDentro(m) && !deepseek
       ? {
@@ -251,14 +259,18 @@ async function preguntar(env, modelo, mensajes) {
           temperature: 0,
           response_format: { type: "json_object" },
           messages: mensajes,
-          ...(deepseek ? { max_tokens: 400, thinking: { type: "disabled" } } : { max_completion_tokens: 600 }),
+          ...(deepseek
+            ? dsPiensa
+              ? { max_tokens: 8000, thinking: { type: "enabled" } }
+              : { max_tokens: 400, thinking: { type: "disabled" } }
+            : { max_completion_tokens: 600 }),
         };
   const enviar = (c) =>
     fetch(deepseek ? API_DEEPSEEK : API, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${deepseek ? env.DEEPSEEK_API_KEY : env.OPENAI_API_KEY}` },
       body: JSON.stringify(c),
-      signal: AbortSignal.timeout(piensaPorDentro(c.model) && !deepseek ? ESPERA_PENSANDO_MS : ESPERA_NORMAL_MS),
+      signal: AbortSignal.timeout((piensaPorDentro(c.model) && !deepseek) || c.thinking?.type === "enabled" ? ESPERA_PENSANDO_MS : ESPERA_NORMAL_MS),
     });
   const cuerpo = cuerpoPara(modelo);
   let usado = modelo;
