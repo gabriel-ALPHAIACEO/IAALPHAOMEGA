@@ -144,6 +144,7 @@ import {
   listarContactos,
   yaLoVio,
   conProductosMostrados,
+  conLasFichas,
 } from "./estado.js";
 import {
   firmaValida,
@@ -164,7 +165,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-07 (52) · a los \"gracias\" contesta con lo que hablaban, sin fichas ni tablas · nivel 6 = Cashea (Krece va por color) · informe del 7-oct: Krece (tabla y monto al asesor, nunca un $ de Krece), las cuotas solo si pregunta, ¿está disponible?, pro+ = pro plus, 15 C = 15C, comparar dos equipos, Xbyte a secas, accesorios que contaban como teléfonos · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max";
+const VERSION = "2026-10-07 (53) · memoria: analiza el chat antes de responder (\"Charla / Pide\"), sigue el tema de lo último que hablaron, recuerda qué fichas vio y 20 mensajes · · (52) a los \"gracias\" contesta con lo que hablaban, sin fichas ni tablas · nivel 6 = Cashea (Krece va por color) · informe del 7-oct: Krece (tabla y monto al asesor, nunca un $ de Krece), las cuotas solo si pregunta, ¿está disponible?, pro+ = pro plus, 15 C = 15C, comparar dos equipos, Xbyte a secas, accesorios que contaban como teléfonos · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -2170,6 +2171,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       textos = [...textos, texto];
       conversacion = conLoDicho(conversacion, "bot", texto);
     }
+    // Y QUÉ fichas vio, para que la memoria sepa de qué hablaban.
+    if (adjuntos?.fichas?.length) conversacion = conLasFichas(conversacion, adjuntos.fichas.map((f) => f?.titulo));
     enviadoEn = Date.now();
     await marcarEnvio(env.DB, mensaje.igsid, mids, enviadoEn, textos, conversacion);
     if (texto || adjuntos) await anotarMensaje(env.DB, mensaje.igsid, "bot", texto, adjuntos);
@@ -3138,7 +3141,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     Boolean(publicacion),
     // La conversación SIN la línea que él acaba de escribir: esa va abajo,
     // en "lo que pide ahora", y repetirla dos veces confunde al modelo.
-    conversacion.slice(0, -1)
+    conversacion.slice(0, -1),
+    temaDeLaCharla(await ultimosQueVio(env, contacto))
   );
 
   const salida = await responderTexto(env, entrada, { esperaMs: tiempoParaLaIa(rastro) });
@@ -4001,7 +4005,8 @@ function contexto(
   minutos = 0,
   catalogo = "",
   esPublicacionNueva = false,
-  conversacion = []
+  conversacion = [],
+  tema = ""
 ) {
   return contextoParaElModelo({
     nombre: primerNombre(nombre),
@@ -4013,7 +4018,21 @@ function contexto(
     minutosDesdeElUltimo: minutos,
     catalogo,
     conversacion,
+    tema,
   });
+}
+
+// DE QUÉ VIENEN HABLANDO (7-oct-2026, dueño: "si lo último que hablaron
+// fue de X cosa, que siga hablando de eso, no de algo random"). Lo último
+// que vio, dicho con nombre y clase, para la línea que va justo encima de
+// lo que pide ahora.
+function temaDeLaCharla(vistos = []) {
+  const titulos = [...new Set((vistos || []).map((p) => p?.titulo).filter(Boolean))];
+  if (!titulos.length) return "";
+  const tipos = [...new Set(titulos.map((t) => tipoDelProducto(t)))];
+  const clase = tipos.length === 1 && tipos[0] ? nombreDelTipo(tipos[0]) : "";
+  const nombres = titulos.slice(0, 4).join(", ") + (titulos.length > 4 ? ` y ${titulos.length - 4} más` : "");
+  return clase ? `${clase} (${nombres})` : nombres;
 }
 
 // LA LISTA ESCRITA ES PARA LAS LISTAS, NO PARA LAS FOTOS.
@@ -4091,8 +4110,8 @@ function redaccionLibre(env) {
 // Lo que recibe la IA para redactar con los resultados delante.
 function contextoParaRedactar({ conversacion = [], texto, productos, anuncio = "", queMostrar, paso, borrador, yaSeConocen }) {
   const charla = conversacion
-    .slice(-8)
-    .map((l) => `${l.de === "bot" ? "Tú" : "Cliente"}: ${String(l.texto || "").slice(0, 300)}`)
+    .slice(-12)
+    .map((l) => `${l.de === "bot" ? "Tú" : "Cliente"}: ${String(l.texto || "").slice(0, 400)}`)
     .join("\n");
   const fichas = productos.length
     ? productos
@@ -4877,6 +4896,12 @@ function sinBienvenida(respuesta) {
 // término, se le quita el color, se busca en la hoja y se decide si la
 // respuesta del modelo sirve o hay que sustituirla.
 async function decidir({ env, salida, texto, historialPrevio, senalado = "", productoAnuncio = null, recientes = [] }) {
+  // "[le enseñé: …]" es una nota de la memoria (ver conLasFichas), no algo
+  // que se le dice al cliente: si la IA la copia de la charla, se quita.
+  if (/\[le enseñé:/i.test(salida?.respuesta || "")) {
+    console.log("La IA copió una nota de la memoria en la respuesta: la quito");
+    salida = { ...salida, respuesta: String(salida.respuesta).replace(/\s*\[le enseñé:[^\]]*\]?/gi, "").trim() };
+  }
   // El color se busca en lo que escribió EL CLIENTE, no en el término que
   // escribió el modelo: si el modelo ya lo quitó por su cuenta, el cliente
   // igual lo preguntó y el asesor tiene que enterarse.

@@ -37,6 +37,7 @@ for %f in (pruebas\*.mjs) do node pruebas\%f
 | `lista.mjs` | La lista de productos, las marcas y los botones |
 | `sinlista.mjs` | Que la lista escrita no se pegue encima de las fotos |
 | `pagos.mjs` | Cashea y Krece: que quepan, que no se crucen y que se lean |
+| `memoria.mjs` | La memoria: qué fichas vio, de qué vienen hablando, 20 mensajes, la nota nunca le llega al cliente |
 | `informe7oct.mjs` | El informe del 7-oct: Krece, cuotas solo si pregunta, pro+ = pro plus, comparar dos, Xbyte a secas, los "gracias", nivel 6 = Cashea |
 | `contexto.mjs` | Sigue el tema: viendo relojes, "¿y los redmi?" son relojes Redmi/Xiaomi, no teléfonos |
 | `relojes.mjs` | Los relojes: mi band / miband / smart band / band 10, relojes xiaomi, smartwatch; otra versión → "esa no, pero esta" |

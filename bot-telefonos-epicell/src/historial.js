@@ -91,6 +91,9 @@ export function contextoParaElModelo({
   // Lo que se dijeron, turno por turno (ver estado.js). Es lo que hace que
   // el modelo pueda LEER el chat en vez de recordarlo.
   conversacion = [],
+  // De qué vienen hablando: lo último que vio, con nombre (ver
+  // temaDeLaCharla en index.js). Vacío si todavía no vio nada.
+  tema = "",
 }) {
   const previo = recortarHistorial(historial);
   const partes = [];
@@ -185,6 +188,23 @@ export function contextoParaElModelo({
         "pregúntaselo: no supongas que es el mismo producto de antes]"
       );
     }
+  }
+
+  // EL HILO (7-oct-2026, dueño: "si lo último que hablaron fue de X cosa,
+  // que siga hablando de eso, no de algo random; que tenga memoria es lo
+  // más importante"). La conversación ya iba arriba, pero larga; esto dice
+  // en una línea, justo encima del mensaje, de QUÉ va. No sale cuando lo
+  // de antes ya no vale: un rato largo callados, o una historia o
+  // publicación nueva (ahí habla de lo que sale en ella).
+  const charlaViva = minutosDesdeElUltimo < minutosParaSerViejo && !esHistoriaNueva && !esPublicacionNueva;
+  if (tema && charlaViva) {
+    partes.push(
+      `[DE QUÉ VIENEN HABLANDO: ${tema}. Si su mensaje no nombra otro equipo`,
+      "u otra cosa, es sobre ESO: \"¿cuánto?\", \"¿y en negro?\", \"¿y el de 256?\",",
+      "\"¿y la cámara?\", \"gracias\" van de lo último que hablaron. No saltes a otro",
+      "producto ni le ofrezcas algo distinto por tu cuenta. Si nombra otra",
+      "cosa, el tema cambia a lo que nombró]"
+    );
   }
 
   partes.push(
