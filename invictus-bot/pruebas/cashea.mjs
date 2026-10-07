@@ -17,7 +17,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { prepararSrc, ok, titulo, terminar } from "./ayuda.mjs";
 
-const src = await prepararSrc();
+// (7-oct-2026) La promoción del 1 al 6 de octubre terminó y pagos.txt
+// tiene ahora la tabla normal. Estas pruebas siguen probando la MÁQUINA de
+// las promociones (fechas, 0%, mínimo, 6 cuotas) con aquella promoción
+// guardada en pruebas/datos/: si vuelve una, tiene que funcionar igual.
+// La tabla de hoy se prueba al final, con el pagos.txt de verdad.
+const PROMO = fs.readFileSync(path.join(import.meta.dirname, "datos", "pagos-promo-oct.txt"), "utf8");
+const src = await prepararSrc({ txt: { "prompts/pagos.txt": PROMO } });
 const C = await src.cargar("cashea.js");
 const U = await src.cargar("ubicacion.js");
 
@@ -203,6 +209,28 @@ ok(vencida.corregido && vencida.respuesta === C.CASHEA_FUERA_DE_FECHA,
 
 ok(!C.revisarCashea("Tenemos 20% de descuento en Nike", EN_FECHA).corregido,
    "un descuento que no es de Cashea no se toca");
+
+// ───────────────────────────────────────────────────────────────────────
+titulo("LA TABLA DE HOY (7-oct-2026): la misma de EPICCELL, sin promoción");
+{
+  const H = await (await prepararSrc()).cargar("cashea.js");
+  const DESPUES = Date.parse("2026-10-08T12:00:00-04:00");
+  ok(H.hayCashea() && H.momentoDeLaPromocion(DESPUES) === "siempre" && H.casheaVigente(DESPUES), "sin fechas: vale siempre (no pasa al asesor)");
+  const tabla = { 1: 60, 2: 50, 3: 30, 4: 25, 5: 20, 6: 20 };
+  ok(Object.entries(tabla).every(([n, v]) => H.inicialDelNivel(n) === v), "Nivel 1 60% · 2 50% · 3 30% · 4 25% · 5 20% · 6 20%");
+  ok(H.nombreDeLasCuotas() === "3 cuotas sin intereses, una cada 14 días", "3 cuotas sin intereses, una cada 14 días", H.nombreDeLasCuotas());
+  ok(H.textoDelMinimo() === "", "sin mínimo de compra");
+
+  const t = H.tarjetaCashea({ ahora: DESPUES });
+  ok(/¡Sí, trabajamos con Cashea!/.test(t) && !/🔥|(?<!\d)0%|6 cuotas|promoci|Arranca|tiempo limitado/i.test(t), "sin nada de la promoción vieja", t.replace(/\n/g, " | "));
+  ok(/Tu inicial según tu nivel/.test(t) && t.indexOf("Nivel 1") < t.indexOf("Nivel 6") && /Nivel 1 → 60% de inicial/.test(t) && /Nivel 6 → 20% de inicial/.test(t), "la tabla del 1 al 6");
+  ok(/3 cuotas sin intereses, una cada 14 días/.test(t) && /¿Qué nivel tienes en Cashea\?/.test(t), "las cuotas, y le pregunta su nivel");
+
+  const n6 = H.tarjetaCashea({ nivel: 6, productos: [{ titulo: "Jordan 4 Retro", precio: "120 USD" }], ahora: DESPUES });
+  ok(/Nivel 6/.test(n6) && /20% de inicial/.test(n6) && /3 cuotas sin intereses, una cada 14 días/.test(n6) && !/\d+\s*USD/.test(n6), "Nivel 6: 20% de inicial y 3 cuotas, sin montos", n6.replace(/\n/g, " | "));
+  ok(!H.revisarCashea("Con tu Nivel 1 pagas el 60% de inicial", DESPUES).corregido, "un 60% del Nivel 1 está bien");
+  ok(H.revisarCashea("Con tu Nivel 6 pagas el 0% de inicial", DESPUES).corregido, "un 0% de la promoción vieja se corrige");
+}
 
 // ───────────────────────────────────────────────────────────────────────
 titulo("la ubicación: tal cual, con su botón, desde wrangler.toml");

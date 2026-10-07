@@ -361,10 +361,13 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
 
   // ── Sin nivel (o uno que no existe): la promoción, la tabla y la pregunta.
   if (pct === null) {
-    // Del nivel más alto al más bajo: el 0% primero, que es el gancho.
+    // Con un 0% (promoción), del nivel más alto al más bajo: el 0% primero,
+    // que es el gancho. Sin promoción (7-oct-2026), del 1 al 6, como en
+    // EPICCELL.
     const marcaDelCero = minimo && leer().minimoAlCero ? " 🎉 (" + minimo + ")" : " 🎉";
+    const hayCero = [...niveles.values()].some((v) => v === 0);
     const tabla = [...niveles.entries()]
-      .sort((a, b) => b[0] - a[0])
+      .sort((a, b) => (hayCero ? b[0] - a[0] : a[0] - b[0]))
       .map(([n, v]) => `• Nivel ${n} → ${formatoPct(v)} de inicial${v === 0 ? marcaDelCero : ""}`)
       .join("\n");
 
@@ -377,7 +380,7 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
       titular ? (/🔥/.test(titular) ? titular : `🔥 ${titular}`) : "💜 ¡Sí, trabajamos con Cashea!",
       cuando,
       "",
-      "Bajada de inicial ⬇️",
+      titular ? "Bajada de inicial ⬇️" : "Tu inicial según tu nivel 👇",
       tabla,
       "",
       lineaCuotas,

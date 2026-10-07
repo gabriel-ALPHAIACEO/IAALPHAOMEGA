@@ -78,17 +78,13 @@ la tasa del BCV (Banco Central de Venezuela)
 # ("¡Arranca el 1 de octubre!") con la tabla y las cuentas. DESPUÉS de la
 # fecha final, pasa Cashea a un asesor.
 
-# (7-oct-2026) Terminó la promoción del 1 al 6 de octubre (0% de inicial y
-# 6 cuotas). Desde hoy, la tabla normal de Cashea, la misma de EPICCELL:
-# 3 cuotas sin intereses, una cada 14 días, y la inicial según el nivel.
-# Sin línea de vigencia: vale siempre. Sin titular: sale "¡Sí, trabajamos
-# con Cashea!". La promoción vieja está en pruebas/datos/pagos-promo-oct.txt
-# por si vuelve: se copian sus líneas acá con las fechas nuevas.
-
-Cuotas: 3 sin intereses, una cada 14 días
-Nivel 1: 60%
-Nivel 2: 50%
+Vigencia: 2026-10-01 al 2026-10-06
+Cuotas: 6 sin interés
+Mínimo para las 6 cuotas: 100
+6 cuotas + 0% de inicial en Cashea 🔥
+Nivel 6: 0%
+Nivel 5: 10%
+Nivel 4: 20%
 Nivel 3: 30%
-Nivel 4: 25%
-Nivel 5: 20%
-Nivel 6: 20%
+Nivel 2: 40%
+Nivel 1: 50%
