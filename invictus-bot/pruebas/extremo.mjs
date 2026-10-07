@@ -13,6 +13,8 @@
 
 import { prepararSrc, baseDeMentira, ok, titulo, terminar } from "./ayuda.mjs";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 
 const SECRETO = "secreto-de-prueba";
 
@@ -142,13 +144,18 @@ async function conversar(texto, { respuestaModelo, ahora, productos = [], sesion
   return { textos, todo: textos.join("\n---\n"), slack, registro: registro.join("\n"), botones };
 }
 
+// (7-oct-2026) Estos casos son de la promoción del 1 al 6 de octubre, que
+// ya terminó: se prueban con ella guardada en pruebas/datos/ (si vuelve
+// una promoción, tiene que funcionar igual).
+const PROMO = fs.readFileSync(path.join(import.meta.dirname, "datos", "pagos-promo-oct.txt"), "utf8");
+const conPromo = async () => ({ base: baseDeMentira(), src: await prepararSrc({ txt: { "prompts/pagos.txt": PROMO } }) });
 const HOY = Date.parse("2026-09-30T19:00:00-04:00");
 const EN_FECHA = Date.parse("2026-10-03T12:00:00-04:00");
 const PASADA = Date.parse("2026-10-08T12:00:00-04:00");
 
 titulo('"Tienes cashea?" HOY 30-sep (antes de que empiece)');
 {
-  const r = await conversar("Tienes cashea?", { ahora: HOY });
+  const r = await conversar("Tienes cashea?", { ahora: HOY, sesion: await conPromo() });
   ok(r.textos.length >= 1, "le llega respuesta", `${r.textos.length} mensaje(s)`);
   ok(/Bajada de inicial/.test(r.todo) && /Nivel 6 → 0%/.test(r.todo), "le llega la tabla de Cashea", r.todo.slice(0, 120));
   ok(/Arranca el 1 de octubre/.test(r.todo), "anunciando que arranca el 1 de octubre");
@@ -157,7 +164,7 @@ titulo('"Tienes cashea?" HOY 30-sep (antes de que empiece)');
 
 titulo('"Tienes cashea?" el 3 de octubre (en fecha)');
 {
-  const r = await conversar("Tienes cashea?", { ahora: EN_FECHA });
+  const r = await conversar("Tienes cashea?", { ahora: EN_FECHA, sesion: await conPromo() });
   ok(/Bajada de inicial/.test(r.todo) && !/confirma un asesor/.test(r.todo), "la tabla, sin asesor", r.todo.slice(0, 120));
 }
 
@@ -165,6 +172,7 @@ titulo('"soy nivel 3" en fecha');
 {
   const r = await conversar("soy nivel 3", {
     ahora: EN_FECHA,
+    sesion: await conPromo(),
     respuestaModelo: { respuesta: "¡Perfecto! 🙌", buscar: "NADA", historial: "Nivel Cashea: 3." },
   });
   ok(/Nivel 3/.test(r.todo) && /30% de inicial/.test(r.todo), "le dice su porcentaje", r.todo.slice(0, 160));
@@ -172,8 +180,15 @@ titulo('"soy nivel 3" en fecha');
 
 titulo("después del 6 de octubre");
 {
-  const r = await conversar("Tienes cashea?", { ahora: PASADA });
+  const r = await conversar("Tienes cashea?", { ahora: PASADA, sesion: await conPromo() });
   ok(/confirma un asesor/.test(r.todo) && !/Bajada de inicial/.test(r.todo), "ahí sí, al asesor (promoción vencida)");
+}
+
+titulo("HOY, 8 de octubre, con la tabla normal (sin promoción): la tabla, no el asesor");
+{
+  const r = await conversar("Tienes cashea?", { ahora: PASADA });
+  ok(/Tu inicial según tu nivel/.test(r.todo) && /Nivel 1 → 60%/.test(r.todo) && /3 cuotas sin intereses, una cada 14 días/.test(r.todo), "la tabla de Cashea de hoy", r.todo.slice(0, 200));
+  ok(!/confirma un asesor|(?<!\d)0% de inicial|Arranca/.test(r.todo), "sin asesor y sin nada de la promoción vieja");
 }
 
 titulo("aunque el modelo se equivoque y diga 'asesor', la tabla llega");
@@ -182,7 +197,7 @@ titulo("aunque el modelo se equivoque y diga 'asesor', la tabla llega");
     ahora: HOY,
     respuestaModelo: { respuesta: "Eso te lo confirma un asesor en un momento 😊", buscar: "NADA", historial: "Preguntó por Cashea." },
   });
-  ok(/Bajada de inicial/.test(r.todo), "la tabla llega igual", r.todo.slice(0, 160));
+  ok(/Tu inicial según tu nivel/.test(r.todo), "la tabla llega igual", r.todo.slice(0, 160));
   ok(!/confirma un asesor/.test(r.todo), "y la frase del asesor NO sale delante de la tabla", r.todo.slice(0, 160));
 }
 

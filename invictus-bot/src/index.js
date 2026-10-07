@@ -155,7 +155,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-07 (74) · revisor: lo que está en los datos de la tienda no es invento · · ¿calzados nuevos? → el catálogo completo, sin fichas, con un \"sí, claro\" que cambia · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · informe de errores del 6-oct: el precio se dice cuando lo preguntan, tallas al asesor sin contradecir, colores que sí hay, Cashea de su nivel, mensaje vacío del anuncio, aviso de OpenAI sin saldo · revisor: menos falsas alarmas";
+const VERSION = "2026-10-07 (75) · terminó la promoción: Cashea con la tabla de EPICCELL (Nivel 1 60 %… Nivel 6 20 %, 3 cuotas sin intereses cada 14 días) · · (74) revisor: lo que está en los datos de la tienda no es invento · · ¿calzados nuevos? → el catálogo completo, sin fichas, con un \"sí, claro\" que cambia · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · informe de errores del 6-oct: el precio se dice cuando lo preguntan, tallas al asesor sin contradecir, colores que sí hay, Cashea de su nivel, mensaje vacío del anuncio, aviso de OpenAI sin saldo · revisor: menos falsas alarmas";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo

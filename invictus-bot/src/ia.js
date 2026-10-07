@@ -81,8 +81,8 @@ const CON_CASHEA = `Esta tienda trabaja con Cashea (pagar una inicial y el resto
 Cuando el cliente pregunte por Cashea, las cuotas, la inicial o diga su nivel
 —"¿aceptan Cashea?", "soy nivel 3", "¿cuánto doy de inicial?"—, EL SISTEMA LE
 MANDA la información en un mensaje aparte, justo después del tuyo: la
-promoción vigente, la tabla de niveles y, si sabe su nivel, el porcentaje de
-inicial que le toca. Los MONTOS en dinero los confirma un asesor.
+tabla de niveles (y la promoción, si hay una), las cuotas y, si sabe su
+nivel, el porcentaje de inicial que le toca. Los MONTOS en dinero los confirma un asesor.
 
 Así que tú:
   · NUNCA contestes "Eso te lo confirma un asesor" a una pregunta de Cashea:
