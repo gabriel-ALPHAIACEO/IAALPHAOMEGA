@@ -51,8 +51,19 @@ export function palabrasDe(texto) {
   return palabras(texto);
 }
 
-function palabras(texto) {
+// CÓMO SE ESCRIBE UN MODELO (7-oct-2026, informe de errores):
+//   "Pro+"  = "Pro Plus"  ("Redmi Note 15 pro + 5G" de la hoja)
+//   "15 C"  = "15C"       ("¿cuánto cuesta el redmi 15 C?" → "no me queda")
+//   "A 57"  = "A57"       ("Samsumg A 57")
+export function juntarModelo(texto) {
   return String(texto || "")
+    .replace(/\+/g, " plus ")
+    .replace(/\b(\d{1,3})\s+([cC])\b/g, "$1$2")
+    .replace(/\b([aAmMsS])\s+(\d{2})\b/g, "$1$2");
+}
+
+function palabras(texto) {
+  return juntarModelo(texto)
     .toLowerCase()
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
@@ -106,7 +117,18 @@ export function parentesco(texto, titulo) {
   const delTitulo = new Set(palabras(titulo));
   const dijoOtroNumero = numeros.some((n) => n !== partes.numero && !delTitulo.has(n));
 
-  if (mismoNumero && lineaCompatible && !dijoOtroNumero) return "mismo";
+  // LAS VARIANTES TIENEN QUE SER LAS MISMAS (7-oct-2026): "Redmi Note 15"
+  // no es el "Redmi Note 15 Pro+": le sobran el Pro y el Plus. Antes se
+  // daba por el mismo y le llegaba "¡Aquí lo tienes!" con otro teléfono.
+  const variantesDelTitulo = palabras(titulo)
+    .slice(palabras(titulo).indexOf(partes.numero) + 1)
+    .filter((p) => VARIANTES.has(p));
+  const variantesSuyas = [...suyas].filter((p) => VARIANTES.has(p));
+  const mismasVariantesQueElTitulo =
+    variantesDelTitulo.length === new Set(variantesSuyas).size && variantesSuyas.every((v) => variantesDelTitulo.includes(v));
+
+  if (mismoNumero && lineaCompatible && !dijoOtroNumero && mismasVariantesQueElTitulo) return "mismo";
+  if (mismoNumero && lineaCompatible && !dijoOtroNumero) return "familia";
 
   // "REDMI 17 PRO MAX" ES EL "REDMI NOTE 17 PRO MAX 5G" (6-oct-2026, dueño:
   // "dice que no hay y sí hay"). La gente se come el "Note". Si lo único

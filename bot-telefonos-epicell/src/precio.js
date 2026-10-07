@@ -72,7 +72,8 @@ export function revisarPrecio(respuesta, { hayFichas = false, yaLasVio = false }
 // contesta directo: con 1 a 3 fichas, su precio va escrito en el mensaje
 // (el MISMO que la ficha: un solo precio, el que toca). Con más, se le dice
 // que está en cada foto. Si la respuesta ya dice una cifra, no se toca.
-const PIDE_PRECIO = /\b(?:precios?|cu[aá]nto\s+(?:cuesta|cuestan|sale|salen|vale|valen|es)|costo|valor)\b/i;
+// (7-oct-2026) Con las erratas de siempre: "prexio", "presio", "precion".
+const PIDE_PRECIO = /\b(?:pre[cxs]i[oa]n?s?|cu[aá]nto\s+(?:cuesta|cuestan|sale|salen|vale|valen|es)|costo|valor)\b/i;
 const YA_DICE_PRECIO = /\$\s*\d|\d\s*\$|\d\s*(?:usd|d[oó]lares)\b|precios?\s+(?:est[aá]n?|va[n]?|salen?|aparecen?)/i;
 const MAXIMO_ESCRITOS = 3;
 

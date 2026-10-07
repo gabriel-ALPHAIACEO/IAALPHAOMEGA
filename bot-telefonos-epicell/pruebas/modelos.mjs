@@ -21,7 +21,15 @@ const fichas = (enviados) =>
 // ── La comparación ─────────────────────────────────────────────
 comprobar("«redmi 17» y Redmi 17: el mismo", parentesco("tienes redmi 17?", "Redmi 17"), "mismo");
 comprobar("«redmi 17» y Redmi Note 17: pariente, NO el mismo", parentesco("tienes redmi 17?", "Redmi Note 17"), "familia");
-comprobar("«note 17» y Note 17 Pro: el mismo (Pro es una versión)", parentesco("tienes el note 17?", "Redmi Note 17 Pro 5G"), "mismo");
+// (7-oct-2026, informe de errores) El Pro es OTRO teléfono: "¿precio del
+// redmi note 15?" recibía "¡Aquí lo tienes!" con el Note 15 Pro+.
+comprobar("«note 17» y Note 17 Pro: familia (el Pro es otro equipo)", parentesco("tienes el note 17?", "Redmi Note 17 Pro 5G"), "familia");
+comprobar("«note 17 pro» y Note 17 Pro: el mismo", parentesco("tienes el note 17 pro?", "Redmi Note 17 Pro 5G"), "mismo");
+comprobar("«note 15 pro plus» y Note 15 pro + 5G: el mismo (+ = plus)", parentesco("redmi note 15 pro plus 5g", "Redmi Note 15 pro + 5G"), "mismo");
+comprobar("«note 15 pro+» y Note 15 pro + 5G: el mismo", parentesco("redmi note 15 pro+", "Redmi Note 15 pro + 5G"), "mismo");
+comprobar("«note 15 pro» y Note 15 pro + 5G: familia (le falta el Plus)", parentesco("redmi note 15 pro 5g", "Redmi Note 15 pro + 5G"), "familia");
+comprobar("«redmi 15 C» y Redmi 15c: el mismo (15 C = 15C)", parentesco("cuánto cuesta el redmi 15 C?", "Redmi 15c"), "mismo");
+comprobar("«samsumg A 57» y Samsung A57: el mismo (A 57 = A57)", parentesco("precio samsung A 57", "Samsung A57"), "mismo");
 comprobar("«note 20» y Note 17: pariente (misma línea)", parentesco("tienen el redmi note 20?", "Redmi Note 17"), "familia");
 comprobar("«poco z99» y Poco M8: solo la marca", parentesco("tienes poco z99?", "Poco M8 pro 5G"), "marca");
 comprobar("la capacidad no cambia el modelo", parentesco("samsung a57 de 256", "Samsung A57 128GB"), "mismo");

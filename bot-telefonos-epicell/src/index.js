@@ -58,6 +58,7 @@ import { queDatoPide, respuestaDeDato } from "./datos.js";
 import {
   parentesco,
   mismasVariantes,
+  juntarModelo,
   partesDelTitulo,
   nombraUnModelo,
   loQuePidioDicho,
@@ -163,7 +164,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-06 (51) · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max";
+const VERSION = "2026-10-07 (52) · a los \"gracias\" contesta con lo que hablaban, sin fichas ni tablas · nivel 6 = Cashea (Krece va por color) · informe del 7-oct: Krece (tabla y monto al asesor, nunca un $ de Krece), las cuotas solo si pregunta, ¿está disponible?, pro+ = pro plus, 15 C = 15C, comparar dos equipos, Xbyte a secas, accesorios que contaban como teléfonos · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -3329,8 +3330,11 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // de precios borraba la que hacía. Aquí sale exacta, del precio Cashea
   // de la hoja. No con la tabla general de pagos (ya va sola) ni cuando no
   // se sabe de qué equipo habla.
+  // (7-oct-2026) Y también cuando iba a salir la tabla general de pagos:
+  // "¿cuánto cuesta por Cashea o Krece?" con el Redmi 15C delante se
+  // contesta con ESE equipo, no con la tabla de siempre.
   const cuentaDeCuotas =
-    segundoMensaje || sinSaberQueEs || imagenCruda
+    sinSaberQueEs || imagenCruda
       ? null
       : contestarCuotas({
           texto: mensaje.texto,
@@ -3341,7 +3345,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   const saludoDelModelo = historialPrevio ? "" : (String(salida.respuesta || "").match(SU_BIENVENIDA)?.[0] || "").trim();
   if (cuentaDeCuotas) {
     respuestaCliente = [saludoDelModelo, cuentaDeCuotas.respuesta].filter(Boolean).join(" ");
-    console.log(`CUOTAS: ${cuentaDeCuotas.motivo}`);
+    console.log(`CUOTAS: ${cuentaDeCuotas.motivo}${segundoMensaje ? " (en vez de la tabla general)" : ""}`);
   }
 
   // "¿CUÁNTO CUESTA?" Y NADA MÁS, DE ALGUIEN NUEVO (6-oct-2026, 4 casos
@@ -3359,7 +3363,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     !segundoMensaje &&
     PRECIO_A_SECAS.test(String(mensaje.texto || ""));
   if (precioSinEquipo) {
-    respuestaCliente = [saludoDelModelo || "¡Hola! Soy la asistente virtual de EPICCELL 👋", PRECIO_DE_CUAL].join(" ");
+    const quePide = /disponible|tienen/i.test(mensaje.texto) ? DISPONIBLE_DE_CUAL : /informaci|info/i.test(mensaje.texto) ? INFO_DE_CUAL : PRECIO_DE_CUAL;
+    respuestaCliente = [saludoDelModelo || "¡Hola! Soy la asistente virtual de EPICCELL 👋", quePide].join(" ");
     console.log(
       `"${mensaje.texto}" sin saber de qué equipo: le pregunto cuál${mensaje.anuncio ? " (llegó de un anuncio que no dice cuál: revisa ADS_TOKEN y ANUNCIOS_EQUIPOS)" : ""}`
     );
@@ -3532,11 +3537,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       cuentaDeCuotas?.asesor && "se avisó al asesor para el monto",
       precioSinEquipo && "preguntó el precio sin decir de qué equipo (y no llegó anuncio que lo diga)",
       precioEscrito.corregido && "preguntó el precio: se le escribió el de la ficha",
-      fichasTecnicasFinal.length &&
-        `la IA tenía la FICHA TÉCNICA REAL (de la base) de: ${fichasTecnicasFinal
-          .map((f) => `${f.modelo} [${["pantalla", "procesador", "memoria", "camara", "frontal", "bateria", "carga", "sistema", "extras"].map((c) => f[c]).filter(Boolean).join("; ")}]`)
-          .join(" | ")
-          .slice(0, 1500)}`,
+      fichasTecnicasFinal.length && `la IA tenía la FICHA TÉCNICA REAL (de la base) de: ${fichasTecnicasFinal.map((f) => f.modelo).join(", ")}`,
       botonFicha && `se le mandó el botón a la página oficial (${botonFicha.url})`,
     ],
   };
@@ -3545,11 +3546,15 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     ...turnoDelPanel,
     id: await anotarTurno(env.DB, turnoDelPanel, env),
     fichas: paraMostrar.map((p) => `${p.titulo}${p.precio ? ` · ${p.precio}` : ""}`),
+    // LO QUE EL REVISOR NECESITA PARA NO VER INVENTOS DONDE NO LOS HAY
+    // (7-oct-2026): marcaba "alucinó" precios y datos técnicos que salían de
+    // la hoja y de la base, porque no los veía. Aquí van enteros.
+    contexto: datosParaElRevisor({ productos, productoAnuncio: productoDelAnuncio, recientes: await ultimosQueVio(env, contacto), fichasTecnicas: fichasTecnicasFinal }),
   };
 
   // El segundo mensaje de la tabla de pagos (Krece). Sale detrás del
   // primero, nunca solo, y nunca cuando no sabemos de qué equipo hablamos.
-  const segundo = sinSaberQueEs ? "" : segundoMensaje;
+  const segundo = sinSaberQueEs || cuentaDeCuotas ? "" : segundoMensaje;
   if (segundo) {
     await mandar(() => enviarTexto(env, mensaje.igsid, segundo), segundo);
   }
@@ -4156,7 +4161,9 @@ function sinListaPegada(texto) {
 
   // Si al quitar la lista no queda nada que decir, es que el mensaje ERA
   // la lista: se sustituye por la frase que presenta el carrusel.
-  return limpio || "¡Aquí los tienes! 👇";
+  // (7-oct-2026) Y unos dos puntos que presentaban la lista ya no tienen
+  // nada detrás: "tengo dos relojes para ti: Si te interesa…" → 👇.
+  return limpio.replace(/:\s*(\n|$)/, " 👇$1").replace(/:\s+(?=[¿¡A-ZÁÉÍÓÚ])/, " 👇 ").trim() || "¡Aquí los tienes! 👇";
 }
 
 /* ── NINGÚN PRECIO INVENTADO LLEGA AL CLIENTE ──────────────────────
@@ -4235,7 +4242,19 @@ function preciosDeVerdad(productos, { divisas = false } = {}) {
   return buenos;
 }
 
+// UN MONTO "CON KRECE" NO SE SABE (7-oct-2026): la hoja tiene el precio de
+// Cashea y el de divisas, no el de Krece. "El Redmi Pad 2 está en $295
+// con Krece" usaba el de Cashea como si fuera de Krece. Esa frase se va.
+function sinMontosDeKrece(texto) {
+  const frases = String(texto || "").split(/(?<=[.!?😊📱👇])\s+/);
+  const quedan = frases.filter((f) => !(cifrasDeDinero(f).length && /\b(?:krece|crece)\b/i.test(f)));
+  if (quedan.length === frases.length) return texto;
+  console.error("PRECIO INVENTADO: un monto 'con Krece' (la hoja no lo tiene). Quito esa frase.");
+  return quedan.join(" ").trim() || "El monto con Krece te lo confirma un asesor en un momento 😊";
+}
+
 function sinPreciosInventados(texto, productos, { divisas = false, tambien = [] } = {}) {
+  texto = sinMontosDeKrece(texto);
   const dichas = cifrasDeDinero(texto);
   if (!dichas.length) return texto;
 
@@ -4264,6 +4283,36 @@ function sinPreciosInventados(texto, productos, { divisas = false, tambien = [] 
   return /[\p{L}]{3}/u.test(resto) ? resto : EL_PRECIO_LO_CONFIRMA_UN_ASESOR;
 }
 
+// Los precios de la hoja de lo que se habla, y las fichas técnicas enteras.
+function datosParaElRevisor({ productos = [], productoAnuncio = null, recientes = [], fichasTecnicas = [] }) {
+  const vistos = new Map();
+  for (const p of [...productos, productoAnuncio, ...recientes].filter(Boolean)) {
+    const clave = `${p.titulo}|${p.capacidad || ""}`;
+    if (!vistos.has(clave)) vistos.set(clave, p);
+  }
+  const precios = [...vistos.values()]
+    .slice(0, 15)
+    .map((p) => `- ${p.titulo}${p.capacidad ? ` (${p.capacidad})` : ""}: con Cashea ${conMoneda(p.precioCashea) || "—"} · en divisas ${conMoneda(p.precio) || "—"}`);
+  return [
+    precios.length ? `PRECIOS EN LA HOJA (los de verdad; con Krece la hoja NO tiene precio):\n${precios.join("\n")}` : "",
+    fichasTecnicas.length ? `FICHAS TÉCNICAS REALES (de la base de la tienda):\n${notaTecnica(fichasTecnicas)}` : "",
+    "LAS CUENTAS DE CASHEA (inicial y cuotas) LAS HACE EL CÓDIGO con el precio Cashea de la hoja: son exactas.",
+    // (7-oct-2026) El revisor marcó 🔴 "Nivel 6 → Cashea" creyendo que era Krece.
+    "LOS NIVELES: Cashea va por NÚMERO (nivel 1 a 6: inicial 60/50/30/25/20/20 %, 3 cuotas cada 14 días). Krece va por COLOR (Azul 30 %·6 cuotas, Plata 25 %·8, Oro 20 %·8, Platino 15 %·10) y NO tiene niveles con número: un \"nivel 6\" es siempre de Cashea. Con Krece el monto lo confirma un asesor.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+// "Gracias", "ok, gracias", "gracias… aún no tengo la inicial, me pondré
+// en eso": agradece o se despide, sin preguntar nada.
+function esAgradecimiento(texto) {
+  const t = String(texto || "").trim();
+  if (!t || /\?/.test(t)) return false;
+  return /^(?:\W*(?:ok|okey|okay|listo|dale|perfecto|excelente|genial|chevere|chévere|vale|bueno|muy\s+bien)\W*)?\b(?:gracias|muchas\s+gracias|mil\s+gracias|te\s+agradezco|agradecid[oa])\b/i.test(t) ||
+    /^\W*(?:👍|🙏|❤️|🫶|ok|okey|listo|dale|perfecto)\W*$/i.test(t);
+}
+
 // Los equipos del último carrusel que vio, tal como están hoy en la hoja.
 async function ultimosQueVio(env, contacto) {
   const vistos = contacto?.ultimos_productos || [];
@@ -4273,9 +4322,15 @@ async function ultimosQueVio(env, contacto) {
 }
 
 // "¿Cuánto cuesta?" y nada más (ver precioSinEquipo).
-const PRECIO_A_SECAS = /^[\s¿¡]*(?:hola[\s,!.]*)?(?:(?:y\s+)?cu[aá]nto\s+(?:cuesta|cuestan|vale|valen|sale|salen|es)|(?:qu[eé]\s+)?precios?|cu[aá]l\s+es\s+el\s+precio)[\s?!.]*$/i;
+// (7-oct-2026) Y "¿está disponible?", "¿lo tienen?", "más información":
+// las otras preguntas que traen escritas los botones de los anuncios.
+const PRECIO_A_SECAS = /^[\s¿¡]*(?:hola[\s,!.]*)?(?:(?:y\s+)?cu[aá]nto\s+(?:cuesta|cuestan|vale|valen|sale|salen|es)|(?:qu[eé]\s+)?precios?|cu[aá]l\s+es\s+el\s+precio|(?:a[uú]n\s+)?est[aá]\s+disponible|(?:a[uú]n\s+)?lo\s+tienen|(?:a[uú]n\s+)?(?:lo\s+)?tienen\s+disponible|(?:quiero\s+)?m[aá]s\s+informaci[oó]n|info)[\s?!.]*$/i;
 const PRECIO_DE_CUAL =
   "¡Con gusto te digo el precio! 😊 ¿De cuál equipo es? Si lo viste en un anuncio o una publicación, mándamela por aquí y te lo digo al momento 📱";
+const DISPONIBLE_DE_CUAL =
+  "¡Con gusto te confirmo! 😊 ¿De cuál equipo es? Si lo viste en un anuncio o una publicación, mándamela por aquí y te digo al momento si está 📱";
+const INFO_DE_CUAL =
+  "¡Con gusto te doy toda la información! 😊 ¿De cuál equipo es? Si lo viste en un anuncio o una publicación, mándamela por aquí 📱";
 
 /* ── EL BOT NO LE CIERRA LA PUERTA A NADIE ─────────────────────────
 
@@ -4352,6 +4407,23 @@ function conBordes(donde, trozo) {
     if (!/[a-z0-9]/.test(antes) && !/[a-z0-9]/.test(despues)) return i;
     desde = i + 1;
   }
+}
+
+// Los equipos de la hoja que el texto pone a competir: "el 17 pro max vs el
+// 15 pro plus", "¿cuál es mejor, el A57 o el A37?". Uno por trozo.
+function equiposQueCompara(texto, hoja) {
+  const t = String(texto || "");
+  if (!/\b(?:vs\.?|versus|contra|o\s+el|o\s+la|cu[aá]l\s+es\s+mejor|comparar|compara|diferencia|diferencias)\b/i.test(t)) return [];
+  const trozos = t.split(/\bvs\.?\b|\bversus\b|\bcontra\b|\bo\b|\by\b|,|\?/i).map((x) => x.trim()).filter((x) => /\d/.test(x));
+  const vistos = new Map();
+  for (const trozo of trozos) {
+    const titulo = equipoQueNombra(trozo, hoja);
+    if (titulo && !vistos.has(despejar(titulo))) {
+      // Todas sus filas (el mismo equipo en 128 y en 256).
+      vistos.set(despejar(titulo), hoja.filter((p) => despejar(p.titulo) === despejar(titulo)));
+    }
+  }
+  return vistos.size >= 2 ? [...vistos.values()].flat() : [];
 }
 
 function nombraDelCatalogo(texto, productos) {
@@ -4751,7 +4823,7 @@ function telefonosQueNombra(texto, productos) {
 }
 
 function despejar(texto) {
-  return String(texto || "")
+  return juntarModelo(texto)
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -4838,6 +4910,15 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
   // cliente describió el producto en vez de nombrarlo, el término bueno
   // aparece más abajo, después de que la búsqueda normal falle.
   let termino = sinColor;
+
+  // "GRACIAS…" (7-oct-2026, dueño: "debe responder bien a los gracias,
+  // pendiente siempre del contexto"). Un agradecimiento sin pregunta y sin
+  // nombrar otro equipo no es pedir nada: ni búsqueda, ni fichas otra vez,
+  // ni tablas. Lo contesta la IA, corto, con lo que venían hablando.
+  if (termino && esAgradecimiento(texto) && !equipoQueNombra(texto, await catalogoCompleto(env))) {
+    console.log(`"${String(texto).slice(0, 40)}" es un agradecimiento: no busco "${termino}" ni le repito fichas`);
+    termino = "";
+  }
   if (colores.length) {
     console.log(
       `El cliente nombró ${colores.join(" + ")}: lo saco del término y busco "${termino}". ` +
@@ -4867,7 +4948,13 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
        · Nada: el camino de siempre.
      ───────────────────────────────────────────────────────────────── */
   const enLaHoja = await catalogoCompleto(env);
-  const loQueEscribio = equipoQueNombra(texto, enLaHoja);
+  // "¿CUÁL ES MEJOR, EL 17 PRO MAX O EL 15 PRO PLUS?" (7-oct-2026): compara
+  // DOS equipos. Antes se tomaba uno, el otro número lo hacía "otro
+  // modelo" y salía "ese exacto no lo tengo". Con dos o más nombrados, van
+  // los dos, sin "no lo tengo".
+  const comparados = equiposQueCompara(texto, enLaHoja);
+  if (comparados.length >= 2) console.log(`Compara ${comparados.length} equipos: ${comparados.map((p) => p.titulo).join(" vs ")}`);
+  const loQueEscribio = comparados.length >= 2 ? "" : equipoQueNombra(texto, enLaHoja);
 
   // EL EQUIPO DEL ANUNCIO CUENTA COMO SI LO HUBIERA ESCRITO (30-sep-2026).
   //
@@ -4883,7 +4970,7 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
   //
   // Y con él vale lo mismo que con lo que escribe el cliente: si el del
   // anuncio se agotó, se le dice por su nombre y se le enseña lo parecido.
-  const textoDelAnuncio = !loQueEscribio && senalado ? senalado : "";
+  const textoDelAnuncio = !loQueEscribio && !comparados.length && senalado ? senalado : "";
   const delAnuncio = textoDelAnuncio ? equipoQueNombra(textoDelAnuncio, enLaHoja) : "";
   const elQuePidio = loQueEscribio || delAnuncio;
   // Dónde se nombró: en su mensaje o en el anuncio.
@@ -4952,6 +5039,7 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
   })();
   const sigueElTema =
     Boolean(tipoDeLaCharla) &&
+    !esAgradecimiento(texto) &&
     !tipoQuePide(texto) &&
     !/\d/.test(texto) &&
     String(texto || "").trim().split(/\s+/).length <= 6;
@@ -5024,6 +5112,29 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
   // un Redmi 17 le va primero el Redmi Note 17, no el Redmi A7.
   if (noEstaElQuePidio && productos.length > 1) {
     productos = ordenarPorParecido(productos, dondeLoNombro);
+    // (7-oct-2026) Si alguno lleva SU número ("note 15" → el Note 15 Pro+),
+    // van solo esos: los Note 17 ya no son "lo más cercano".
+    const numeros = palabrasDe(dondeLoNombro).filter((p) => /\d/.test(p) && !/gb$|tb$/.test(p));
+    const conSuNumero = productos.filter((p) => numeros.some((n) => palabrasDe(p.titulo).includes(n)));
+    if (numeros.length && conSuNumero.length && conSuNumero.length < productos.length) productos = conSuNumero;
+  }
+
+  // Los que compara, juntos (ver equiposQueCompara).
+  if (comparados.length >= 2) {
+    productos = comparados.slice(0, 10);
+    hayMas = false;
+  }
+
+  // "XBYTE", "XBITE" A SECAS (7-oct-2026): una marca de la hoja escrita sola
+  // (o con una errata) y la IA no buscó nada: se busca lo que escribió.
+  if (!productos.length && !termino && !esAgradecimiento(texto) && String(texto || "").trim().split(/\s+/).length <= 2 && /[a-z]{4,}/i.test(texto)) {
+    const loDeEsaPalabra = await buscarProductos(env, texto);
+    if (loDeEsaPalabra.productos.length) {
+      productos = loDeEsaPalabra.productos;
+      hayMas = loDeEsaPalabra.hayMas;
+      termino = String(texto).trim();
+      console.log(`"${texto}" a secas: es de la hoja (${productos.length}), se lo enseño`);
+    }
   }
 
   // Y SI NOMBRÓ UN MODELO EXACTO, VA ESE — CON SUS VERSIONES, SIN LOS PARECIDOS.
@@ -5281,10 +5392,17 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
 
   // No pidió ningún accesorio y todo lo que salió son accesorios: pidió un
   // teléfono de una marca de la que solo tenemos cosas para el teléfono.
+  // (7-oct-2026) Solo si esa marca TIENE teléfonos: "Xbyte" (que solo hace
+  // accesorios) recibía "de teléfonos de esa marca no me queda".
+  const marcaPedida = palabrasDe(termino || texto)[0] || "";
+  const esaMarcaHaceTelefonos = enLaHoja.some(
+    (p) => tipoDelProducto(p.titulo) === "telefono" && palabrasDe(p.titulo).includes(marcaPedida)
+  );
   const soloAccesorios =
     !tipoPedido &&
     productos.length > 0 &&
-    productos.every((producto) => tipoDelProducto(producto.titulo) !== "telefono");
+    productos.every((producto) => tipoDelProducto(producto.titulo) !== "telefono") &&
+    (esaMarcaHaceTelefonos || /\b(?:tel[eé]fonos?|celular(?:es)?|equipos?|iphones?|smartphones?)\b/i.test(texto));
 
   // Preguntó algo de asesor y no quedó nada que mostrarle.
   const soloAsesor = esConsultaDeAsesor && !termino;
@@ -5297,8 +5415,11 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
   // que darle la tabla, hay que contestarle, y eso lo hace el modelo.
   // Tampoco si le estamos mostrando producto: ahí la venta va por otro
   // lado y la tabla se le cruza en medio.
+  // (7-oct-2026) Y no a una frase que no pregunta: "Gracias… aún no tengo
+  // la inicial, pero me pondré en eso" recibía la tabla de Cashea.
+  const noPregunta = !/\?/.test(texto) && /\b(?:gracias|me\s+pondr[eé]|esperar[eé]|a[uú]n\s+no\s+tengo|luego\s+te|despu[eé]s\s+te|lo\s+pienso)\b/i.test(texto);
   const preguntoPorPagos =
-    PREGUNTA_POR_PAGOS.test(texto) && !YA_DIJO_SU_NIVEL.test(texto) && !productos.length;
+    PREGUNTA_POR_PAGOS.test(texto) && !YA_DIJO_SU_NIVEL.test(texto) && !productos.length && !noPregunta;
 
   if (preguntoPorPagos) {
     console.log("Preguntó por las formas de pago: mando Cashea y Krece tal cual");
