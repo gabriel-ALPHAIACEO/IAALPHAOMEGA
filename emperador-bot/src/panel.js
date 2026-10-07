@@ -33,7 +33,7 @@ import { atenderInventario, esRutaDeInventario } from "./inventario-panel.js";
 import { cargarContacto, pausar, despausar, asegurarColumnas } from "./estado.js";
 import { gastoDelMes } from "./gasto.js";
 import { TABLAS, leerTabla, tipoDeError, esIntencionDeCompra, asegurarTurnos, asegurarErrores, solucionarErrores, MARCA_VISIBLE, MARCAS } from "./registro.js";
-import { ESTILO_ALPHA, SCRIPT_ALPHA, imagenDeAlpha, marcaAlpha, cajaDeEntrada, adjuntosLimpios, leerAdjuntos, textoDeAdjuntos, textoVisible, htmlDeAdjuntos, kpi, barras, selectorDePeriodo, aCsv, respuestaCsv } from "./alpha.js";
+import { ESTILO_ALPHA, SCRIPT_ALPHA, imagenDeAlpha, marcaAlpha, cajaDeEntrada, rutaDeApp, atenderApp, etiquetasDeApp, scriptDeApp, adjuntosLimpios, leerAdjuntos, textoDeAdjuntos, textoVisible, htmlDeAdjuntos, kpi, barras, selectorDePeriodo, aCsv, respuestaCsv } from "./alpha.js";
 import { listarLecciones, olvidarLeccion, aprendeActivo, VECES_PARA_CODIGO } from "./lecciones.js";
 import { clientesDelCrm, guardarCrm, htmlListaDeClientes, htmlFichaDeCliente, filtrarClientes, filasCsvDeClientes } from "./crm.js";
 
@@ -307,6 +307,8 @@ form.buscar{display:flex;gap:8px;margin-bottom:12px}
 .solucionar-uno{float:right;margin:0 0 6px 10px}.solucionar-uno button{font-size:12.5px;padding:5px 10px}
 input{flex:1;min-width:0}
 textarea{width:100%}
+.instalar-app{font-size:13px;padding:6px 12px;white-space:nowrap}.instalar-app[hidden]{display:none}
+.instalar-entrada{position:fixed;top:12px;right:12px;z-index:5}
 `;
 
 function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnuncios = true, enVivo = false, entrada = false } = {}) {
@@ -314,14 +316,15 @@ function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnunc
     ? `<nav class="menu"><a href="/panel">Chats</a><a href="/panel/clientes">Clientes</a><a href="/panel/metricas">Métricas</a><a href="/panel/ganadores">Ganadores</a><a href="/panel/errores">Errores IA</a><a href="/panel/inventario">Inventario</a><a href="/panel/caja">Caja</a>${conAnuncios ? '<a href="/panel/anuncios">Anuncios</a>' : ""}<a href="/panel/salir">Salir</a></nav>`
     : "";
   const vivo = enVivo ? '<span class="en-vivo" title="Se pone al día sola en cuanto llega un mensaje"><i></i>en vivo</span>' : "";
-  const arriba = entrada ? "" : `<header><div class="fila">${marcaAlpha("/panel", tienda)}${menu}${vivo}</div></header>`;
+  const instalar = '<button type="button" id="instalar-app" class="instalar-app" hidden title="Instalar el panel como programa">📲 Instalar</button>';
+  const arriba = entrada ? `<div class="instalar-entrada">${instalar}</div>` : `<header><div class="fila">${marcaAlpha("/panel", tienda)}${menu}${vivo}${instalar}</div></header>`;
   return new Response(
     `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#05070d">
-<link rel="icon" href="/panel/isotipo.png?v=1">
+<link rel="icon" href="/panel/isotipo.png?v=1">${etiquetasDeApp("/panel")}
 <title>${esc(titulo)} · ${esc(tienda)} · ALPHA IA</title><style>${ESTILO}</style></head>
-<body${enVivo ? ' data-marca="/panel/marca"' : ""}>${arriba}${entrada ? cuerpo : `<main>${cuerpo}</main>`}${conMenu ? SCRIPT_ALPHA : ""}</body></html>`,
+<body${enVivo ? ' data-marca="/panel/marca"' : ""}>${arriba}${entrada ? cuerpo : `<main>${cuerpo}</main>`}${conMenu ? SCRIPT_ALPHA : ""}${scriptDeApp("/panel")}</body></html>`,
     {
       status: 200,
       headers: {
@@ -918,8 +921,12 @@ export async function atenderPanel(request, env, opciones = {}) {
   }
 }
 
-async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda", horasDePausa = 1, conAnuncios = true, traerCatalogo = null, nombreDelCatalogo = "" } = {}) {
+async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda", horasDePausa = 1, conAnuncios = true, traerCatalogo = null, nombreDelCatalogo = "", version = "" } = {}) {
   const url = new URL(request.url);
+
+  // LA APP INSTALABLE (alpha.js): el manifiesto, el trabajador y el ícono.
+  // Sin sesión, porque el navegador los pide sin cookie.
+  if (rutaDeApp(url.pathname, "/panel")) return atenderApp(url.pathname, { base: "/panel", nombre: tienda, version });
 
   // El logo de ALPHA IA (alpha.js): sin sesión, lo usa la pantalla de entrada.
   if (url.pathname === "/panel/logo.png" || url.pathname === "/panel/isotipo.png") {

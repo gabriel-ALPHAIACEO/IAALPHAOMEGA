@@ -62,7 +62,7 @@ import {
   vistaAprendido,
 } from "./vistas.js";
 
-const VERSION = "2026-10-06 (18) · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · 🧠 Aprendido: lo que la IA aprendió sola, y la alerta 🛠️ de lo que hay que poner en el código";
+const VERSION = "2026-10-07 (19) · alpha.js con el ícono y la app instalable de las tiendas (el central no cambia de cara)";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");

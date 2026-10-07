@@ -179,5 +179,23 @@ for (const ruta of ["/panel/inventario/importar", "/panel/inventario/sedes", "/p
   ok(x.status === 200, `${ruta} abre`);
 }
 
+titulo("la app instalable (programa propio)");
+const sinSesion = (ruta) => atenderPanel(new Request(`https://bot.test${ruta}`), ENV, opciones);
+r = await sinSesion("/panel/app.webmanifest");
+const manifiesto = await r.json();
+ok(/manifest\+json/.test(r.headers.get("content-type")) && manifiesto.display === "standalone" && manifiesto.scope === "/panel", "el manifiesto se sirve sin sesión, en ventana propia", JSON.stringify({ d: manifiesto.display, s: manifiesto.scope }));
+ok(manifiesto.icons.some((i) => i.sizes === "512x512" && i.purpose === "maskable") && manifiesto.shortcuts.some((a) => a.url === "/panel/caja"), "con ícono 512 y atajo a la Caja");
+r = await sinSesion("/panel/sw.js");
+const sw = await r.text();
+ok(r.headers.get("service-worker-allowed") === "/panel" && /javascript/.test(r.headers.get("content-type")), "el trabajador cuida todo /panel");
+ok(/r\.method !== "GET"\) return/.test(sw) && /Sin internet/.test(sw), "nunca guarda ventas sin red: solo enseña 'Sin internet'");
+r = await sinSesion("/panel/app-512.png");
+const png = new Uint8Array(await r.arrayBuffer());
+ok(r.headers.get("content-type") === "image/png" && png[16] === 0 && png[18] === 2 && png[19] === 0, "el ícono es un PNG de 512×512");
+html = await (await pedir("/panel/inventario")).text();
+ok(/rel="manifest" href="\/panel\/app.webmanifest"/.test(html) && /id="instalar-app"/.test(html) && /serviceWorker\.register\("\/panel\/sw\.js"/.test(html), "cada página trae el manifiesto y el botón 📲 Instalar");
+html = await (await sinSesion("/panel")).text();
+ok(/rel="manifest"/.test(html) && /id="instalar-app"/.test(html), "también la pantalla de entrada (se puede instalar antes de poner la clave)");
+
 src.limpiar();
 terminar();
