@@ -1,7 +1,7 @@
 // Banco de pruebas del turno COMPLETO: la hoja de Google, Instagram y
 // OpenAI simulados, y una D1 de mentira. Es lo que permite comprobar lo
 // que el cliente recibe de verdad, no solo las piezas por separado.
-import { atenderMeta } from "./.stub/index.js";
+import { atenderMeta, atenderConRed } from "./.stub/index.js";
 import { DatabaseSync } from "node:sqlite";
 
 // La tabla de especificaciones va en SQLite de verdad (6-oct-2026): así el
@@ -173,7 +173,7 @@ export function baseFalsa(filaInicial = {}) {
 }
 
 // Devuelve todo lo que el bot mandó a Instagram en este turno.
-export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelModelo = {}, mensaje = {}, hoja = HOJA, env: envExtra = {}, apis = {}, fotosRotas = null, rechazarCarrusel = false, transcripcion = null, redaccion = null, db = null } = {}) {
+export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelModelo = {}, mensaje = {}, hoja = HOJA, env: envExtra = {}, apis = {}, fotosRotas = null, rechazarCarrusel = false, transcripcion = null, redaccion = null, db = null, conRed = false } = {}) {
   const enviados = [];
   // Lo que se le mandó a OpenAI, para mirar qué sabía el modelo.
   const alModelo = [];
@@ -189,6 +189,11 @@ export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelMo
     // que OpenAI "escucha". transcripcion: el texto, o null para que falle.
     if (donde.startsWith("https://cdn/nota")) {
       return { ok: true, status: 200, headers: new Headers({ "content-type": "video/mp4" }), arrayBuffer: async () => new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112, 77, 52, 65]).buffer };
+    }
+    // Una foto o una nota de voz de WhatsApp, ya con su enlace privado.
+    if (donde.startsWith("https://lookaside.fbsbx.com/")) {
+      const audio = donde.includes("nota");
+      return { ok: true, status: 200, headers: new Headers({ "content-type": audio ? "audio/ogg" : "image/jpeg" }), arrayBuffer: async () => (audio ? new Uint8Array([79, 103, 103, 83, 0, 2]) : new Uint8Array([255, 216, 255, 224])).buffer };
     }
     if (donde.includes("/audio/transcriptions")) {
       return transcripcion
@@ -233,6 +238,21 @@ export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelMo
         : { ok: true, status: 200, headers: new Headers({ "content-type": "image/jpeg" }), body: null };
     }
 
+    // WHATSAPP (7-oct-2026, ver whatsapp.js): lo que sale por la API de
+    // WhatsApp queda en "enviados" como { WA: cuerpo }.
+    if (donde.includes("graph.facebook.com") && donde.endsWith("/messages")) {
+      const cuerpo = JSON.parse(opciones.body || "{}");
+      if (cuerpo.status === "read") {
+        enviados.push({ WA_LEIDO: cuerpo.message_id });
+        return { ok: true, status: 200, json: async () => ({ success: true }) };
+      }
+      if (fotosRotas && fotosRotas.includes(cuerpo.image?.link)) {
+        return { ok: false, status: 400, text: async () => '{"error":{"message":"Media download error","code":131053}}' };
+      }
+      enviados.push({ WA: cuerpo, ...(cuerpo.text ? { text: cuerpo.text.body } : {}) });
+      return { ok: true, status: 200, json: async () => ({ messages: [{ id: `wamid.${enviados.length}` }] }) };
+    }
+
     if (donde.includes("graph.instagram.com")) {
       if (donde.includes("/me/messages")) {
         // Como el Instagram de verdad: un carrusel con UNA foto que no puede
@@ -263,11 +283,15 @@ export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelMo
     ...envExtra,
   };
 
-  await atenderMeta(env, {
+  // conRed: por la puerta de verdad (atenderConRed), que es donde va lo de
+  // WhatsApp que pasa antes de atender (no repetir, "visto", la foto).
+  const entrada = {
     tipo: "texto", igsid: "cliente1", mid: "in1", texto, opcion,
     foto: "", historia: { url: "", id: "" }, publicacion: { url: "", titulo: "", enlace: "" },
     ...mensaje,
-  });
+  };
+  if (conRed) await atenderConRed(env, entrada, Date.now());
+  else await atenderMeta(env, entrada);
 
-  return { enviados, fila: DB.filas?.get("cliente1"), alModelo };
+  return { enviados, fila: DB.filas?.get(mensaje.igsid || "cliente1"), alModelo };
 }

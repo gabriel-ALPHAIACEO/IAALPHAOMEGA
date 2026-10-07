@@ -155,12 +155,33 @@ LOCAL_MAPA = "https://maps.app.goo.gl/fUxvG6M97TDQy7R66"
 # tiempo real).
 
 # EL REVISOR (ver src/revisor.js): después de cada respuesta, ya enviada,
-# una IA barata la revisa y la marca 🔴 si alucinó, fue incoherente o no
-# contestó lo que le preguntaron. Unos $0,0002 por respuesta.
-#   "si"  revisa cada respuesta   <- recomendado
-#   "no"  no revisa
+# otra IA la revisa y la marca 🔴 si alucinó, fue incoherente o no
+# contestó lo que le preguntaron. El cliente no espera nada.
+# (7-oct-2026, dueño: "activa la revisión") Revisor FUERTE, igual que en
+# Invictus: un modelo que razona antes de decidir.
+#   REVISOR_IA         "si" lo enciende, "no" lo apaga
+#   REVISOR_MODELO     gpt-5: razona y escribe lo que el bot debió decir
+#                      (~$0,015 por respuesta). Para gastar menos: gpt-4o-mini
+#   REVISOR_ESFUERZO   cuánto piensa: "low", "medium", "high"
+#   REVISOR_RESPALDO   si gpt-5 no está en la cuenta de OpenAI, revisa con este
+#   REVISOR_CONFIANZA  "alta": solo marca lo que está seguro
+#   REVISOR_TOPE_MES   dólares al mes como mucho; al llegar, deja de revisar
+#                      hasta el mes siguiente (el bot sigue igual)
 REVISOR_IA = "si"
-REVISOR_MODELO = "gpt-4o-mini"
+REVISOR_MODELO = "gpt-5"
+REVISOR_ESFUERZO = "medium"
+REVISOR_RESPALDO = "gpt-4o"
+REVISOR_CONFIANZA = "alta"
+REVISOR_TOPE_MES = "10"
+
+# LA IA APRENDE SOLA (ver src/lecciones.js; encendido el 7-oct-2026, como en
+# Invictus). Cada error que encuentra el revisor se guarda como una regla y
+# la IA de texto (o la de fotos) la recibe en cada mensaje: deja de
+# repetirlo sin tocar el código. Las alertas rojas (🔴 ⚠️ 👎) ya no suenan en
+# ALPHA IA: solo llega 🛠️ cuando una regla no basta y hay que ponerlo en el
+# código (y los ❌/⚙️ de fallos técnicos). Lo aprendido se ve y se olvida en
+# ALPHA IA › la tienda › 🧠 Aprendido. "no" lo apaga.
+APRENDER = "si"
 
 # --- LOS ANUNCIOS (2-oct-2026) ------------------------------------------
 # El panel completo está en https://TU-WORKER/anuncios : si el ADS_TOKEN
@@ -352,6 +373,14 @@ PAUSA_VUELVE_MIN = "30"
 # una que SOLO se diga al despedirse.
 FRASE_DESPAUSAR = "te dejo con la asistente|ya puedes seguir con la asistente"
 
+# --- WHATSAPP (7-oct-2026, ver src/whatsapp.js y WHATSAPP.md) ------------
+# El mismo bot contesta también por WhatsApp, con el número de la tienda.
+# El id del número (NO es secreto): Meta → WhatsApp → Configuración de la
+# API → "Identificador del número de teléfono" (un número largo, NO el
+# teléfono). Vacío = el bot solo atiende Instagram, como hasta hoy.
+# Además hace falta el secreto WA_TOKEN (ver abajo).
+WA_PHONE_ID = ""
+
 # ------------------------------------------------------------------------
 # Los secretos NO van aqui. Se cargan uno por uno con:
 #
@@ -363,6 +392,8 @@ FRASE_DESPAUSAR = "te dejo con la asistente|ya puedes seguir con la asistente"
 #   npx wrangler secret put PANEL_CLAVE         la clave para entrar a /panel (6 letras o más)
 #   npx wrangler secret put PANEL_API_CLAVE     la que comparte con tu panel central (16 letras o más)
 #   npx wrangler secret put PANEL_CENTRAL_URL   https://panel-central.TU-SUBDOMINIO.workers.dev
+#   npx wrangler secret put WA_TOKEN            WhatsApp: el token permanente del usuario del sistema
+#   npx wrangler secret put WA_APP_SECRET       WhatsApp: SOLO si su app de Meta no es la misma que la de Instagram
 #
 # OJO CON META_APP_SECRET_IG: Meta tiene DOS claves y las dos miden 32
 # caracteres, asi que no se distinguen a ojo. La que sirve es la del

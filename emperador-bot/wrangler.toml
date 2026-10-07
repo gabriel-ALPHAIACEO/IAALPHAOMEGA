@@ -190,10 +190,23 @@ TIENDA_NOMBRE = "El Emperador"
 #   REVISOR_TOPE_MES   cuántos dólares al mes puede gastar como mucho; al
 #                      llegar, deja de revisar hasta el mes siguiente (el bot
 #                      sigue respondiendo igual). "no" = sin tope.
+#   REVISOR_PIENSA     "si": razona antes de decidir (7-oct-2026, como gpt-5
+#                      en Invictus). Si el modelo no lo acepta, revisa sin
+#                      pensar: no se apaga nunca.
 REVISOR_IA = "si"
 REVISOR_MODELO = "deepseek-v4-pro"
+REVISOR_PIENSA = "si"
 REVISOR_CONFIANZA = "alta"
 REVISOR_TOPE_MES = "10"
+
+# LA IA APRENDE SOLA (ver src/lecciones.js; encendido el 7-oct-2026, como en
+# Invictus). Cada error que encuentra el revisor se guarda como una regla y
+# la IA de texto (o la de fotos) la recibe en cada mensaje: deja de
+# repetirlo sin tocar el código. Las alertas rojas (🔴 ⚠️ 👎) ya no suenan en
+# ALPHA IA: solo llega 🛠️ cuando una regla no basta y hay que ponerlo en el
+# código (y los ❌/⚙️ de fallos técnicos). Lo aprendido se ve y se olvida en
+# ALPHA IA › la tienda › 🧠 Aprendido. "no" lo apaga.
+APRENDER = "si"
 
 # ------------------------------------------------------------------------
 # SECRETOS - NUNCA van en este archivo. Se cargan uno por uno, ESTANDO

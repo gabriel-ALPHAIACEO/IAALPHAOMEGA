@@ -30,6 +30,7 @@
 
 import { responderTexto, identificarEnImagen, redactarConResultados } from "./ia.js";
 import { transcribirAudio, notaDeVoz, PEDIR_QUE_ESCRIBA } from "./voz.js";
+import { esAvisoDeWhatsApp, leerWhatsApp, marcarLeido, fotoComoDataUri, whatsappConectado } from "./whatsapp.js";
 import { estadoDeLaClaveApi, esTextoDelBot, pausadoAhora, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral, estadoCompletoPermitido, estadoPublico, pedidoInterno } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
 import { elLocal, hayLocal, preguntaPorElLocal, soloPreguntaPorElLocal, NOTA_LOCAL_ENVIADA, BOTON_MAPA } from "./local.js";
@@ -166,7 +167,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-07 (56) · 📦 el bot ofrece lo del INVENTARIO (traída la hoja; en Importar se vuelve a ella): lo vendido en la caja deja de ofrecerse solo · cada capacidad con su precio, Cashea, Bs, foto y columnas, y si el bot la ofrece · · (55) ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 📱 teléfonos: capacidades e IMEI en el recibo · la caja cobra el precio Cashea (en divisas en efectivo, el de dólares) · las filas repetidas de la hoja se suman · · (54) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (53) memoria: analiza el chat antes de responder (\"Charla / Pide\"), sigue el tema de lo último que hablaron, recuerda qué fichas vio y 20 mensajes · · (52) a los \"gracias\" contesta con lo que hablaban, sin fichas ni tablas · nivel 6 = Cashea (Krece va por color) · informe del 7-oct: Krece (tabla y monto al asesor, nunca un $ de Krece), las cuotas solo si pregunta, ¿está disponible?, pro+ = pro plus, 15 C = 15C, comparar dos equipos, Xbyte a secas, accesorios que contaban como teléfonos · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max";
+const VERSION = "2026-10-07 (56) · 📦 el bot ofrece lo del INVENTARIO (traída la hoja; en Importar se vuelve a ella): lo vendido en la caja deja de ofrecerse solo · cada capacidad con su precio, Cashea, Bs, foto y columnas, y si el bot la ofrece · y lo de la v54: WhatsApp: el mismo bot contesta por WhatsApp (whatsapp.js; se enciende con WA_PHONE_ID y WA_TOKEN) · revisor fuerte (gpt-5) que aprende (APRENDER), y lo aprendido ya le llega a la IA · · (55) ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 📱 teléfonos: capacidades e IMEI en el recibo · la caja cobra el precio Cashea (en divisas en efectivo, el de dólares) · las filas repetidas de la hoja se suman · · (54) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (53) memoria: analiza el chat antes de responder (\"Charla / Pide\"), sigue el tema de lo último que hablaron, recuerda qué fichas vio y 20 mensajes · · (52) a los \"gracias\" contesta con lo que hablaban, sin fichas ni tablas · nivel 6 = Cashea (Krece va por color) · informe del 7-oct: Krece (tabla y monto al asesor, nunca un $ de Krece), las cuotas solo si pregunta, ¿está disponible?, pro+ = pro plus, 15 C = 15C, comparar dos equipos, Xbyte a secas, accesorios que contaban como teléfonos · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -1130,6 +1131,8 @@ const trabajador = {
       const claves = [
         ["META_APP_SECRET", env.META_APP_SECRET],
         ["META_APP_SECRET_IG", env.META_APP_SECRET_IG],
+        // WhatsApp (ver whatsapp.js): solo si su app de Meta es otra.
+        ["WA_APP_SECRET", env.WA_APP_SECRET],
       ].filter(([, valor]) => valor);
 
       let cualFuncionó = "";
@@ -1208,6 +1211,7 @@ const trabajador = {
           `  META_APP_SECRET     ${secreto("META_APP_SECRET")}   (la de Facebook)`,
           `  META_APP_SECRET_IG  ${secreto("META_APP_SECRET_IG")}   (la de Instagram ← es esta)`,
           `  IG_TOKEN            ${secreto("IG_TOKEN")}`,
+          `  WA_TOKEN            ${secreto("WA_TOKEN")}   (WhatsApp: el token permanente del usuario del sistema)`,
           `  ADS_TOKEN           ${secreto("ADS_TOKEN")}   (leer tus anuncios — el panel completo está en /anuncios)`,
           `  PANEL_CLAVE         ${secreto("PANEL_CLAVE")}   (la clave del panel de la tienda: /panel)`,
           `  PANEL_API_CLAVE     ${estadoDeLaClaveApi(env)}   (la del panel central: la misma va en tu Worker panel-central)`,
@@ -1217,6 +1221,7 @@ const trabajador = {
           `  META_MODO           ${env.META_MODO || "todo (por defecto)"}`,
           `  REVISOR_IA          ${revisorActivo(env) ? `si, con ${modeloDelRevisor(env)} · confianza ${env.REVISOR_CONFIANZA || "alta"} · este mes $${delRevisor.toFixed(2)} de un tope de ${topeDelRevisor(env) === Infinity ? "sin tope" : `$${topeDelRevisor(env)}`}` : "no (apagado)"}   (revisa cada respuesta ya enviada: 🔴 en el panel si alucinó)`,
           `  META_VERIFY_TOKEN   ${env.META_VERIFY_TOKEN ? "puesto" : "FALTA"}`,
+          `  WHATSAPP (bot)      ${whatsappConectado(env) ? `conectado (número ${env.WA_PHONE_ID})` : env.WA_PHONE_ID ? "FALTA el secreto WA_TOKEN" : "sin conectar (solo Instagram; ver WHATSAPP.md)"}`,
           `  SHEET_ID            ${env.SHEET_ID && !/PEGA_AQUI/i.test(env.SHEET_ID) ? "puesto" : "FALTA"}`,
           `  SHEET_NOMBRE        ${env.SHEET_NOMBRE || "FALTA"}`,
           `  URL_CATALOGO        ${env.URL_CATALOGO && !/CAMBIA-ESTO/i.test(env.URL_CATALOGO) ? env.URL_CATALOGO : "FALTA"}`,
@@ -1553,6 +1558,17 @@ function queAtender(env, crudo) {
     return [];
   }
 
+  // WHATSAPP (7-oct-2026, ver whatsapp.js). Llega al MISMO /webhook con
+  // "object": "whatsapp_business_account", y sale convertido en los mismos
+  // mensajes que los de Instagram (con el cliente como "wa:" + su número).
+  if (esAvisoDeWhatsApp(cuerpo)) {
+    if (!env.WA_PHONE_ID) {
+      console.log("Llegó un aviso de WhatsApp pero WA_PHONE_ID no está puesto en wrangler.toml: lo ignoro");
+      return [];
+    }
+    return leerWhatsApp(env, cuerpo);
+  }
+
   // UN COMENTARIO EN UNA PUBLICACIÓN. Llega por otro camino que los
   // mensajes ("changes" en vez de "messaging") y se atiende distinto: una
   // línea en público y la respuesta de verdad por privado.
@@ -1604,6 +1620,31 @@ async function atenderConRed(env, mensaje, llegoEn = Date.now()) {
   const rastro = { respondio: false, llegoEn };
 
   try {
+    // POR WHATSAPP (ver whatsapp.js): Meta a veces repite el aviso, así que
+    // cada mensaje se atiende una sola vez; en cuanto llega se marca "visto"
+    // con el "escribiendo…"; y la foto se baja con el token (no trae enlace
+    // público).
+    if (mensaje.canal === "whatsapp" && mensaje.tipo !== "eco") {
+      // Si la base falla al marcarlo, se contesta igual: mejor un posible
+      // doble que un cliente sin respuesta.
+      const nuevo = env.DB && mensaje.mid ? await comentarioNuevo(env.DB, `wa:${mensaje.mid}`).catch(() => true) : true;
+      if (!nuevo) {
+        console.log(`WhatsApp → el mensaje ${mensaje.mid} ya se atendió: no contesto dos veces`);
+        return;
+      }
+      marcarLeido(env, mensaje.mid).catch(() => {});
+      if (/^wamedia:/.test(mensaje.foto || "")) {
+        try {
+          mensaje.foto = await fotoComoDataUri(env, mensaje.foto);
+        } catch (error) {
+          console.error(`WhatsApp: no pude bajar la foto de ${mensaje.igsid}: ${error?.message || error}`);
+          mensaje.foto = "";
+          mensaje.tipo = "texto";
+          mensaje.texto = mensaje.texto || "(mandó una foto que no pude abrir)";
+        }
+      }
+    }
+
     if (mensaje.tipo === "comentario") {
       await atenderComentario(env, mensaje, rastro);
     } else {
@@ -3147,7 +3188,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     nombre,
     historialPrevio,
     textoCliente,
-    [notaVoz, marca, notaDelAnuncio, notaTecnica(fichasTecnicas), notaDelLocal].filter(Boolean).join("\n"),
+    [notaVoz, marca, notaDelAnuncio, notaTecnica(fichasTecnicas), notaDelLocal, mensaje.canal === "whatsapp" ? NOTA_WHATSAPP : ""].filter(Boolean).join("\n"),
     esHistoria,
     minutosCallado,
     catalogo,
@@ -3900,8 +3941,10 @@ function paraElAviso(contacto = {}) {
   };
 }
 
+// Por WhatsApp las fichas son varias fotos, y llegan sus ids juntos
+// ("wamid.A,wamid.B"): se guardan todos para reconocer su eco.
 function agregarMid(lista, mid) {
-  return mid ? [...lista, mid] : lista;
+  return mid ? [...lista, ...String(mid).split(",").filter(Boolean)] : lista;
 }
 
 function texto200(cuerpo) {
@@ -4006,6 +4049,12 @@ function marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, esPublicaci
     "cliente lo hubiera escrito él mismo.]"
   );
 }
+
+// POR WHATSAPP (ver whatsapp.js): el cliente ya está en WhatsApp, así que
+// mandarlo "a escribirnos por WhatsApp" no tiene sentido.
+const NOTA_WHATSAPP =
+  "[CANAL: WhatsApp. El cliente te escribe por WhatsApp: NO le digas que nos escriba por WhatsApp ni que toque un botón \"Comprar\". " +
+  "Las fichas le llegan como fotos, cada una con su nombre y precio.]";
 
 // Lo que ve el modelo antes del mensaje del cliente. La construcción vive en
 // historial.js, que es donde está la regla de separar pasado y presente.

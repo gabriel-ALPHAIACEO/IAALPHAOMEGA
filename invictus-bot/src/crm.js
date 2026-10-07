@@ -22,6 +22,10 @@
 // tabla nueva, "crm", con lo que escribe la tienda. Se crea sola.
 
 import { esIntencionDeCompra } from "./registro.js";
+
+// El "usuario" de un cliente de WhatsApp es su teléfono ("+58…", ver
+// whatsapp.js): sale tal cual, sin la @ de Instagram.
+const arroba = (u) => (String(u || "").startsWith("+") ? "" : "@");
 import { icono } from "./iconos.js";
 
 export const ETAPAS = [
@@ -235,9 +239,9 @@ export function htmlListaDeClientes(clientes, { etapa = "", etiqueta = "", q = "
   const filasHtml = lista
     .slice(0, 300)
     .map((c) => {
-      const nombre = c.nombre || (c.usuario ? `@${c.usuario}` : c.id);
+      const nombre = c.nombre || (c.usuario ? `${arroba(c.usuario)}${c.usuario}` : c.id);
       const sub = [
-        c.usuario && c.nombre ? `@${esc(c.usuario)}` : "",
+        c.usuario && c.nombre ? `${arroba(c.usuario)}${esc(c.usuario)}` : "",
         `${c.mensajes} ${c.mensajes === 1 ? "mensaje" : "mensajes"}`,
         c.productos.length ? `vio ${c.productos.length} ${c.productos.length === 1 ? "producto" : "productos"}` : "",
         c.ultimo ? `último ${esc(fecha(c.ultimo))}` : "",
@@ -303,7 +307,7 @@ export function filasCsvDeClientes(clientes) {
     encabezados: ["Nombre", "Usuario", "Id", "Etapa", "Etapa puesta a mano", "Etiquetas", "Notas", "Mensajes", "Productos que vio", "Veces que quiso comprar", "Llegó por anuncio", "Primer contacto", "Último mensaje"],
     filas: clientes.map((c) => [
       c.nombre,
-      c.usuario ? `@${c.usuario}` : "",
+      c.usuario ? `${arroba(c.usuario)}${c.usuario}` : "",
       c.id,
       NOMBRE_DE_ETAPA[c.etapa] || c.etapa,
       c.etapaPuesta ? "sí" : "no (sugerida)",

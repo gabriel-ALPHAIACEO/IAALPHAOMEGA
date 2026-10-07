@@ -38,6 +38,11 @@ import { TABLAS, leerTabla, tipoDeError, esIntencionDeCompra, asegurarTurnos, as
 import { imagenDeAlpha, cajaDeEntrada, rutaDeApp, atenderApp, etiquetasDeApp, scriptDeApp, adjuntosLimpios, leerAdjuntos, textoDeAdjuntos, textoVisible, htmlDeAdjuntos, kpi, barras, selectorDePeriodo, aCsv, respuestaCsv } from "./alpha.js";
 import { listarLecciones, olvidarLeccion, aprendeActivo, VECES_PARA_CODIGO } from "./lecciones.js";
 import { clientesDelCrm, guardarCrm, htmlListaDeClientes, htmlFichaDeCliente, filtrarClientes, filasCsvDeClientes } from "./crm.js";
+import { esDeWhatsApp, textoDesdeElPanel } from "./whatsapp.js";
+
+// El "usuario" de un cliente de WhatsApp es su teléfono ("+58…", ver
+// whatsapp.js): sale tal cual, sin la @ de Instagram.
+const arroba = (u) => (String(u || "").startsWith("+") ? "" : "@");
 
 // Se reexporta para que index.js lo siga importando desde aquí.
 export { anotarTurno } from "./registro.js";
@@ -454,6 +459,20 @@ export async function mandarDesdeElPanel(env, igsid, texto, horasDePausa = 1) {
   if (!igsid) return { ok: false, error: "Falta el cliente." };
   if (!limpio) return { ok: false, error: "Escribe el mensaje." };
   if (limpio.length > MAXIMO_DESDE_EL_PANEL) return { ok: false, error: `Máximo ${MAXIMO_DESDE_EL_PANEL} letras por mensaje.` };
+
+  // Un cliente de WhatsApp ("wa:…", ver whatsapp.js) se contesta por allá.
+  if (esDeWhatsApp(igsid)) {
+    const r = await textoDesdeElPanel(env, String(igsid), limpio);
+    if (!r.ok) {
+      console.error(`PANEL: no salió el WhatsApp a ${igsid}: ${r.error}`);
+      return r;
+    }
+    await pausar(env.DB, String(igsid), horasDePausa);
+    await anotarMensaje(env.DB, String(igsid), "asesor", limpio);
+    console.log(`PANEL: el dueño le escribió por WhatsApp a ${igsid}; bot en pausa ${horasDePausa} h`);
+    return r;
+  }
+
   if (!env.IG_TOKEN) return { ok: false, error: "La tienda no tiene IG_TOKEN cargado." };
 
   let r;
@@ -667,7 +686,7 @@ async function paginaDeLista(env, url, tienda, conAnuncios = true) {
         c.anuncio ? `<span class="chip marca">${icono("anuncios")}${esc(String(c.anuncio).slice(0, 30))}</span>` : "",
       ].join("");
       const enlace = `<a class="${c.pausado ? "dentro" : "tarjeta"}"${c.pausado ? "" : ` data-k="c${esc(c.id)}"`} href="/panel/c/${encodeURIComponent(c.id)}"><div class="chat-fila">${avatar(nombre)}<div class="fila-centro">
-<div class="fila-titulo">${esc(nombre)}${c.usuario && c.nombre ? ` <span class="suave">@${esc(c.usuario)}</span>` : ""}</div>
+<div class="fila-titulo">${esc(nombre)}${c.usuario && c.nombre ? ` <span class="suave">${arroba(c.usuario)}${esc(c.usuario)}</span>` : ""}</div>
 <div class="fila-sub">${c.ultima ? `${quien}${esc(String(c.ultima.texto || "").slice(0, 90))}` : ""}</div>${etiquetas ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${etiquetas}</div>` : ""}</div><span class="cuando">${esc(cuandoFue(c.ultimo))}</span></div></a>`;
       if (!c.pausado) return enlace;
       // En pausa: el botón para devolvérsela al bot, sin tener que abrirla.
@@ -757,10 +776,10 @@ async function paginaDeConversacion(env, id, tienda, { horasDePausa = 1, conAnun
 
   return pagina(
     nombre,
-    `${cabecera({ volver: { href: "/panel", texto: "Chats" }, sobre: "Conversación", titulo: nombre, texto: contacto.usuario ? `@${esc(contacto.usuario)}` : "" })}
+    `${cabecera({ volver: { href: "/panel", texto: "Chats" }, sobre: "Conversación", titulo: nombre, texto: contacto.usuario ? `${arroba(contacto.usuario)}${esc(contacto.usuario)}` : "" })}
 ${htmlFichaDeCliente(delCrm, { id })}
 <div data-zona="conversacion">
-<div class="tarjeta"><div class="contacto-cabeza">${avatar(nombre)}<div><span class="nombre">${esc(nombre)}</span>${contacto.usuario ? ` <span class="suave">@${esc(contacto.usuario)}</span>` : ""}
+<div class="tarjeta"><div class="contacto-cabeza">${avatar(nombre)}<div><span class="nombre">${esc(nombre)}</span>${contacto.usuario ? ` <span class="suave">${arroba(contacto.usuario)}${esc(contacto.usuario)}</span>` : ""}
 <div class="suave">Id ${esc(id)} · último mensaje del bot ${esc(cuandoFue(contacto.ultimo_envio))}</div></div></div>
 ${pub?.deAnuncio ? `<div style="margin-top:10px"><span class="chip marca">${icono("anuncios")}Llegó por un anuncio${pub.equipo ? ` del ${esc(pub.equipo)}` : ""}</span> <span class="suave">${esc(cuandoFue(pub.cuando))}</span></div>` : ""}
 ${contacto.historial ? `<div class="suave">Resumen: ${esc(contacto.historial)}</div>` : ""}
@@ -846,7 +865,7 @@ async function erroresDeLaIaParaLaTienda(env, params) {
   const casos = (await senaladasDelPeriodo(env.DB, p.inicio - 1, p.fin + DIA_MS - 1)).map((c) => ({ ...c, motivo: c.marca === "error" ? MOTIVO_TECNICO : c.motivo }));
   const nombres = new Map();
   if (casos.length) {
-    for (const c of await clientesDelCrm(env.DB).catch(() => [])) nombres.set(String(c.id), c.nombre || (c.usuario ? `@${c.usuario}` : ""));
+    for (const c of await clientesDelCrm(env.DB).catch(() => [])) nombres.set(String(c.id), c.nombre || (c.usuario ? `${arroba(c.usuario)}${c.usuario}` : ""));
   }
   for (const c of casos) c.nombre = nombres.get(c.igsid) || "";
   return { casos, rango: rangoDe(p), primerDato: await primerDato(env.DB) };
