@@ -33,7 +33,7 @@ import { imagenDeAlpha, imagenesDeAdjuntos, kpi, respuestaCsv } from "./alpha.js
 import { INFORME_DIAS, informeDeErrores, csvDelInforme, textoDelInforme, respuestaTexto, vistaInforme } from "./informe.js";
 import { leerTiendas, claveDe, pedir, pedirATodas, tiendaDeLaClave, mismoTexto } from "./tiendas.js";
 import { TIPOS, guardarAlerta, listarAlertas, sinLeer, marcarLeidas, solucionarAlertas, anotarSalud, leerSalud } from "./alertas.js";
-import { claveLista, cookieNueva, COOKIE_FUERA, sesionValida, vieneDelPanel, demasiadosIntentos, anotarIntento, olvidarIntentos } from "./sesion.js";
+import { claveLista, cookieNueva, COOKIE_FUERA, sesionValida, conSesionRenovada, vieneDelPanel, demasiadosIntentos, anotarIntento, olvidarIntentos } from "./sesion.js";
 import {
   esc,
   pagina,
@@ -62,7 +62,7 @@ import {
   vistaAprendido,
 } from "./vistas.js";
 
-const VERSION = "2026-10-07 (19) · alpha.js con el ícono y la app instalable de las tiendas (el central no cambia de cara)";
+const VERSION = "2026-10-07 (20) · 🔐 al entrar pregunta si dejar la sesión abierta (90 días, se renueva sola) · alpha.js e iconos.js nuevos · · (19) alpha.js con el ícono y la app instalable de las tiendas (el central no cambia de cara)";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");
@@ -612,7 +612,10 @@ async function atender(request, env) {
       return entrada(nombre, "Esa no es la clave.");
     }
     await olvidarIntentos(env.DB, request);
-    return redirigir("/", await cookieNueva(env));
+    // La entrada pregunta si dejar la sesión abierta; sin la pregunta (un
+    // formulario viejo), abierta como antes.
+    const abierta = datos?.get("pregunta_sesion") ? datos.get("recordar") === "si" : true;
+    return redirigir("/", await cookieNueva(env, { abierta }));
   }
 
   if (!(await sesionValida(request, env))) {
@@ -770,7 +773,7 @@ ${avisoDe(url)}${botonSolucionar("/solucionar", "/alertas", "todo, en todas las 
 const trabajador = {
   async fetch(request, env) {
     try {
-      return await atender(request, env);
+      return await conSesionRenovada(request, env, await atender(request, env));
     } catch (error) {
       console.error("PANEL CENTRAL falló:", error?.stack || error);
       return new Response("El panel central tuvo un error. Mira los registros con: npx.cmd wrangler tail", { status: 500 });

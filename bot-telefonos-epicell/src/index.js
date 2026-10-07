@@ -166,7 +166,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-07 (54) · 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (53) memoria: analiza el chat antes de responder (\"Charla / Pide\"), sigue el tema de lo último que hablaron, recuerda qué fichas vio y 20 mensajes · · (52) a los \"gracias\" contesta con lo que hablaban, sin fichas ni tablas · nivel 6 = Cashea (Krece va por color) · informe del 7-oct: Krece (tabla y monto al asesor, nunca un $ de Krece), las cuotas solo si pregunta, ¿está disponible?, pro+ = pro plus, 15 C = 15C, comparar dos equipos, Xbyte a secas, accesorios que contaban como teléfonos · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max";
+const VERSION = "2026-10-07 (55) · ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 📱 teléfonos: capacidades e IMEI en el recibo · la caja cobra el precio Cashea (en divisas en efectivo, el de dólares) · las filas repetidas de la hoja se suman · · (54) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (53) memoria: analiza el chat antes de responder (\"Charla / Pide\"), sigue el tema de lo último que hablaron, recuerda qué fichas vio y 20 mensajes · · (52) a los \"gracias\" contesta con lo que hablaban, sin fichas ni tablas · nivel 6 = Cashea (Krece va por color) · informe del 7-oct: Krece (tabla y monto al asesor, nunca un $ de Krece), las cuotas solo si pregunta, ¿está disponible?, pro+ = pro plus, 15 C = 15C, comparar dos equipos, Xbyte a secas, accesorios que contaban como teléfonos · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -1079,6 +1079,13 @@ const trabajador = {
         verTexto: async (ruta) => (await trabajador.fetch(pedidoInterno(ruta, url, env), env, ctx)).text(),
         traerCatalogo: () => catalogoParaInventario(env),
         nombreDelCatalogo: "la hoja de Google (todo: precios en divisas, Bs y Cashea, fotos, capacidad, las demás columnas y la cantidad)",
+        // Tienda de teléfonos: el inventario habla de capacidades y de
+        // condición, y la caja pide el IMEI para la garantía (marco.js, RUBROS).
+        rubro: "telefonos",
+        // La caja muestra y cobra el precio Cashea; solo si el cliente paga
+        // en divisas en efectivo va el precio en dólares (Gabriel, 7-oct-2026).
+        tarifaDeCaja: "cashea",
+        version: VERSION,
       });
     }
 

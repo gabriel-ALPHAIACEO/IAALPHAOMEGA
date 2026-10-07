@@ -38,6 +38,7 @@ const SUITES = [
   ["instagram.mjs", "/probar-instagram: en qué paso se corta (token, suscripción, firma, envío)"],
   ["cupo.mjs", "que sin cupo de OpenAI no se cuente como \"miré y no está\""],
   ["inventario.mjs", "el inventario y la caja: stock que nunca baja de 0, códigos de barras, importar sin duplicar"],
+  ["negocio.mjs", "gastos, fiados, anular, el balance, Cashea en la caja, cada tienda con su negocio y la sesión abierta"],
 ];
 
 let roto = false;

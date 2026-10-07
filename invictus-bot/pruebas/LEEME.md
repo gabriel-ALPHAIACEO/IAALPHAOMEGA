@@ -56,6 +56,8 @@ Nada de eso lo atrapa `node --check`. Por eso existe esta carpeta.
 | `corpus.mjs` | **La más importante.** Saca las respuestas que el bot escribe de verdad —los ejemplos del prompt y las frases fijas del código— y se las pasa a cada guardián. Si alguno altera una sola, es un falso positivo. Crece solo: cada ejemplo nuevo del prompt entra sin tocar nada. |
 | `cotejo.mjs` | Que al modelo le llegue el zapato del color de la foto: con diecisiete "New Balance 9060 Dama" iguales de título, que salga primero el del color correcto. Y que una foto cuyo color no se pudo leer no se vuelva a pagar en cada pasada del cron. |
 | `cupo.mjs` | Que "OpenAI sin cupo" no se cuente como "miré y no está" (incidente del 30-sep): esos zapatos no cuentan como mirados, se reintenta solo si da el tiempo, y el aviso al asesor lo dice. También que `/indexar-catalogo` no pase del 100% y no dé la falsa alarma de "se están pisando". |
+| `inventario.mjs` | El inventario y la caja: el stock nunca baja de 0, una venta que no alcanza no descuenta nada, cada talla con su EAN-13, importar dos veces no duplica, y el Excel del sistema viejo se lee bien. |
+| `negocio.mjs` | Gastos, fiados (un abono no pasa de lo que se debe y paga primero lo más viejo), anular una venta (el stock vuelve, no se borra), el balance, Cashea en la caja de EPICCELL (salvo divisas en efectivo), cada tienda con las palabras de su negocio, y "¿Dejar la sesión abierta?" (90 días que se renuevan, o hasta cerrar el navegador). |
 
 ## Cómo está armado
 

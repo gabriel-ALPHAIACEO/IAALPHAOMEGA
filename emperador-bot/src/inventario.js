@@ -46,6 +46,7 @@ const TABLAS_INVENTARIO = [
     precio        REAL,
     precio_local  REAL,
     precio_cashea REAL,
+    costo         REAL,
     enlace        TEXT NOT NULL DEFAULT '',
     extras        TEXT NOT NULL DEFAULT '{}',
     activo        INTEGER NOT NULL DEFAULT 1,
@@ -87,7 +88,22 @@ const TABLAS_INVENTARIO = [
     metodo_pago TEXT NOT NULL DEFAULT '',
     total       REAL,
     contacto_id TEXT,
-    creado      INTEGER NOT NULL
+    creado      INTEGER NOT NULL,
+    cliente     TEXT NOT NULL DEFAULT '',
+    telefono    TEXT NOT NULL DEFAULT '',
+    fiado       INTEGER NOT NULL DEFAULT 0,
+    anulada     INTEGER NOT NULL DEFAULT 0,
+    nota        TEXT NOT NULL DEFAULT '',
+    costo       REAL
+  )`,
+  // Lo que se cobró SIN ser del inventario (un servicio, un arreglo, un
+  // producto que no se lleva en stock): descripción y monto.
+  `CREATE TABLE IF NOT EXISTS inv_venta_libre (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    venta_id    INTEGER NOT NULL,
+    descripcion TEXT NOT NULL,
+    cantidad    INTEGER NOT NULL DEFAULT 1,
+    precio      REAL NOT NULL
   )`,
   // delta: +12 al llegar un lote, -1 en una venta. queda: el stock después.
   `CREATE TABLE IF NOT EXISTS inv_movimientos (
@@ -101,7 +117,9 @@ const TABLAS_INVENTARIO = [
     nota        TEXT NOT NULL DEFAULT '',
     contacto_id TEXT,
     venta_id    INTEGER,
-    creado      INTEGER NOT NULL
+    creado      INTEGER NOT NULL,
+    precio      REAL,
+    costo       REAL
   )`,
   "CREATE UNIQUE INDEX IF NOT EXISTS inv_codigo ON inv_variantes (codigo_barras)",
   "CREATE UNIQUE INDEX IF NOT EXISTS inv_codigo_fab ON inv_variantes (codigo_fabricante)",
@@ -109,6 +127,25 @@ const TABLAS_INVENTARIO = [
   "CREATE INDEX IF NOT EXISTS inv_mov_variante ON inv_movimientos (variante_id, creado)",
   "CREATE INDEX IF NOT EXISTS inv_mov_creado ON inv_movimientos (creado)",
   "CREATE INDEX IF NOT EXISTS inv_fotos_producto ON inv_fotos (producto_id, orden)",
+  "CREATE INDEX IF NOT EXISTS inv_ventas_creado ON inv_ventas (creado)",
+  "CREATE INDEX IF NOT EXISTS inv_mov_venta ON inv_movimientos (venta_id)",
+  "CREATE INDEX IF NOT EXISTS inv_libre_venta ON inv_venta_libre (venta_id)",
+];
+
+// Columnas que llegaron con la gestión del negocio (7-oct-2026, fase 2):
+// una base que ya tenía las tablas de la fase 1 las recibe aquí, solas.
+const COLUMNAS_NUEVAS = [
+  ["inv_productos", "costo", "REAL"],
+  ["inv_ventas", "cliente", "TEXT NOT NULL DEFAULT ''"],
+  ["inv_ventas", "telefono", "TEXT NOT NULL DEFAULT ''"],
+  ["inv_ventas", "fiado", "INTEGER NOT NULL DEFAULT 0"],
+  ["inv_ventas", "anulada", "INTEGER NOT NULL DEFAULT 0"],
+  ["inv_ventas", "nota", "TEXT NOT NULL DEFAULT ''"],
+  ["inv_ventas", "costo", "REAL"],
+  ["inv_movimientos", "precio", "REAL"],
+  ["inv_movimientos", "costo", "REAL"],
+  // "cashea" si la venta se cobró con el precio Cashea (EPICCELL).
+  ["inv_ventas", "tarifa", "TEXT NOT NULL DEFAULT ''"],
 ];
 
 export const TIPOS_DE_MOVIMIENTO = {
@@ -124,6 +161,15 @@ let listo = false;
 export async function asegurarInventario(db) {
   if (listo) return;
   for (const sentencia of TABLAS_INVENTARIO) await db.prepare(sentencia).run();
+  const { results: hay } = await db
+    .prepare(
+      "SELECT 'inv_productos' AS t, name FROM pragma_table_info('inv_productos') UNION ALL SELECT 'inv_ventas', name FROM pragma_table_info('inv_ventas') UNION ALL SELECT 'inv_movimientos', name FROM pragma_table_info('inv_movimientos')"
+    )
+    .all();
+  const tiene = new Set((hay || []).map((c) => `${c.t}.${c.name}`));
+  for (const [tabla, columna, tipo] of COLUMNAS_NUEVAS) {
+    if (!tiene.has(`${tabla}.${columna}`)) await db.prepare(`ALTER TABLE ${tabla} ADD COLUMN ${columna} ${tipo}`).run();
+  }
   // Toda tienda tiene al menos una sede. Las demás se añaden en el panel.
   await db
     .prepare("INSERT OR IGNORE INTO inv_locales (nombre, creado) SELECT 'Principal', ? WHERE NOT EXISTS (SELECT 1 FROM inv_locales)")
@@ -223,8 +269,13 @@ export async function crearSede(db, nombre) {
 }
 
 // Los modelos, con cuántas quedan en total. q busca en el título, la marca
-// y los códigos.
-export async function listarProductos(db, { q = "", limite = 200, soloConStock = false, agotados = false } = {}) {
+// y los códigos. porReponer: los que tienen 2 o menos (también agotados).
+// orden "ventas": primero lo que más se vendió en los últimos 30 días (la
+// caja pone eso arriba). precio_min/max: las tallas o capacidades pueden
+// tener precio propio (EPICCELL), y la lista dice "desde".
+export const UMBRAL_DE_POCOS = 2;
+
+export async function listarProductos(db, { q = "", limite = 200, soloConStock = false, agotados = false, porReponer = false, orden = "nombre" } = {}) {
   await asegurarInventario(db);
   const texto = String(q || "").trim().slice(0, 40);
   const donde = ["p.activo = 1"];
@@ -235,37 +286,78 @@ export async function listarProductos(db, { q = "", limite = 200, soloConStock =
     );
     args.push(`%${texto}%`, `%${texto}%`, texto, texto, texto);
   }
-  const tener = soloConStock ? "HAVING total > 0" : agotados ? "HAVING total = 0" : "";
+  const tener = soloConStock ? "HAVING total > 0" : agotados ? "HAVING total = 0" : porReponer ? `HAVING total <= ${UMBRAL_DE_POCOS}` : "";
+  const porVentas = orden === "ventas";
   const { results } = await db
     .prepare(
-      `SELECT p.id, p.titulo, p.marca, p.gama, p.origen, p.origen_id, p.precio, p.precio_cashea,
+      `SELECT p.id, p.titulo, p.marca, p.gama, p.origen, p.origen_id, p.precio, p.precio_cashea, p.costo,
               COUNT(DISTINCT v.id) AS variantes,
               COALESCE(SUM(s.cantidad), 0) AS total,
+              MIN(COALESCE(v.precio, p.precio)) AS precio_min, MAX(COALESCE(v.precio, p.precio)) AS precio_max,
+              MIN(COALESCE(v.precio_cashea, p.precio_cashea)) AS cashea_min, MAX(COALESCE(v.precio_cashea, p.precio_cashea)) AS cashea_max,
               (SELECT url FROM inv_fotos f WHERE f.producto_id = p.id ORDER BY orden LIMIT 1) AS foto
+              ${porVentas ? `, (SELECT COALESCE(SUM(-m.delta), 0) FROM inv_movimientos m JOIN inv_variantes v3 ON v3.id = m.variante_id WHERE v3.producto_id = p.id AND m.tipo = 'venta' AND m.creado > ?) AS vendidas` : ""}
          FROM inv_productos p
          LEFT JOIN inv_variantes v ON v.producto_id = p.id
          LEFT JOIN inv_stock s ON s.variante_id = v.id
         WHERE ${donde.join(" AND ")}
         GROUP BY p.id ${tener}
-        ORDER BY p.titulo COLLATE NOCASE
+        ORDER BY ${porVentas ? "vendidas DESC, " : ""}p.titulo COLLATE NOCASE
         LIMIT ?`
     )
-    .bind(...args, Math.max(1, Math.min(Number(limite) || 200, 1000)))
+    .bind(...(porVentas ? [Date.now() - 30 * 86400000] : []), ...args, Math.max(1, Math.min(Number(limite) || 200, 1000)))
     .all();
   return results || [];
 }
 
+// Lo de arriba de la pantalla del inventario. Solo cuenta lo que sigue en
+// el inventario (lo quitado no suma). valor: lo que vale lo que hay, a
+// precio de venta; costo: lo que costó (solo de los modelos con costo).
 export async function contarProductos(db) {
   await asegurarInventario(db);
   const fila = await db
     .prepare(
       `SELECT COUNT(*) AS modelos,
-              (SELECT COUNT(*) FROM inv_variantes) AS variantes,
-              (SELECT COALESCE(SUM(cantidad), 0) FROM inv_stock) AS unidades
-         FROM inv_productos WHERE activo = 1`
+              COUNT(CASE WHEN t.total <= ${UMBRAL_DE_POCOS} THEN 1 END) AS por_reponer,
+              COUNT(CASE WHEN t.total = 0 THEN 1 END) AS agotados,
+              COALESCE(SUM(t.variantes), 0) AS variantes,
+              COALESCE(SUM(t.total), 0) AS unidades,
+              COALESCE(SUM(t.valor), 0) AS valor,
+              COALESCE(SUM(t.costo), 0) AS costo,
+              COUNT(CASE WHEN t.con_costo THEN 1 END) AS con_costo
+         FROM (SELECT p.id,
+                      (SELECT COUNT(*) FROM inv_variantes v0 WHERE v0.producto_id = p.id) AS variantes,
+                      COALESCE(SUM(s.cantidad), 0) AS total,
+                      COALESCE(SUM(s.cantidad * COALESCE(v.precio, p.precio, 0)), 0) AS valor,
+                      COALESCE(SUM(s.cantidad * p.costo), 0) AS costo,
+                      p.costo IS NOT NULL AS con_costo
+                 FROM inv_productos p
+                 LEFT JOIN inv_variantes v ON v.producto_id = p.id
+                 LEFT JOIN inv_stock s ON s.variante_id = v.id
+                WHERE p.activo = 1
+                GROUP BY p.id) t`
     )
     .first();
-  return { modelos: Number(fila?.modelos) || 0, variantes: Number(fila?.variantes) || 0, unidades: Number(fila?.unidades) || 0 };
+  const n = (k) => Number(fila?.[k]) || 0;
+  return { modelos: n("modelos"), variantes: n("variantes"), unidades: n("unidades"), porReponer: n("por_reponer"), agotados: n("agotados"), valor: n("valor"), costo: n("costo"), conCosto: n("con_costo") };
+}
+
+// Cada sede con cuántas unidades tiene.
+export async function sedesConStock(db) {
+  await asegurarInventario(db);
+  const { results } = await db
+    .prepare(
+      `SELECT l.id, l.nombre, l.creado,
+              COALESCE(SUM(CASE WHEN p.activo = 1 THEN s.cantidad END), 0) AS unidades,
+              COUNT(DISTINCT CASE WHEN p.activo = 1 AND s.cantidad > 0 THEN v.producto_id END) AS modelos
+         FROM inv_locales l
+         LEFT JOIN inv_stock s ON s.local_id = l.id
+         LEFT JOIN inv_variantes v ON v.id = s.variante_id
+         LEFT JOIN inv_productos p ON p.id = v.producto_id
+        GROUP BY l.id ORDER BY l.id`
+    )
+    .all();
+  return (results || []).map((r) => ({ ...r, unidades: Number(r.unidades) || 0, modelos: Number(r.modelos) || 0 }));
 }
 
 // Un modelo entero: sus variantes, el stock de cada una por sede y sus fotos.
@@ -299,7 +391,7 @@ export async function verProducto(db, id) {
     fotos: fotos || [],
     variantes: (variantes || []).map((v) => {
       const porSede = porVariante.get(v.id) || {};
-      return { ...v, porSede, total: Object.values(porSede).reduce((a, b) => a + b, 0) };
+      return { ...v, porSede, total: Object.values(porSede).reduce((a, b) => a + b, 0), precioCashea: v.precio_cashea ?? producto.precio_cashea ?? null };
     }),
   };
 }
@@ -311,7 +403,7 @@ export async function buscarPorCodigo(db, codigo) {
   if (!c) return null;
   const variante = await db
     .prepare(
-      `SELECT v.*, p.titulo, p.marca, p.gama, p.precio AS precio_producto, p.precio_cashea AS precio_cashea_producto
+      `SELECT v.*, p.titulo, p.marca, p.gama, p.precio AS precio_producto, p.precio_cashea AS precio_cashea_producto, p.costo AS costo_producto
          FROM inv_variantes v JOIN inv_productos p ON p.id = v.producto_id
         WHERE v.codigo_barras = ? OR v.codigo_fabricante = ?
         LIMIT 1`
@@ -326,7 +418,7 @@ export async function verVariante(db, id) {
   await asegurarInventario(db);
   const variante = await db
     .prepare(
-      `SELECT v.*, p.titulo, p.marca, p.gama, p.precio AS precio_producto, p.precio_cashea AS precio_cashea_producto
+      `SELECT v.*, p.titulo, p.marca, p.gama, p.precio AS precio_producto, p.precio_cashea AS precio_cashea_producto, p.costo AS costo_producto
          FROM inv_variantes v JOIN inv_productos p ON p.id = v.producto_id WHERE v.id = ?`
     )
     .bind(Number(id) || 0)
@@ -341,6 +433,7 @@ async function conStockPorSede(db, variante) {
   return {
     ...variante,
     precioFinal: variante.precio ?? variante.precio_producto ?? null,
+    precioCashea: variante.precio_cashea ?? variante.precio_cashea_producto ?? null,
     porSede,
     total: Object.values(porSede).reduce((a, b) => a + b, 0),
   };
@@ -405,8 +498,8 @@ export async function guardarProducto(db, datos) {
   const ahora = Date.now();
   await db
     .prepare(
-      `INSERT INTO inv_productos (origen, origen_id, titulo, marca, gama, precio, precio_local, precio_cashea, enlace, extras, activo, actualizado)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO inv_productos (origen, origen_id, titulo, marca, gama, precio, precio_local, precio_cashea, enlace, extras, activo, actualizado, costo)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (origen, origen_id) DO UPDATE SET
          titulo = excluded.titulo,
          marca = CASE WHEN excluded.marca <> '' THEN excluded.marca ELSE inv_productos.marca END,
@@ -414,6 +507,7 @@ export async function guardarProducto(db, datos) {
          precio = COALESCE(excluded.precio, inv_productos.precio),
          precio_local = COALESCE(excluded.precio_local, inv_productos.precio_local),
          precio_cashea = COALESCE(excluded.precio_cashea, inv_productos.precio_cashea),
+         costo = COALESCE(excluded.costo, inv_productos.costo),
          enlace = CASE WHEN excluded.enlace <> '' THEN excluded.enlace ELSE inv_productos.enlace END,
          extras = CASE WHEN excluded.extras <> '{}' THEN excluded.extras ELSE inv_productos.extras END,
          -- Quitado del inventario en el panel: volver a importar no lo revive.
@@ -432,7 +526,8 @@ export async function guardarProducto(db, datos) {
       String(datos.enlace || "").trim().slice(0, 500),
       JSON.stringify(datos.extras && typeof datos.extras === "object" ? datos.extras : {}),
       datos.activo === false || datos.activo === 0 ? 0 : 1,
-      ahora
+      ahora,
+      numero(datos.costo)
     )
     .run();
   const fila = await db.prepare("SELECT id FROM inv_productos WHERE origen = ? AND origen_id = ?").bind(origen, origenId).first();
@@ -443,7 +538,7 @@ export async function editarProducto(db, id, cambios) {
   await asegurarInventario(db);
   await db
     .prepare(
-      `UPDATE inv_productos SET titulo = ?, marca = ?, gama = ?, precio = ?, precio_local = ?, precio_cashea = ?, actualizado = ?
+      `UPDATE inv_productos SET titulo = ?, marca = ?, gama = ?, precio = ?, precio_local = ?, precio_cashea = ?, costo = ?, actualizado = ?
         WHERE id = ?`
     )
     .bind(
@@ -453,6 +548,7 @@ export async function editarProducto(db, id, cambios) {
       numero(cambios.precio),
       numero(cambios.precio_local),
       numero(cambios.precio_cashea),
+      numero(cambios.costo),
       Date.now(),
       Number(id) || 0
     )
@@ -543,17 +639,17 @@ export async function guardarVariante(db, productoId, { opcion = "única", color
 // fuera a quedar en negativo, el CHECK de la tabla lo rechaza y no se
 // escribe nada.
 
-function sentenciasDeMovimiento(db, { variante, sede, tipo, delta, quien = "", nota = "", contacto = null, ventaRef = null, ahora }) {
+function sentenciasDeMovimiento(db, { variante, sede, tipo, delta, quien = "", nota = "", contacto = null, ventaRef = null, ahora, precio = null, costo = null }) {
   return [
     db.prepare("INSERT OR IGNORE INTO inv_stock (variante_id, local_id, cantidad, actualizado) VALUES (?, ?, 0, ?)").bind(variante, sede, ahora),
     db.prepare("UPDATE inv_stock SET cantidad = cantidad + ?, actualizado = ? WHERE variante_id = ? AND local_id = ?").bind(delta, ahora, variante, sede),
     db
       .prepare(
-        `INSERT INTO inv_movimientos (variante_id, local_id, tipo, delta, queda, quien, nota, contacto_id, venta_id, creado)
+        `INSERT INTO inv_movimientos (variante_id, local_id, tipo, delta, queda, quien, nota, contacto_id, venta_id, creado, precio, costo)
          VALUES (?, ?, ?, ?, (SELECT cantidad FROM inv_stock WHERE variante_id = ? AND local_id = ?), ?, ?, ?,
-                 (SELECT id FROM inv_ventas WHERE ref = ?), ?)`
+                 (SELECT id FROM inv_ventas WHERE ref = ?), ?, ?, ?)`
       )
-      .bind(variante, sede, tipo, delta, variante, sede, String(quien).slice(0, 60), String(nota).slice(0, 300), contacto, ventaRef, ahora),
+      .bind(variante, sede, tipo, delta, variante, sede, String(quien).slice(0, 60), String(nota).slice(0, 300), contacto, ventaRef, ahora, precio, costo),
   ];
 }
 
@@ -601,10 +697,20 @@ export async function ajustarStock(db, { varianteId, sedeId, cantidad, quien = "
   const variante = Number(varianteId) || 0;
   const sede = Number(sedeId) || 0;
   if (!(await existe(db, variante, sede))) throw new Error("No encuentro ese producto o esa sede.");
-  const actual = await cantidadActual(db, variante, sede);
-  const delta = nueva - actual;
-  if (delta === 0) return nueva;
-  await db.batch(sentenciasDeMovimiento(db, { variante, sede, tipo, delta, quien, nota, ahora: Date.now() }));
+  // Todo en un batch y el cambio se calcula DENTRO de él: si una venta cae
+  // justo mientras se ajusta, no se pierde (antes se leía y después se
+  // escribía, y una venta en medio dejaba el conteo una unidad abajo).
+  const ahora = Date.now();
+  await db.batch([
+    db.prepare("INSERT OR IGNORE INTO inv_stock (variante_id, local_id, cantidad, actualizado) VALUES (?, ?, 0, ?)").bind(variante, sede, ahora),
+    db
+      .prepare(
+        `INSERT INTO inv_movimientos (variante_id, local_id, tipo, delta, queda, quien, nota, creado)
+         SELECT ?, ?, ?, ? - cantidad, ?, ?, ?, ? FROM inv_stock WHERE variante_id = ? AND local_id = ? AND cantidad <> ?`
+      )
+      .bind(variante, sede, tipo, nueva, nueva, String(quien).slice(0, 60), String(nota).slice(0, 300), ahora, variante, sede, nueva),
+    db.prepare("UPDATE inv_stock SET cantidad = ?, actualizado = ? WHERE variante_id = ? AND local_id = ? AND cantidad <> ?").bind(nueva, ahora, variante, sede, nueva),
+  ]);
   return nueva;
 }
 
@@ -623,9 +729,30 @@ async function existe(db, variante, sede) {
 // La venta entera es UN batch: si un solo producto no alcanza, no se
 // descuenta ninguno y la caja dice cuál falta.
 
-export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = [], contactoId = null }) {
+// Además de los productos del inventario, una venta puede llevar "libres"
+// ([{ descripcion, precio, cantidad }]: un servicio, algo que no se lleva en
+// stock). Fiado: el cliente se lleva el producto y paga después (Fiados en
+// el panel). Para fiar hace falta saber a quién.
+// tarifa: "cashea" cobra el precio Cashea de cada producto (si lo tiene; si
+// no, el normal). Lo decide la caja de la tienda (ver inventario-panel.js).
+export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = [], libres = [], contactoId = null, cliente = "", telefono = "", fiado = false, nota = "", tarifa = "" }) {
   await asegurarInventario(db);
-  const sede = Number(sedeId) || 0;
+  const sede = Number(sedeId) || (await sedes(db))[0]?.id || 0;
+  if (!(await db.prepare("SELECT 1 FROM inv_locales WHERE id = ?").bind(sede).first())) throw new Error("Esa sede no existe.");
+  const nombreCliente = String(cliente || "").trim().slice(0, 80);
+  const tel = String(telefono || "").replace(/[^\d+]/g, "").slice(0, 20);
+  if (fiado && !nombreCliente) throw new Error("Para fiar hace falta el nombre del cliente.");
+  const lineasLibres = [];
+  for (const l of libres || []) {
+    const descripcion = String(l?.descripcion || "").trim().slice(0, 120);
+    const monto = numero(l?.precio);
+    const n = Math.trunc(Number(l?.cantidad ?? 1));
+    if (!descripcion && monto === null) continue;
+    if (!descripcion) throw new Error("Cada cobro sin inventario necesita una descripción.");
+    if (monto === null || monto < 0) throw new Error(`Falta el monto de «${descripcion}».`);
+    if (!Number.isFinite(n) || n <= 0 || n > 10000) throw new Error(`La cantidad de «${descripcion}» no es válida.`);
+    lineasLibres.push({ descripcion, precio: monto, cantidad: n });
+  }
   const agrupados = new Map();
   for (const item of items || []) {
     const v = Number(item?.varianteId ?? item?.variante) || 0;
@@ -633,21 +760,27 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
     if (!v || n <= 0) continue;
     agrupados.set(v, (agrupados.get(v) || 0) + n);
   }
-  if (!agrupados.size) throw new Error("La venta está vacía.");
+  if (!agrupados.size && !lineasLibres.length) throw new Error("La venta está vacía.");
   if (agrupados.size > 200) throw new Error("Demasiados productos en una sola venta.");
 
   // Primero se mira con calma, para poder decir CUÁL falta. El CHECK de la
   // tabla sigue siendo la red de verdad si dos cajas cobran a la vez.
-  let total = 0;
+  let total = lineasLibres.reduce((a, l) => a + l.precio * l.cantidad, 0);
   let totalConocido = true;
+  let costoTotal = 0;
   const faltan = [];
+  const datos = new Map();
   for (const [v, n] of agrupados) {
     const variante = await verVariante(db, v);
     if (!variante) throw new Error(`El producto ${v} ya no existe.`);
     const hay = variante.porSede[sede] || 0;
     if (hay < n) faltan.push(`${variante.titulo}${variante.opcion !== "única" ? ` (${variante.opcion})` : ""}: hay ${hay}, se cobran ${n}`);
-    if (variante.precioFinal === null || variante.precioFinal === undefined) totalConocido = false;
-    else total += Number(variante.precioFinal) * n;
+    const precio = tarifa === "cashea" ? variante.precioCashea ?? variante.precioFinal ?? null : variante.precioFinal ?? null;
+    if (precio === null) totalConocido = false;
+    else total += Number(precio) * n;
+    const costo = variante.costo_producto ?? null;
+    if (costo !== null) costoTotal += Number(costo) * n;
+    datos.set(v, { precio, costo });
   }
   if (faltan.length) throw new SinStock(`No alcanza en esta sede: ${faltan.join(" · ")}`);
 
@@ -655,11 +788,35 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
   const ahora = Date.now();
   const sentencias = [
     db
-      .prepare("INSERT INTO inv_ventas (ref, local_id, quien, metodo_pago, total, contacto_id, creado) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .bind(ref, sede, String(quien).slice(0, 60), String(metodoPago).slice(0, 40), totalConocido ? Math.round(total * 100) / 100 : null, contactoId, ahora),
+      .prepare(
+        "INSERT INTO inv_ventas (ref, local_id, quien, metodo_pago, total, contacto_id, creado, cliente, telefono, fiado, nota, costo, tarifa) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      )
+      .bind(
+        ref,
+        sede,
+        String(quien).slice(0, 60),
+        fiado ? "Fiado" : String(metodoPago).slice(0, 40),
+        totalConocido ? Math.round(total * 100) / 100 : null,
+        contactoId,
+        ahora,
+        nombreCliente,
+        tel,
+        fiado ? 1 : 0,
+        String(nota || "").slice(0, 300),
+        Math.round(costoTotal * 100) / 100,
+        tarifa === "cashea" ? "cashea" : ""
+      ),
   ];
   for (const [v, n] of agrupados) {
-    sentencias.push(...sentenciasDeMovimiento(db, { variante: v, sede, tipo: "venta", delta: -n, quien, nota: metodoPago ? `Caja · ${metodoPago}` : "Caja", contacto: contactoId, ventaRef: ref, ahora }));
+    const { precio, costo } = datos.get(v);
+    sentencias.push(
+      ...sentenciasDeMovimiento(db, { variante: v, sede, tipo: "venta", delta: -n, quien, nota: fiado ? "Caja · Fiado" : metodoPago ? `Caja · ${metodoPago}` : "Caja", contacto: contactoId, ventaRef: ref, ahora, precio, costo })
+    );
+  }
+  for (const l of lineasLibres) {
+    sentencias.push(
+      db.prepare("INSERT INTO inv_venta_libre (venta_id, descripcion, cantidad, precio) VALUES ((SELECT id FROM inv_ventas WHERE ref = ?), ?, ?, ?)").bind(ref, l.descripcion, l.cantidad, l.precio)
+    );
   }
   try {
     await db.batch(sentencias);
@@ -668,7 +825,31 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
     throw error;
   }
   const venta = await db.prepare("SELECT id, total FROM inv_ventas WHERE ref = ?").bind(ref).first();
-  return { ventaId: Number(venta.id), total: venta.total, unidades: [...agrupados.values()].reduce((a, b) => a + b, 0) };
+  return { ventaId: Number(venta.id), total: venta.total, unidades: [...agrupados.values()].reduce((a, b) => a + b, 0) + lineasLibres.reduce((a, l) => a + l.cantidad, 0) };
+}
+
+// ANULAR UNA VENTA (se cobró por error, o el cliente devolvió todo): el
+// stock vuelve a la sede donde salió, con un movimiento "Devolución" por
+// cada producto, y la venta queda marcada (no se borra). Todo en un batch.
+export async function anularVenta(db, ventaId, { quien = "", motivo = "" } = {}) {
+  await asegurarInventario(db);
+  const venta = await db.prepare("SELECT * FROM inv_ventas WHERE id = ?").bind(Number(ventaId) || 0).first();
+  if (!venta) throw new Error("Esa venta no existe.");
+  if (venta.anulada) throw new Error("Esa venta ya estaba anulada.");
+  const { results: lineas } = await db
+    .prepare("SELECT variante_id, local_id, SUM(-delta) AS n FROM inv_movimientos WHERE venta_id = ? AND tipo = 'venta' GROUP BY variante_id, local_id")
+    .bind(venta.id)
+    .all();
+  const ahora = Date.now();
+  const nota = `Anulada la venta #${venta.id}${motivo ? `: ${String(motivo).slice(0, 200)}` : ""}`;
+  const sentencias = [
+    db.prepare("UPDATE inv_ventas SET anulada = 1, nota = CASE WHEN nota = '' THEN ? ELSE nota || ' · ' || ? END WHERE id = ? AND anulada = 0").bind(nota, nota, venta.id),
+  ];
+  for (const l of lineas || []) {
+    if (Number(l.n) > 0) sentencias.push(...sentenciasDeMovimiento(db, { variante: l.variante_id, sede: l.local_id, tipo: "devolucion", delta: Number(l.n), quien, nota, ventaRef: venta.ref, ahora }));
+  }
+  await db.batch(sentencias);
+  return { devueltas: (lineas || []).reduce((a, l) => a + (Number(l.n) || 0), 0) };
 }
 
 export async function ventasDelDia(db, desde) {
@@ -699,10 +880,13 @@ export async function ventasDelDia(db, desde) {
 export async function importarCatalogo(db, items, { sedeId = 0, quien = "" } = {}) {
   await asegurarInventario(db);
   const sede = Number(sedeId) || (await sedes(db))[0]?.id;
-  const cuenta = { modelos: 0, variantes: 0, conStock: 0, errores: [] };
+  const cuenta = { modelos: 0, variantes: 0, conStock: 0, juntadas: 0, errores: [] };
+  const enEsteCatalogo = new Set((items || []).map((i) => `${i?.origen || "manual"}|${i?.origen_id || ""}`));
   for (const item of items || []) {
     try {
+      await seguirPorCodigo(db, item, enEsteCatalogo);
       const productoId = await guardarProducto(db, item);
+      cuenta.juntadas += Number(item.juntadas) || 0;
       cuenta.modelos++;
       if (item.fotos?.length) await guardarFotos(db, productoId, item.fotos);
       const variantes = item.variantes?.length ? item.variantes : [{ opcion: "única" }];
@@ -723,6 +907,25 @@ export async function importarCatalogo(db, items, { sedeId = 0, quien = "" } = {
     }
   }
   return cuenta;
+}
+
+// EL MISMO MODELO CON OTRO ARCHIVO (El Emperador, 7-oct-2026). En Drive
+// cada modelo es un archivo, y si le cambian la foto el archivo es otro (otro
+// id). Si el modelo trae su código (el COD) y ya hay UNO con ese código que
+// no está en este catálogo, es el mismo: se le pone el id nuevo en vez de
+// crear otro (y su stock sigue donde estaba).
+async function seguirPorCodigo(db, item, enEsteCatalogo) {
+  const codigo = String(item?.extras?.codigo || "").trim();
+  const origen = String(item?.origen || "");
+  const origenId = String(item?.origen_id || "").trim();
+  if (!codigo || !origen || !origenId) return;
+  if (await db.prepare("SELECT 1 FROM inv_productos WHERE origen = ? AND origen_id = ?").bind(origen, origenId).first()) return;
+  const { results } = await db
+    .prepare("SELECT id, origen_id FROM inv_productos WHERE origen = ? AND json_extract(extras, '$.codigo') = ? COLLATE NOCASE LIMIT 2")
+    .bind(origen, codigo)
+    .all();
+  if (results?.length !== 1 || enEsteCatalogo.has(`${origen}|${results[0].origen_id}`)) return;
+  await db.prepare("UPDATE inv_productos SET origen_id = ? WHERE id = ?").bind(origenId, results[0].id).run();
 }
 
 // UN EXCEL O CSV DE STOCK (el del sistema viejo de la tienda, o uno hecho a
@@ -746,6 +949,7 @@ const ENCABEZADOS = {
   color: ["color", "colores"],
   cantidad: ["cantidad", "stock", "existencia", "existencias", "unidades", "inventario", "cant"],
   precio: ["precio", "pvp", "precioventa", "preciousd", "valor"],
+  costo: ["costo", "preciocosto", "preciodecosto", "costounitario", "preciocompra", "preciodecompra", "compra"],
   marca: ["marca", "fabricante"],
   sede: ["sede", "local", "tienda", "almacen", "sucursal"],
 };
@@ -798,6 +1002,8 @@ export function columnasDelCsv(encabezados) {
     if (i === -1) i = celdas.findIndex((c) => c && nombres.some((n) => c.startsWith(n)));
     indices[clave] = i;
   }
+  // "Precio de compra" es el costo, no el precio de venta.
+  if (indices.precio !== -1 && indices.precio === indices.costo) indices.precio = -1;
   return indices;
 }
 
@@ -835,12 +1041,18 @@ export async function importarCsv(db, texto, { sedeId = 0, quien = "", aplicar =
 
       // 1. ¿El código ya es de una variante (el nuestro o el de fábrica)?
       let variante = codigo ? await buscarPorCodigo(db, codigo) : null;
+      let productoDeLaFila = variante?.producto_id || 0;
       if (!variante) {
         if (!titulo && !codigo) throw new Error("fila sin producto ni código");
         // 2. Un modelo con ese código de origen (el COD de El Emperador) o
         //    con ese mismo nombre. Si no hay, se crea como manual.
+        //    En El Emperador el COD vive en extras.codigo (el modelo se
+        //    reconoce en Drive por su archivo): se busca en los dos.
         let producto = codigo
-          ? await db.prepare("SELECT id FROM inv_productos WHERE origen_id = ? AND activo = 1 LIMIT 1").bind(codigo).first()
+          ? await db
+              .prepare("SELECT id FROM inv_productos WHERE activo = 1 AND (origen_id = ? OR json_extract(extras, '$.codigo') = ? COLLATE NOCASE) ORDER BY origen = 'manual' LIMIT 1")
+              .bind(codigo, codigo)
+              .first()
           : null;
         if (!producto && titulo) {
           producto = await db.prepare("SELECT id FROM inv_productos WHERE titulo = ? COLLATE NOCASE AND activo = 1 LIMIT 1").bind(titulo).first();
@@ -857,9 +1069,11 @@ export async function importarCsv(db, texto, { sedeId = 0, quien = "", aplicar =
             titulo: titulo || codigo,
             marca: celda(fila, "marca"),
             precio: celda(fila, "precio"),
+            costo: celda(fila, "costo"),
           });
           informe.nuevos++;
         }
+        productoDeLaFila = productoId;
         // Un código que parece de barras (8 o más dígitos) y no es de los
         // nuestros queda como "de fábrica": así las etiquetas del sistema
         // viejo siguen pasando en caja. Un código corto ("125") es el del
@@ -880,6 +1094,8 @@ export async function importarCsv(db, texto, { sedeId = 0, quien = "", aplicar =
         informe.actualizadas++;
         continue;
       }
+      const costo = numero(celda(fila, "costo"));
+      if (costo !== null && productoDeLaFila) await db.prepare("UPDATE inv_productos SET costo = ? WHERE id = ?").bind(costo, productoDeLaFila).run();
       const antes = await cantidadActual(db, variante.id, sede);
       const tieneHistoria = await db.prepare("SELECT 1 FROM inv_movimientos WHERE variante_id = ? LIMIT 1").bind(variante.id).first();
       if (antes === Math.trunc(cantidad) && tieneHistoria) {
@@ -908,7 +1124,7 @@ export async function filasParaExportar(db) {
   const { results } = await db
     .prepare(
       `SELECT p.titulo, p.marca, p.gama, v.opcion, v.color, v.codigo_barras, v.codigo_fabricante,
-              COALESCE(v.precio, p.precio) AS precio, l.nombre AS sede, COALESCE(s.cantidad, 0) AS cantidad
+              COALESCE(v.precio, p.precio) AS precio, p.costo, l.nombre AS sede, COALESCE(s.cantidad, 0) AS cantidad
          FROM inv_variantes v
          JOIN inv_productos p ON p.id = v.producto_id AND p.activo = 1
          CROSS JOIN inv_locales l

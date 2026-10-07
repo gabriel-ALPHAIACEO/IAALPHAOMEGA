@@ -952,10 +952,19 @@ function cantidadDeLaFila(fila, indices) {
 // inactivas (siguen en el inventario: la hoja solo decide qué ve el
 // cliente), con sus precios (divisas, Bs, Cashea), su foto, su capacidad,
 // todas las demás columnas y su cantidad. Las filas con el mismo nombre y
-// distinta capacidad son UN modelo con varias variantes.
-export async function catalogoParaInventario(env) {
-  const { productos, aviso } = await leerHojaDeVerdad(env, { todas: true });
-  if (!productos.length && aviso) throw new Error(aviso);
+// distinta capacidad (o distinto color, si la hoja tiene columna de color)
+// son UN modelo con varias variantes. Dos filas con el mismo nombre, la
+// misma capacidad y el mismo color son la MISMA variante: se suman sus
+// cantidades (antes la segunda se perdía) y el informe dice cuántas se
+// juntaron.
+export function colorDeLaFila(extras) {
+  for (const [nombre, valor] of Object.entries(extras || {})) {
+    if (["color", "colores", "colour"].includes(normalizar(nombre))) return String(valor ?? "").trim().slice(0, 40);
+  }
+  return "";
+}
+
+export function juntarParaInventario(productos) {
   const modelos = new Map();
   for (const p of productos) {
     const clave = normalizar(p.titulo);
@@ -972,18 +981,30 @@ export async function catalogoParaInventario(env) {
         extras: p.extras,
         fotos: [],
         variantes: [],
+        juntadas: 0,
       });
     }
     const m = modelos.get(clave);
     if (p.imagen && !m.fotos.includes(p.imagen)) m.fotos.push(p.imagen);
-    m.variantes.push({
-      opcion: p.capacidad || "única",
-      precio: p.precioDivisas,
-      precio_cashea: p.precioCashea,
-      cantidad: p.cantidad,
-    });
+    const opcion = p.capacidad || "única";
+    const color = colorDeLaFila(p.extras);
+    const ya = m.variantes.find((v) => normalizar(v.opcion) === normalizar(opcion) && normalizar(v.color) === normalizar(color));
+    if (ya) {
+      if (p.cantidad !== null && p.cantidad !== undefined) ya.cantidad = (Number(ya.cantidad) || 0) + Number(p.cantidad);
+      if (ya.precio === null || ya.precio === undefined) ya.precio = p.precioDivisas;
+      if (ya.precio_cashea === null || ya.precio_cashea === undefined) ya.precio_cashea = p.precioCashea;
+      m.juntadas++;
+      continue;
+    }
+    m.variantes.push({ opcion, color, precio: p.precioDivisas, precio_cashea: p.precioCashea, cantidad: p.cantidad });
   }
   return [...modelos.values()];
+}
+
+export async function catalogoParaInventario(env) {
+  const { productos, aviso } = await leerHojaDeVerdad(env, { todas: true });
+  if (!productos.length && aviso) throw new Error(aviso);
+  return juntarParaInventario(productos);
 }
 
 // ¿Esta celda de existencia dice que NO hay? (6-oct-2026)

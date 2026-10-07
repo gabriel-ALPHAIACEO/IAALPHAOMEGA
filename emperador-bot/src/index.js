@@ -132,7 +132,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-07 (63) · 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍)";
+const VERSION = "2026-10-07 (64) · ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 👕 calzado y ropa: tallas · · (63) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -451,6 +451,9 @@ async function atenderPeticion(request, env, ctx) {
       verTexto: async (ruta) => (await atenderPeticion(pedidoInterno(ruta, url, env), env, ctx)).text(),
       traerCatalogo: () => catalogoParaInventario(env),
       nombreDelCatalogo: "la carpeta de Google Drive (las tallas salen del nombre de cada foto)",
+      // Calzado, bolsos, camisas, pantalones y gorras: el inventario habla
+      // de tallas y de calidad (AA, AAA). Ver marco.js, RUBROS.
+      rubro: "moda",
     };
     if (url.pathname.startsWith("/api/central")) return atenderApiCentral(request, env, datosDelPanel);
     if (url.pathname === "/panel" || url.pathname.startsWith("/panel/")) return atenderPanel(request, env, datosDelPanel);

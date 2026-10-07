@@ -140,7 +140,7 @@ ok(r.status === 200 && /Jordan 4 Negro/.test(html) && /href="\/panel\/caja"/.tes
 r = await atenderPanel(new Request("https://bot.test/panel/inventario"), ENV, opciones);
 ok(!/Jordan/.test(await r.text()), "sin sesión no se ve el inventario");
 html = await (await pedir(`/panel/inventario/p/${zapato}`)).text();
-ok(/<svg/.test(html) && /Entrada/.test(html) && /Ajustar/.test(html), "el modelo con códigos y botones");
+ok(/class="codigo-mini"[^>]*><svg/.test(html) && /popovertarget="mover"/.test(html) && /value="entrada"/.test(html) && /value="venta"[^>]*>[^]*?Vendí/.test(html) && /value="ajuste"/.test(html), "el modelo con códigos y botones (Llegó mercancía, Vendí, Devolución, Conté)");
 const mover = new FormData();
 Object.entries({ variante: tallas[2], sede: principal.id, cantidad: 4, tipo: "entrada", quien: "Ana", volver: `/panel/inventario/p/${zapato}` }).forEach(([k, v]) => mover.set(k, String(v)));
 r = await pedir("/panel/inventario/mover", { method: "POST", body: mover });
@@ -193,9 +193,9 @@ r = await sinSesion("/panel/app-512.png");
 const png = new Uint8Array(await r.arrayBuffer());
 ok(r.headers.get("content-type") === "image/png" && png[16] === 0 && png[18] === 2 && png[19] === 0, "el ícono es un PNG de 512×512");
 html = await (await pedir("/panel/inventario")).text();
-ok(/rel="manifest" href="\/panel\/app.webmanifest"/.test(html) && /id="instalar-app"/.test(html) && /serviceWorker\.register\("\/panel\/sw\.js"/.test(html), "cada página trae el manifiesto y el botón 📲 Instalar");
+ok(/rel="manifest" href="\/panel\/app.webmanifest"/.test(html) && /data-instalar/.test(html) && /serviceWorker\.register\("\/panel\/sw\.js"/.test(html), "cada página trae el manifiesto y el botón 📲 Instalar");
 html = await (await sinSesion("/panel")).text();
-ok(/rel="manifest"/.test(html) && /id="instalar-app"/.test(html), "también la pantalla de entrada (se puede instalar antes de poner la clave)");
+ok(/rel="manifest"/.test(html) && /data-instalar/.test(html), "también la pantalla de entrada (se puede instalar antes de poner la clave)");
 
 src.limpiar();
 terminar();
