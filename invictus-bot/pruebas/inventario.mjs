@@ -140,7 +140,7 @@ ok(r.status === 200 && /Jordan 4 Negro/.test(html) && /href="\/panel\/caja"/.tes
 r = await atenderPanel(new Request("https://bot.test/panel/inventario"), ENV, opciones);
 ok(!/Jordan/.test(await r.text()), "sin sesión no se ve el inventario");
 html = await (await pedir(`/panel/inventario/p/${zapato}`)).text();
-ok(/class="codigo-mini"[^>]*><svg/.test(html) && /popovertarget="mover"/.test(html) && /value="entrada"/.test(html) && /value="venta"[^>]*>[^]*?Vendí/.test(html) && /value="ajuste"/.test(html), "el modelo con códigos y botones (Llegó mercancía, Vendí, Devolución, Conté)");
+ok(/class="codigo-mini"[^>]*><svg/.test(html) && /popovertarget="mover"/.test(html) && /value="entrada"/.test(html) && /value="venta"[^>]*>[^]*?Vendí/.test(html) && /value="ajuste"/.test(html), "el modelo con códigos y botones (Llegó mercancía, Vendí, Devolución, Contar)");
 const mover = new FormData();
 Object.entries({ variante: tallas[2], sede: principal.id, cantidad: 4, tipo: "entrada", quien: "Ana", volver: `/panel/inventario/p/${zapato}` }).forEach(([k, v]) => mover.set(k, String(v)));
 r = await pedir("/panel/inventario/mover", { method: "POST", body: mover });

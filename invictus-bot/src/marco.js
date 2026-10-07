@@ -719,6 +719,15 @@ a.consejo:hover{color:var(--texto);border-color:rgba(61,134,255,.4);transform:tr
 .variante{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:10px 16px;align-items:center;padding:14px 16px;border-radius:20px;background:var(--velo);border:1px solid var(--borde)}
 .variante-nombre b{font-size:15px;font-weight:800}
 .variante-nombre small{display:block;font-size:12px;color:var(--suave);font-weight:600}
+.variante button.variante-nombre{appearance:none;-webkit-appearance:none;display:block;min-width:0;min-height:0;margin:-6px -8px;padding:6px 8px;border:0;border-radius:14px;background:transparent;box-shadow:none;color:inherit;font:inherit;text-align:left;cursor:pointer;transition:background .25s}
+.variante button.variante-nombre:hover{background:var(--velo-2);transform:none}
+.variante button.variante-nombre b{display:inline-flex;align-items:center;gap:6px}
+.variante button.variante-nombre b .ico{width:14px;height:14px;opacity:.45;transition:opacity .25s}
+.variante button.variante-nombre:hover b .ico{opacity:.9}
+.variante-marcas{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.variante-marcas .chip{font-size:11.5px;padding:3px 9px}
+.fuente-del-bot .opciones{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}
+.fuente-del-bot .opciones button{width:100%;justify-content:center;padding-inline:12px;white-space:normal;line-height:1.2}
 .variante-cantidad{text-align:right}
 .variante-cantidad b{display:block;font-size:24px;font-weight:800;letter-spacing:-.03em;line-height:1}
 .variante-cantidad small{font-size:11.5px;color:var(--suave);font-weight:700}

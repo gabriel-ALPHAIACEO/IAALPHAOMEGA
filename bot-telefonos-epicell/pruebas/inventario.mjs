@@ -31,7 +31,11 @@ globalThis.fetch = real;
 comprobar("dos modelos: el iPhone (dos capacidades) y el Samsung", items.map((i) => i.titulo), ["iPhone 13", "Samsung A17"]);
 const iphone = items[0];
 comprobar("las capacidades son sus variantes, con su precio y su cantidad (también la agotada)",
-  iphone.variantes, [{ opcion: "128GB", color: "", precio: "$420", precio_cashea: "470", cantidad: 5 }, { opcion: "256GB", color: "", precio: "$480", precio_cashea: "530", cantidad: 0 }]);
+  iphone.variantes, [
+    { opcion: "128GB", color: "", precio: "$420", precio_cashea: "470", precio_local: "Bs 15.000", foto: "https://x/13.jpg", extras: { RAM: "4GB" }, oculta: false, cantidad: 5 },
+    { opcion: "256GB", color: "", precio: "$480", precio_cashea: "530", precio_local: "", foto: "https://x/13b.jpg", extras: { RAM: "4GB" }, oculta: false, cantidad: 0 },
+  ]);
+comprobar("lo inactivo pasa, pero el bot no lo ofrece (oculta)", items[1].variantes[0].oculta, true);
 comprobar("la fila repetida del iPhone 13 de 128GB se suma (3 + 2 = 5) y se cuenta", iphone.juntadas, 1);
 comprobar("los precios en divisas, Bs y Cashea, y la marca", [iphone.precio, iphone.precio_local, iphone.precio_cashea, iphone.marca], ["$420", "Bs 15.000", "470", "Apple"]);
 comprobar("las fotos de las dos filas", iphone.fotos, ["https://x/13.jpg", "https://x/13b.jpg"]);

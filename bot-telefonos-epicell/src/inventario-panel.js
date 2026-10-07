@@ -39,6 +39,9 @@ import {
   editarProducto,
   archivarProducto,
   guardarVariante,
+  editarVariante,
+  leerAjuste,
+  guardarAjuste,
   leerOpciones,
   moverStock,
   ajustarStock,
@@ -408,7 +411,9 @@ async function paginaDeProducto(env, id, url, opciones = {}) {
     `<span>Precio</span><b>${precioTexto ? esc(precioTexto) : "—"}</b>${p.precio_local ? `<small>Bs ${esc(numero(p.precio_local))}</small>` : ""}`,
     casheaTexto ? `<span>Precio Cashea</span><b>${esc(casheaTexto)}</b>` : "",
     `<span>Te costó</span><b>${p.costo !== null && p.costo !== undefined ? esc(plata(p.costo, { siempre: true })) : "—"}</b>${margen !== null ? `<small>ganas ${esc(plata(margen, { siempre: true }))} por unidad</small>` : "<small>ponlo en Editar para ver la ganancia</small>"}`,
-    `<span>Quedan</span><b>${esc(numero(total))}</b><small>${listaDeSedes.length > 1 ? "entre todas las sedes" : esc(nombreSede)}</small>`,
+    p.variantes.length && !p.variantes.some((v) => v.contada)
+      ? `<span>Quedan</span><b>—</b><small>sin contar: usa Mover › Contar</small>`
+      : `<span>Quedan</span><b>${esc(numero(total))}</b><small>${listaDeSedes.length > 1 ? "entre todas las sedes" : esc(nombreSede)}</small>`,
   ].filter(Boolean);
   // Si quedan impares, el último ocupa la fila entera (sin huecos).
   const datos = `<div class="datos-lista">
@@ -434,9 +439,16 @@ ${cuadros.map((c, i) => `<div${cuadros.length % 2 && i === cuadros.length - 1 ? 
         .join(" · ");
       const sub = [v.codigo_fabricante ? `Fábrica ${v.codigo_fabricante}` : "", v.precio !== null && v.precio !== undefined && v.precio !== p.precio ? plata(v.precio, { siempre: true }) : "", otras].filter(Boolean).join(" · ");
       const datosMover = esc(JSON.stringify({ id: v.id, nombre: nombreDeVariante(v), hay: aqui }));
-      return `<div class="variante"><div class="variante-nombre"><b>${esc(nombreDeVariante(v))}</b>${sub ? `<small>${esc(sub)}</small>` : ""}</div>
+      const datosEditar = esc(
+        JSON.stringify({ id: v.id, nombre: nombreDeVariante(v), precio: v.precio ?? "", precio_cashea: v.precio_cashea ?? "", precio_local: v.precio_local ?? "", foto: v.foto || "", codigo_fabricante: v.codigo_fabricante || "", al_bot: !v.oculta })
+      );
+      const marcas = [
+        opciones.botLeeInventario && v.oculta ? `<span class="chip aviso">${icono("ojo", { clase: "chico" })}El bot no la ofrece</span>` : "",
+      ].join("");
+      const sinContar = !v.contada && !aqui;
+      return `<div class="variante"><button type="button" class="variante-nombre" popovertarget="editar-variante" data-variante="${datosEditar}" title="Editar precio, foto y código"><b>${esc(nombreDeVariante(v))}${icono("editar", { clase: "chico" })}</b>${sub ? `<small>${esc(sub)}</small>` : ""}${marcas ? `<span class="variante-marcas">${marcas}</span>` : ""}</button>
 <a class="codigo-mini" href="/panel/inventario/etiquetas?variante=${v.id}" title="Imprimir etiquetas de ${esc(v.codigo_barras)}">${svgEan13(v.codigo_barras, { alto: 30 })}</a>
-<div class="variante-cantidad"><b class="${aqui <= 0 ? "cero" : aqui <= 2 ? "poco" : ""}">${aqui}</b><small>${aqui === 1 ? "queda" : "quedan"}</small></div>
+<div class="variante-cantidad"><b class="${sinContar ? "" : aqui <= 0 ? "cero" : aqui <= 2 ? "poco" : ""}">${sinContar ? "—" : aqui}</b><small>${sinContar ? "sin contar" : aqui === 1 ? "queda" : "quedan"}</small></div>
 <button type="button" class="variante-mover" popovertarget="mover" data-mover="${datosMover}">${icono("movimientos")}Mover</button></div>`;
     })
     .join("");
@@ -469,6 +481,17 @@ ${cuadros.map((c, i) => `<div${cuadros.length % 2 && i === cuadros.length - 1 ? 
 <div class="acciones">${botonCerrarVentana("editar")}<button class="principal">${icono("check")}Guardar cambios</button></div></form>
 <form method="post" action="/panel/inventario/archivar" data-confirmar="¿Quitar «${esc(p.titulo)}» del inventario? Su historial y sus ventas se guardan, y volver a traer el catálogo no lo revive." data-confirmar-boton="Quitar" data-peligro style="margin-top:4px"><input type="hidden" name="producto" value="${p.id}"><button class="fantasma peligro chico">${icono("archivar")}Quitar del inventario</button></form>`;
 
+  const delModelo = (n) => (n === null || n === undefined ? "" : `El del modelo: ${plata(n, { siempre: true })}`);
+  const formVariante = `<form method="post" action="/panel/inventario/variante/editar" id="variante-form"><input type="hidden" name="producto" value="${p.id}"><input type="hidden" name="variante" value="">
+<div class="campos"><label class="campo">Precio (divisas)<input name="precio" inputmode="decimal" placeholder="${esc(delModelo(p.precio))}"></label>
+<label class="campo">Precio Cashea<input name="precio_cashea" inputmode="decimal" placeholder="Opcional"></label>
+<label class="campo">Precio en Bs<input name="precio_local" inputmode="decimal" placeholder="Opcional"></label>
+<label class="campo">Código de fábrica<input name="codigo_fabricante" maxlength="40" placeholder="El que trae la caja"></label>
+<label class="campo ancho">Foto<input name="foto" inputmode="url" maxlength="500" placeholder="https://… (vacío: la del modelo)"></label></div>
+${opciones.botLeeInventario ? `<input type="hidden" name="con_bot" value="1"><label class="interruptor" style="margin:4px 0 14px"><input type="checkbox" name="al_bot" value="si">El bot la ofrece a los clientes</label>` : ""}
+<p class="suave" style="font-size:13px;margin:0 0 12px">Sin precio, usa los del modelo (también su Cashea y sus Bs).${opciones.botLeeInventario ? " El bot nunca ofrece lo que está en 0." : ""}</p>
+<div class="acciones">${botonCerrarVentana("editar-variante")}<button class="principal">${icono("check")}Guardar</button></div></form>`;
+
   const movimientos = await movimientosRecientes(env.DB, { productoId: p.id, limite: 15 });
 
   return `${ESTILO}${tostadaDesde(url)}${cabecera({
@@ -495,10 +518,16 @@ ${listaDeSedes.length > 1 ? `<p class="suave" style="margin:12px 2px 0;font-size
 ${listaDeMovimientos(movimientos, { conModelo: false })}
 ${ventana("mover", { titulo: "Mover stock", texto: `<span id="mover-texto">En ${esc(nombreSede)}</span>`, icono: "movimientos", cuerpo: formMover })}
 ${ventana("editar", { titulo: "Editar producto", icono: "editar", cuerpo: formEditar }).replace('class="ventana"', 'class="ventana ventana-ancha"')}
+${ventana("editar-variante", { titulo: `Editar ${r.laVariante}`, icono: "etiqueta", cuerpo: formVariante }).replace('class="ventana"', 'class="ventana ventana-ancha"')}
 <script>
 (function(){
 var grande=document.getElementById("foto-grande");
 document.querySelectorAll("[data-foto]").forEach(function(b){b.addEventListener("click",function(){var img=grande.querySelector("img");if(!img)return;img.style.opacity=0;setTimeout(function(){img.src=b.getAttribute("data-foto");img.style.opacity=1},160);document.querySelectorAll("[data-foto]").forEach(function(o){o.classList.toggle("activa",o===b)})})});
+var fv=document.getElementById("variante-form");
+document.addEventListener("click",function(e){var b=e.target.closest("[data-variante]");if(!b||!fv)return;var d={};try{d=JSON.parse(b.getAttribute("data-variante"))}catch(x){}
+ ["variante","precio","precio_cashea","precio_local","foto","codigo_fabricante"].forEach(function(k){var i=fv.querySelector('[name="'+k+'"]');if(i)i.value=k==="variante"?d.id:(d[k]===null||d[k]===undefined?"":d[k])});
+ var ab=fv.querySelector('[name="al_bot"]');if(ab)ab.checked=!!d.al_bot;
+ document.querySelector("#editar-variante h3").textContent=d.nombre&&d.nombre!=="Única"?"Editar "+d.nombre:"Editar";});
 var f=document.getElementById("mover-form");if(!f)return;
 var cantidad=f.querySelector('[name="cantidad"]'),hay=0,laVariante=${JSON.stringify(r.laVariante)},nombreSede=${JSON.stringify(nombreSede).replace(/</g, "\\u003c")};
 function tipo(){var r=f.querySelector('[name="tipo"]:checked');return r?r.value:"entrada"}
@@ -546,10 +575,19 @@ ${selectorDeSede(listaDeSedes, listaDeSedes[0]?.id)}
 async function paginaDeImportar(env, url, opciones = {}) {
   const { traerCatalogo, nombreDelCatalogo } = opciones;
   const listaDeSedes = await sedes(env.DB);
+  const fuente = opciones.botLeeInventario ? ((await leerAjuste(env.DB, "catalogo_del_bot")) === "inventario" ? "inventario" : "hoja") : "";
+  const nombreCorto = String(nombreDelCatalogo || "la hoja").split(" (")[0];
+  const tarjetaDelBot = fuente
+    ? `<section class="panel-tarjeta fuente-del-bot"><h2>${insignia("chats", "marca", "chica")}Lo que ofrece el bot</h2>
+<p>${fuente === "inventario" ? `Lo del <b>inventario</b>: lo que tiene stock, con los precios y las fotos de aquí. ${esc(mayuscula(nombreCorto))} ya no se lee.` : `Todavía lee ${esc(nombreCorto)}. Al traer el catálogo aquí abajo, pasa a ofrecer lo del inventario.`}</p>
+<form method="post" action="/panel/inventario/fuente-del-bot" class="opciones">
+<button name="fuente" value="inventario" class="${fuente === "inventario" ? "principal" : "suave"}"${fuente === "inventario" ? ' aria-pressed="true"' : ""}>${icono("inventario")}El inventario</button>
+<button name="fuente" value="hoja" class="${fuente === "hoja" ? "principal" : "suave"}"${fuente === "hoja" ? ' aria-pressed="true"' : ""}>${icono("lista")}${esc(mayuscula(nombreCorto))}</button></form></section>`
+    : "";
   const columnas = ["código", "producto", rubroDe(opciones.rubro).variante, "color", "cantidad", "precio", "costo", "marca", "sede"];
   return `${ESTILO}${tostadaDesde(url)}${cabecera({ volver: volverAlInventario, sobre: "Inventario", titulo: "Importar", texto: "Pasa al inventario lo que ya tienes: el catálogo de la tienda o el Excel del sistema viejo. Volver a importar no duplica nada." })}
 <div class="pasos-importar">
-${
+${tarjetaDelBot}${
   traerCatalogo
     ? `<section class="panel-tarjeta"><h2>${insignia("enlace", "marca", "chica")}Traer del catálogo</h2>
 <p>Lee ${esc(nombreDelCatalogo || "el catálogo de la tienda")} y crea los productos que falten. Los que ya están se ponen al día (nombre, precio, fotos) sin tocar su stock.</p>
@@ -574,7 +612,7 @@ i.addEventListener("change",function(){var f=i.files&&i.files[0];c.classList.tog
 </script>`;
 }
 
-function informeDeImportacion(titulo, cifras, errores = [], { probando = false } = {}) {
+function informeDeImportacion(titulo, cifras, errores = [], { probando = false, r = rubroDe(""), extra = "" } = {}) {
   const datos = cifras
     .filter(([, , valor, siempre]) => siempre || Number(valor))
     .map(([nombre, ico, valor, , pie]) => dato({ nombre, valor: cifra(valor, { tipo: "numero" }), icono: ico, pie: pie || "" }))
@@ -583,9 +621,9 @@ function informeDeImportacion(titulo, cifras, errores = [], { probando = false }
 ${
   probando
     ? `<div class="aviso-grande aviso">${insignia("ojo", "aviso")}<div><b>Fue una prueba: no se guardó nada</b><p>Si los números se ven bien, vuelve y desmarca «Solo probar».</p><div class="acciones"><a class="boton principal" href="/panel/inventario/importar">${icono("atras")}Volver a subirlo</a></div></div></div>`
-    : `<div class="aviso-grande bien">${insignia("check", "bien")}<div><b>Listo, ya está en el inventario</b><p>Cada talla nueva ya tiene su código de barras.</p><div class="acciones"><a class="boton principal" href="/panel/inventario">${icono("inventario")}Ver el inventario</a></div></div></div>`
+    : `<div class="aviso-grande bien">${insignia("check", "bien")}<div><b>Listo, ya está en el inventario</b><p>Cada ${esc(r.variante)} nueva ya tiene su código de barras.</p><div class="acciones"><a class="boton principal" href="/panel/inventario">${icono("inventario")}Ver el inventario</a></div></div></div>`
 }
-<div class="mosaico">${datos}</div>
+${extra}<div class="mosaico">${datos}</div>
 ${errores?.length ? `<section class="panel-tarjeta" style="margin-top:18px"><h2>${insignia("alerta", "aviso", "chica")}Filas con problemas <span class="chip aviso">${errores.length}</span></h2><ul class="lista-errores">${errores.map((e) => `<li>${esc(e)}</li>`).join("")}</ul></section>` : ""}`;
 }
 
@@ -925,7 +963,7 @@ export async function atenderInventario(request, env, url, helpers, opciones = {
     return respuestaCsv(
       `inventario-${new Date(Date.now() + DESFASE_MS).toISOString().slice(0, 10)}.csv`,
       aCsv(
-        ["Producto", "Marca", "Gama", "Talla", "Color", "Código de barras", "Código de fábrica", "Precio", "Sede", "Cantidad"],
+        ["Producto", "Marca", "Gama", mayuscula(rubroDe(opciones.rubro).variante), "Color", "Código de barras", "Código de fábrica", "Precio", "Sede", "Cantidad"],
         filas.map((f) => [f.titulo, f.marca, f.gama, f.opcion, f.color, f.codigo_barras, f.codigo_fabricante || "", f.precio ?? "", f.sede, f.cantidad])
       )
     );
@@ -1043,7 +1081,7 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
             ["Sin cambios", "check", informe.sinCambio, false],
           ],
           informe.errores,
-          { probando }
+          { probando, r: rubroDe(opciones.rubro) }
         )
       );
     } catch (error) {
@@ -1065,6 +1103,14 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
     if (!items?.length) return redirigir(conAviso("/panel/inventario/importar", { error: "El catálogo llegó vacío. Revisa que la fuente se pueda leer." }));
     const informe = await importarCatalogo(env.DB, items, { sedeId: datos?.get("sede"), quien });
     console.log(`INVENTARIO: catálogo importado (${informe.modelos} modelos, ${informe.variantes} variantes)`);
+    // EPICCELL (decisión del dueño): traído el catálogo, MANDA EL INVENTARIO.
+    // Solo la primera vez: si después se volvió a la hoja, eso se respeta.
+    let pasoAlInventario = false;
+    if (opciones.botLeeInventario && informe.modelos && (await leerAjuste(env.DB, "catalogo_del_bot")) === null) {
+      await guardarAjuste(env.DB, "catalogo_del_bot", "inventario");
+      pasoAlInventario = true;
+      console.log("INVENTARIO: desde ahora el bot ofrece lo del inventario");
+    }
     return pagina(
       "Importación",
       informeDeImportacion(
@@ -1075,7 +1121,13 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
           ["Con stock cargado", "check", informe.conStock, true],
           ["Filas repetidas juntadas", "lista", informe.juntadas, false, "mismo producto en varias filas: se sumaron"],
         ],
-        informe.errores
+        informe.errores,
+        {
+          r: rubroDe(opciones.rubro),
+          extra: pasoAlInventario
+            ? `<div class="aviso-grande">${insignia("chats", "marca")}<div><b>Desde ahora el bot ofrece lo del inventario</b><p>Lo que tiene stock, con los precios y las fotos de aquí. Los cambios se hacen en el panel: ${esc(String(opciones.nombreDelCatalogo || "la hoja").split(" (")[0])} ya no se lee. Si algo no cuadra, en Importar puedes volver a ella.</p></div></div>`
+            : "",
+        }
       )
     );
   }
@@ -1151,6 +1203,25 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
       await guardarVariante(env.DB, productoId, { opcion, color: datos.get("color"), codigo_fabricante: lista.length === 1 ? datos.get("codigo_fabricante") : "" });
     }
     return redirigir(conAviso(alProducto, { ok: `${lista.length} ${lista.length === 1 ? "variante añadida" : "tallas añadidas"}.` }));
+  }
+  if (ruta === "/panel/inventario/variante/editar") {
+    try {
+      await editarVariante(env.DB, datos.get("variante"), {
+        ...Object.fromEntries(["precio", "precio_cashea", "precio_local", "foto", "codigo_fabricante"].map((k) => [k, datos.get(k)])),
+        oculta: datos.get("con_bot") ? datos.get("al_bot") !== "si" : undefined,
+      });
+      return redirigir(conAviso(alProducto, { ok: "Guardado." }));
+    } catch (error) {
+      return redirigir(conAviso(alProducto, { error: error.message }));
+    }
+  }
+  if (ruta === "/panel/inventario/fuente-del-bot") {
+    const fuente = datos.get("fuente") === "hoja" ? "hoja" : "inventario";
+    if (opciones.botLeeInventario) {
+      await guardarAjuste(env.DB, "catalogo_del_bot", fuente);
+      console.log(`INVENTARIO: el bot ofrece desde ahora lo de ${fuente === "hoja" ? "la hoja" : "el inventario"}`);
+    }
+    return redirigir(conAviso("/panel/inventario/importar", { ok: fuente === "hoja" ? `El bot vuelve a leer ${String(opciones.nombreDelCatalogo || "la hoja").split(" (")[0]}.` : "El bot ofrece lo del inventario." }));
   }
   if (ruta === "/panel/inventario/editar") {
     await editarProducto(env.DB, productoId, Object.fromEntries(["titulo", "marca", "gama", "precio", "precio_local", "precio_cashea", "costo"].map((k) => [k, datos.get(k)])));

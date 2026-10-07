@@ -168,6 +168,37 @@ ok((await inv.verVariante(DB, varGorra)).porSede[sede.id] === 9, "el Excel con e
 const informeJuntadas = await inv.importarCatalogo(DB, [{ origen: "sheets", origen_id: "moto-g", titulo: "Moto G", juntadas: 2, variantes: [{ opcion: "64GB", cantidad: 5 }] }], { sedeId: sede.id });
 ok(informeJuntadas.juntadas === 2, "el informe dice cuántas filas repetidas se juntaron");
 
+titulo("cada capacidad con lo suyo, y lo que ofrece el bot");
+const moto = await inv.guardarProducto(DB, { origen: "sheets", origen_id: "moto-edge", titulo: "Moto Edge", precio: 300, precio_local: 11000, precio_cashea: 340 });
+const m128 = await inv.guardarVariante(DB, moto, { opcion: "128GB", precio: 300, precio_cashea: 340, precio_local: 11000, foto: "https://x/edge.jpg", extras: { RAM: "8GB" } });
+const m256 = await inv.guardarVariante(DB, moto, { opcion: "256GB", precio: 360 });
+const m512 = await inv.guardarVariante(DB, moto, { opcion: "512GB", oculta: true });
+let paraElBot = (await inv.catalogoParaElBot(DB)).filter((f) => f.productoId === moto);
+ok(paraElBot.map((f) => f.opcion).join(",") === "128GB,256GB", "lo oculto no se ofrece; lo que nunca se contó, sí", JSON.stringify(paraElBot.map((f) => f.opcion)));
+const de256 = paraElBot.find((f) => f.opcion === "256GB");
+ok(de256.precio === 360 && de256.precioCashea === null && de256.precioLocal === null, "la de 256GB no toma el Cashea ni los Bs de la de 128GB (eran de otra capacidad)", JSON.stringify(de256));
+ok((await inv.verVariante(DB, m256)).precioCashea === null, "ni la caja");
+ok(paraElBot[0].foto === "https://x/edge.jpg" && paraElBot[0].extras.RAM === "8GB" && de256.foto === "", "cada capacidad con su foto y sus columnas");
+await inv.ajustarStock(DB, { varianteId: m128, sedeId: sede.id, cantidad: 0 });
+paraElBot = (await inv.catalogoParaElBot(DB)).filter((f) => f.productoId === moto);
+ok(!paraElBot.some((f) => f.opcion === "128GB"), "contada en 0, ya no se ofrece");
+let fallo = null;
+try {
+  await inv.editarVariante(DB, m256, { foto: "http://inseguro.jpg" });
+} catch (e) {
+  fallo = e;
+}
+ok(/https/.test(fallo?.message || ""), "una foto que no es https no se guarda", fallo?.message);
+await inv.editarVariante(DB, m256, { precio: "", precio_cashea: "399", foto: "https://x/256.jpg", oculta: undefined });
+const editada = sql.prepare("SELECT precio, precio_cashea, foto, oculta FROM inv_variantes WHERE id = ?").get(m256);
+ok(editada.precio === null && editada.precio_cashea === 399 && editada.foto === "https://x/256.jpg" && editada.oculta === 0, "editar: vacío vuelve al precio del modelo, y sin decir nada no cambia si se ofrece", JSON.stringify(editada));
+await inv.editarVariante(DB, m512, { oculta: false });
+ok(sql.prepare("SELECT oculta FROM inv_variantes WHERE id = ?").get(m512).oculta === 0, "y mostrarla otra vez");
+ok((await inv.elBotLeeElInventario(DB)) === false, "hasta que no se dice, el bot sigue con la hoja");
+const importado = await inv.importarCatalogo(DB, [{ origen: "sheets", origen_id: "cero", titulo: "Agotado en la hoja", variantes: [{ opcion: "64GB", cantidad: 0 }, { opcion: "128GB", cantidad: null }] }], { sedeId: sede.id });
+const cero = (await inv.catalogoParaElBot(DB)).filter((f) => f.titulo === "Agotado en la hoja").map((f) => f.opcion);
+ok(importado.conStock === 0 && cero.join() === "128GB", "importar: el 0 de la hoja queda contado (no se ofrece); sin número, sin contar (sí)", JSON.stringify(cero));
+
 titulo("cada tienda con las palabras de su negocio");
 ok(rubroDe("calzado").variantes === "tallas" && rubroDe("telefonos").variantes === "capacidades" && rubroDe("raro") === RUBROS.general, "zapatos: tallas · teléfonos: capacidades · otra: variantes");
 ok(rubroDe("telefonos").conSerial && !rubroDe("calzado").conSerial && !rubroDe("moda").conSerial, "solo la de teléfonos pide IMEI");
@@ -192,6 +223,32 @@ html = await (await pedir("/panel/caja", { rubro: "telefonos", tarifaDeCaja: "ca
 ok(/id="serial"/.test(html) && /IMEI/.test(html), "la caja de teléfonos pide el IMEI para la garantía");
 html = await (await pedir("/panel/caja", { rubro: "calzado" })).text();
 ok(!/id="serial"/.test(html), "la de zapatos no");
+
+html = await (await pedir(`/panel/inventario/p/${moto}`, { rubro: "telefonos", botLeeInventario: true })).text();
+ok(/popovertarget="editar-variante"/.test(html) && /id="variante-form"/.test(html) && /type="checkbox" name="al_bot"/.test(html), "cada capacidad se edita (precio, Cashea, Bs, foto y si el bot la ofrece)");
+ok(/sin contar/.test(html), "y la que nunca se contó lo dice");
+html = await (await pedir(`/panel/inventario/p/${moto}`, { rubro: "calzado" })).text();
+ok(/id="variante-form"/.test(html) && !/type="checkbox" name="al_bot"/.test(html), "en una tienda cuyo bot no lee el inventario, sin el interruptor del bot");
+const formVariante = new FormData();
+for (const [k, v] of Object.entries({ producto: moto, variante: m512, precio: "450", precio_cashea: "", precio_local: "", foto: "", codigo_fabricante: "", con_bot: "1" })) formVariante.set(k, String(v));
+let rv = await pedir("/panel/inventario/variante/editar", { botLeeInventario: true }, { method: "POST", body: formVariante });
+ok(rv.status === 303 && sql.prepare("SELECT precio, oculta FROM inv_variantes WHERE id = ?").get(m512).oculta === 1, "desmarcado «El bot la ofrece», queda oculta", String(rv.status));
+html = await (await pedir("/panel/inventario/importar", { botLeeInventario: true, traerCatalogo: async () => [], nombreDelCatalogo: "la hoja de Google (todo)" })).text();
+ok(/Lo que ofrece el bot/.test(html) && /Todavía lee la hoja de Google\./.test(html), "Importar dice de dónde saca el bot lo que ofrece");
+const traer = new FormData();
+traer.set("sede", String(sede.id));
+const catalogoDePrueba = async () => [{ origen: "sheets", origen_id: "nuevo", titulo: "Redmi 15", variantes: [{ opcion: "128GB", cantidad: 2 }] }];
+html = await (await pedir("/panel/inventario/importar/catalogo", { botLeeInventario: true, traerCatalogo: catalogoDePrueba }, { method: "POST", body: traer })).text();
+ok(/Desde ahora el bot ofrece lo del inventario/.test(html) && (await inv.elBotLeeElInventario(DB)), "traer el catálogo hace que el bot ofrezca lo del inventario");
+const volver = new FormData();
+volver.set("fuente", "hoja");
+rv = await pedir("/panel/inventario/fuente-del-bot", { botLeeInventario: true }, { method: "POST", body: volver });
+ok(rv.status === 303 && !(await inv.elBotLeeElInventario(DB)), "con un botón vuelve a la hoja");
+await (await pedir("/panel/inventario/importar/catalogo", { botLeeInventario: true, traerCatalogo: catalogoDePrueba }, { method: "POST", body: traer })).text();
+ok(!(await inv.elBotLeeElInventario(DB)), "y volver a traer el catálogo respeta esa decisión");
+await (await pedir("/panel/inventario/importar/catalogo", { traerCatalogo: catalogoDePrueba }, { method: "POST", body: traer })).text();
+await pedir("/panel/inventario/fuente-del-bot", {}, { method: "POST", body: (() => { const f = new FormData(); f.set("fuente", "inventario"); return f; })() });
+ok(!(await inv.elBotLeeElInventario(DB)), "en Invictus o El Emperador (su bot no lee el inventario) no cambia nada");
 
 titulo("la caja por dentro (lo que manda el botón Cobrar)");
 const cobrarEnCaja = (cuerpo, opciones) =>

@@ -121,6 +121,12 @@ const TABLAS_INVENTARIO = [
     precio      REAL,
     costo       REAL
   )`,
+  // Ajustes del inventario (clave → valor). Hoy: de dónde saca el bot lo
+  // que ofrece ("inventario" o "hoja"; ver elBotLeeElInventario).
+  `CREATE TABLE IF NOT EXISTS inv_ajustes (
+    clave TEXT PRIMARY KEY,
+    valor TEXT NOT NULL
+  )`,
   "CREATE UNIQUE INDEX IF NOT EXISTS inv_codigo ON inv_variantes (codigo_barras)",
   "CREATE UNIQUE INDEX IF NOT EXISTS inv_codigo_fab ON inv_variantes (codigo_fabricante)",
   "CREATE INDEX IF NOT EXISTS inv_var_producto ON inv_variantes (producto_id)",
@@ -146,6 +152,14 @@ const COLUMNAS_NUEVAS = [
   ["inv_movimientos", "costo", "REAL"],
   // "cashea" si la venta se cobró con el precio Cashea (EPICCELL).
   ["inv_ventas", "tarifa", "TEXT NOT NULL DEFAULT ''"],
+  // LA FILA ENTERA DE LA HOJA EN SU VARIANTE (EPICCELL, 7-oct-2026): cada
+  // capacidad tiene su precio en Bs, su foto y sus columnas (RAM, estado…),
+  // y "oculta" es el Activo = NO de la hoja: está en el inventario, pero
+  // el bot no la ofrece.
+  ["inv_variantes", "precio_local", "REAL"],
+  ["inv_variantes", "foto", "TEXT NOT NULL DEFAULT ''"],
+  ["inv_variantes", "extras", "TEXT NOT NULL DEFAULT '{}'"],
+  ["inv_variantes", "oculta", "INTEGER NOT NULL DEFAULT 0"],
 ];
 
 export const TIPOS_DE_MOVIMIENTO = {
@@ -163,7 +177,7 @@ export async function asegurarInventario(db) {
   for (const sentencia of TABLAS_INVENTARIO) await db.prepare(sentencia).run();
   const { results: hay } = await db
     .prepare(
-      "SELECT 'inv_productos' AS t, name FROM pragma_table_info('inv_productos') UNION ALL SELECT 'inv_ventas', name FROM pragma_table_info('inv_ventas') UNION ALL SELECT 'inv_movimientos', name FROM pragma_table_info('inv_movimientos')"
+      "SELECT 'inv_productos' AS t, name FROM pragma_table_info('inv_productos') UNION ALL SELECT 'inv_ventas', name FROM pragma_table_info('inv_ventas') UNION ALL SELECT 'inv_movimientos', name FROM pragma_table_info('inv_movimientos') UNION ALL SELECT 'inv_variantes', name FROM pragma_table_info('inv_variantes')"
     )
     .all();
   const tiene = new Set((hay || []).map((c) => `${c.t}.${c.name}`));
@@ -361,6 +375,19 @@ export async function sedesConStock(db) {
 }
 
 // Un modelo entero: sus variantes, el stock de cada una por sede y sus fotos.
+// Una variante con su PROPIO precio es otra fila de la hoja (otra
+// capacidad): su Cashea y su precio en Bs son los suyos, y si no los tiene
+// no hay, en vez de tomar los del modelo (que son los de OTRA capacidad y
+// salían como suyos). Sin precio propio, todo es el del modelo.
+function preciosDeLaVariante(v, p) {
+  const propio = v.precio !== null && v.precio !== undefined;
+  return {
+    precio: propio ? v.precio : p.precio ?? null,
+    precioCashea: v.precio_cashea ?? (propio ? null : p.precio_cashea ?? null),
+    precioLocal: v.precio_local ?? (propio ? null : p.precio_local ?? null),
+  };
+}
+
 export async function verProducto(db, id) {
   await asegurarInventario(db);
   const producto = await db.prepare("SELECT * FROM inv_productos WHERE id = ?").bind(Number(id) || 0).first();
@@ -391,7 +418,15 @@ export async function verProducto(db, id) {
     fotos: fotos || [],
     variantes: (variantes || []).map((v) => {
       const porSede = porVariante.get(v.id) || {};
-      return { ...v, porSede, total: Object.values(porSede).reduce((a, b) => a + b, 0), precioCashea: v.precio_cashea ?? producto.precio_cashea ?? null };
+      return {
+        ...v,
+        extras: leerJson(v.extras, {}),
+        porSede,
+        total: Object.values(porSede).reduce((a, b) => a + b, 0),
+        // Sin ninguna fila de stock: nunca se contó (la hoja decía "SI").
+        contada: porVariante.has(v.id),
+        precioCashea: preciosDeLaVariante(v, producto).precioCashea,
+      };
     }),
   };
 }
@@ -433,7 +468,7 @@ async function conStockPorSede(db, variante) {
   return {
     ...variante,
     precioFinal: variante.precio ?? variante.precio_producto ?? null,
-    precioCashea: variante.precio_cashea ?? variante.precio_cashea_producto ?? null,
+    precioCashea: preciosDeLaVariante(variante, { precio: variante.precio_producto, precio_cashea: variante.precio_cashea_producto }).precioCashea,
     porSede,
     total: Object.values(porSede).reduce((a, b) => a + b, 0),
   };
@@ -598,7 +633,7 @@ export function leerOpciones(texto) {
 // Crea la variante si no existe y le pone su código de barras. Devuelve
 // su id. El código de fábrica (opcional) se guarda aparte: la caja
 // reconoce los dos.
-export async function guardarVariante(db, productoId, { opcion = "única", color = "", codigo_fabricante = "", precio = null, precio_cashea = null } = {}) {
+export async function guardarVariante(db, productoId, { opcion = "única", color = "", codigo_fabricante = "", precio = null, precio_cashea = null, precio_local = null, foto = "", extras = null, oculta } = {}) {
   await asegurarInventario(db);
   const op = String(opcion || "única").trim().slice(0, 40) || "única";
   const col = String(color || "").trim().slice(0, 40);
@@ -623,13 +658,111 @@ export async function guardarVariante(db, productoId, { opcion = "única", color
       .bind(fab, id, fab, id)
       .run();
   }
-  if (numero(precio) !== null || numero(precio_cashea) !== null) {
+  if (numero(precio) !== null || numero(precio_cashea) !== null || numero(precio_local) !== null) {
     await db
-      .prepare("UPDATE inv_variantes SET precio = COALESCE(?, precio), precio_cashea = COALESCE(?, precio_cashea) WHERE id = ?")
-      .bind(numero(precio), numero(precio_cashea), id)
+      .prepare("UPDATE inv_variantes SET precio = COALESCE(?, precio), precio_cashea = COALESCE(?, precio_cashea), precio_local = COALESCE(?, precio_local) WHERE id = ?")
+      .bind(numero(precio), numero(precio_cashea), numero(precio_local), id)
       .run();
   }
+  const laFoto = fotoValida(foto);
+  if (laFoto) await db.prepare("UPDATE inv_variantes SET foto = ? WHERE id = ?").bind(laFoto, id).run();
+  if (extras && typeof extras === "object" && Object.keys(extras).length) {
+    await db.prepare("UPDATE inv_variantes SET extras = ? WHERE id = ?").bind(JSON.stringify(extras), id).run();
+  }
+  if (oculta !== undefined && oculta !== null) await db.prepare("UPDATE inv_variantes SET oculta = ? WHERE id = ?").bind(oculta ? 1 : 0, id).run();
   return id;
+}
+
+function fotoValida(url) {
+  const u = String(url || "").trim();
+  return /^https:\/\/\S+$/i.test(u) ? u.slice(0, 500) : "";
+}
+
+// EDITAR UNA VARIANTE desde el panel: su precio (vacío = el del modelo), su
+// Cashea, su precio en Bs, su foto, su código de fábrica y si el bot la
+// ofrece. La opción y el color no se cambian aquí (son su nombre).
+export async function editarVariante(db, id, cambios = {}) {
+  await asegurarInventario(db);
+  const variante = await db.prepare("SELECT id FROM inv_variantes WHERE id = ?").bind(Number(id) || 0).first();
+  if (!variante) throw new Error("Esa variante ya no existe.");
+  const foto = String(cambios.foto ?? "").trim();
+  if (foto && !fotoValida(foto)) throw new Error("La foto tiene que ser un enlace que empiece por https://");
+  const fab = limpiarCodigo(cambios.codigo_fabricante);
+  if (fab && (await db.prepare("SELECT 1 FROM inv_variantes WHERE codigo_fabricante = ? AND id <> ?").bind(fab, variante.id).first())) {
+    throw new Error(`El código ${fab} ya es de otro producto.`);
+  }
+  await db
+    .prepare("UPDATE inv_variantes SET precio = ?, precio_cashea = ?, precio_local = ?, foto = ?, codigo_fabricante = ?, oculta = COALESCE(?, oculta) WHERE id = ?")
+    .bind(
+      numero(cambios.precio),
+      numero(cambios.precio_cashea),
+      numero(cambios.precio_local),
+      fotoValida(foto),
+      fab || null,
+      // Sin decir nada (una tienda cuyo bot no lee el inventario), se queda como está.
+      cambios.oculta === undefined ? null : cambios.oculta ? 1 : 0,
+      variante.id
+    )
+    .run();
+}
+
+/* ── Lo que ofrece el bot ────────────────────────────────────────────── */
+//
+// EPICCELL (decisión del dueño, 7-oct-2026): la hoja pasa entera al
+// inventario y desde entonces MANDA EL INVENTARIO. El bot ofrece cada
+// variante de un modelo activo que no esté oculta y que tenga stock. Una
+// que nunca se contó (en la hoja decía "SI" o estaba vacía) se ofrece,
+// como antes; una contada en 0, no.
+
+export async function leerAjuste(db, clave) {
+  try {
+    const fila = await db.prepare("SELECT valor FROM inv_ajustes WHERE clave = ?").bind(String(clave)).first();
+    return fila ? String(fila.valor) : null;
+  } catch {
+    // Sin tablas todavía: nadie ajustó nada.
+    return null;
+  }
+}
+
+export async function guardarAjuste(db, clave, valor) {
+  await asegurarInventario(db);
+  await db.prepare("INSERT INTO inv_ajustes (clave, valor) VALUES (?, ?) ON CONFLICT (clave) DO UPDATE SET valor = excluded.valor").bind(String(clave), String(valor)).run();
+}
+
+// Hasta que se trae el catálogo al inventario (y no se dijo otra cosa en
+// Importar), el bot sigue con la hoja.
+export async function elBotLeeElInventario(db) {
+  return (await leerAjuste(db, "catalogo_del_bot")) === "inventario";
+}
+
+export async function catalogoParaElBot(db) {
+  const { results } = await db
+    .prepare(
+      `SELECT p.id AS producto_id, p.titulo, p.marca, p.precio AS p_precio, p.precio_local AS p_local, p.precio_cashea AS p_cashea, p.enlace, p.extras AS p_extras,
+              v.id, v.opcion, v.color, v.precio, v.precio_local, v.precio_cashea, v.foto, v.extras,
+              (SELECT url FROM inv_fotos f WHERE f.producto_id = p.id ORDER BY f.orden, f.id LIMIT 1) AS foto_del_modelo,
+              (SELECT COUNT(*) FROM inv_stock s WHERE s.variante_id = v.id) AS contada,
+              (SELECT COALESCE(SUM(s.cantidad), 0) FROM inv_stock s WHERE s.variante_id = v.id) AS hay
+         FROM inv_variantes v JOIN inv_productos p ON p.id = v.producto_id
+        WHERE p.activo = 1 AND v.oculta = 0
+        ORDER BY p.id, v.id`
+    )
+    .all();
+  return (results || [])
+    .filter((f) => !Number(f.contada) || Number(f.hay) > 0)
+    .map((f) => ({
+      productoId: Number(f.producto_id),
+      varianteId: Number(f.id),
+      titulo: f.titulo,
+      marca: f.marca || "",
+      opcion: f.opcion === "única" ? "" : f.opcion,
+      color: f.color || "",
+      ...preciosDeLaVariante(f, { precio: f.p_precio, precio_cashea: f.p_cashea, precio_local: f.p_local }),
+      foto: f.foto || f.foto_del_modelo || "",
+      enlace: f.enlace || "",
+      extras: { ...leerJson(f.p_extras, {}), ...leerJson(f.extras, {}) },
+      hay: Number(f.contada) ? Number(f.hay) : null,
+    }));
 }
 
 /* ── Mover stock ─────────────────────────────────────────────────────── */
@@ -893,12 +1026,16 @@ export async function importarCatalogo(db, items, { sedeId = 0, quien = "" } = {
       for (const v of variantes) {
         const varianteId = await guardarVariante(db, productoId, v);
         cuenta.variantes++;
-        const n = Math.trunc(Number(v.cantidad));
-        if (Number.isFinite(n) && n > 0) {
+        // Sin número ("SI", vacío) no se inventa nada: queda sin contar. Un
+        // 0 de verdad sí se anota: contada y agotada no es lo mismo que sin
+        // contar (el bot ofrece la que no se contó, no la que está en 0).
+        const crudo = v.cantidad;
+        const n = crudo === null || crudo === undefined || String(crudo).trim() === "" ? NaN : Math.trunc(Number(crudo));
+        if (Number.isFinite(n) && n >= 0) {
           const yaTiene = await db.prepare("SELECT 1 FROM inv_movimientos WHERE variante_id = ? LIMIT 1").bind(varianteId).first();
           if (!yaTiene) {
             await ajustarStock(db, { varianteId, sedeId: sede, cantidad: n, quien, nota: "Importado del catálogo", tipo: "carga" });
-            cuenta.conStock++;
+            if (n > 0) cuenta.conStock++;
           }
         }
       }
