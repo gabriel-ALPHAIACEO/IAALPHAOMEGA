@@ -737,7 +737,7 @@ async function leerHoja(env) {
   return datos;
 }
 
-async function leerHojaDeVerdad(env) {
+async function leerHojaDeVerdad(env, opciones = {}) {
   const vacio = { productos: [], encabezados: [], filasLeidas: 0, columnas: {} };
 
   if (!env.SHEET_ID || /^PEGA_AQUI/i.test(env.SHEET_ID)) {
@@ -789,7 +789,7 @@ async function leerHojaDeVerdad(env) {
     return { ...vacio, aviso };
   }
 
-  return convertir(leerCsv(texto), env);
+  return convertir(leerCsv(texto), env, opciones);
 }
 
 // Quita tildes, mayúsculas, espacios y signos para comparar nombres de
@@ -802,7 +802,10 @@ function normalizar(texto) {
     .replace(/[^a-z0-9]/g, "");
 }
 
-function convertir(filas, env) {
+// todas: true (para el inventario) no esconde nada —ni lo agotado ni lo
+// inactivo— y añade a cada fila su cantidad, su precio en divisas solo y si
+// está activa. Sin eso, la lista es la de siempre: lo que el cliente puede ver.
+function convertir(filas, env, { todas = false } = {}) {
   const vacio = { productos: [], encabezados: [], filasLeidas: filas.length, columnas: {} };
 
   if (filas.length < 2) {
@@ -864,10 +867,12 @@ function convertir(filas, env) {
 
     // Solo se esconde con un NO explícito: una celda vacía se toma como
     // activo, para que no haya que rellenar la columna producto a producto.
+    let activo = true;
     if (indices.activo !== -1) {
       const estado = normalizar(fila[indices.activo]);
       if (["no", "0", "false", "borrador", "inactivo", "agotado", "agotada", "vendido", "vendida", "nohay", "sinexistencia", "sinstock"].includes(estado)) {
-        continue;
+        activo = false;
+        if (!todas) continue;
       }
     }
 
@@ -875,7 +880,8 @@ function convertir(filas, env) {
     // "no hay" escrito. Y TODAS las columnas de existencia cuentan
     // (6-oct-2026): con "Cantidad" y "Existencia" a la vez, cualquiera de
     // las dos en 0 o en NO lo esconde. Mayúsculas o minúsculas, igual.
-    if (indices.existencias.some((i) => sinExistencia(fila[i]))) continue;
+    const agotado = indices.existencias.some((i) => sinExistencia(fila[i]));
+    if (agotado && !todas) continue;
 
     const precioPrincipal = indices.precio === -1 ? "" : String(fila[indices.precio] || "").trim();
     const precioLocal =
@@ -914,6 +920,7 @@ function convertir(filas, env) {
       // lo que el modelo cree saber de ese teléfono.
       extras: otrasColumnas(fila, encabezados, indices),
       busqueda: indiceDeBusqueda(titulo, fila, encabezados, indices),
+      ...(todas ? { activo, precioDivisas: precioPrincipal, precioBs: precioLocal, cantidad: agotado ? 0 : cantidadDeLaFila(fila, indices) } : {}),
     });
   }
 
@@ -923,6 +930,58 @@ function convertir(filas, env) {
   );
 
   return { productos, encabezados, filasLeidas: filas.length, columnas };
+}
+
+// Cuántas hay según la hoja: el primer número de las columnas de existencia.
+// "SI" o "hay" no dicen cuántas: null, y el inventario no inventa un número.
+function cantidadDeLaFila(fila, indices) {
+  for (const i of indices.existencias) {
+    const bruto = String(fila[i] ?? "").trim();
+    if (/^\d[\d.,\s]*$/.test(bruto)) {
+      const n = Number(bruto.replace(/[.,\s]/g, ""));
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return null;
+}
+
+// PARA EL INVENTARIO (7-oct-2026): EPICCELL pasa entera al inventario nuevo
+// (decisión del dueño): cada fila de la hoja, también las agotadas y las
+// inactivas (siguen en el inventario: la hoja solo decide qué ve el
+// cliente), con sus precios (divisas, Bs, Cashea), su foto, su capacidad,
+// todas las demás columnas y su cantidad. Las filas con el mismo nombre y
+// distinta capacidad son UN modelo con varias variantes.
+export async function catalogoParaInventario(env) {
+  const { productos, aviso } = await leerHojaDeVerdad(env, { todas: true });
+  if (!productos.length && aviso) throw new Error(aviso);
+  const modelos = new Map();
+  for (const p of productos) {
+    const clave = normalizar(p.titulo);
+    if (!modelos.has(clave)) {
+      modelos.set(clave, {
+        origen: "sheets",
+        origen_id: clave.slice(0, 120),
+        titulo: p.titulo,
+        marca: p.marca,
+        precio: p.precioDivisas,
+        precio_local: p.precioBs,
+        precio_cashea: p.precioCashea,
+        enlace: p.url,
+        extras: p.extras,
+        fotos: [],
+        variantes: [],
+      });
+    }
+    const m = modelos.get(clave);
+    if (p.imagen && !m.fotos.includes(p.imagen)) m.fotos.push(p.imagen);
+    m.variantes.push({
+      opcion: p.capacidad || "única",
+      precio: p.precioDivisas,
+      precio_cashea: p.precioCashea,
+      cantidad: p.cantidad,
+    });
+  }
+  return [...modelos.values()];
 }
 
 // ¿Esta celda de existencia dice que NO hay? (6-oct-2026)

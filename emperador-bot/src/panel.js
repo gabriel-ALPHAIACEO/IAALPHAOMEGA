@@ -29,6 +29,7 @@
 // en el contacto (EPICELL, columna "conversacion") se ve igual: si no hay
 // mensajes en la tabla, se lee de ahí.
 
+import { atenderInventario, esRutaDeInventario } from "./inventario-panel.js";
 import { cargarContacto, pausar, despausar, asegurarColumnas } from "./estado.js";
 import { gastoDelMes } from "./gasto.js";
 import { TABLAS, leerTabla, tipoDeError, esIntencionDeCompra, asegurarTurnos, asegurarErrores, solucionarErrores, MARCA_VISIBLE, MARCAS } from "./registro.js";
@@ -310,7 +311,7 @@ textarea{width:100%}
 
 function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnuncios = true, enVivo = false, entrada = false } = {}) {
   const menu = conMenu
-    ? `<nav class="menu"><a href="/panel">Chats</a><a href="/panel/clientes">Clientes</a><a href="/panel/metricas">Métricas</a><a href="/panel/ganadores">Ganadores</a><a href="/panel/errores">Errores IA</a>${conAnuncios ? '<a href="/panel/anuncios">Anuncios</a>' : ""}<a href="/panel/salir">Salir</a></nav>`
+    ? `<nav class="menu"><a href="/panel">Chats</a><a href="/panel/clientes">Clientes</a><a href="/panel/metricas">Métricas</a><a href="/panel/ganadores">Ganadores</a><a href="/panel/errores">Errores IA</a><a href="/panel/inventario">Inventario</a><a href="/panel/caja">Caja</a>${conAnuncios ? '<a href="/panel/anuncios">Anuncios</a>' : ""}<a href="/panel/salir">Salir</a></nav>`
     : "";
   const vivo = enVivo ? '<span class="en-vivo" title="Se pone al día sola en cuanto llega un mensaje"><i></i>en vivo</span>' : "";
   const arriba = entrada ? "" : `<header><div class="fila">${marcaAlpha("/panel", tienda)}${menu}${vivo}</div></header>`;
@@ -917,7 +918,7 @@ export async function atenderPanel(request, env, opciones = {}) {
   }
 }
 
-async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda", horasDePausa = 1, conAnuncios = true } = {}) {
+async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda", horasDePausa = 1, conAnuncios = true, traerCatalogo = null, nombreDelCatalogo = "" } = {}) {
   const url = new URL(request.url);
 
   // El logo de ALPHA IA (alpha.js): sin sesión, lo usa la pantalla de entrada.
@@ -1081,6 +1082,17 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
       );
     }
     return pagina("Ganadores", vistaDeGanadoresDelCliente(datos, url), { tienda, conAnuncios });
+  }
+
+  // EL INVENTARIO Y LA CAJA (7-oct-2026, ver inventario-panel.js).
+  if (esRutaDeInventario(url)) {
+    return atenderInventario(
+      request,
+      env,
+      url,
+      { pagina: (titulo, cuerpo) => pagina(titulo, cuerpo, { tienda, conAnuncios }), vieneDelPanel, redirigir },
+      { tienda, traerCatalogo, nombreDelCatalogo }
+    );
   }
 
   return paginaDeLista(env, url, tienda, conAnuncios);

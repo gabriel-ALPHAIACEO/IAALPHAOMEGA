@@ -81,7 +81,7 @@ import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDel
 // Los errores que salgan de aquí en adelante quedan guardados para el panel
 // central (ver registro.js).
 vigilarErrores();
-import { usaDrive, catalogoDeDrive, idDeCarpeta, leerUnTrozoDeDrive } from "./drive.js";
+import { usaDrive, catalogoDeDrive, idDeCarpeta, leerUnTrozoDeDrive, catalogoParaInventario } from "./drive.js";
 import { avisarAsesor } from "./aviso.js";
 import { anotar, leerRastro, hace } from "./rastro.js";
 import { conPresupuesto, limiteDeSubpeticiones } from "./presupuesto.js";
@@ -132,7 +132,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-06 (60) · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍)";
+const VERSION = "2026-10-07 (61) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -449,6 +449,8 @@ async function atenderPeticion(request, env, ctx) {
       horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
       conAnuncios: false,
       verTexto: async (ruta) => (await atenderPeticion(pedidoInterno(ruta, url, env), env, ctx)).text(),
+      traerCatalogo: () => catalogoParaInventario(env),
+      nombreDelCatalogo: "la carpeta de Google Drive (las tallas salen del nombre de cada foto)",
     };
     if (url.pathname.startsWith("/api/central")) return atenderApiCentral(request, env, datosDelPanel);
     if (url.pathname === "/panel" || url.pathname.startsWith("/panel/")) return atenderPanel(request, env, datosDelPanel);

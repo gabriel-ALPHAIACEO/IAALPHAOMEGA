@@ -96,7 +96,7 @@ import {
   NOTA_UBICACION_ENVIADA,
 } from "./ubicacion.js";
 import { gastoDelMes } from "./gasto.js";
-import { buscarProductos, urlPequena } from "./shopify.js";
+import { buscarProductos, urlPequena, catalogoParaInventario } from "./shopify.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import {
@@ -155,7 +155,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-06 (73) · ¿calzados nuevos? → el catálogo completo, sin fichas, con un \"sí, claro\" que cambia · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · informe de errores del 6-oct: el precio se dice cuando lo preguntan, tallas al asesor sin contradecir, colores que sí hay, Cashea de su nivel, mensaje vacío del anuncio, aviso de OpenAI sin saldo · revisor: menos falsas alarmas";
+const VERSION = "2026-10-07 (74) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -477,6 +477,8 @@ const trabajador = {
         horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
         conAnuncios: false,
         verTexto: async (ruta) => (await trabajador.fetch(pedidoInterno(ruta, url, env), env, ctx)).text(),
+        traerCatalogo: () => catalogoParaInventario(env),
+        nombreDelCatalogo: "la tienda de Shopify",
       });
     }
 

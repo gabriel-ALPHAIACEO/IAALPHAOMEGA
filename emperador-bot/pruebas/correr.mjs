@@ -42,6 +42,7 @@ const SUITES = [
   ["extremo.mjs", "de punta a punta: lo que de verdad le llega al cliente"],
   ["cupo.mjs", "que sin cupo de la IA no se cuente como \"miré y no está\""],
   ["conexiones.mjs", "las 50 conexiones por pasada de Cloudflare: el índice se reparte y el cliente siempre recibe respuesta"],
+  ["inventario.mjs", "el inventario y la caja: stock que nunca baja de 0, códigos de barras, importar sin duplicar"],
 ];
 
 let roto = false;

@@ -40,6 +40,7 @@
 
 import { quedan as quedanConexiones } from "./presupuesto.js";
 import { categoriaDelTipo, categoriaDeCarpeta } from "./categorias.js";
+import { rangoDeTallas } from "./tallas.js";
 
 const API = "https://www.googleapis.com/drive/v3/files";
 const CARPETA_MIME = "application/vnd.google-apps.folder";
@@ -899,6 +900,31 @@ export async function categoriasDeDrive(env) {
 // zapato (ver categorias.js).
 function sinInternos({ titulo, precio, imagen, url, categoria = "" }) {
   return { titulo, precio, imagen, url, categoria };
+}
+
+// PARA EL INVENTARIO (7-oct-2026): cada foto de Drive es un modelo, y las
+// tallas salen del rango escrito en su nombre ("40-45" → 40, 41 … 45). Sin
+// rango, una variante "única". El código de la tienda (A3-2, K6066) queda
+// en el título, así que se encuentra buscándolo. El stock no viene de
+// Drive: se carga con el Excel del sistema viejo o en el panel.
+export async function catalogoParaInventario(env) {
+  const { productos, error } = await catalogoDeDrive(env);
+  if (!productos.length && error) throw new Error(error);
+  return productos.map((p) => {
+    const rango = rangoDeTallas(`${p.nombre || ""} ${p.titulo}`);
+    const tallas = [];
+    if (rango) for (let t = rango.desde; t <= rango.hasta; t++) tallas.push({ opcion: String(t) });
+    return {
+      origen: "drive",
+      origen_id: (String(p.url).match(/\/d\/([^/]+)/) || [])[1] || p.url,
+      titulo: p.titulo,
+      precio: p.precio,
+      enlace: p.url,
+      extras: { codigo: p.codigo || "", categoria: p.categoria || "", ruta: (p.ruta || []).join(" / ") },
+      fotos: p.imagen ? [p.imagen] : [],
+      variantes: tallas.length ? tallas : [{ opcion: "única" }],
+    };
+  });
 }
 
 // Solo para las pruebas: olvidar lo leído.

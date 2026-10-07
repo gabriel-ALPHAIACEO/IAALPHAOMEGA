@@ -80,6 +80,7 @@ import {
   catalogoCompleto,
   diagnosticoHoja,
   listaDeTitulos,
+  catalogoParaInventario,
 } from "./sheets.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
@@ -163,7 +164,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-06 (51) · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max";
+const VERSION = "2026-10-07 (52) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -1074,6 +1075,8 @@ const trabajador = {
         tienda: String(env.TIENDA_NOMBRE || "EPICCELL"),
         horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
         verTexto: async (ruta) => (await trabajador.fetch(pedidoInterno(ruta, url, env), env, ctx)).text(),
+        traerCatalogo: () => catalogoParaInventario(env),
+        nombreDelCatalogo: "la hoja de Google (todo: precios en divisas, Bs y Cashea, fotos, capacidad, las demás columnas y la cantidad)",
       });
     }
 

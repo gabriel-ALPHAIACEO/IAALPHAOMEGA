@@ -37,6 +37,7 @@ const SUITES = [
   ["tienda.mjs", "el panel /panel: la clave, los mensajes, lo que pensó la IA, pausar y devolver"],
   ["instagram.mjs", "/probar-instagram: en qué paso se corta (token, suscripción, firma, envío)"],
   ["cupo.mjs", "que sin cupo de OpenAI no se cuente como \"miré y no está\""],
+  ["inventario.mjs", "el inventario y la caja: stock que nunca baja de 0, códigos de barras, importar sin duplicar"],
 ];
 
 let roto = false;
