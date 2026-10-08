@@ -382,11 +382,11 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
   // ── Sin nivel (o uno que no existe), con la tarjeta ESCRITA A MANO en
   // [CASHEA_TARJETA] de pagos.txt (8-oct-2026, dueño: "debe quedar así"):
   // sale tal cual, palabra por palabra.
+  // (8-oct-2026, dueño: "así tal cual, todos los niveles, solo copiar y
+  // pegar, más nada") SIEMPRE esta tarjeta, aunque el cliente diga su
+  // nivel: sin frases antes ni después.
   const escrita = tarjetaEscrita();
-  if (pct === null && escrita) {
-    const aviso = nivel ? `No tengo el Nivel ${nivel} en la tabla de Cashea.\n\n` : "";
-    return aviso + escrita;
-  }
+  if (escrita) return escrita;
 
   // ── Sin nivel (o uno que no existe): la promoción, la tabla y la pregunta.
   if (pct === null) {

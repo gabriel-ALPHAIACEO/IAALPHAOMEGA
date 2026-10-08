@@ -244,16 +244,11 @@ titulo("LA TABLA DE HOY (8-oct-2026): 6 cuotas + 0% exclusivo del Nivel 6, y la 
   for (const [, n, v] of t.matchAll(/Nivel (\d) → (\d+)% de inicial/g)) {
     ok(H.inicialDelNivel(n) === Number(v), `la tarjeta y la tabla dicen lo mismo del Nivel ${n} (${v}%)`);
   }
-  ok(/^No tengo el Nivel 9 en la tabla de Cashea\.\n\n💜/.test(H.tarjetaCashea({ nivel: 9, ahora: DESPUES })), "un nivel que no existe: lo dice, y la tarjeta");
-
+  // (8-oct-2026, dueño: "así tal cual, solo copiar y pegar, más nada") Con
+  // su nivel, con un zapato o con un nivel que no existe: la misma tarjeta.
   const JORDAN = [{ titulo: "Jordan 4 Retro", precio: "120 USD" }];
-  const n6 = H.tarjetaCashea({ nivel: 6, productos: JORDAN, ahora: DESPUES });
-  ok(/Nivel 6/.test(n6) && /0% de inicial/.test(n6) && /El resto, en 6 cuotas/.test(n6) && /Para optar por el modo 6 cuotas la compra debe ser de 100\$ o más/.test(n6) && !/\d+\s*USD/.test(n6),
-     "Nivel 6: 0% de inicial, 6 cuotas y la condición de los 100$, sin montos", n6.replace(/\n/g, " | "));
-  for (const [n, pct] of [[5, 20], [3, 30], [1, 60]]) {
-    const r = H.tarjetaCashea({ nivel: n, productos: JORDAN, ahora: DESPUES });
-    ok(new RegExp(`Nivel ${n}.*${pct}% de inicial`).test(r) && !/6 cuotas|100\$/.test(r) && /confirma un asesor/.test(r),
-       `Nivel ${n}: su ${pct}% de inicial, SIN las 6 cuotas (son del Nivel 6); los montos, el asesor`, r.replace(/\n/g, " | "));
+  for (const n of [6, 5, 3, 1, 9]) {
+    ok(H.tarjetaCashea({ nivel: n, productos: JORDAN, ahora: DESPUES }) === COMO_LA_PIDIO, `con Nivel ${n}: la misma tarjeta, tal cual, sin nada más`);
   }
   ok(!H.revisarCashea("Con tu Nivel 1 pagas el 60% de inicial", DESPUES).corregido, "un 60% del Nivel 1 está bien");
   ok(!H.revisarCashea("Con tu Nivel 6 pagas el 0% de inicial", DESPUES).corregido, "el 0% del Nivel 6 está bien");
