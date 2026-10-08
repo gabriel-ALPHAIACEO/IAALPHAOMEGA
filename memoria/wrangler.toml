@@ -10,7 +10,7 @@
 #   npx wrangler d1 migrations apply memoria-db --remote
 #   npx wrangler r2 bucket create memoria-archivos
 #   npx wrangler secret put MEMORIA_TOKEN   (una clave larga inventada por ti)
-#   npx wrangler secret put FAL_KEY          (la clave de fal.ai)
+#   npx wrangler secret put FAL_KEY          (solo si GENERADOR = "fal")
 # ---------------------------------------------------------------------
 
 name = "memoria"
@@ -23,14 +23,21 @@ binding = "DB"
 database_name = "memoria-db"
 database_id = "PENDIENTE_pega_aqui_el_database_id_que_imprime_wrangler_d1_create"
 
-# Archivos: los .safetensors de los LoRA (loras/...) y las imagenes
-# generadas (imagenes/...). El bucket es PRIVADO: fal descarga el LoRA por
+# Archivos: las imagenes generadas (imagenes/...) y, solo con fal, los
+# .safetensors (loras/...). El bucket es PRIVADO: fal descarga el LoRA por
 # un enlace firmado que caduca, nunca por una URL publica.
 [[r2_buckets]]
 binding = "ARCHIVOS"
 bucket_name = "memoria-archivos"
 
 [vars]
+# Quien genera las imagenes:
+#   "local" -> tu SwarmUI, con los modelos y LoRA que ya tienes. Hace falta
+#              dejar corriendo puente/puente_swarm.py (ver README).
+#   "fal"   -> GPU en la nube de fal.ai (pide FAL_KEY y subir los LoRA).
+GENERADOR = "local"
+
+# --- Solo para GENERADOR = "fal" ---------------------------------------
 # Modelo de fal que corre los LoRA. flux-lora acepta varios LoRA a la vez.
 FAL_MODELO = "fal-ai/flux-lora"
 # Cuantos minutos vale el enlace firmado con el que fal descarga un LoRA.

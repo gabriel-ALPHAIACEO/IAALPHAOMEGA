@@ -1,18 +1,23 @@
 // Worker "memoria": guarda en D1 + R2 las modelos generadas por IA, sus
-// LoRA y todo lo que se genera con ellas, y manda a generar a fal.ai.
+// LoRA y todo lo que se genera con ellas. Quien genera las imagenes lo dice
+// GENERADOR en wrangler.toml: "local" (tu SwarmUI, con los modelos y LoRA
+// que ya tienes, via puente/puente_swarm.py) o "fal" (GPU en la nube).
 //
 // Rutas (todas piden "Authorization: Bearer <MEMORIA_TOKEN>" salvo las
 // marcadas):
 //   GET  /                         estado de la configuracion (sin token)
 //   GET  /loras                    lista de LoRA
 //   POST /loras                    registra o edita un LoRA (JSON)
-//   PUT  /loras/<nombre>/archivo   sube el .safetensors al bucket (hasta 100 MB)
+//   PUT  /loras/<nombre>/archivo   (solo fal) sube el .safetensors al bucket
 //   GET  /modelos                  lista de modelos
 //   POST /modelos                  crea o edita la ficha fija de una modelo
 //   POST /modelos/<nombre>/fijar   copia a la ficha la semilla de una imagen que gusto
 //   POST /generar                  { modelo, escena, cantidad?, tamano?, semilla?, loras_extra? }
 //   GET  /generaciones?modelo=..   historial
 //   GET  /generaciones/<id>        una generacion (y si fal no aviso, le pregunta)
+//   POST /trabajos/tomar           (el puente de tu equipo) siguiente trabajo
+//   PUT  /trabajos/<id>/imagen/<n> (el puente) sube una imagen
+//   POST /trabajos/<id>/terminar   (el puente) { semilla } o { error }
 //   GET  /imagenes/<id>/<n>.jpg    la imagen guardada
 //   GET  /archivo-lora/<id>        (sin token, URL firmada) fal descarga el LoRA
 //   POST /fal/aviso/<id>           (sin token, URL firmada) fal avisa que termino
@@ -21,8 +26,9 @@ import { autorizado, firmaValida } from "./auth.js";
 import { registrarLora, subirArchivo, listarLoras, servirArchivo } from "./loras.js";
 import { registrarModelo, listarModelos } from "./modelos.js";
 import { generar, recibirAviso, leerGeneracion, listarGeneraciones } from "./generaciones.js";
+import { tomarTrabajo, subirImagen, terminarTrabajo } from "./trabajos.js";
 
-const VERSION = "2026-10-08 · modelos con identidad fija + LoRA en fal";
+const VERSION = "2026-10-08 · fichas fijas + generacion en tu SwarmUI";
 
 export default {
   async fetch(request, env, ctx) {
@@ -83,6 +89,12 @@ export default {
         return g ? json(g) : json({ error: "No existe" }, 404);
       }
 
+      if (ruta === "/trabajos/tomar" && metodo === "POST") return json(await tomarTrabajo(env));
+      m = ruta.match(/^\/trabajos\/([\w-]+)\/imagen\/(\d+)$/);
+      if (m && metodo === "PUT") return json(await subirImagen(env, m[1], Number(m[2]), request));
+      m = ruta.match(/^\/trabajos\/([\w-]+)\/terminar$/);
+      if (m && metodo === "POST") return json(await terminarTrabajo(env, m[1], await request.json()));
+
       m = ruta.match(/^\/imagenes\/[\w-]+\/\d+\.(jpg|png)$/);
       if (m && metodo === "GET") {
         const objeto = await env.ARCHIVOS.get(ruta.slice(1));
@@ -113,9 +125,23 @@ async function estado(env) {
     db,
     bucket: env.ARCHIVOS ? "conectado" : "FALTA",
     MEMORIA_TOKEN: env.MEMORIA_TOKEN ? "ok" : "FALTA",
-    FAL_KEY: env.FAL_KEY ? "ok" : "FALTA",
-    modelo_fal: env.FAL_MODELO,
+    generador: env.GENERADOR === "fal" ? "fal" : "local",
+    ...(env.GENERADOR === "fal"
+      ? { FAL_KEY: env.FAL_KEY ? "ok" : "FALTA", modelo_fal: env.FAL_MODELO }
+      : { en_cola: await enCola(env) }),
   };
+}
+
+// Si esto crece y no baja, el puente de tu equipo no esta corriendo.
+async function enCola(env) {
+  try {
+    const fila = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM generaciones WHERE generador = 'local' AND estado IN ('pendiente', 'tomado')",
+    ).first();
+    return fila.n;
+  } catch {
+    return "?";
+  }
 }
 
 function json(datos, status = 200) {
