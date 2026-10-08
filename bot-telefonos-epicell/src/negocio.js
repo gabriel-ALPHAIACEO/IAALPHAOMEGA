@@ -22,7 +22,9 @@
 // ESTE ARCHIVO ES IGUAL EN LAS TRES TIENDAS. Las ventas son las de la caja
 // (inv_ventas en inventario.js); aquí se suman, no se duplican.
 
-import { asegurarInventario, sedes } from "./inventario.js";
+import { asegurarInventario, sedes, listarProductos, verProducto } from "./inventario.js";
+import { guiaDelPanel, nombreDePantalla, pantallaValida } from "./asistente.js";
+import { rubroDe } from "./marco.js";
 import { anotarGasto } from "./gasto.js";
 
 const TABLAS_NEGOCIO = [
@@ -516,12 +518,27 @@ export function consejos({ actual, anterior, acabando = [], fiados = [], periodo
 // calculados: no inventa cifras, las lee. Cuesta lo de una respuesta corta
 // y se anota en el gasto de la IA como "asistente".
 
-const INSTRUCCIONES_ASISTENTE = `Eres el asistente de negocio de ALPHA IA dentro del panel de una tienda en Venezuela.
-Le hablas al dueño o a su equipo: claro, cálido, en español neutro y breve (máximo 6 líneas).
-Tienes los NÚMEROS REALES del negocio en JSON. Úsalos tal cual: nunca inventes cifras, productos ni clientes.
-Si algo no está en los datos, dilo ("no tengo ese dato") y di dónde se carga en el panel.
-Los montos van en dólares con el signo $.
-Puedes dar ideas concretas para vender más o gastar menos, siempre basadas en los datos.
+const INSTRUCCIONES_ASISTENTE = `Eres el asistente de ALPHA IA dentro del panel de una tienda en Venezuela.
+Le hablas al dueño o a su equipo: claro, cálido, en español neutro y breve (máximo 8 líneas).
+
+Contestas dos tipos de preguntas:
+1. SOBRE EL NEGOCIO ("¿cuánto vendí?", "¿cuántas quedan de X?", "¿quién me debe?"):
+   tienes los NÚMEROS REALES en JSON. Úsalos tal cual: nunca inventes cifras,
+   productos ni clientes. Si algo no está en los datos, dilo ("no tengo ese
+   dato") y di en qué pantalla se ve o se carga.
+2. SOBRE EL PANEL ("¿cómo cobro?", "¿cómo imprimo etiquetas?", "¿qué hago aquí?"):
+   usa la GUÍA DEL PANEL. Explica en pasos cortos y numerados, con los nombres
+   de los botones tal como están. No inventes pantallas, botones ni funciones:
+   si algo no está en la guía, di que el panel todavía no lo hace.
+Sabes en qué pantalla está la persona: si pregunta "¿qué hago aquí?" o algo
+sin decir dónde, contesta sobre ESA pantalla.
+
+Los montos van en dólares con el signo $. Puedes dar ideas concretas para
+vender más o gastar menos, siempre basadas en los datos.
+
+"ir": si la respuesta lleva a una pantalla, pon su dirección de la guía (por
+ejemplo "/panel/inventario/etiquetas") y saldrá un botón para abrirla. Si no,
+null. Nunca la pantalla en la que ya está.
 
 Si te piden REGISTRAR algo (un gasto o un abono de un cliente que debe), NO lo registras tú:
 lo dejas preparado en "accion" para que una persona lo confirme con un botón.
@@ -529,13 +546,95 @@ lo dejas preparado en "accion" para que una persona lo confirme con un botón.
     categoria es una de: ${CATEGORIAS_DE_GASTO.join(", ")}.
   · Abono: {"tipo":"abono","clave":"<la clave del cliente en fiados>","cliente":"<nombre>","monto":10}
     Solo si el cliente está en la lista de fiados; si no, explícalo.
-Si no hay nada que registrar, "accion" es null.
+Si no hay nada que registrar, "accion" es null. Cualquier otra cosa (mover
+stock, cobrar, anular, pausar el bot) la hace una persona en su pantalla: di
+cómo y pon "ir".
 
-Responde SOLO con JSON: {"respuesta":"texto para el dueño","accion":null}`;
+Responde SOLO con JSON: {"respuesta":"texto para el dueño","ir":null,"accion":null}`;
 
 export function asistenteActivo(env) {
   const deepseek = String(env?.PROVEEDOR || "").toLowerCase() === "deepseek";
   return deepseek ? Boolean(env?.DEEPSEEK_API_KEY) : Boolean(env?.OPENAI_API_KEY);
+}
+
+// LOS PRODUCTOS QUE NOMBRA (8-oct-2026): "¿cuántas Samba 40 me quedan?"
+// necesita el stock de ESE modelo, talla por talla y sede por sede, que no
+// cabe en el resumen general. Se buscan las palabras de la pregunta en el
+// inventario y van los que aparezcan (hasta 6).
+const PALABRAS_VACIAS = new Set("que cual cuales cuanto cuantos cuanta cuantas como donde cuando quien tengo tiene tienen hay quedan queda me mi mis los las del para por con una uno unos unas este esta esto ese esa eso hoy ayer semana mes vendi vendido vendidos venta ventas precio precios stock inventario producto productos cuesta cuestan dame dime puedo hago hacer tienda talla tallas modelo modelos".split(" "));
+
+export async function productosQueNombra(db, pregunta) {
+  const palabras = [...new Set(
+    String(pregunta || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((p) => p.length >= 3 && !PALABRAS_VACIAS.has(p))
+  )].slice(0, 4);
+  if (!palabras.length) return [];
+  const puntos = new Map();
+  for (const palabra of palabras) {
+    for (const p of await listarProductos(db, { q: palabra, limite: 12 })) {
+      const ya = puntos.get(p.id) || { p, n: 0 };
+      ya.n++;
+      puntos.set(p.id, ya);
+    }
+  }
+  const mejores = [...puntos.values()].sort((a, b) => b.n - a.n).slice(0, 6);
+  const nombresDeSede = new Map((await sedes(db)).map((s) => [s.id, s.nombre]));
+  const salida = [];
+  for (const { p } of mejores) {
+    const completo = await verProducto(db, p.id);
+    if (!completo) continue;
+    salida.push({
+      titulo: completo.titulo,
+      marca: completo.marca || undefined,
+      precio: completo.precio,
+      precioCashea: completo.precio_cashea ?? undefined,
+      costo: completo.costo ?? undefined,
+      quedanEnTotal: completo.variantes.reduce((a, v) => a + v.total, 0),
+      variantes: completo.variantes.slice(0, 30).map((v) => ({
+        opcion: v.opcion,
+        color: v.color || undefined,
+        quedan: v.total,
+        porSede: Object.fromEntries(Object.entries(v.porSede).map(([id, n]) => [nombresDeSede.get(Number(id)) || id, n])),
+      })),
+    });
+  }
+  return salida;
+}
+
+// LO DEL CHAT, EN NÚMEROS (8-oct-2026): para "¿cuántos me escribieron hoy?"
+// o "¿con quién está pausado el bot?". Cada consulta va por su lado: una
+// tienda vieja a la que le falte una tabla contesta lo demás igual.
+async function resumenDelChat(db, ahora = Date.now()) {
+  const desdeHoy = Date.parse(`${diaDe(ahora)}T00:00:00-04:00`);
+  const hace7 = ahora - 7 * 24 * 60 * 60 * 1000;
+  const uno = async (sql, ...args) => {
+    try {
+      return await db.prepare(sql).bind(...args).first();
+    } catch {
+      return null;
+    }
+  };
+  const todos = async (sql, ...args) => {
+    try {
+      return (await db.prepare(sql).bind(...args).all()).results || [];
+    } catch {
+      return null;
+    }
+  };
+  const hoy = await uno("SELECT COUNT(*) AS respuestas, COUNT(DISTINCT igsid) AS clientes FROM turnos WHERE cuando >= ?", desdeHoy);
+  const semana = await uno("SELECT COUNT(*) AS respuestas, COUNT(DISTINCT igsid) AS clientes FROM turnos WHERE cuando >= ?", hace7);
+  const pausados = await todos("SELECT COALESCE(NULLIF(nombre, ''), id) AS cliente, pausado_hasta FROM contactos WHERE pausado_hasta > ? ORDER BY pausado_hasta DESC LIMIT 10", ahora);
+  const etapas = await todos("SELECT etapa, COUNT(*) AS clientes FROM crm WHERE etapa <> '' GROUP BY etapa");
+  return {
+    hoy: hoy ? { clientesQueEscribieron: hoy.clientes, respuestasDelBot: hoy.respuestas } : undefined,
+    ultimos7Dias: semana ? { clientesQueEscribieron: semana.clientes, respuestasDelBot: semana.respuestas } : undefined,
+    botEnPausaCon: pausados ? pausados.map((p) => ({ cliente: p.cliente, hasta: new Date(Number(p.pausado_hasta)).toISOString() })) : undefined,
+    clientesPorEtapaDelCrm: etapas ? Object.fromEntries(etapas.map((e) => [e.etapa, e.clientes])) : undefined,
+  };
 }
 
 export async function datosParaElAsistente(db, ahora = Date.now()) {
@@ -565,28 +664,35 @@ export async function datosParaElAsistente(db, ahora = Date.now()) {
               (SELECT COALESCE(SUM(s.cantidad * p.costo), 0) FROM inv_stock s JOIN inv_variantes v ON v.id = s.variante_id JOIN inv_productos p ON p.id = v.producto_id WHERE p.costo IS NOT NULL) AS valor_al_costo`
     )
     .first();
-  return { hoy: diaDe(ahora), sedes: (await sedes(db)).map((s) => s.nombre), periodos, fiados, seEstanAcabando: acabando, inventario };
+  return { hoy: diaDe(ahora), sedes: (await sedes(db)).map((s) => s.nombre), periodos, fiados, seEstanAcabando: acabando, inventario, chat: await resumenDelChat(db, ahora) };
 }
 
 const RUBRO_EN_PALABRAS = { calzado: "zapatería (cada modelo con sus tallas)", moda: "tienda de calzado, bolsos, camisas, pantalones y gorras (por tallas)", telefonos: "tienda de teléfonos (por capacidad y color; precio en divisas y precio Cashea)" };
 
-export async function preguntarAlAsistente(env, pregunta, { tienda = "La tienda", historial = [], rubro = "" } = {}) {
+export async function preguntarAlAsistente(env, pregunta, { tienda = "La tienda", historial = [], rubro = "", pantalla = "", tarifaDeCaja = "", conAnuncios = true } = {}) {
   const texto = String(pregunta || "").trim().slice(0, 500);
   if (!texto) throw new Error("Escribe qué quieres saber.");
   if (!asistenteActivo(env)) throw new Error("El asistente necesita la clave de la IA de la tienda (la misma que usa el bot).");
   await asegurarNegocio(env.DB);
   const datos = await datosParaElAsistente(env.DB);
+  const nombrados = await productosQueNombra(env.DB, texto).catch(() => []);
+  if (nombrados.length) datos.productosQueNombra = nombrados;
+  const guia = guiaDelPanel(rubroDe(rubro), { conAnuncios, tarifaDeCaja });
+  const dondeEsta = nombreDePantalla(pantalla);
   const deepseek = String(env?.PROVEEDOR || "").toLowerCase() === "deepseek";
   const modelo = deepseek ? env.DEEPSEEK_MODELO || "deepseek-chat" : env.OPENAI_MODELO || "gpt-4o-mini";
   const mensajes = [
-    { role: "system", content: `${INSTRUCCIONES_ASISTENTE}\n\nTIENDA: ${tienda}${RUBRO_EN_PALABRAS[rubro] ? ` · ${RUBRO_EN_PALABRAS[rubro]}` : ""}\n\nDATOS DEL NEGOCIO:\n${JSON.stringify(datos)}` },
+    {
+      role: "system",
+      content: `${INSTRUCCIONES_ASISTENTE}\n\nTIENDA: ${tienda}${RUBRO_EN_PALABRAS[rubro] ? ` · ${RUBRO_EN_PALABRAS[rubro]}` : ""}\nPANTALLA EN LA QUE ESTÁ: ${dondeEsta || "otra del panel"}\n\n${guia}\n\nDATOS DEL NEGOCIO:\n${JSON.stringify(datos)}`,
+    },
     ...historial.slice(-6).map((h) => ({ role: h.de === "yo" ? "user" : "assistant", content: String(h.texto || "").slice(0, 800) })),
     { role: "user", content: texto },
   ];
   const r = await fetch(deepseek ? "https://api.deepseek.com/chat/completions" : "https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${deepseek ? env.DEEPSEEK_API_KEY : env.OPENAI_API_KEY}` },
-    body: JSON.stringify({ model: modelo, temperature: 0.2, response_format: { type: "json_object" }, messages: mensajes, max_tokens: 500 }),
+    body: JSON.stringify({ model: modelo, temperature: 0.2, response_format: { type: "json_object" }, messages: mensajes, max_tokens: 700 }),
     signal: AbortSignal.timeout(20000),
   }).catch((error) => ({ ok: false, status: 0, error }));
   if (!r.ok) {
@@ -608,7 +714,13 @@ export async function preguntarAlAsistente(env, pregunta, { tienda = "La tienda"
   } catch {
     salida = { respuesta: String(cuerpo?.choices?.[0]?.message?.content || "") };
   }
-  return { respuesta: String(salida.respuesta || "No entendí la pregunta. ¿Me la dices de otra forma?").slice(0, 2000), accion: accionValida(salida.accion, datos) };
+  // El botón "Abrir …" solo para una pantalla que existe y no es esta.
+  const ir = pantallaValida(salida.ir, { conAnuncios });
+  return {
+    respuesta: String(salida.respuesta || "No entendí la pregunta. ¿Me la dices de otra forma?").slice(0, 2000),
+    ir: ir && ir.nombre !== dondeEsta ? ir : null,
+    accion: accionValida(salida.accion, datos),
+  };
 }
 
 // Lo que propone la IA se revisa antes de enseñarlo como botón: una

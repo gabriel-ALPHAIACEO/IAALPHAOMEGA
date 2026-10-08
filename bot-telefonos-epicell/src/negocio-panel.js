@@ -266,12 +266,12 @@ ${dato("Te deben", cifra(deben), fiados.length ? `${fiados.length} ${fiados.leng
 
   const sugerencias = ["¿Cuánto vendí esta semana?", "¿Qué se está acabando?", "¿Quién me debe más?", "Dame una idea para vender más"];
   const asistente = `<section class="ia-tarjeta" id="asistente">
-<div class="ia-cabeza"><span class="ia-marca">${icono("ia")}</span><div><h2>Pregúntale a tu negocio</h2><p>Lee tus números de verdad. Si le pides anotar un gasto o un abono, te lo deja listo para que lo confirmes.</p></div></div>
-<div class="ia-charla" id="ia-charla" aria-live="polite"></div>
+<div class="ia-cabeza"><span class="ia-marca">${icono("ia")}</span><div><h2>Pregúntale a tu negocio</h2><p>Lee tus números de verdad y sabe cómo se hace todo en el panel. Si le pides anotar un gasto o un abono, te lo deja listo para que lo confirmes. También lo tienes en el botón <b>Asistente</b> de cada pantalla.</p></div></div>
+<div class="ia-charla" id="ia-charla" data-ia-charla aria-live="polite"></div>
 ${
   asistenteActivo(env)
     ? `<div class="ia-sugerencias">${sugerencias.map((t) => `<button type="button" data-pregunta="${esc(t)}">${esc(t)}</button>`).join("")}</div>
-<form class="ia-preguntar" id="ia-form" method="post" action="/panel/asistente"><input name="pregunta" placeholder="Pregunta o pide algo: «gasté 20 en transporte»" autocomplete="off" maxlength="500" required><button class="principal" aria-label="Preguntar">${icono("enviar")}</button></form>`
+<form class="ia-preguntar" id="ia-form" data-ia-form method="post" action="/panel/asistente"><input name="pregunta" placeholder="Pregunta o pide algo: «gasté 20 en transporte»" autocomplete="off" maxlength="500" required><button class="principal" aria-label="Preguntar">${icono("enviar")}</button></form>`
     : `<p class="suave">El asistente usa la misma IA del bot. Falta su clave en esta tienda.</p>`
 }
 </section>`;
@@ -317,50 +317,12 @@ ${
 ${heroe}
 ${datos}
 ${rapidos}
-<div class="dos" style="margin-top:22px"><div>${bienvenida}${asistente}${recomendaciones}</div><div>${masVendidos}${seAcaba}${metodos}</div></div>
-${SCRIPT_ASISTENTE}`;
+<div class="dos" style="margin-top:22px"><div>${bienvenida}${asistente}${recomendaciones}</div><div>${masVendidos}${seAcaba}${metodos}</div></div>`;
 }
 
-// EL ASISTENTE en la página: pregunta sin recargar, enseña "escribiendo…" y,
-// si propone registrar algo, un botón para confirmarlo (la IA nunca lo
-// registra sola). La conversación se recuerda mientras la pestaña esté
-// abierta.
-const SCRIPT_ASISTENTE = `<script>
-(function(){
-var charla=document.getElementById("ia-charla"),form=document.getElementById("ia-form");if(!charla)return;
-var K="alpha-asistente",hist=[];try{hist=JSON.parse(sessionStorage.getItem(K)||"[]")}catch(e){}
-function esc(t){return String(t==null?"":t).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
-function plata(n){var v=Number(n)||0,e=Math.abs(v-Math.round(v))<.005;return"$"+v.toLocaleString("es-VE",{minimumFractionDigits:e?0:2,maximumFractionDigits:e?0:2})}
-function guardar(){try{sessionStorage.setItem(K,JSON.stringify(hist.slice(-12)))}catch(e){}}
-function burbuja(de,texto){var d=document.createElement("div");d.className=de==="yo"?"ia-yo":"ia-ella";d.textContent=texto;charla.appendChild(d);charla.scrollTop=charla.scrollHeight;return d}
-hist.slice(-8).forEach(function(h){burbuja(h.de,h.texto)});
-function propuesta(a){
- var d=document.createElement("div");d.className="ia-propuesta";
- var texto=a.tipo==="gasto"?"Registrar un gasto de <b>"+esc(plata(a.monto))+"</b> en "+esc(a.categoria)+(a.descripcion?" ("+esc(a.descripcion)+")":""):"Registrar un abono de <b>"+esc(plata(a.monto))+"</b> de "+esc(a.cliente);
- d.innerHTML='<span>'+texto+'</span><button type="button" class="fantasma chico" data-no>No</button><button type="button" class="principal chico" data-si>Sí, registrar</button>';
- charla.appendChild(d);charla.scrollTop=charla.scrollHeight;
- d.querySelector("[data-no]").onclick=function(){d.remove()};
- d.querySelector("[data-si]").onclick=function(){var b=this;b.disabled=true;
-  var url=a.tipo==="gasto"?"/panel/gastos/nuevo":"/panel/fiados/abonar";
-  var datos=a.tipo==="gasto"?{monto:a.monto,categoria:a.categoria,descripcion:a.descripcion,quien:quien()}:{clave:a.clave,monto:a.monto,quien:quien()};
-  fetch(url,{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify(datos)}).then(function(r){return r.json()}).then(function(r){
-   if(!r.ok){b.disabled=false;d.querySelector("span").textContent=r.error||"No se pudo registrar.";return}
-   d.innerHTML='<span>Listo: '+esc(r.mensaje||"registrado")+'. Actualizando tus números…</span>';hist.push({de:"ella",texto:"Listo: "+(r.mensaje||"registrado")+"."});guardar();setTimeout(function(){location.reload()},1300);
-  }).catch(function(){b.disabled=false;d.querySelector("span").textContent="Sin conexión: no se registró nada."})};
-}
-function quien(){try{return localStorage.getItem("inv_quien")||""}catch(e){return""}}
-function preguntar(texto){
- texto=String(texto||"").trim();if(!texto)return;
- burbuja("yo",texto);var ant=hist.slice(-6);hist.push({de:"yo",texto:texto});guardar();
- var esp=document.createElement("div");esp.className="ia-ella ia-escribiendo";esp.innerHTML="<i></i><i></i><i></i>";charla.appendChild(esp);charla.scrollTop=charla.scrollHeight;
- fetch("/panel/asistente",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify({pregunta:texto,historial:ant})}).then(function(r){return r.json()}).then(function(r){
-  esp.remove();var t=r.ok?r.respuesta:(r.error||"No pude responder.");burbuja("ella",t);hist.push({de:"ella",texto:t});guardar();if(r.ok&&r.accion)propuesta(r.accion);
- }).catch(function(){esp.remove();burbuja("ella","Sin conexión. Prueba otra vez.")});
-}
-if(form)form.addEventListener("submit",function(e){e.preventDefault();var i=form.querySelector("input");preguntar(i.value);i.value=""});
-document.querySelectorAll("[data-pregunta]").forEach(function(b){b.onclick=function(){preguntar(b.getAttribute("data-pregunta"))}});
-})();
-</script>`;
+// EL ASISTENTE en la página: la charla y su script viven en asistente.js
+// (es la misma en la tarjeta de Inicio y en el botón flotante de todo el
+// panel, y marco.js pone el script en cada página).
 
 /* ── VENTAS ──────────────────────────────────────────────────────────── */
 
@@ -604,7 +566,7 @@ export async function atenderNegocio(request, env, url, helpers, opciones = {}) 
 
   if (request.method === "POST") {
     if (!vieneDelPanel(request, url)) return new Response("No", { status: 403 });
-    return atenderPost(request, env, url, { redirigir, tienda });
+    return atenderPost(request, env, url, { redirigir, tienda, rubro: opciones.rubro || "", tarifaDeCaja: opciones.tarifaDeCaja || "", conAnuncios: opciones.conAnuncios !== false });
   }
 
   if (r === "/panel/inicio") return pagina("Inicio", await paginaDeInicio(env, url, { tienda }), { ruta: "inicio" });
@@ -670,7 +632,7 @@ async function leerDatos(request) {
   return { get: (k) => f?.get(k) ?? null, crudo: null };
 }
 
-async function atenderPost(request, env, url, { redirigir, tienda }) {
+async function atenderPost(request, env, url, { redirigir, tienda, rubro = "", tarifaDeCaja = "", conAnuncios = true }) {
   const r = url.pathname;
   const datos = await leerDatos(request);
   const enJson = quiereJson(request);
@@ -682,7 +644,8 @@ async function atenderPost(request, env, url, { redirigir, tienda }) {
     const pregunta = String(datos.get("pregunta") || "");
     const historial = Array.isArray(datos.crudo?.historial) ? datos.crudo.historial.slice(-6) : [];
     try {
-      const respuesta = await preguntarAlAsistente(env, pregunta, { tienda, historial, rubro: opciones.rubro || "" });
+      const pantalla = String(datos.get("pantalla") || "").slice(0, 30);
+      const respuesta = await preguntarAlAsistente(env, pregunta, { tienda, historial, rubro, pantalla, tarifaDeCaja, conAnuncios });
       return json({ ok: true, ...respuesta });
     } catch (error) {
       return json({ ok: false, error: error.message }, 400);
