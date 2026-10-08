@@ -97,6 +97,7 @@ export default {
 
       m = ruta.match(/^\/imagenes\/[\w-]+\/\d+\.(jpg|png)$/);
       if (m && metodo === "GET") {
+        if (!env.ARCHIVOS) return json({ error: "Sin bucket R2: las imagenes estan en tu PC (ver la URL en la generacion)" }, 404);
         const objeto = await env.ARCHIVOS.get(ruta.slice(1));
         if (!objeto) return json({ error: "No existe" }, 404);
         return new Response(objeto.body, {
@@ -123,7 +124,7 @@ async function estado(env) {
   return {
     version: VERSION,
     db,
-    bucket: env.ARCHIVOS ? "conectado" : "FALTA",
+    bucket: env.ARCHIVOS ? "conectado" : "sin R2: las imagenes se quedan en tu PC",
     MEMORIA_TOKEN: env.MEMORIA_TOKEN ? "ok" : "FALTA",
     generador: env.GENERADOR === "fal" ? "fal" : "local",
     ...(env.GENERADOR === "fal"

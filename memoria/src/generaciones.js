@@ -35,6 +35,7 @@ export async function generar(env, origen, pedido) {
     loras.push({ lora, escala: Number(p.escala ?? lora.escala) });
   }
   if (generador === "fal" && !loras.length) throw new Error("Con fal la modelo necesita un LoRA");
+  if (generador === "fal" && !env.ARCHIVOS) throw new Error("Con fal hace falta el bucket R2 activado");
   if (generador === "local") {
     const sinArchivo = loras.find(({ lora }) => !lora.archivo_local);
     if (sinArchivo) {
@@ -184,7 +185,9 @@ export function formatear(fila) {
     ...fila,
     loras: JSON.parse(fila.loras),
     parametros: JSON.parse(fila.parametros),
-    imagenes: JSON.parse(fila.imagenes).map((clave) => `/${clave}`),
+    // Claves de R2 -> ruta en este Worker. Las que ya son URL apuntan a tu
+    // SwarmUI (sin R2): se abren desde tu PC.
+    imagenes: JSON.parse(fila.imagenes).map((clave) => (/^https?:\/\//.test(clave) ? clave : `/${clave}`)),
     fal_urls: undefined,
   };
 }

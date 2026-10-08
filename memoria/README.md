@@ -36,11 +36,14 @@ También se guardan el checkpoint (`analogMadnessSDXL_xl5`), pasos, CFG y tamañ
 npx wrangler d1 create memoria-db
    → pega el database_id en wrangler.toml
 npx wrangler d1 migrations apply memoria-db --remote
-npx wrangler r2 bucket create memoria-archivos
 npx wrangler secret put MEMORIA_TOKEN     ← una clave larga inventada por ti
 npx wrangler deploy
 ```
 Abre la URL del Worker en el navegador: tiene que decir `conectada`, `ok` y `"generador": "local"`.
+
+En PowerShell, si `npx` da "la ejecución de scripts está deshabilitada", usa `npx.cmd` en su lugar (mismo comando).
+
+**R2 es opcional.** Sin él, las imágenes se quedan en tu PC (carpeta de salida de SwarmUI) y la generación guarda la dirección para abrirlas desde tu navegador (`http://127.0.0.1:7801/View/...`). Para guardarlas también en la nube: activa R2 en el panel de Cloudflare (R2 Object Storage; pide una tarjeta aunque los primeros 10 GB son gratis), corre `npx.cmd wrangler r2 bucket create memoria-archivos`, quita los `#` del bloque `[[r2_buckets]]` en `wrangler.toml` y vuelve a desplegar.
 
 **2. El puente en tu PC** (carpeta `puente/`, por ejemplo en `C:\ia comfy y swarm\puente-memoria`):
 - Copia `config.ejemplo.json` como `config.json` y pon la URL del Worker y tu `MEMORIA_TOKEN`. `swarm_url` ya apunta a tu SwarmUI (`http://127.0.0.1:7801`).
@@ -59,8 +62,8 @@ Responde al instante con un `id` y `"estado":"pendiente"`. El puente lo toma, lo
 
 **Ver el resultado**
 ```
-curl $W/generaciones/<id>                → estado "lista" + rutas de imágenes
-curl $W/imagenes/<id>/0.png -o foto.png
+curl $W/generaciones/<id>                → estado "lista" + dónde están las imágenes
+curl $W/imagenes/<id>/0.png -o foto.png  (solo con R2; sin R2 abre la URL de tu SwarmUI que trae la generación)
 curl "$W/generaciones?modelo=Camila"     → historial de esa modelo
 ```
 

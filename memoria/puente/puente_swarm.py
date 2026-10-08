@@ -134,14 +134,23 @@ def atender(config, trabajo):
     if not rutas:
         raise RuntimeError("SwarmUI no devolvio imagenes")
     semilla = None
+    subir = trabajo.get("subir_imagenes", True)
     for n, ruta in enumerate(rutas):
         png = descargar_de_swarm(config, ruta)
         if semilla is None:
             semilla = semilla_de_png(png)
+        if not subir:
+            continue
         tipo = "image/jpeg" if ruta.lower().endswith((".jpg", ".jpeg")) else "image/png"
         memoria(config, f"/trabajos/{trabajo['id']}/imagen/{n}", "PUT", crudo=png, tipo=tipo, espera=120)
         print(f"  subida {n + 1}/{len(rutas)}")
-    memoria(config, f"/trabajos/{trabajo['id']}/terminar", datos={"semilla": semilla})
+    final = {"semilla": semilla}
+    if not subir:
+        # Sin R2 en Cloudflare: las imagenes se quedan en tu PC. Se guarda la
+        # direccion con la que SwarmUI las muestra en el navegador.
+        final["rutas_locales"] = [config["swarm_url"] + "/" + urllib.parse.quote(r.lstrip("/"), safe="/") for r in rutas]
+        print(f"  {len(rutas)} imagen(es) guardadas en tu PC (SwarmUI)")
+    memoria(config, f"/trabajos/{trabajo['id']}/terminar", datos=final)
     print(f"  lista (semilla {semilla})")
 
 

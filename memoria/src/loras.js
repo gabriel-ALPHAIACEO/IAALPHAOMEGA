@@ -41,6 +41,7 @@ export async function registrarLora(env, datos) {
 export async function subirArchivo(env, nombre, cuerpo) {
   const lora = await buscarLora(env, nombre);
   if (!lora) throw new Error(`No existe el LoRA "${nombre}": registralo primero con POST /loras`);
+  if (!env.ARCHIVOS) throw new Error("Subir LoRA a la nube necesita el bucket R2 activado");
   const r2_key = `loras/${lora.id}.safetensors`;
   await env.ARCHIVOS.put(r2_key, cuerpo, {
     httpMetadata: { contentType: "application/octet-stream" },
