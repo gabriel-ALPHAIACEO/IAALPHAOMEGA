@@ -327,8 +327,7 @@ titulo('"X cuanto me lo dejan en cashea soy level 6" después de ver los Jordan 
     sesion, ahora: DIA, productos: J40,
     respuestaModelo: { pienso: "Habla del Jordan 40; Cashea nivel 6.", respuesta: "¡Claro! 🙌 Mira cómo te queda 👇", buscar: "Jordan 40", historial: "Pidió Jordan 40. Preguntó Cashea. Nivel Cashea: 6. Ya busqué: Jordan 40." },
   });
-  // (8-oct-2026, dueño) Aunque diga su nivel: la tarjeta tal cual, con todos.
-  ok(/Beneficio exclusivo para nivel 6/.test(r.todo) && /Nivel 1 → 60% de inicial/.test(r.todo), "con su Nivel 6: la tarjeta de Cashea tal cual, con todos los niveles", r.todo.slice(0, 160));
+  ok(/Nivel 6/.test(r.todo) && !/Beneficio exclusivo para nivel 6/.test(r.todo), "le contesta con su Nivel 6, sin la tarjeta entera", r.todo.slice(0, 160));
   const deCashea = r.textos.filter((t) => /Cashea/.test(t)).join(" ");
   ok(deCashea && !/\d+\s*USD|Inicial:\s*\d|cuotas? de \d/.test(deCashea), "la tarjeta de Cashea va sin montos de dinero", deCashea.slice(0, 200));
   // Cashea NO suena en Slack (dueño, 6-oct-2026: "todo menos preguntaron
@@ -368,8 +367,7 @@ titulo("los 3 casos: solo texto, texto con fotos, fotos con poco texto (2-oct)")
     respuestaModelo: { pienso: "Ya vio el Jordan 40; Cashea nivel 6. Solo texto.", mostrar: "texto", respuesta: "¡Claro que sí! 🙌", buscar: "Jordan 40", historial: "Preguntó Cashea. Nivel Cashea: 6. Ya busqué: Jordan 40." },
   });
   ok(carrusel(cashea) === 0, "SOLO TEXTO: pregunta de Cashea sobre los Jordan que ya vio → NO se le mandan las fotos otra vez", cashea.todo.slice(0, 120));
-  // (8-oct-2026, dueño: "tal cual, más nada") La tarjeta no nombra el zapato.
-  ok(/Beneficio exclusivo para nivel 6/.test(cashea.todo), "pero sí le llega la tarjeta de Cashea, tal cual");
+  ok(/Nivel 6/.test(cashea.todo) && /Jordan 40/.test(cashea.todo), "pero la tarjeta de Cashea sí sabe que es el Jordan 40");
 
   const otraVez = await conversar("mandamelos otra vez porfa", {
     sesion, ahora: DIA, productos: J40,

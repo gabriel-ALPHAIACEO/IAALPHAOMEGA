@@ -382,11 +382,12 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
   // ── Sin nivel (o uno que no existe), con la tarjeta ESCRITA A MANO en
   // [CASHEA_TARJETA] de pagos.txt (8-oct-2026, dueño: "debe quedar así"):
   // sale tal cual, palabra por palabra.
-  // (8-oct-2026, dueño: "así tal cual, todos los niveles, solo copiar y
-  // pegar, más nada") SIEMPRE esta tarjeta, aunque el cliente diga su
-  // nivel: sin frases antes ni después.
+  // (8-oct-2026, dueño: "si preguntan '¿tienes Cashea?', que diga que sí y
+  // lance el mensaje completo; si dice su nivel, un copy bueno") Sin nivel
+  // (o con uno que no existe): esta tarjeta tal cual, sin frases antes ni
+  // después. Con su nivel: el mensaje de su nivel, más abajo.
   const escrita = tarjetaEscrita();
-  if (escrita) return escrita;
+  if (escrita && pct === null) return escrita;
 
   // ── Sin nivel (o uno que no existe): la promoción, la tabla y la pregunta.
   if (pct === null) {
@@ -440,8 +441,8 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
   const conProducto = delProducto ? ", " + nombreCorto(delProducto) : "";
   const encabezadoConProducto =
     pct === 0
-      ? `🎉 ¡Con tu Nivel ${nivel} en Cashea${conProducto} te lo llevas con 0% de inicial${condicionDelCero}!`
-      : `💜 Con tu Nivel ${nivel} en Cashea${conProducto} es con el ${formatoPct(pct)} de inicial`;
+      ? `🎉 ¡Buenas noticias! Con tu Nivel ${nivel} en Cashea${conProducto} te lo llevas con 0% de inicial${condicionDelCero} 🙌`
+      : `💜 ¡Perfecto! Con tu Nivel ${nivel} en Cashea${conProducto} te lo llevas con el ${formatoPct(pct)} de inicial 🙌`;
 
   // Las cuotas (y su mínimo), solo a los niveles que las tienen: las 6
   // cuotas son del Nivel 6 (8-oct-2026). A los demás no se les promete un
@@ -449,7 +450,7 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
   const conCuotas = tieneLasCuotas(nivel);
   return [
     encabezadoConProducto,
-    lasCuotas && conCuotas ? `🗓️ El resto, en ${lasCuotas}.` : "",
+    lasCuotas && conCuotas ? `🗓️ Y el resto lo pagas en ${lasCuotas}.` : "",
     minimo && conCuotas ? `💲 ${mayuscula(fraseDelMinimo())}.` : "",
     cuando,
     "",
