@@ -37,6 +37,10 @@ const SUITES = [
   ["tienda.mjs", "el panel /panel: la clave, los mensajes, lo que pensó la IA, pausar y devolver"],
   ["instagram.mjs", "/probar-instagram: en qué paso se corta (token, suscripción, firma, envío)"],
   ["cupo.mjs", "que sin cupo de OpenAI no se cuente como \"miré y no está\""],
+  ["inventario.mjs", "el inventario y la caja: stock que nunca baja de 0, códigos de barras, importar sin duplicar"],
+  ["negocio.mjs", "gastos, fiados, anular, el balance, Cashea en la caja, cada tienda con su negocio y la sesión abierta"],
+  ["tandas.mjs", "Traer ahora, el Excel y el Excel del inventario por tandas: ninguna pasada llega al tope de Cloudflare y queda igual que de una vez"],
+  ["asistente.mjs", "el asistente del panel: contesta, se ve en todas las páginas, conoce el panel y el stock, y no registra nada solo"],
 ];
 
 let roto = false;

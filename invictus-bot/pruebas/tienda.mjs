@@ -126,7 +126,7 @@ ok(/Pausar el bot 1 h/.test(r.texto), "y devolverle la conversación");
 // Despausar desde la LISTA, sin abrir la conversación.
 await pedir("/panel/pausar", { metodo: "POST", cookie, cuerpo: id, origen: "https://bot.test" });
 r = await pedir("/panel?f=pausados", { cookie });
-ok(/⏸️ bot en pausa hasta/.test(r.texto) && /Devolverle la conversación al bot/.test(r.texto) && /name="volver" value="\/panel\?f=pausados"/.test(r.texto), "en la lista, cada persona en pausa trae su botón para devolvérsela al bot");
+ok(/en pausa hasta/.test(r.texto) && /Devolverle la conversación al bot/.test(r.texto) && /name="volver" value="\/panel\?f=pausados"/.test(r.texto), "en la lista, cada persona en pausa trae su botón para devolvérsela al bot");
 ok(/Devolverle todas al bot \(1\)/.test(r.texto), "y en el filtro de pausados, devolverlas todas");
 const id3 = new FormData(); id3.set("id", "123"); id3.set("volver", "/panel?f=pausados");
 r = await pedir("/panel/devolver", { metodo: "POST", cookie, cuerpo: id3, origen: "https://bot.test" });
@@ -158,7 +158,7 @@ titulo("escribirle al cliente desde el panel");
   const tras = (await DB.prepare("SELECT COUNT(*) AS n FROM mensajes WHERE igsid = '123' AND texto LIKE '%soy el dueño%'").first()).n;
   ok(tras === 1, "el eco que devuelve Meta no lo repite");
   const pag = await pedir("/panel/c/123?aviso=ok", { cookie });
-  ok(/Escribirle tú/.test(pag.texto) && /✅ Enviado/.test(pag.texto) && /action="\/panel\/enviar"/.test(pag.texto), "la conversación trae el cuadro para escribir y el aviso");
+  ok(/Escribirle tú/.test(pag.texto) && /Enviado\. El bot quedó en pausa/.test(pag.texto) && /action="\/panel\/enviar"/.test(pag.texto), "la conversación trae el cuadro para escribir y el aviso");
 
   // Fuera de las 24 horas, Instagram lo rechaza: se dice tal cual.
   const real = globalThis.fetch;
@@ -248,7 +248,7 @@ titulo("ALPHA IA: el logo, las fotos y las fichas (5-oct-2026)");
   const entrada = await pedir("/panel");
   ok(/\/panel\/logo\.png/.test(entrada.texto) && /Escribe la clave/.test(entrada.texto), "la pantalla de entrada lleva el logo de ALPHA IA");
   const conv0 = await pedir("/panel/c/123", { cookie });
-  ok(/class="alpha"/.test(conv0.texto) && /\/panel\/isotipo\.png/.test(conv0.texto) && /ALPHA IA/.test(conv0.texto), "arriba, la marca ALPHA IA con la A del logo");
+  ok(/class="lado-marca"/.test(conv0.texto) && /\/panel\/isotipo\.png/.test(conv0.texto) && /ALPHA <i>IA<\/i>/.test(conv0.texto), "arriba, la marca ALPHA IA con la A del logo");
 
   await P.anotarMensaje(DB, "777", "cliente", "", { fotos: ["https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1&signature=x"] });
   await P.anotarMensaje(DB, "777", "cliente", "este pero en negro", { fotos: ["https://cdn.example.com/historia.jpg"], historia: true });
@@ -403,7 +403,7 @@ titulo("métricas y ganadores para la tienda (sin lo confidencial)");
 {
   r = await pedir("/panel/metricas?dias=7", { cookie });
   ok(r.estado === 200 && /Métricas/.test(r.texto) && /class="periodo/.test(r.texto) && /Últimos 7 días/.test(r.texto), "métricas con el calendario");
-  ok(!/gasto|\$\d|errores técnicos|⚙️/i.test(r.texto.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, "")), "sin el gasto de la IA ni los errores técnicos");
+  ok(!/gasto|\$\d|errores técnicos|⚙️/i.test((r.texto.match(/<main[\s\S]*<\/main>/) || [r.texto])[0].replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, "")), "sin el gasto de la IA ni los errores técnicos (el menú sí lleva Gastos del negocio)");
   r = await pedir("/panel/metricas?desde=2026-09-01&hasta=2026-09-03", { cookie });
   ok(/Del 1 sep/.test(r.texto) || /2026-09-01/.test(r.texto) || /1 sep/i.test(r.texto), "con un rango de fechas", (r.texto.match(/Del [^<]*/) || [""])[0]);
   r = await pedir("/panel/metricas.csv?dias=7", { cookie });
@@ -427,7 +427,7 @@ titulo("los errores de la IA, para la tienda (con Excel y texto)");
   ok(/href="\/panel\/errores"/.test(r.texto), "en el menú: Errores IA");
   r = await pedir("/panel/errores?dias=7", { cookie });
   ok(r.estado === 200 && /Errores de la IA/.test(r.texto) && /class="periodo/.test(r.texto), "la página, con el calendario");
-  ok(/Dijo una talla que no buscó/.test(r.texto) && /Ana Pérez/.test(r.texto) && /El bot respondió/.test(r.texto), "la respuesta señalada 🔴 con su motivo, el cliente y lo que respondió el bot");
+  ok(/Dijo una talla que no buscó/.test(r.texto) && /Ana Pérez/.test(r.texto) && /<dt>El bot<\/dt>/.test(r.texto), "la respuesta señalada 🔴 con su motivo, el cliente y lo que respondió el bot");
   ok(/Falla técnica: el bot no pudo responder/.test(r.texto) && !/TypeError|sk-123|index\.js:1280/.test(r.texto), "un ❌ sale sin el detalle técnico (ese es del dueño)");
   ok(!/Shopify 500 con detalle interno/.test(r.texto), "y el registro de errores técnicos ⚙️ no sale aquí");
   r = await pedir("/panel/errores.csv?dias=7", { cookie });
@@ -435,13 +435,13 @@ titulo("los errores de la IA, para la tienda (con Excel y texto)");
   r = await pedir("/panel/errores.md?desde=2026-01-01&hasta=2099-01-01", { cookie });
   ok(/^# Errores de la IA — /.test(r.texto) && /## 🔴 /.test(r.texto) && /Motivo: Dijo una talla que no buscó/.test(r.texto) && !/TypeError/.test(r.texto), "a texto, por tipo", r.texto.slice(0, 60));
   r = await pedir("/panel/errores?desde=2026-09-01&hasta=2026-09-02", { cookie });
-  ok(/Sin errores de la IA en este período/.test(r.texto), "un período sin nada sale vacío");
+  ok(/Sin errores en este período/.test(r.texto), "un período sin nada sale vacío");
   r = await pedir("/panel/errores.csv?dias=7");
   ok(!/Dijo una talla/.test(r.texto), "sin sesión, nada");
 
   // ✅ SOLUCIONAR (6-oct-2026): dejan de salir en rojo, pero no se borran.
   r = await pedir("/panel/errores?dias=7", { cookie });
-  ok(/✅ Solucionar todos/.test(r.texto) && /✅ Solucionado/.test(r.texto), "botones: ✅ Solucionar todos y ✅ Solucionado en cada una");
+  ok(/Solucionar todos<\/button>/.test(r.texto) && /Solucionado<\/button>/.test(r.texto), "botones: ✅ Solucionar todos y ✅ Solucionado en cada una");
   const uno = new FormData(); uno.set("id", String(t.id)); uno.set("volver", "/panel/errores?dias=7");
   r = await pedir("/panel/errores/solucionar", { metodo: "POST", cookie, cuerpo: uno, origen: "https://otro.test" });
   ok(r.estado === 403, "desde otra página no se puede (como los demás botones)");
@@ -455,7 +455,7 @@ titulo("los errores de la IA, para la tienda (con Excel y texto)");
   const todos = new FormData();
   r = await pedir("/panel/errores/solucionar", { metodo: "POST", cookie, cuerpo: todos, origen: "https://bot.test" });
   r = await pedir("/panel/errores?dias=7", { cookie });
-  ok(/Sin errores de la IA en este período/.test(r.texto), "✅ Solucionar todos: no queda ninguna en rojo");
+  ok(/Sin errores en este período/.test(r.texto), "✅ Solucionar todos: no queda ninguna en rojo");
   r = await pedir("/panel", { cookie });
   ok(!/class="etiqueta pausa" title=/.test(r.texto), "y en la lista de chats ya no quedan los símbolos rojos de cada cliente");
   await (await src.cargar("registro.js")).marcarTurno(DB, t.id, "queja", "El cliente se quejó después");
@@ -466,7 +466,7 @@ titulo("los errores de la IA, para la tienda (con Excel y texto)");
   const hecho = await resp.json();
   ok(hecho.ok === true, "desde ALPHA IA también (/api/central/solucionar)", JSON.stringify(hecho));
   r = await pedir("/panel/errores?dias=7", { cookie });
-  ok(/Sin errores de la IA en este período/.test(r.texto), "…y quedan solucionadas");
+  ok(/Sin errores en este período/.test(r.texto), "…y quedan solucionadas");
   await DB.prepare("UPDATE turnos SET resuelto = 0").run();
   await DB.prepare("UPDATE turnos SET marca = '', motivo = '' WHERE id = ?").bind(t.id).run();
   await DB.prepare("DELETE FROM turnos WHERE marca = 'error' AND cliente = 'hola?'").run();
@@ -596,9 +596,9 @@ titulo("las respuestas señaladas: 🔴 ❌ 👎 (y el revisor)");
   ok(/REVISOR_IA\s+si, con gpt-4o-mini/.test(r.texto) && /este mes \$\d+\.\d\d de un tope de \$10/.test(r.texto), "/estado dice cuánto lleva gastado el revisor y su tope", (r.texto.match(/REVISOR_IA.*/) || [""])[0]);
 
   r = await pedir("/panel/c/123", { cookie });
-  ok(/🔴 <|🔴 Respuesta indebida/.test(r.texto) && /dijo que había Jordan 4/.test(r.texto), "en el panel sale el 🔴 con el motivo");
+  ok(/class="marca tono-mal" title="Respuesta indebida/.test(r.texto) && /dijo que había Jordan 4/.test(r.texto), "en el panel sale el 🔴 con el motivo");
   r = await pedir("/panel?f=problemas", { cookie });
-  ok(/Ana Pérez/.test(r.texto) && /🔴 1/.test(r.texto), "la lista 'Con problemas' la enseña, con el símbolo");
+  ok(/Ana Pérez/.test(r.texto) && /title="Respuesta indebida[^"]*"[^]*?<\/span> 1</.test(r.texto), "la lista 'Con problemas' la enseña, con el símbolo");
 
   // (La prueba de la API la dejó en pausa: se le devuelve al bot.)
   const E = await src.cargar("estado.js");

@@ -96,7 +96,8 @@ import {
   NOTA_UBICACION_ENVIADA,
 } from "./ubicacion.js";
 import { gastoDelMes } from "./gasto.js";
-import { buscarProductos, urlPequena } from "./shopify.js";
+import { buscarProductos, urlPequena, catalogoParaInventario } from "./shopify.js";
+import { avanzarImportacionesSolas } from "./inventario.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
 import {
@@ -155,7 +156,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-07 (76) · panel listo para clientes de WhatsApp (📱) · revisor: REVISOR_PIENSA para DeepSeek · · (75) terminó la promoción: Cashea con la tabla de EPICCELL (Nivel 1 60 %… Nivel 6 20 %, 3 cuotas sin intereses cada 14 días) · · (74) revisor: lo que está en los datos de la tienda no es invento · · ¿calzados nuevos? → el catálogo completo, sin fichas, con un \"sí, claro\" que cambia · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · informe de errores del 6-oct: el precio se dice cuando lo preguntan, tallas al asesor sin contradecir, colores que sí hay, Cashea de su nivel, mensaje vacío del anuncio, aviso de OpenAI sin saldo · revisor: menos falsas alarmas";
+const VERSION = "2026-10-08 (80) · 📦 «Traer ahora», «Subir un Excel» y el Excel del inventario van por partes (ya no pasan el límite de Cloudflare): barra de progreso, si se cierra la página sigue el cron, y un Excel que termina tarde no deshace las ventas de la caja · 💬 el Asistente en todas las pantallas del panel: conoce el panel, la pantalla donde estás y el stock de lo que nombras, con botón «Abrir …» (antes fallaba en cada pregunta) · · (78) ✏️ cada talla se edita en el panel (precio, foto, código de fábrica) · 🔢 lo que nunca se contó dice «sin contar» · y lo de la v76: panel listo para clientes de WhatsApp (📱) · revisor: REVISOR_PIENSA para DeepSeek · · (77) ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 👟 zapatería: tallas · · (76) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (75) terminó la promoción: Cashea con la tabla de EPICCELL (Nivel 1 60 %… Nivel 6 20 %, 3 cuotas sin intereses cada 14 días) · · (74) revisor: lo que está en los datos de la tienda no es invento · · ¿calzados nuevos? → el catálogo completo, sin fichas, con un \"sí, claro\" que cambia · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · informe de errores del 6-oct: el precio se dice cuando lo preguntan, tallas al asesor sin contradecir, colores que sí hay, Cashea de su nivel, mensaje vacío del anuncio, aviso de OpenAI sin saldo · revisor: menos falsas alarmas";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -477,6 +478,13 @@ const trabajador = {
         horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
         conAnuncios: false,
         verTexto: async (ruta) => (await trabajador.fetch(pedidoInterno(ruta, url, env), env, ctx)).text(),
+        traerCatalogo: () => catalogoParaInventario(env),
+        nombreDelCatalogo: "la tienda de Shopify",
+        // Tiene cron: una importación a medias sigue sola (inventario.js).
+        seSigueSola: true,
+        // Zapatería: el inventario habla de tallas (marco.js, RUBROS).
+        rubro: "calzado",
+        version: VERSION,
       });
     }
 
@@ -1013,6 +1021,9 @@ const trabajador = {
   // entraron productos nuevos, y esos los recoge sola.
   async scheduled(evento, env, ctx) {
     ctx.waitUntil(indexarLoQueFalte(env).finally(() => guardarErrores(env.DB, env)));
+    // IMPORTAR POR TANDAS (8-oct-2026): si "Traer ahora" o un Excel quedó a
+    // medias (se cerró la página), una tanda en cada pasada del cron.
+    ctx.waitUntil(avanzarImportacionesSolas(env.DB));
   },
 };
 
