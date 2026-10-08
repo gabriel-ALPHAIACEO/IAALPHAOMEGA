@@ -58,6 +58,7 @@ Nada de eso lo atrapa `node --check`. Por eso existe esta carpeta.
 | `cupo.mjs` | Que "OpenAI sin cupo" no se cuente como "miré y no está" (incidente del 30-sep): esos zapatos no cuentan como mirados, se reintenta solo si da el tiempo, y el aviso al asesor lo dice. También que `/indexar-catalogo` no pase del 100% y no dé la falsa alarma de "se están pisando". |
 | `inventario.mjs` | El inventario y la caja: el stock nunca baja de 0, una venta que no alcanza no descuenta nada, cada talla con su EAN-13, importar dos veces no duplica, y el Excel del sistema viejo se lee bien. |
 | `negocio.mjs` | Gastos, fiados (un abono no pasa de lo que se debe y paga primero lo más viejo), anular una venta (el stock vuelve, no se borra), el balance, Cashea en la caja de EPICCELL (salvo divisas en efectivo), cada tienda con las palabras de su negocio, y "¿Dejar la sesión abierta?" (90 días que se renuevan, o hasta cerrar el navegador). |
+| `tandas.mjs` | "Traer ahora", "Subir un Excel" y el Excel del inventario por tandas, con una base que corta como Cloudflare a las 1000 llamadas: ninguna pasada llega al tope, por tandas queda IGUAL que de una vez (modelos, tallas, códigos, fotos, stock, movimientos e informe), una tanda cortada se repite sin duplicar, dos pasadas no trabajan lo mismo a la vez, el cron termina solo, EPICCELL pasa al inventario solo al final, y las partes del Excel juntas son el mismo archivo byte por byte. |
 
 ## Cómo está armado
 
