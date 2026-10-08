@@ -2,6 +2,10 @@
 
 Repositorio de trabajo para los chatbots de IA de los distintos clientes. Punto de partida: **Invictus Shoes**.
 
+## Worker "memoria" (contenido generativo con LoRA)
+
+Carpeta `memoria/`, Worker aparte del bot de Invictus: guarda en D1 + R2 cada modelo generada por IA con su LoRA y su ficha fija de rostro y cuerpo, y genera las imágenes con fal.ai. Ver `memoria/README.md`.
+
 ## Proyecto actual: Invictus Shoes
 
 Chatbot vendedor de calzado por Instagram (carrusel de productos vía Shopify).
