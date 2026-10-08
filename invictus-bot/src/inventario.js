@@ -1276,7 +1276,7 @@ export function columnasDelCsv(encabezados) {
 
 export async function importarCsv(db, texto, { sedeId = 0, quien = "", aplicar = true } = {}) {
   const { filas, col, sedeFija } = await prepararCsv(db, texto, { sedeId });
-  const contexto = { col, sedeFija, sedePorNombre: await sedesPorNombre(db), quien, aplicar };
+  const contexto = { col, sedeFija, sedePorNombre: await sedesPorNombre(db), quien, aplicar, subidoEn: Date.now() };
   const informe = { filas: 0, nuevos: 0, actualizadas: 0, sinCambio: 0, errores: [] };
   for (const [n, fila] of filas.entries()) await importarFilaCsv(db, fila, n + 2, contexto, informe);
   return informe;
@@ -1303,8 +1303,14 @@ async function sedesPorNombre(db) {
   return Object.fromEntries((await sedes(db)).map((s) => [normal(s.nombre), s.id]));
 }
 
+// La nota de lo que pone un Excel (así se reconoce lo que puso).
+const NOTA_DEL_EXCEL = "Importado de Excel/CSV";
+// Lo que mueve el stock sin contarlo: una venta, su devolución, una entrada.
+const MOVIMIENTOS_DE_FLUJO = "('venta', 'devolucion', 'entrada')";
+
 // UNA FILA DEL EXCEL. Suma lo que hizo en informe (y el error, si lo hay).
-async function importarFilaCsv(db, fila, numeroDeFila, { col, sedeFija, sedePorNombre, quien = "", aplicar = true }, informe) {
+// subidoEn: cuándo se subió el archivo (ver más abajo).
+async function importarFilaCsv(db, fila, numeroDeFila, { col, sedeFija, sedePorNombre, quien = "", aplicar = true, subidoEn = 0 }, informe) {
   const celda = (clave) => (col[clave] === -1 ? "" : String(fila[col[clave]] ?? "").trim());
   informe.filas++;
   try {
@@ -1377,18 +1383,47 @@ async function importarFilaCsv(db, fila, numeroDeFila, { col, sedeFija, sedePorN
     }
     const costo = numero(celda("costo"));
     if (costo !== null && productoDeLaFila) await db.prepare("UPDATE inv_productos SET costo = ? WHERE id = ?").bind(costo, productoDeLaFila).run();
+    let nueva = Math.trunc(cantidad);
+    let yaLaPuso = false;
+    if (subidoEn) {
+      // POR TANDAS (8-oct-2026): una fila puede pasarse un buen rato después
+      // de subir el Excel (con la página cerrada, la pasa el cron). El Excel
+      // es el conteo del momento en que se subió: lo que se vendió, se
+      // devolvió o entró desde entonces se tiene en cuenta (una venta de la
+      // caja NO se deshace). Si alguien la contó a mano después, manda su
+      // conteo y la fila no se toca.
+      const despues = await db
+        .prepare(
+          `SELECT COALESCE(SUM(CASE WHEN COALESCE(nota, '') <> ? AND tipo IN ${MOVIMIENTOS_DE_FLUJO} THEN delta ELSE 0 END), 0) AS neto,
+                  COALESCE(MAX(CASE WHEN COALESCE(nota, '') <> ? AND tipo NOT IN ${MOVIMIENTOS_DE_FLUJO} THEN 1 ELSE 0 END), 0) AS contada,
+                  COALESCE(MAX(CASE WHEN nota = ? THEN 1 ELSE 0 END), 0) AS puesta
+             FROM inv_movimientos WHERE variante_id = ? AND local_id = ? AND creado >= ?`
+        )
+        .bind(NOTA_DEL_EXCEL, NOTA_DEL_EXCEL, NOTA_DEL_EXCEL, variante.id, sede, Number(subidoEn))
+        .first();
+      if (Number(despues?.contada)) throw new Error("se contó o se cargó a mano después de subir el Excel; se dejó como estaba");
+      const neto = Number(despues?.neto) || 0;
+      if (neto) {
+        nueva = Math.max(0, nueva + neto);
+        informe.conVentasEnMedio = (informe.conVentasEnMedio || 0) + 1;
+      }
+      // Ya la puso este mismo Excel: una tanda que Cloudflare cortó y se
+      // repitió, o la misma talla dos veces en el archivo.
+      yaLaPuso = Boolean(Number(despues?.puesta));
+    }
     const antes = await cantidadActual(db, variante.id, sede);
     const tieneHistoria = await db.prepare("SELECT 1 FROM inv_movimientos WHERE variante_id = ? LIMIT 1").bind(variante.id).first();
-    if (antes === Math.trunc(cantidad) && tieneHistoria) {
-      informe.sinCambio++;
+    if (antes === nueva && tieneHistoria) {
+      if (yaLaPuso) informe.actualizadas++;
+      else informe.sinCambio++;
       return;
     }
     await ajustarStock(db, {
       varianteId: variante.id,
       sedeId: sede,
-      cantidad,
+      cantidad: nueva,
       quien,
-      nota: "Importado de Excel/CSV",
+      nota: NOTA_DEL_EXCEL,
       tipo: tieneHistoria ? "ajuste" : "carga",
     });
     informe.actualizadas++;
@@ -1428,12 +1463,12 @@ async function importarFilaCsv(db, fila, numeroDeFila, { col, sedeFija, sedePorN
 // pasada (comprobar la sesión, crear las tablas en una pasada nueva). Menos
 // llamadas también es menos espera: cada una tarda lo suyo.
 export const CONSULTAS_POR_TANDA = 300;
-// Filas del Excel en cada paquete (una fila cuesta de 6 a 14 llamadas).
-const FILAS_POR_PAQUETE = 20;
+// Filas del Excel en cada paquete (una fila cuesta de 7 a 15 llamadas).
+export const FILAS_POR_PAQUETE = 20;
 // Lo que puede llegar a costar un paquete, como mucho, para no empezarlo
 // si no cabe. Un modelo del catálogo cuesta de 6 a 11, tenga las tallas que
 // tenga.
-const COSTO_DE_UN_PAQUETE = { catalogo: 20, csv: FILAS_POR_PAQUETE * 15 };
+const COSTO_DE_UN_PAQUETE = { catalogo: 20, csv: FILAS_POR_PAQUETE * 16 };
 // Mientras una pasada trabaja una importación, las demás esperan. Si esa
 // pasada muere (Cloudflare la corta), pasado esto otra sigue donde iba; la
 // misma página (su «llave») sigue enseguida.
@@ -1510,10 +1545,31 @@ export async function empezarImportacion(db, { tipo, items = [], opciones = {} }
     guardadas = { col: opciones.col, sedeFija: Number(opciones.sedeFija) || 0, quien: String(opciones.quien || "").slice(0, 60), aplicar: opciones.aplicar !== false, filas: filas.length };
   }
   if (!paquetes.length) throw new Error("No hay nada que importar.");
+  if (tipo === "csv" && guardadas.aplicar) {
+    // Un Excel de verdad a medias no se corta por subir otro (quedaría la
+    // mitad del stock con un conteo y la mitad con otro): primero termina
+    // o se detiene. Un «Solo probar» no guarda nada y convive con él.
+    const otro = await db
+      .prepare("SELECT hechos, opciones FROM inv_trabajos WHERE tipo = 'csv' AND estado IN ('preparando', 'trabajando') AND json_extract(opciones, '$.aplicar') <> 0 ORDER BY id LIMIT 1")
+      .first();
+    if (otro) {
+      const filasDelOtro = Number(leerJson(otro.opciones, {}).filas) || 0;
+      throw new Error(`Hay un Excel a medio subir (${Math.min(Number(otro.hechos) * FILAS_POR_PAQUETE, filasDelOtro)} de ${filasDelOtro} filas). Espera a que termine o detenlo antes de subir otro.`);
+    }
+    // Al terminar se cuentan en la base los productos que creó (ver
+    // seguirImportacion): los de después de este.
+    guardadas.ultimoProducto = Number((await db.prepare("SELECT COALESCE(MAX(id), 0) AS n FROM inv_productos").first())?.n) || 0;
+  }
 
   await db.batch([
-    db.prepare("UPDATE inv_trabajos SET estado = 'cancelado', actualizado = ? WHERE tipo = ? AND estado IN ('preparando', 'trabajando')").bind(ahora, tipo),
-    db.prepare("DELETE FROM inv_trabajo_items WHERE trabajo_id IN (SELECT id FROM inv_trabajos WHERE estado IN ('cancelado', 'listo'))"),
+    // «Traer ahora» es traer lo de ahora: reemplaza al catálogo que iba a
+    // medias. Un Excel solo reemplaza a otra prueba.
+    tipo === "catalogo"
+      ? db.prepare("UPDATE inv_trabajos SET estado = 'cancelado', actualizado = ? WHERE tipo = 'catalogo' AND estado IN ('preparando', 'trabajando')").bind(ahora)
+      : db.prepare("UPDATE inv_trabajos SET estado = 'cancelado', actualizado = ? WHERE tipo = 'csv' AND estado IN ('preparando', 'trabajando') AND json_extract(opciones, '$.aplicar') = 0").bind(ahora),
+    // Lo guardado de las que ya no siguen, salvo si una pasada todavía la
+    // está trabajando (lo limpia ella misma al acabar, o la próxima vez).
+    db.prepare("DELETE FROM inv_trabajo_items WHERE trabajo_id IN (SELECT id FROM inv_trabajos WHERE estado IN ('cancelado', 'listo') AND ocupado_hasta < ?)").bind(ahora),
     db.prepare("DELETE FROM inv_trabajos WHERE estado IN ('cancelado', 'listo') AND creado < ?").bind(ahora - GUARDAR_MS),
   ]);
   const fila = await db
@@ -1584,7 +1640,7 @@ export async function seguirImportacion(dbReal, { id = 0, cuantos = 25, consulta
             if (informe.errores.length < 20) informe.errores.push(`${datos?.titulo || "(sin nombre)"}: ${error.message}`);
           }
         } else {
-          contextoCsv ??= { col: opciones.col, sedeFija: opciones.sedeFija, sedePorNombre: await sedesPorNombre(db), quien: opciones.quien || "", aplicar: opciones.aplicar !== false };
+          contextoCsv ??= { col: opciones.col, sedeFija: opciones.sedeFija, sedePorNombre: await sedesPorNombre(db), quien: opciones.quien || "", aplicar: opciones.aplicar !== false, subidoEn: Number(trabajo.creado) || 0 };
           for (const { n, fila } of datos?.filas || []) await importarFilaCsv(db, fila, n + 2, contextoCsv, informe);
         }
       } catch (error) {
@@ -1598,7 +1654,21 @@ export async function seguirImportacion(dbReal, { id = 0, cuantos = 25, consulta
       }
       hechos = Number(paquete.n) + 1;
     }
-    const termino = hechos >= Number(trabajo.total) || (!cortado && !(paquetes || []).length);
+    if (!cortado && !(paquetes || []).length && hechos < Number(trabajo.total)) {
+      // Lo que faltaba ya no está: la detuvieron (o se volvió a traer)
+      // justo ahora. NO es que terminó: no se toca nada más.
+      await db.prepare("UPDATE inv_trabajos SET estado = 'cancelado', ocupado_hasta = 0, actualizado = ? WHERE id = ?").bind(Date.now(), trabajo.id).run();
+      guardado = true;
+      const ahoraEs = await db.prepare("SELECT * FROM inv_trabajos WHERE id = ?").bind(trabajo.id).first();
+      return ahoraEs ? resumenDe(ahoraEs) : null;
+    }
+    const termino = hechos >= Number(trabajo.total);
+    if (termino && trabajo.tipo === "csv" && opciones.aplicar !== false && opciones.ultimoProducto !== undefined) {
+      // Los productos nuevos, contados en la base: si Cloudflare cortó una
+      // tanda y se repitió, la repetición ya los encuentra hechos.
+      const fila = await db.prepare("SELECT COUNT(*) AS n FROM inv_productos WHERE id > ? AND origen = 'manual'").bind(Number(opciones.ultimoProducto) || 0).first();
+      informe.nuevos = Number(fila?.n) || 0;
+    }
     if (termino && trabajo.tipo === "catalogo") {
       // El stock que se cargó en ESTA importación, contado en la base: si
       // Cloudflare cortó una tanda después de cargar y antes de guardar la
@@ -1610,22 +1680,37 @@ export async function seguirImportacion(dbReal, { id = 0, cuantos = 25, consulta
         .first();
       informe.conStock = Number(fila?.n) || 0;
     }
-    if (termino && trabajo.tipo === "catalogo" && opciones.botLeeInventario && informe.modelos && (await leerAjuste(db, "catalogo_del_bot")) === null) {
-      // EPICCELL (decisión del dueño): traído el catálogo ENTERO, manda el
-      // inventario. Solo la primera vez: si después se volvió a la hoja,
-      // eso se respeta.
-      await guardarAjuste(db, "catalogo_del_bot", "inventario");
-      informe.pasoAlInventario = true;
-      console.log("INVENTARIO: desde ahora el bot ofrece lo del inventario");
-    }
+    // EPICCELL (decisión del dueño): traído el catálogo ENTERO, manda el
+    // inventario. Solo la primera vez: si después se volvió a la hoja, eso
+    // se respeta. Va en el MISMO batch que lo da por terminado, y solo si
+    // nadie la detuvo mientras tanto: o las dos cosas, o ninguna.
+    const pasaAlInventario = termino && trabajo.tipo === "catalogo" && opciones.botLeeInventario && informe.modelos > 0 && (await leerAjuste(db, "catalogo_del_bot")) === null;
+    if (pasaAlInventario) informe.pasoAlInventario = true;
     const final = Date.now();
     await db.batch([
+      ...(pasaAlInventario
+        ? [
+            db
+              .prepare("INSERT INTO inv_ajustes (clave, valor) SELECT 'catalogo_del_bot', 'inventario' WHERE NOT EXISTS (SELECT 1 FROM inv_ajustes WHERE clave = 'catalogo_del_bot') AND EXISTS (SELECT 1 FROM inv_trabajos WHERE id = ? AND estado = 'trabajando')")
+              .bind(trabajo.id),
+          ]
+        : []),
       db
         .prepare("UPDATE inv_trabajos SET hechos = ?, informe = ?, estado = ?, terminado = ?, ocupado_hasta = 0, actualizado = ? WHERE id = ? AND estado = 'trabajando'")
         .bind(hechos, JSON.stringify(informe), termino ? "listo" : "trabajando", termino ? final : null, final, trabajo.id),
       ...(termino ? [db.prepare("DELETE FROM inv_trabajo_items WHERE trabajo_id = ?").bind(trabajo.id)] : []),
+      // Si la detuvieron mientras esta tanda trabajaba: se suelta y se
+      // limpia lo que quedó guardado.
+      db.prepare("UPDATE inv_trabajos SET ocupado_hasta = 0 WHERE id = ? AND estado = 'cancelado'").bind(trabajo.id),
+      db.prepare("DELETE FROM inv_trabajo_items WHERE trabajo_id = ? AND EXISTS (SELECT 1 FROM inv_trabajos WHERE id = ? AND estado = 'cancelado')").bind(trabajo.id, trabajo.id),
     ]);
     guardado = true;
+    if (termino) {
+      // ¿De verdad quedó terminada, o la detuvieron mientras tanto?
+      const quedo = await db.prepare("SELECT * FROM inv_trabajos WHERE id = ?").bind(trabajo.id).first();
+      if (quedo && quedo.estado !== "listo") return { ...resumenDe(quedo), consultas: cuenta.usadas };
+    }
+    if (pasaAlInventario) console.log("INVENTARIO: desde ahora el bot ofrece lo del inventario");
     return { ...resumenDe({ ...trabajo, hechos, informe: JSON.stringify(informe), estado: termino ? "listo" : "trabajando", terminado: termino ? final : null, actualizado: final }), consultas: cuenta.usadas };
   } finally {
     // Si algo falló, se suelta enseguida para que la próxima tanda siga.
@@ -1652,24 +1737,31 @@ export async function importacionesEnCurso(db) {
   }
 }
 
+// Detener: lo que ya se pasó se queda. Si una tanda la está trabajando en
+// este momento, lo guardado no se borra debajo de ella (lo limpia ella al
+// acabar); y esa tanda ya no la puede dar por terminada.
 export async function detenerImportacion(db, id) {
   await asegurarInventario(db);
+  const ahora = Date.now();
+  const n = Number(id) || 0;
   await db.batch([
-    db.prepare("UPDATE inv_trabajos SET estado = 'cancelado', ocupado_hasta = 0, actualizado = ? WHERE id = ? AND estado IN ('preparando', 'trabajando')").bind(Date.now(), Number(id) || 0),
-    db.prepare("DELETE FROM inv_trabajo_items WHERE trabajo_id = ?").bind(Number(id) || 0),
+    db.prepare("UPDATE inv_trabajos SET estado = 'cancelado', actualizado = ? WHERE id = ? AND estado IN ('preparando', 'trabajando')").bind(ahora, n),
+    db.prepare("DELETE FROM inv_trabajo_items WHERE trabajo_id = ? AND NOT EXISTS (SELECT 1 FROM inv_trabajos WHERE id = ? AND ocupado_hasta >= ?)").bind(n, n, ahora),
   ]);
 }
 
 // EL CRON (Invictus y El Emperador, cada 15 minutos): si hay una
 // importación a medias, una tanda. Sin nada pendiente cuesta una consulta, y
-// en una tienda que nunca importó nada, ninguna escritura.
+// en una tienda que nunca importó nada, ninguna escritura. Con dos a medias
+// (un catálogo y un Excel), una vuelta cada una: la que lleva más tiempo
+// sin avanzar, y nunca la que una página está trabajando.
 // Tandas chicas: la pasada del cron también indexa, y comparte con eso los
 // 10 ms de CPU del plan gratis.
 export async function avanzarImportacionesSolas(db, { cuantos = 10, consultas = 150 } = {}) {
   if (!db) return null;
   let hay = null;
   try {
-    hay = await db.prepare("SELECT id FROM inv_trabajos WHERE estado = 'trabajando' ORDER BY id LIMIT 1").first();
+    hay = await db.prepare("SELECT id FROM inv_trabajos WHERE estado = 'trabajando' AND ocupado_hasta < ? ORDER BY actualizado, id LIMIT 1").bind(Date.now()).first();
   } catch {
     return null;
   }
@@ -1684,31 +1776,64 @@ export async function avanzarImportacionesSolas(db, { cuantos = 10, consultas = 
   }
 }
 
-// Para bajar el inventario a Excel (CSV): una fila por variante y sede.
-// POR PARTES (8-oct-2026): con «cuantos», solo los modelos de esa parte
-// (desde el número «desde», en orden de nombre). Armar el archivo entero de
-// una vez pasaba los 10 ms de CPU de Cloudflare en una tienda grande; la
-// página pide las partes una tras otra y las junta en un solo archivo.
-export async function filasParaExportar(db, { desde = 0, cuantos = 0 } = {}) {
+// Para bajar el inventario a Excel (CSV): una fila por variante y sede, en
+// orden de nombre. El archivo entero de una vez.
+export async function filasParaExportar(db) {
   await asegurarInventario(db);
-  const porPartes = Number(cuantos) > 0;
   const { results } = await db
     .prepare(
-      `WITH p AS (
-         SELECT id, titulo, marca, gama, precio, costo FROM inv_productos WHERE activo = 1
-          ORDER BY titulo COLLATE NOCASE, id ${porPartes ? "LIMIT ? OFFSET ?" : ""}
-       )
-       SELECT p.titulo, p.marca, p.gama, v.opcion, v.color, v.codigo_barras, v.codigo_fabricante,
+      `SELECT p.titulo, p.marca, p.gama, v.opcion, v.color, v.codigo_barras, v.codigo_fabricante,
               COALESCE(v.precio, p.precio) AS precio, p.costo, l.nombre AS sede, COALESCE(s.cantidad, 0) AS cantidad
          FROM inv_variantes v
-         JOIN p ON p.id = v.producto_id
+         JOIN inv_productos p ON p.id = v.producto_id AND p.activo = 1
          CROSS JOIN inv_locales l
          LEFT JOIN inv_stock s ON s.variante_id = v.id AND s.local_id = l.id
         ORDER BY p.titulo COLLATE NOCASE, p.id, CAST(v.opcion AS REAL), v.opcion, v.id, l.id`
     )
-    .bind(...(porPartes ? [Math.trunc(Number(cuantos)), Math.max(0, Math.trunc(Number(desde)) || 0)] : []))
     .all();
   return results || [];
+}
+
+// POR PARTES (8-oct-2026): armar el archivo entero de una vez pasaba los
+// 10 ms de CPU de Cloudflare en una tienda grande. La página pide las
+// partes una tras otra y las junta en UN archivo. Cada parte trae los
+// modelos que van DESPUÉS del último de la anterior («tras»: su id y su
+// nombre), no «del 100 al 200»: si mientras tanto entra o sale un modelo,
+// no se repite ni se pierde ninguna fila de las que ya había.
+// Devuelve las filas, cuántos modelos trajo y desde dónde sigue (o null).
+export async function parteDelInventario(db, { tras = "", cuantos = 100 } = {}) {
+  await asegurarInventario(db);
+  const limite = Math.max(1, Math.min(Math.trunc(Number(cuantos)) || 100, 500));
+  const texto = String(tras || "");
+  const corte = texto.indexOf(":");
+  const despues = corte > 0 ? { id: Math.trunc(Number(texto.slice(0, corte))) || 0, titulo: texto.slice(corte + 1) } : null;
+  // UNA consulta (una foto coherente). Un modelo sin tallas también sale,
+  // con la talla vacía, para saber dónde acabó la parte; no va al Excel.
+  const { results } = await db
+    .prepare(
+      `WITH p AS (
+         SELECT id, titulo, marca, gama, precio, costo FROM inv_productos
+          WHERE activo = 1 ${despues ? "AND (titulo COLLATE NOCASE > ? OR (titulo COLLATE NOCASE = ? AND id > ?))" : ""}
+          ORDER BY titulo COLLATE NOCASE, id LIMIT ?
+       )
+       SELECT p.id AS producto_id, p.titulo, p.marca, p.gama, v.id AS variante_id, v.opcion, v.color, v.codigo_barras, v.codigo_fabricante,
+              COALESCE(v.precio, p.precio) AS precio, p.costo, l.nombre AS sede, COALESCE(s.cantidad, 0) AS cantidad
+         FROM p
+         LEFT JOIN inv_variantes v ON v.producto_id = p.id
+         CROSS JOIN inv_locales l
+         LEFT JOIN inv_stock s ON s.variante_id = v.id AND s.local_id = l.id
+        ORDER BY p.titulo COLLATE NOCASE, p.id, CAST(v.opcion AS REAL), v.opcion, v.id, l.id`
+    )
+    .bind(...(despues ? [despues.titulo, despues.titulo, despues.id] : []), limite)
+    .all();
+  const lista = results || [];
+  const modelos = new Set(lista.map((f) => f.producto_id)).size;
+  const ultimo = lista[lista.length - 1];
+  return {
+    filas: lista.filter((f) => f.variante_id !== null && f.variante_id !== undefined),
+    modelos,
+    siguiente: modelos >= limite && ultimo ? `${ultimo.producto_id}:${ultimo.titulo}` : null,
+  };
 }
 
 export async function contarModelosActivos(db) {

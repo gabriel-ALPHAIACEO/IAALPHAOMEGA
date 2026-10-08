@@ -430,6 +430,28 @@ titulo("desde el panel: Traer ahora, la barra de progreso y el informe");
 
 /* ── 8. El Excel del inventario, por partes ─────────────────────────── */
 
+// Pide todas las partes del Excel, como hace el botón.
+async function bajarPorPartes(pedir, b, { entre } = {}) {
+  const partes = [];
+  let tras = "";
+  let d;
+  let vueltas = 0;
+  let maximo = 0;
+  let total = null;
+  let modelos = 0;
+  do {
+    d = await (await pedir(`/panel/inventario/exportar${tras ? `?tras=${encodeURIComponent(tras)}` : ""}`)).json();
+    maximo = Math.max(maximo, b.pasada.llamadas);
+    if (d.total !== null && d.total !== undefined) total = d.total;
+    modelos += d.modelos;
+    partes.push(d.texto);
+    tras = d.siguiente;
+    vueltas++;
+    if (entre && vueltas === 1) await entre();
+  } while (d.siguiente !== null && vueltas < 50);
+  return { juntas: partes.join(""), vueltas, maximo, total, modelos, nombre: d.nombre };
+}
+
 titulo("el Excel del inventario por partes: el mismo archivo, sin pasar el tope");
 {
   const b = otraBase();
@@ -437,7 +459,8 @@ titulo("el Excel del inventario por partes: el mismo archivo, sin pasar el tope"
   await inv.crearSede(b.DB, "Sambil");
   const id0 = await inv.empezarImportacion(b.DB, { tipo: "catalogo", items: catalogoGrande(260, { conCantidad: true }), opciones: {} });
   await hastaTerminar(b, id0, { topeDePasada: Infinity });
-  // Dos con el mismo nombre (el orden tiene que ser estable entre partes).
+  // Uno con el mismo nombre que otro (el orden tiene que ser estable entre
+  // partes), y sin tallas: no sale en el Excel.
   await inv.guardarProducto(b.DB, { origen: "manual", origen_id: "rep-1", titulo: "Modelo 0001 COD A1" });
   const ENV = { DB: b.DB, PANEL_CLAVE: "clave-de-prueba", TIENDA_NOMBRE: "Prueba" };
   const entrar = new FormData();
@@ -450,28 +473,206 @@ titulo("el Excel del inventario por partes: el mismo archivo, sin pasar el tope"
     return atenderPanel(new Request(`https://bot.test${ruta}`, { headers: { cookie, "sec-fetch-site": "same-origin" } }), ENV, opciones);
   };
   // .text() se come el BOM del principio; Excel lo necesita, así que se lee entero.
-  const entero = new TextDecoder("utf-8", { ignoreBOM: true }).decode(await (await pedir("/panel/inventario.csv")).arrayBuffer());
-  const partes = [];
-  let desde = 0;
-  let maximo = 0;
-  let d;
-  let vueltas = 0;
-  do {
-    d = await (await pedir(`/panel/inventario/exportar?desde=${desde}`)).json();
-    maximo = Math.max(maximo, b.pasada.llamadas);
-    partes.push(d.texto);
-    desde = d.siguiente;
-    vueltas++;
-  } while (d.siguiente !== null && vueltas < 50);
-  const juntas = partes.join("");
-  ok(vueltas === 3 && d.total === 261, "261 modelos: 3 partes de 100", `${vueltas} partes`);
-  ok(juntas === entero, "las partes juntas son el mismo archivo, byte por byte", `${juntas.length} vs ${entero.length}`);
-  ok(juntas.startsWith("﻿Producto;Marca;Gama;Talla;") && (juntas.match(/\r\n/g) || []).length === 1 + 260 * 10 * 2, "con el encabezado una sola vez y una fila por talla y sede", `${(juntas.match(/\r\n/g) || []).length} líneas`);
-  ok(/^inventario-\d{4}-\d{2}-\d{2}\.csv$/.test(d.nombre) && maximo < 20, "con su nombre de siempre, y cada parte cuesta pocas llamadas", `${maximo}`);
+  const leerEntero = async () => new TextDecoder("utf-8", { ignoreBOM: true }).decode(await (await pedir("/panel/inventario.csv")).arrayBuffer());
+  const entero = await leerEntero();
+  const x = await bajarPorPartes(pedir, b);
+  ok(x.vueltas === 3 && x.total === 261 && x.modelos === 261, "261 modelos: 3 partes de 100", `${x.vueltas} partes, total ${x.total}, ${x.modelos} modelos`);
+  ok(x.juntas === entero, "las partes juntas son el mismo archivo, byte por byte", `${x.juntas.length} vs ${entero.length}`);
+  ok(x.juntas.startsWith("﻿Producto;Marca;Gama;Talla;") && (x.juntas.match(/\r\n/g) || []).length === 1 + 260 * 10 * 2, "con el encabezado una sola vez y una fila por talla y sede", `${(x.juntas.match(/\r\n/g) || []).length} líneas`);
+  ok(/^inventario-\d{4}-\d{2}-\d{2}\.csv$/.test(x.nombre) && x.maximo < 20, "con su nombre de siempre, y cada parte cuesta pocas llamadas", `${x.maximo}`);
+
+  // Mientras se baja, entran modelos (una importación en otra pestaña) y se
+  // quita uno: ninguna fila de las que ya estaban se repite ni se pierde.
+  const antes = new Set(entero.split("\r\n"));
+  const y = await bajarPorPartes(pedir, b, {
+    entre: async () => {
+      for (const t of ["Modelo 0005 bis", "Modelo 0150 bis", "Modelo 0250 bis", "AAA primero"]) {
+        const id = await inv.guardarProducto(b.DB, { origen: "manual", titulo: t });
+        await inv.guardarVariante(b.DB, id, { opcion: "40" });
+      }
+      b.sql.prepare("UPDATE inv_productos SET activo = 0 WHERE titulo = 'Modelo 0200 COD A200'").run();
+    },
+  });
+  const lineas = y.juntas.split("\r\n");
+  const repetidas = lineas.filter((l, i) => l && lineas.indexOf(l) !== i);
+  const viejasQueFaltan = [...antes].filter((l) => l && !l.includes("Modelo 0200 COD A200") && !lineas.includes(l));
+  ok(!repetidas.length && !viejasQueFaltan.length, "con cambios en medio: ni repetidas ni perdidas", JSON.stringify({ repetidas: repetidas.slice(0, 3), faltan: viejasQueFaltan.slice(0, 3) }));
+  ok(lineas.some((l) => l.startsWith("Modelo 0150 bis")) && lineas.some((l) => l.startsWith("Modelo 0250 bis")), "y lo que entró después de donde iba, sale");
+
   const lista = await (await pedir("/panel/inventario")).text();
-  ok(/data-excel-por-partes="\/panel\/inventario\/exportar"/.test(lista) && /Preparando el Excel/.test(lista), "el botón Excel del inventario lo arma por partes");
+  ok(/data-excel-por-partes="\/panel\/inventario\/exportar"/.test(lista) && /Preparando el Excel/.test(lista) && /\?tras=/.test(lista), "el botón Excel del inventario lo arma por partes");
   const movs = await (await pedir("/panel/inventario/movimientos")).text();
   ok(/data-excel-por-partes/.test(movs), "y el «Excel del stock» de Movimientos también");
+}
+
+/* ── 9. Lo que encontró la revisión ─────────────────────────────────── */
+
+titulo("un Excel que termina horas después no deshace las ventas de la caja");
+{
+  const b = otraBase();
+  b.nueva(Infinity);
+  const sede = (await inv.sedes(b.DB))[0].id;
+  const bota = await inv.guardarProducto(b.DB, { origen: "manual", titulo: "Bota 99" });
+  const v40 = await inv.guardarVariante(b.DB, bota, { opcion: "40" });
+  const v41 = await inv.guardarVariante(b.DB, bota, { opcion: "41" });
+  const v42 = await inv.guardarVariante(b.DB, bota, { opcion: "42" });
+  for (const v of [v40, v41, v42]) await inv.ajustarStock(b.DB, { varianteId: v, sedeId: sede, cantidad: 5 });
+  const filas = ["producto;talla;cantidad", ...Array.from({ length: 60 }, (_, i) => `Relleno ${i};40;1`), "Bota 99;40;5", "Bota 99;41;8", "Bota 99;42;5"];
+  const leido = await inv.prepararCsv(b.DB, filas.join("\n"), {});
+  await new Promise((r) => setTimeout(r, 5)); // el conteo de antes, en otro milisegundo que la subida
+  const id = await inv.empezarImportacion(b.DB, { tipo: "csv", items: leido.filas, opciones: { col: leido.col, sedeFija: leido.sedeFija, quien: "Excel" } });
+  await inv.seguirImportacion(b.DB, { id }); // una tanda, y se cierra la página
+  // Mientras tanto, en la caja: se venden 2 de la 40 y 1 de la 41; la 42 se cuenta a mano.
+  await inv.cobrar(b.DB, { sedeId: sede, items: [{ varianteId: v40, cantidad: 2 }, { varianteId: v41, cantidad: 1 }] });
+  await inv.ajustarStock(b.DB, { varianteId: v42, sedeId: sede, cantidad: 4, quien: "Ana" });
+  const { r } = await hastaTerminar(b, id, { cuantos: 1 });
+  const hay = (v) => b.sql.prepare("SELECT cantidad FROM inv_stock WHERE variante_id = ? AND local_id = ?").get(v, sede).cantidad;
+  ok(hay(v40) === 3, "la 40: el Excel decía 5 y se vendieron 2 después: quedan 3 (la venta no se deshace)", `${hay(v40)}`);
+  ok(hay(v41) === 7, "la 41: el Excel decía 8 y se vendió 1 después: quedan 7", `${hay(v41)}`);
+  ok(hay(v42) === 4 && r.informe.errores.some((e) => /Fila 64: se contó o se cargó a mano/.test(e)), "la 42, contada a mano después: manda su conteo, y el informe lo dice", JSON.stringify(r.informe.errores));
+  ok(r.informe.conVentasEnMedio === 2, "el informe cuenta las filas que tenían ventas en medio", `${r.informe.conVentasEnMedio}`);
+}
+
+titulo("el informe del Excel sale exacto aunque Cloudflare corte una tanda");
+{
+  const filas = ["producto;talla;cantidad", ...Array.from({ length: 60 }, (_, i) => `Nuevo ${i % 25};${38 + (i % 3)};${1 + (i % 4)}`)];
+  const ref = otraBase();
+  ref.nueva(Infinity);
+  const deUnaVez = await inv.importarCsv(ref.DB, filas.join("\n"), {});
+  const b = otraBase();
+  b.nueva(Infinity);
+  const leido = await inv.prepararCsv(b.DB, filas.join("\n"), {});
+  const id = await inv.empezarImportacion(b.DB, { tipo: "csv", items: leido.filas, opciones: { col: leido.col, sedeFija: leido.sedeFija } });
+  // La primera tanda se corta a las 200 llamadas, y después no deja ni guardar.
+  b.nueva(200);
+  let cortada = false;
+  try {
+    await callado(() => inv.seguirImportacion(b.DB, { id, cuantos: 3, consultas: 900, llave: "p" }));
+  } catch (error) {
+    cortada = /Too many API requests/.test(error.message);
+  }
+  ok(cortada && b.sql.prepare("SELECT hechos FROM inv_trabajos WHERE id = ?").get(id).hechos === 0, "la tanda se cortó sin poder guardar por dónde iba");
+  b.sql.prepare("UPDATE inv_trabajos SET ocupado_hasta = 0 WHERE id = ?").run(id); // venció su plazo
+  const { r } = await hastaTerminar(b, id, { topeDePasada: Infinity });
+  ok(foto(b.sql) === foto(ref.sql), "la base queda igual que de una vez", diferencia(foto(b.sql), foto(ref.sql)));
+  ok(JSON.stringify(r.informe) === JSON.stringify(deUnaVez), "y el informe también (nuevos y con stock puesto, contados de verdad)", JSON.stringify({ t: r.informe, u: deUnaVez }));
+}
+
+titulo("subir otro Excel no corta el que va a medias");
+{
+  const b = otraBase();
+  b.nueva(Infinity);
+  const leer = async (n, nombre) => inv.prepararCsv(b.DB, ["producto;cantidad", ...Array.from({ length: n }, (_, i) => `${nombre} ${i};1`)].join("\n"), {});
+  const a = await leer(100, "Real");
+  const real = await inv.empezarImportacion(b.DB, { tipo: "csv", items: a.filas, opciones: { col: a.col, sedeFija: a.sedeFija } });
+  await inv.seguirImportacion(b.DB, { id: real });
+  const p = await leer(30, "Prueba");
+  const prueba = await inv.empezarImportacion(b.DB, { tipo: "csv", items: p.filas, opciones: { col: p.col, sedeFija: p.sedeFija, aplicar: false } });
+  ok((await inv.verImportacion(b.DB, real)).estado === "trabajando" && (await inv.verImportacion(b.DB, prueba)).estado === "trabajando", "«Solo probar» otro archivo deja seguir al de verdad");
+  const otraPrueba = await inv.empezarImportacion(b.DB, { tipo: "csv", items: p.filas, opciones: { col: p.col, sedeFija: p.sedeFija, aplicar: false } });
+  ok((await inv.verImportacion(b.DB, prueba)).estado === "cancelado" && (await inv.verImportacion(b.DB, real)).estado === "trabajando", "una prueba nueva reemplaza a la prueba vieja, no al de verdad");
+  let error = "";
+  try {
+    await inv.empezarImportacion(b.DB, { tipo: "csv", items: a.filas, opciones: { col: a.col, sedeFija: a.sedeFija } });
+  } catch (e) {
+    error = e.message;
+  }
+  ok(/Hay un Excel a medio subir \(20 de 100 filas\)\. Espera a que termine o detenlo/.test(error) && (await inv.verImportacion(b.DB, real)).estado === "trabajando", "otro de verdad se rechaza, con el aviso de cómo va el primero", error);
+  await inv.detenerImportacion(b.DB, real);
+  await inv.detenerImportacion(b.DB, otraPrueba);
+  const ahoraSi = await inv.empezarImportacion(b.DB, { tipo: "csv", items: a.filas, opciones: { col: a.col, sedeFija: a.sedeFija } });
+  ok(ahoraSi > 0, "detenido el primero, ya se puede subir otro");
+}
+
+titulo("Detener justo mientras una tanda trabaja: no la da por terminada");
+{
+  const b = otraBase();
+  b.nueva(Infinity);
+  const id = await inv.empezarImportacion(b.DB, { tipo: "catalogo", items: catalogoGrande(12), opciones: { botLeeInventario: true } });
+  // Alguien toca «Detener» cuando la tanda ya tomó la importación.
+  const DB = {
+    ...b.DB,
+    prepare(consulta) {
+      if (/^SELECT n, datos FROM inv_trabajo_items/.test(consulta) && !DB.yaPaso) {
+        DB.yaPaso = true;
+        return { bind: (...a) => ({ all: async () => (await inv.detenerImportacion(b.DB, id), b.DB.prepare(consulta).bind(...a).all()) }) };
+      }
+      return b.DB.prepare(consulta);
+    },
+    batch: (l) => b.DB.batch(l),
+  };
+  const r = await inv.seguirImportacion(DB, { id, cuantos: 25, llave: "p" });
+  ok(r.estado === "cancelado", "la tanda contesta «cancelado», no «listo»", r.estado);
+  ok((await inv.leerAjuste(b.DB, "catalogo_del_bot")) === null, "y el bot de EPICCELL NO pasa al inventario a medias");
+  const t = b.sql.prepare("SELECT estado, ocupado_hasta FROM inv_trabajos WHERE id = ?").get(id);
+  ok(t.estado === "cancelado" && t.ocupado_hasta === 0 && !b.sql.prepare("SELECT COUNT(*) AS n FROM inv_trabajo_items WHERE trabajo_id = ?").get(id).n, "queda detenida, suelta y sin nada guardado de más");
+}
+
+titulo("el cron reparte sus vueltas y no toca la que una página está pasando");
+{
+  const b = otraBase();
+  b.nueva(Infinity);
+  const leido = await inv.prepararCsv(b.DB, ["producto;cantidad", ...Array.from({ length: 200 }, (_, i) => `Cosa ${i};1`)].join("\n"), {});
+  const csv = await inv.empezarImportacion(b.DB, { tipo: "csv", items: leido.filas, opciones: { col: leido.col, sedeFija: leido.sedeFija } });
+  const cat = await inv.empezarImportacion(b.DB, { tipo: "catalogo", items: catalogoGrande(30), opciones: {} });
+  const vueltas = [];
+  for (let i = 0; i < 4; i++) vueltas.push((await callado(() => inv.avanzarImportacionesSolas(b.DB)))?.id);
+  ok(vueltas.includes(csv) && vueltas.includes(cat), "con un Excel y un catálogo a medias, avanzan los dos", JSON.stringify(vueltas));
+  b.sql.prepare("UPDATE inv_trabajos SET ocupado_hasta = ? WHERE id = ?").run(Date.now() + 60000, csv);
+  const r = await callado(() => inv.avanzarImportacionesSolas(b.DB));
+  ok(!r || r.id === cat, "y la que una página tiene tomada, la deja", JSON.stringify(r && r.id));
+}
+
+titulo("lo corto se termina en el mismo pedido");
+{
+  const b = otraBase();
+  b.nueva(Infinity);
+  const ENV = { DB: b.DB, PANEL_CLAVE: "clave-de-prueba", TIENDA_NOMBRE: "Prueba" };
+  const entrar = new FormData();
+  entrar.set("clave", "clave-de-prueba");
+  const r0 = await atenderPanel(new Request("https://bot.test/panel/entrar", { method: "POST", body: entrar }), ENV, { tienda: "Prueba" });
+  const cookie = (r0.headers.get("set-cookie") || "").split(";")[0];
+  let catalogo = [];
+  const opciones = { tienda: "Prueba", rubro: "moda", traerCatalogo: async () => catalogo };
+  const subir = async (n, probar) => {
+    const archivo = new FormData();
+    archivo.set("archivo", new File([["producto;talla;cantidad", ...Array.from({ length: n }, (_, i) => `Bota ${i};${38 + (i % 5)};${(i % 4) + 1}`)].join("\n")], "stock.csv", { type: "text/csv" }));
+    if (probar) archivo.set("probar", "si");
+    b.nueva();
+    const r = await callado(() => atenderPanel(new Request("https://bot.test/panel/inventario/importar/csv", { method: "POST", body: archivo, headers: { cookie, "sec-fetch-site": "same-origin" } }), ENV, opciones));
+    return { r, llamadas: b.pasada.llamadas };
+  };
+  let x = await subir(40, false);
+  ok(x.r.status === 200 && /Excel importado/.test(await x.r.text()) && x.llamadas < TOPE, "un Excel de 40 filas: el informe enseguida", `${x.r.status}, ${x.llamadas} llamadas`);
+  x = await subir(41, true);
+  ok(x.r.status === 303 && /progreso/.test(x.r.headers.get("location") || ""), "uno de 41: a la barra de progreso");
+  catalogo = catalogoGrande(30, { conCantidad: true }).map((m) => ({ ...m, fotos: [...m.fotos, "https://x/2.jpg", "https://x/3.jpg"] }));
+  b.nueva();
+  const traer = new FormData();
+  const r = await callado(() => atenderPanel(new Request("https://bot.test/panel/inventario/importar/catalogo", { method: "POST", body: traer, headers: { cookie, "sec-fetch-site": "same-origin" } }), ENV, opciones));
+  ok(r.status === 200 && /Catálogo traído/.test(await r.text()) && b.pasada.llamadas < TOPE, "30 modelos con fotos y cantidades: el informe enseguida", `${r.status}, ${b.pasada.llamadas} llamadas`);
+}
+
+titulo("los avisos dicen la verdad en cada tienda");
+{
+  const b = otraBase();
+  b.nueva(Infinity);
+  const ENV = { DB: b.DB, PANEL_CLAVE: "clave-de-prueba", TIENDA_NOMBRE: "Prueba" };
+  const entrar = new FormData();
+  entrar.set("clave", "clave-de-prueba");
+  const r0 = await atenderPanel(new Request("https://bot.test/panel/entrar", { method: "POST", body: entrar }), ENV, { tienda: "Prueba" });
+  const cookie = (r0.headers.get("set-cookie") || "").split(";")[0];
+  await inv.empezarImportacion(b.DB, { tipo: "catalogo", items: catalogoGrande(50), opciones: {} });
+  const leido = await inv.prepararCsv(b.DB, ["producto;cantidad", ...Array.from({ length: 80 }, (_, i) => `X ${i};1`)].join("\n"), {});
+  await inv.empezarImportacion(b.DB, { tipo: "csv", items: leido.filas, opciones: { col: leido.col, sedeFija: leido.sedeFija, aplicar: false } });
+  const ver = async (ruta, extra) => (await atenderPanel(new Request(`https://bot.test${ruta}`, { headers: { cookie, "sec-fetch-site": "same-origin" } }), ENV, { tienda: "Prueba", rubro: "moda", ...extra })).text();
+  const conCron = await ver("/panel/inventario", { seSigueSola: true });
+  const sinCron = await ver("/panel/inventario/importar", {});
+  ok(/Sigue sola cada 15 minutos/.test(conCron) && !/en pausa/.test(conCron), "con cron: «sigue sola cada 15 minutos»");
+  ok(/Está en pausa: ábrelo para que siga/.test(sinCron) && !/Sigue sola/.test(sinCron), "sin cron (EPICCELL): «está en pausa: ábrelo para que siga»");
+  ok(/Un Excel a medio probar/.test(sinCron), "una prueba se llama prueba");
+  const progreso = await ver("/panel/inventario/importar/progreso?id=1", {});
+  ok(!/Worker|Cloudflare/.test(progreso.replace(/<script[\s\S]*?<\/script>/g, "")), "sin palabras técnicas en la página del progreso");
 }
 
 src.limpiar();

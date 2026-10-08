@@ -62,7 +62,9 @@ import {
   importacionesEnCurso,
   detenerImportacion,
   filasParaExportar,
+  parteDelInventario,
   contarModelosActivos,
+  FILAS_POR_PAQUETE,
   svgEan13,
   TIPOS_DE_MOVIMIENTO,
 } from "./inventario.js";
@@ -95,8 +97,11 @@ import {
 const MAXIMO_CSV = 2 * 1024 * 1024;
 // IMPORTAR Y EXPORTAR POR PARTES (8-oct-2026, ver inventario.js): lo corto
 // se sigue haciendo de una vez; lo largo, por tandas.
+// (Con un presupuesto que deja sitio a lo demás del pedido: la sesión, leer
+// el archivo o el catálogo, guardarlo. Todo, lejos de las 1000 llamadas.)
 const MODELOS_DE_UNA_VEZ = 30;
-const FILAS_DE_UNA_VEZ = 50;
+const CONSULTAS_DE_UNA_VEZ = { catalogo: 600, csv: 650 };
+const FILAS_DE_UNA_VEZ = 2 * FILAS_POR_PAQUETE;
 // Modelos en cada parte del Excel del inventario (con sus tallas y sedes).
 const MODELOS_POR_PARTE = 100;
 const DESFASE_MS = -4 * 60 * 60 * 1000; // hora de Venezuela
@@ -363,7 +368,7 @@ const volverAlInventario = { href: "/panel/inventario", texto: "Inventario" };
 
 /* ── Las pantallas ───────────────────────────────────────────────────── */
 
-async function paginaDeLista(env, url, r) {
+async function paginaDeLista(env, url, r, opciones = {}) {
   const q = String(url.searchParams.get("q") || "").slice(0, 40);
   const filtro = ["con-stock", "pocos", "agotados"].includes(url.searchParams.get("f")) ? url.searchParams.get("f") : "";
   const [productos, cuenta, enCurso] = await Promise.all([
@@ -392,7 +397,7 @@ async function paginaDeLista(env, url, r) {
     texto: "Cada producto con su código de barras, cuántos quedan en cada sede y todo lo que se movió.",
     acciones: `<a class="boton suave" href="/panel/inventario/importar">${icono("subir")}Importar</a><a class="boton principal" href="/panel/inventario/nuevo">${icono("mas")}Nuevo producto</a>`,
   })}
-${avisoDeImportaciones(enCurso)}${
+${avisoDeImportaciones(enCurso, opciones)}${
   nadaTodavia
     ? ""
     : `<div class="mosaico">
@@ -625,7 +630,7 @@ async function paginaDeImportar(env, url, opciones = {}) {
     : "";
   const columnas = ["código", "producto", rubroDe(opciones.rubro).variante, "color", "cantidad", "precio", "costo", "marca", "sede"];
   return `${ESTILO}${tostadaDesde(url)}${cabecera({ volver: volverAlInventario, sobre: "Inventario", titulo: "Importar", texto: "Pasa al inventario lo que ya tienes: el catálogo de la tienda o el Excel del sistema viejo. Volver a importar no duplica nada." })}
-${avisoDeImportaciones(enCurso)}<div class="pasos-importar">
+${avisoDeImportaciones(enCurso, opciones)}<div class="pasos-importar">
 ${tarjetaDelBot}${
   traerCatalogo
     ? `<section class="panel-tarjeta"><h2>${insignia("enlace", "marca", "chica")}Traer del catálogo</h2>
@@ -681,7 +686,15 @@ function informeDelTrabajo(t, opciones = {}) {
         ["Sin cambios", "check", i.sinCambio, false],
       ],
       i.errores,
-      { probando, r }
+      {
+        probando,
+        r,
+        // Filas que se pasaron un rato después de subir el archivo y en
+        // medio hubo ventas o entradas: se tuvieron en cuenta.
+        extra: i.conVentasEnMedio
+          ? `<div class="aviso-grande">${insignia("caja", "marca")}<div><b>${esc(numero(i.conVentasEnMedio))} ${i.conVentasEnMedio === 1 ? "fila tenía" : "filas tenían"} ventas o entradas después de subir el archivo</b><p>Se tuvieron en cuenta: lo que se vendió en la caja mientras tanto no vuelve al stock.</p></div></div>`
+          : "",
+      }
     );
   }
   return informeDeImportacion(
@@ -737,7 +750,7 @@ async function paginaDeProgreso(env, url, opciones = {}) {
     ? "Con esta página abierta va rápido. Si la cierras, sigue sola cada 15 minutos (más despacio) y al volver a abrirla acelera otra vez."
     : "Deja esta página abierta hasta que termine. Si la cierras, sigue donde iba cuando la vuelvas a abrir.";
   return {
-    html: `${ESTILO}${cabecera({ volver: { href: "/panel/inventario/importar", texto: "Importar" }, sobre: "Importar", titulo, texto: "Va por tandas, como la indexación: cada pasada del Worker hace solo un trozo, así nunca llega al límite de Cloudflare." })}
+    html: `${ESTILO}${cabecera({ volver: { href: "/panel/inventario/importar", texto: "Importar" }, sobre: "Importar", titulo, texto: "Va por partes, así no se corta aunque sea muy grande. Volver a pasar algo no lo duplica." })}
 <section class="panel-tarjeta importando" id="importando" data-id="${esc(t.id)}" data-tipo="${esc(t.tipo)}" data-unidad="${esc(unidad)}">
 <div class="importando-cima">${insignia(csv ? "subir" : "enlace", "marca")}<div><b>${esc(csv ? (probando ? "Revisando cada fila, sin guardar nada" : "Pasando cada fila al inventario") : "Pasando cada producto al inventario")}</b><p id="imp-estado" aria-live="polite">Empezando…</p></div></div>
 <div class="importando-cifras"><b id="imp-hechos">${esc(hechos.toLocaleString("es-VE"))}</b><span id="imp-de">de ${esc(total.toLocaleString("es-VE"))} ${esc(unidad)}</span><em id="imp-por">${por}%</em></div>
@@ -762,7 +775,7 @@ function n(x){return Number(x||0).toLocaleString("es-VE")}
 function poner(d){var t=Number(d.total)||0,h=Math.min(Number(d.hechos)||0,t),p=t?Math.min(100,Math.round(h*100/t)):0;hechosEl.textContent=n(h);deEl.textContent="de "+n(t)+" "+unidad;porEl.textContent=p+"%";barra.querySelector("i").style.width=p+"%";barra.setAttribute("aria-valuenow",h);barra.setAttribute("aria-valuemax",t)}
 function paso(){
 fetch("/panel/inventario/importar/seguir",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json"},body:JSON.stringify({id:id,cuantos:cuantos,consultas:consultas,llave:llave})})
-.then(function(r){if(r.status===404){location.href="/panel/inventario/importar";throw null}return r.json().catch(function(){return{ok:false,error:"La pasada se cortó ("+r.status+")"}})})
+.then(function(r){if(r.status===404){location.href="/panel/inventario/importar";throw null}return r.json().catch(function(){return{ok:false,error:"respuesta "+r.status}})})
 .then(function(d){
 if(!d.ok)throw new Error(d.error||"falló");
 fallos=0;poner(d);
@@ -777,7 +790,7 @@ if(e===null)return;
 fallos++;seguidas=0;
 // Cloudflare cortó la tanda: la próxima, más chica (lo hecho no se pierde).
 cuantos=Math.max(1,Math.floor(cuantos/2));consultas=Math.max(60,Math.floor(consultas/2));
-if(fallos>8){est.textContent="Se detuvo: "+((e&&e.message)||"sin conexión")+". Toca «Seguir» para intentarlo otra vez.";seguir.hidden=false;return}
+if(fallos>8){if(window.console)console.error(e);est.textContent="Se cortó la conexión. Toca «Seguir» para intentarlo otra vez; lo que ya pasó no se pierde.";seguir.hidden=false;return}
 est.textContent="Un tropiezo; sigo con tandas más chicas…";
 setTimeout(paso,Math.min(15000,800*fallos))})}
 seguir.addEventListener("click",function(){seguir.hidden=true;fallos=0;est.textContent="Siguiendo…";paso()});
@@ -788,12 +801,16 @@ paso();
 }
 
 // El aviso de una importación a medias (en Importar y en el Inventario).
-function avisoDeImportaciones(lista = []) {
+// Sin cron (EPICCELL) no avanza con la página cerrada: se dice tal cual.
+function avisoDeImportaciones(lista = [], opciones = {}) {
   return lista
     .map((t) => {
       const { hechos, total, por } = cuantoVa(t);
       const csv = t.tipo === "csv";
-      return `<div class="aviso-grande aviso-importando">${insignia(csv ? "subir" : "enlace", "marca")}<div><b>${csv ? "Un Excel a medio subir" : "El catálogo a medio traer"}: ${esc(hechos.toLocaleString("es-VE"))} de ${esc(total.toLocaleString("es-VE"))} ${csv ? "filas" : "productos"} (${por}%)</b><p>Va por tandas. Ábrelo para que termine rápido.</p><div class="avance chico"><i style="width:${por}%"></i></div><div class="acciones"><a class="boton principal" href="/panel/inventario/importar/progreso?id=${esc(t.id)}">${icono("adelante")}Ver cómo va</a></div></div></div>`;
+      const probando = csv && t.opciones?.aplicar === false;
+      const que = csv ? (probando ? "Un Excel a medio probar" : "Un Excel a medio subir") : "El catálogo a medio traer";
+      const como = opciones.seSigueSola ? "Sigue sola cada 15 minutos; ábrelo para que termine rápido." : "Está en pausa: ábrelo para que siga.";
+      return `<div class="aviso-grande aviso-importando">${insignia(csv ? "subir" : "enlace", "marca")}<div><b>${que}: ${esc(hechos.toLocaleString("es-VE"))} de ${esc(total.toLocaleString("es-VE"))} ${csv ? "filas" : "productos"} (${por}%)</b><p>${como}</p><div class="avance chico"><i style="width:${por}%"></i></div><div class="acciones"><a class="boton principal" href="/panel/inventario/importar/progreso?id=${esc(t.id)}">${icono("adelante")}Ver cómo va</a></div></div></div>`;
     })
     .join("");
 }
@@ -824,15 +841,15 @@ document.addEventListener("click",function(e){
 var a=e.target.closest&&e.target.closest("a[data-excel-por-partes]");
 if(!a||e.ctrlKey||e.metaKey||e.shiftKey||!window.fetch||!window.Blob||!window.URL)return;
 e.preventDefault();if(a.getAttribute("aria-busy")==="true")return;a.setAttribute("aria-busy","true");
-var partes=[],desde=0,intentos=0,nombre="inventario.csv",aviso=tostada(BAJAR,"Preparando el Excel…","marca",true);
+var partes=[],tras="",hechos=0,total=0,intentos=0,nombre="inventario.csv",aviso=tostada(BAJAR,"Preparando el Excel…","marca",true);
 function decir(t){var s=aviso.querySelector("span:last-child");if(s)s.textContent=t}
 function fin(texto,tono){a.removeAttribute("aria-busy");aviso.remove();tostada(tono==="bien"?BIEN:MAL,texto,tono,false)}
 function paso(){
-fetch(a.getAttribute("data-excel-por-partes")+"?desde="+desde,{credentials:"same-origin",headers:{accept:"application/json"}})
+fetch(a.getAttribute("data-excel-por-partes")+(tras?"?tras="+encodeURIComponent(tras):""),{credentials:"same-origin",headers:{accept:"application/json"}})
 .then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json()})
-.then(function(d){intentos=0;partes.push(d.texto||"");nombre=d.nombre||nombre;decir("Preparando el Excel… "+n(d.hechos)+" de "+n(d.total)+" productos");
+.then(function(d){if(!d||!d.ok)throw new Error("parte");intentos=0;partes.push(d.texto||"");nombre=d.nombre||nombre;if(d.total!==null&&d.total!==undefined)total=Number(d.total)||0;hechos+=Number(d.modelos)||0;decir("Preparando el Excel… "+n(Math.min(hechos,Math.max(total,hechos)))+" de "+n(Math.max(total,hechos))+" productos");
 if(d.siguiente===null||d.siguiente===undefined){var b=new Blob(partes,{type:"text/csv;charset=utf-8"}),u=URL.createObjectURL(b),x=document.createElement("a");x.href=u;x.download=nombre;document.body.appendChild(x);x.click();setTimeout(function(){URL.revokeObjectURL(u);x.remove()},5000);fin("Listo: "+nombre,"bien");return}
-desde=d.siguiente;paso()})
+tras=String(d.siguiente);paso()})
 .catch(function(){if(++intentos>3){fin("No pude armar el Excel. Revisa la conexión y vuelve a intentarlo.","mal");return}decir("Un tropiezo; vuelvo a intentarlo…");setTimeout(paso,1200*intentos)})}
 paso()});
 })();
@@ -1169,7 +1186,7 @@ export async function atenderInventario(request, env, url, helpers, opciones = {
     return atenderPost(request, env, url, { redirigir, pagina, opciones, tienda });
   }
 
-  if (ruta === "/panel/inventario") return pagina("Inventario", await paginaDeLista(env, url, rubroDe(opciones.rubro)));
+  if (ruta === "/panel/inventario") return pagina("Inventario", await paginaDeLista(env, url, rubroDe(opciones.rubro), opciones));
   if (ruta === "/panel/inventario.csv") {
     // El archivo entero de una vez: queda para una tienda chica o sin
     // JavaScript. El botón «Excel» lo arma por partes (/panel/inventario/exportar).
@@ -1181,17 +1198,17 @@ export async function atenderInventario(request, env, url, helpers, opciones = {
   }
   if (ruta === "/panel/inventario/nuevo") return pagina("Nuevo producto", await paginaDeNuevo(env, url, rubroDe(opciones.rubro)));
   if (ruta === "/panel/inventario/exportar") {
-    // Una parte del Excel (JSON). La página las pide una tras otra y las
-    // junta en un solo archivo: ninguna pasada arma el archivo entero.
-    const desde = Math.max(0, Math.trunc(Number(url.searchParams.get("desde"))) || 0);
-    const [filas, total] = await Promise.all([filasParaExportar(env.DB, { desde, cuantos: MODELOS_POR_PARTE }), contarModelosActivos(env.DB)]);
-    const completo = csvDelInventario(filas, rubroDe(opciones.rubro));
-    const hasta = desde + MODELOS_POR_PARTE;
+    // Una parte del Excel (JSON). La página las pide una tras otra (cada una
+    // desde donde acabó la anterior) y las junta en un solo archivo.
+    const tras = String(url.searchParams.get("tras") || "").slice(0, 400);
+    const [parte, total] = await Promise.all([parteDelInventario(env.DB, { tras, cuantos: MODELOS_POR_PARTE }), tras ? null : contarModelosActivos(env.DB)]);
+    const completo = csvDelInventario(parte.filas, rubroDe(opciones.rubro));
     return json({
       ok: true,
-      texto: desde === 0 ? completo : completo.slice(completo.indexOf("\r\n") + 2),
-      siguiente: hasta < total ? hasta : null,
-      hechos: Math.min(hasta, total),
+      // La primera parte con el encabezado; las demás, solo sus filas.
+      texto: tras ? completo.slice(completo.indexOf("\r\n") + 2) : completo,
+      siguiente: parte.siguiente,
+      modelos: parte.modelos,
       total,
       nombre: nombreDelExcel(),
     });
@@ -1303,7 +1320,7 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
       id = await empezarImportacion(env.DB, { tipo: "csv", items: filas, opciones: { col, sedeFija, quien: datos.get("quien") || "", aplicar: !probando } });
       // Un Excel corto se termina en esta misma pasada, como antes.
       if (filas.length <= FILAS_DE_UNA_VEZ) {
-        const r = await seguirImportacion(env.DB, { id, cuantos: Math.ceil(FILAS_DE_UNA_VEZ / 25) });
+        const r = await seguirImportacion(env.DB, { id, cuantos: Math.ceil(FILAS_DE_UNA_VEZ / FILAS_POR_PAQUETE), consultas: CONSULTAS_DE_UNA_VEZ.csv });
         if (r?.estado === "listo") return pagina("Importación", informeDelTrabajo(r, opciones));
       }
     } catch (error) {
@@ -1324,7 +1341,7 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
       return json({ ok: true, ...resumenParaLaPagina(r) });
     } catch (error) {
       console.error("INVENTARIO: tanda de la importación:", error.message);
-      return json({ ok: false, error: error.message }, 500);
+      return json({ ok: false, error: "Esta parte no se pudo pasar; se intenta otra vez." }, 500);
     }
   }
 
@@ -1352,7 +1369,7 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
       console.log(`INVENTARIO: catálogo leído (${items.length} modelos); se pasa por tandas`);
       // Un catálogo corto se termina en esta misma pasada, como antes.
       if (items.length <= MODELOS_DE_UNA_VEZ) {
-        const r = await seguirImportacion(env.DB, { id, cuantos: MODELOS_DE_UNA_VEZ });
+        const r = await seguirImportacion(env.DB, { id, cuantos: MODELOS_DE_UNA_VEZ, consultas: CONSULTAS_DE_UNA_VEZ.catalogo });
         if (r?.estado === "listo") return pagina("Importación", informeDelTrabajo(r, opciones));
       }
     } catch (error) {
