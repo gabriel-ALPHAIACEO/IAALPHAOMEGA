@@ -44,6 +44,7 @@ const SUITES = [
   ["conexiones.mjs", "las 50 conexiones por pasada de Cloudflare: el índice se reparte y el cliente siempre recibe respuesta"],
   ["inventario.mjs", "el inventario y la caja: stock que nunca baja de 0, códigos de barras, importar sin duplicar"],
   ["negocio.mjs", "gastos, fiados, anular, el balance, Cashea en la caja, cada tienda con su negocio y la sesión abierta"],
+  ["asistente.mjs", "el asistente del panel: contesta, se ve en todas las páginas, conoce el panel y el stock, y no registra nada solo"],
 ];
 
 let roto = false;

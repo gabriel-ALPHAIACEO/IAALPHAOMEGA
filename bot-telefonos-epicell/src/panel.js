@@ -1196,7 +1196,7 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
   if (esRutaDeInventario(url)) return atenderInventario(request, env, url, ayudas, { tienda, traerCatalogo, nombreDelCatalogo, tarifaDeCaja, rubro, botLeeInventario });
 
   // EL NEGOCIO: inicio, ventas, gastos, fiados y el asistente (negocio-panel.js).
-  if (esRutaDeNegocio(url)) return atenderNegocio(request, env, url, ayudas, { tienda, tarifaDeCaja, rubro });
+  if (esRutaDeNegocio(url)) return atenderNegocio(request, env, url, ayudas, { tienda, tarifaDeCaja, rubro, conAnuncios });
 
   return paginaDeLista(env, url, tienda, conAnuncios);
 }

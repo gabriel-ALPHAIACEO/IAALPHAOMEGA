@@ -39,6 +39,7 @@ const SUITES = [
   ["cupo.mjs", "que sin cupo de OpenAI no se cuente como \"miré y no está\""],
   ["inventario.mjs", "el inventario y la caja: stock que nunca baja de 0, códigos de barras, importar sin duplicar"],
   ["negocio.mjs", "gastos, fiados, anular, el balance, Cashea en la caja, cada tienda con su negocio y la sesión abierta"],
+  ["asistente.mjs", "el asistente del panel: contesta, se ve en todas las páginas, conoce el panel y el stock, y no registra nada solo"],
 ];
 
 let roto = false;

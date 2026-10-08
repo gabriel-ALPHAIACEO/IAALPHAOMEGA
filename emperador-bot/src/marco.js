@@ -22,6 +22,7 @@
 
 import { ESTILO_ALPHA, SCRIPT_ALPHA, etiquetasDeApp, scriptDeApp, botonDeTema, SCRIPT_TEMA } from "./alpha.js";
 import { SPRITE_ICONOS, icono } from "./iconos.js";
+import { botonDelAsistente, ESTILO_ASISTENTE } from "./asistente.js";
 
 export function esc(texto) {
   return String(texto ?? "")
@@ -271,12 +272,13 @@ ${vivo ? `<div class="vivo-flotante">${vivo}</div>` : ""}
 <main class="contenido" id="contenido">${cuerpo}</main>
 </div>
 ${pestanas({ ruta, conAnuncios })}
+${botonDelAsistente(ruta)}
 ${SCRIPT_ALPHA}${scriptDeApp("/panel")}${SCRIPT_APP}</body>`;
   return `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#05070d">
 <link rel="icon" href="/panel/isotipo.png?v=1">${etiquetasDeApp("/panel")}${FUENTES}
-<title>${esc(titulo)} · ${esc(tienda)} · ALPHA IA</title><style>${ESTILO_ALPHA}${ESTILO_APP}</style>${SCRIPT_TEMA}${extraCabeza}</head>
+<title>${esc(titulo)} · ${esc(tienda)} · ALPHA IA</title><style>${ESTILO_ALPHA}${ESTILO_APP}${ESTILO_ASISTENTE}</style>${SCRIPT_TEMA}${extraCabeza}</head>
 ${SPRITE_ICONOS}${html}</html>`;
 }
 
