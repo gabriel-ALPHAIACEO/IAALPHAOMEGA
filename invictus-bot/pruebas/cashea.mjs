@@ -127,7 +127,7 @@ ok(/¡Arranca el 1 de octubre!/.test(hoy), "HOY la anuncia: arranca el 1 de octu
 ok(/Bajada de inicial/.test(hoy) && /Nivel 6 → 0% de inicial/.test(hoy) && /Nivel 1 → 50% de inicial/.test(hoy),
    "la bajada de inicial, los 6 niveles");
 ok(hoy.indexOf("Nivel 6") < hoy.indexOf("Nivel 1"), "del 6 al 1: el 0% primero");
-ok(/Para optar por las 6 cuotas sin interés la compra debe ser de 100\$ en adelante/.test(hoy),
+ok(/Para optar por el modo 6 cuotas sin interés la compra debe ser de 100\$ o más/.test(hoy),
    "dice, con las palabras del dueño, que las 6 cuotas son desde 100$");
 ok(/Nivel 6 → 0% de inicial 🎉\n/.test(hoy) && !/0% de inicial y las 6/.test(hoy),
    "y el 0% del Nivel 6 NO lleva mínimo");
@@ -149,7 +149,7 @@ const n3 = C.tarjetaCashea({ nivel: 3, productos: [jordan], ahora: EN });
 ok(/Nivel 3/.test(n3) && /30% de inicial/.test(n3) && /Jordan 4 Retro/.test(n3), "con Nivel 3: su porcentaje, y de qué producto habla", n3.split("\n")[0]);
 ok(!SIN_DINERO.test(n3), "SIN montos de dinero (ni inicial ni cuotas)", n3.replace(/\n/g, " | "));
 ok(/montos exactos de la inicial y de cada cuota te los confirma un asesor en un momento/.test(n3), "los montos, un asesor (y 'en un momento' avisa)");
-ok(/6 cuotas sin interés/.test(n3) && /debe ser de 100\$ en adelante/.test(n3), "sí dice las 6 cuotas y la condición de la promoción (desde 100$)");
+ok(/6 cuotas sin interés/.test(n3) && /debe ser de 100\$ o más/.test(n3), "sí dice las 6 cuotas y la condición de la promoción (desde 100$)");
 
 const n6 = C.tarjetaCashea({ nivel: 6, productos: [jordan], ahora: EN });
 ok(/0% de inicial!/.test(n6) && !SIN_DINERO.test(n6) && !/!:/.test(n6), "Nivel 6: 0% de inicial, sin montos", n6.split("\n")[0]);
@@ -211,25 +211,54 @@ ok(!C.revisarCashea("Tenemos 20% de descuento en Nike", EN_FECHA).corregido,
    "un descuento que no es de Cashea no se toca");
 
 // ───────────────────────────────────────────────────────────────────────
-titulo("LA TABLA DE HOY (7-oct-2026): la misma de EPICCELL, sin promoción");
+titulo("LA TABLA DE HOY (8-oct-2026): 6 cuotas + 0% exclusivo del Nivel 6, y la tarjeta tal cual");
 {
   const H = await (await prepararSrc()).cargar("cashea.js");
   const DESPUES = Date.parse("2026-10-08T12:00:00-04:00");
   ok(H.hayCashea() && H.momentoDeLaPromocion(DESPUES) === "siempre" && H.casheaVigente(DESPUES), "sin fechas: vale siempre (no pasa al asesor)");
-  const tabla = { 1: 60, 2: 50, 3: 30, 4: 25, 5: 20, 6: 20 };
-  ok(Object.entries(tabla).every(([n, v]) => H.inicialDelNivel(n) === v), "Nivel 1 60% · 2 50% · 3 30% · 4 25% · 5 20% · 6 20%");
-  ok(H.nombreDeLasCuotas() === "3 cuotas sin intereses, una cada 14 días", "3 cuotas sin intereses, una cada 14 días", H.nombreDeLasCuotas());
-  ok(H.textoDelMinimo() === "", "sin mínimo de compra");
+  const tabla = { 1: 60, 2: 50, 3: 30, 4: 25, 5: 20, 6: 0 };
+  ok(Object.entries(tabla).every(([n, v]) => H.inicialDelNivel(n) === v), "Nivel 1 60% · 2 50% · 3 30% · 4 25% · 5 20% · 6 0%");
+  ok(H.nombreDeLasCuotas() === "6 cuotas" && H.textoDelMinimo() === "compras desde 100$", "6 cuotas, desde 100$", `${H.nombreDeLasCuotas()} / ${H.textoDelMinimo()}`);
+  ok(H.tieneLasCuotas(6) && !H.tieneLasCuotas(5) && !H.tieneLasCuotas(1), "las 6 cuotas son SOLO del Nivel 6");
 
+  // La tarjeta, palabra por palabra como la escribió el dueño.
+  const COMO_LA_PIDIO = [
+    "💜 ¡Sí, trabajamos con Cashea!",
+    "",
+    "6 cuotas + 0% de inicial (Beneficio exclusivo para nivel 6)",
+    "",
+    "• Nivel 5 → 20% de inicial",
+    "• Nivel 4 → 25% de inicial",
+    "• Nivel 3 → 30% de inicial",
+    "• Nivel 2 → 50% de inicial",
+    "• Nivel 1 → 60% de inicial",
+    "",
+    "‘’ Para optar por el modo 6 cuotas la compra debe ser de 100$ o más ‘’",
+    "",
+    "¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca 😉",
+  ].join("\n");
   const t = H.tarjetaCashea({ ahora: DESPUES });
-  ok(/¡Sí, trabajamos con Cashea!/.test(t) && !/🔥|(?<!\d)0%|6 cuotas|promoci|Arranca|tiempo limitado/i.test(t), "sin nada de la promoción vieja", t.replace(/\n/g, " | "));
-  ok(/Tu inicial según tu nivel/.test(t) && t.indexOf("Nivel 1") < t.indexOf("Nivel 6") && /Nivel 1 → 60% de inicial/.test(t) && /Nivel 6 → 20% de inicial/.test(t), "la tabla del 1 al 6");
-  ok(/3 cuotas sin intereses, una cada 14 días/.test(t) && /¿Qué nivel tienes en Cashea\?/.test(t), "las cuotas, y le pregunta su nivel");
+  ok(t === COMO_LA_PIDIO, "sin nivel: la tarjeta sale EXACTAMENTE como la pidió el dueño", t.replace(/\n/g, " | "));
+  ok(H.tarjetaCashea({ productos: [{ titulo: "Jordan 4 Retro", precio: "120 USD" }], ahora: DESPUES }) === COMO_LA_PIDIO, "también mirando un zapato");
+  // Si alguien cambia un porcentaje en la tabla y no en la tarjeta, que se note.
+  for (const [, n, v] of t.matchAll(/Nivel (\d) → (\d+)% de inicial/g)) {
+    ok(H.inicialDelNivel(n) === Number(v), `la tarjeta y la tabla dicen lo mismo del Nivel ${n} (${v}%)`);
+  }
+  ok(/^No tengo el Nivel 9 en la tabla de Cashea\.\n\n💜/.test(H.tarjetaCashea({ nivel: 9, ahora: DESPUES })), "un nivel que no existe: lo dice, y la tarjeta");
 
-  const n6 = H.tarjetaCashea({ nivel: 6, productos: [{ titulo: "Jordan 4 Retro", precio: "120 USD" }], ahora: DESPUES });
-  ok(/Nivel 6/.test(n6) && /20% de inicial/.test(n6) && /3 cuotas sin intereses, una cada 14 días/.test(n6) && !/\d+\s*USD/.test(n6), "Nivel 6: 20% de inicial y 3 cuotas, sin montos", n6.replace(/\n/g, " | "));
+  const JORDAN = [{ titulo: "Jordan 4 Retro", precio: "120 USD" }];
+  const n6 = H.tarjetaCashea({ nivel: 6, productos: JORDAN, ahora: DESPUES });
+  ok(/Nivel 6/.test(n6) && /0% de inicial/.test(n6) && /El resto, en 6 cuotas/.test(n6) && /Para optar por el modo 6 cuotas la compra debe ser de 100\$ o más/.test(n6) && !/\d+\s*USD/.test(n6),
+     "Nivel 6: 0% de inicial, 6 cuotas y la condición de los 100$, sin montos", n6.replace(/\n/g, " | "));
+  for (const [n, pct] of [[5, 20], [3, 30], [1, 60]]) {
+    const r = H.tarjetaCashea({ nivel: n, productos: JORDAN, ahora: DESPUES });
+    ok(new RegExp(`Nivel ${n}.*${pct}% de inicial`).test(r) && !/6 cuotas|100\$/.test(r) && /confirma un asesor/.test(r),
+       `Nivel ${n}: su ${pct}% de inicial, SIN las 6 cuotas (son del Nivel 6); los montos, el asesor`, r.replace(/\n/g, " | "));
+  }
   ok(!H.revisarCashea("Con tu Nivel 1 pagas el 60% de inicial", DESPUES).corregido, "un 60% del Nivel 1 está bien");
-  ok(H.revisarCashea("Con tu Nivel 6 pagas el 0% de inicial", DESPUES).corregido, "un 0% de la promoción vieja se corrige");
+  ok(!H.revisarCashea("Con tu Nivel 6 pagas el 0% de inicial", DESPUES).corregido, "el 0% del Nivel 6 está bien");
+  ok(H.revisarCashea("Con tu Nivel 6 pagas el 20% de inicial", DESPUES).corregido, "un 20% al Nivel 6 (la tabla de ayer) se corrige");
+  ok(!H.revisarCashea("Para optar por el modo 6 cuotas la compra debe ser de 100$ o más", DESPUES).corregido, "la condición de los 100$ no es un monto prometido");
 }
 
 // ───────────────────────────────────────────────────────────────────────

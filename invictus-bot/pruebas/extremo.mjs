@@ -184,11 +184,11 @@ titulo("después del 6 de octubre");
   ok(/confirma un asesor/.test(r.todo) && !/Bajada de inicial/.test(r.todo), "ahí sí, al asesor (promoción vencida)");
 }
 
-titulo("HOY, 8 de octubre, con la tabla normal (sin promoción): la tabla, no el asesor");
+titulo("HOY, 8 de octubre, con la tabla del dueño: la tarjeta tal cual, no el asesor");
 {
   const r = await conversar("Tienes cashea?", { ahora: PASADA });
-  ok(/Tu inicial según tu nivel/.test(r.todo) && /Nivel 1 → 60%/.test(r.todo) && /3 cuotas sin intereses, una cada 14 días/.test(r.todo), "la tabla de Cashea de hoy", r.todo.slice(0, 200));
-  ok(!/confirma un asesor|(?<!\d)0% de inicial|Arranca/.test(r.todo), "sin asesor y sin nada de la promoción vieja");
+  ok(/6 cuotas \+ 0% de inicial \(Beneficio exclusivo para nivel 6\)/.test(r.todo) && /Nivel 1 → 60%/.test(r.todo) && /‘’ Para optar por el modo 6 cuotas/.test(r.todo), "la tarjeta de Cashea de hoy", r.todo.slice(0, 200));
+  ok(!/confirma un asesor|Arranca|tiempo limitado/.test(r.todo), "sin asesor y sin nada de la promoción vieja");
 }
 
 titulo("aunque el modelo se equivoque y diga 'asesor', la tabla llega");
@@ -197,7 +197,7 @@ titulo("aunque el modelo se equivoque y diga 'asesor', la tabla llega");
     ahora: HOY,
     respuestaModelo: { respuesta: "Eso te lo confirma un asesor en un momento 😊", buscar: "NADA", historial: "Preguntó por Cashea." },
   });
-  ok(/Tu inicial según tu nivel/.test(r.todo), "la tabla llega igual", r.todo.slice(0, 160));
+  ok(/Beneficio exclusivo para nivel 6/.test(r.todo), "la tabla llega igual", r.todo.slice(0, 160));
   ok(!/confirma un asesor/.test(r.todo), "y la frase del asesor NO sale delante de la tabla", r.todo.slice(0, 160));
 }
 

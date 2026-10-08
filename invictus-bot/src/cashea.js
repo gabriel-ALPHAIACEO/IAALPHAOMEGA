@@ -40,19 +40,37 @@ function leer() {
       detalleCuotas: "",
       minimo: 0,
       minimoAlCero: false,
+      // Los niveles a los que se les ofrecen las cuotas de "Cuotas:". Vacío =
+      // a todos. (8-oct-2026: las 6 cuotas son solo del Nivel 6.)
+      nivelesConCuotas: new Set(),
+      // La tarjeta escrita a mano en [CASHEA_TARJETA], línea por línea.
+      tarjeta: [],
     };
     let seccion = "";
 
     for (const cruda of String(listaPagos || "").split("\n")) {
       const linea = cruda.trim();
-      if (!linea || linea.startsWith("#")) continue;
+      if (linea.startsWith("#")) continue;
 
       const marca = linea.match(/^\[(\w+)\]$/);
       if (marca) {
         seccion = marca[1].toUpperCase();
         continue;
       }
-      if (seccion !== "CASHEA") continue;
+      // La tarjeta se guarda TAL CUAL, con sus líneas en blanco: es el
+      // mensaje que ve el cliente.
+      if (seccion === "CASHEA_TARJETA") {
+        leido.tarjeta.push(cruda.replace(/\s+$/, ""));
+        continue;
+      }
+      if (!linea || seccion !== "CASHEA") continue;
+
+      // "Cuotas solo para el nivel: 6" (o "niveles: 5, 6").
+      const soloNiveles = linea.match(/^cuotas\s+solo\s+para\s+(?:el\s+|los\s+)?nivel(?:es)?\s*:\s*(.+)$/i);
+      if (soloNiveles) {
+        for (const n of soloNiveles[1].match(/\d+/g) || []) leido.nivelesConCuotas.add(Number(n));
+        continue;
+      }
 
       // "Vigencia: 2026-10-01 al 2026-10-06"
       const vigencia = linea.match(/^vigencia\s*:\s*(\d{4}-\d{2}-\d{2})\s*(?:al|a|hasta|-|–)\s*(\d{4}-\d{2}-\d{2})/i);
@@ -292,7 +310,9 @@ export function fraseDelMinimo() {
   if (!minimo) return "";
   const cuotas = "las " + (nombreDeLasCuotas() || "cuotas");
   const que = minimoAlCero ? "el cero por ciento de inicial y " + cuotas : cuotas;
-  return "para optar por " + que + " la compra debe ser de " + minimo + "$ en adelante";
+  // (8-oct-2026) Con las palabras nuevas del dueño: "para optar por el modo
+  // 6 cuotas la compra debe ser de 100$ o más".
+  return "para optar por " + que.replace(/^las /, "el modo ") + " la compra debe ser de " + minimo + "$ o más";
 }
 
 // "6 cuotas", o "6 cuotas sin interés" si pagos.txt lo dice. "" sin dato.
@@ -359,6 +379,15 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
       : `🗓️ El resto, en ${lasCuotas}.`
     : "";
 
+  // ── Sin nivel (o uno que no existe), con la tarjeta ESCRITA A MANO en
+  // [CASHEA_TARJETA] de pagos.txt (8-oct-2026, dueño: "debe quedar así"):
+  // sale tal cual, palabra por palabra.
+  const escrita = tarjetaEscrita();
+  if (pct === null && escrita) {
+    const aviso = nivel ? `No tengo el Nivel ${nivel} en la tabla de Cashea.\n\n` : "";
+    return aviso + escrita;
+  }
+
   // ── Sin nivel (o uno que no existe): la promoción, la tabla y la pregunta.
   if (pct === null) {
     // Con un 0% (promoción), del nivel más alto al más bajo: el 0% primero,
@@ -414,10 +443,14 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
       ? `🎉 ¡Con tu Nivel ${nivel} en Cashea${conProducto} te lo llevas con 0% de inicial${condicionDelCero}!`
       : `💜 Con tu Nivel ${nivel} en Cashea${conProducto} es con el ${formatoPct(pct)} de inicial`;
 
+  // Las cuotas (y su mínimo), solo a los niveles que las tienen: las 6
+  // cuotas son del Nivel 6 (8-oct-2026). A los demás no se les promete un
+  // número de cuotas: eso lo confirma el asesor con los montos.
+  const conCuotas = tieneLasCuotas(nivel);
   return [
     encabezadoConProducto,
-    lasCuotas ? `🗓️ El resto, en ${lasCuotas}.` : "",
-    minimo ? `💲 ${mayuscula(fraseDelMinimo())}.` : "",
+    lasCuotas && conCuotas ? `🗓️ El resto, en ${lasCuotas}.` : "",
+    minimo && conCuotas ? `💲 ${mayuscula(fraseDelMinimo())}.` : "",
     cuando,
     "",
     `💬 ${mayuscula(ASESOR_CONFIRMA_MONTOS)}`,
@@ -426,6 +459,20 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
     .join("\n")
     .replace(/\n{3,}/g, "\n\n");
 
+}
+
+// ¿Las cuotas de "Cuotas:" son para este nivel? Sin "Cuotas solo para el
+// nivel", para todos.
+export function tieneLasCuotas(nivel) {
+  const { nivelesConCuotas } = leer();
+  return !nivelesConCuotas.size || nivelesConCuotas.has(Number(nivel));
+}
+
+// La tarjeta de [CASHEA_TARJETA], sin las líneas en blanco de los bordes, o
+// "" si no hay.
+export function tarjetaEscrita() {
+  const texto = leer().tarjeta.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return texto;
 }
 
 // Lleva "en un momento" a propósito: así hayEscalada() avisa al asesor.
@@ -492,7 +539,7 @@ export function revisarCashea(respuesta, ahora = Date.now(), { nivel = null } = 
   // La condición de la promoción ("la compra debe ser de 100$ en adelante")
   // no es un monto que se le promete: se quita antes de mirar.
   const sinCondicion = texto.replace(
-    /(?:la\s+compra\s+)?debe\s+ser\s+de\s+\d+\s*\$?\s*(?:usd\s*)?en\s+adelante|\b(?:desde|a\s+partir\s+de)\s+\d+\s*(?:\$|usd|d[oó]lares)|\bde\s+\d+\s*\$\s+en\s+adelante/gi,
+    /(?:la\s+compra\s+)?debe\s+ser\s+de\s+\d+\s*\$?\s*(?:usd\s*)?(?:en\s+adelante|o\s+m[aá]s)|\b(?:desde|a\s+partir\s+de)\s+\d+\s*(?:\$|usd|d[oó]lares)|\bde\s+\d+\s*\$\s+en\s+adelante/gi,
     ""
   );
   if (hayCashea() && MONTO_DE_CASHEA.test(sinCondicion) && /\b(?:c|k)a(?:s|c)?hea\b|\binicial\b|\bcuotas?\b/i.test(texto)) {

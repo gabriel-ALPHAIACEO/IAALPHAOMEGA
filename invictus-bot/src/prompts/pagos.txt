@@ -78,17 +78,45 @@ la tasa del BCV (Banco Central de Venezuela)
 # ("¡Arranca el 1 de octubre!") con la tabla y las cuentas. DESPUÉS de la
 # fecha final, pasa Cashea a un asesor.
 
-# (7-oct-2026) Terminó la promoción del 1 al 6 de octubre (0% de inicial y
-# 6 cuotas). Desde hoy, la tabla normal de Cashea, la misma de EPICCELL:
-# 3 cuotas sin intereses, una cada 14 días, y la inicial según el nivel.
-# Sin línea de vigencia: vale siempre. Sin titular: sale "¡Sí, trabajamos
-# con Cashea!". La promoción vieja está en pruebas/datos/pagos-promo-oct.txt
-# por si vuelve: se copian sus líneas acá con las fechas nuevas.
+# (8-oct-2026, dueño) LA TABLA DE HOY: 6 cuotas + 0% de inicial, beneficio
+# exclusivo del Nivel 6 (las 6 cuotas, desde 100$; el 0% del Nivel 6, siempre).
+# Los demás niveles, su inicial; cuántas cuotas les tocan lo confirma el
+# asesor con los montos. Sin línea de vigencia: vale siempre.
+#
+# "Cuotas solo para el nivel: 6" dice a qué niveles se les ofrecen las
+# cuotas de "Cuotas:". Sin esa línea, se les ofrecen a todos.
+#
+# La promoción del 1 al 6 de octubre está guardada en
+# pruebas/datos/pagos-promo-oct.txt por si vuelve.
 
-Cuotas: 3 sin intereses, una cada 14 días
-Nivel 1: 60%
-Nivel 2: 50%
-Nivel 3: 30%
-Nivel 4: 25%
+Cuotas: 6
+Cuotas solo para el nivel: 6
+Mínimo para las 6 cuotas: 100
+Nivel 6: 0%
 Nivel 5: 20%
-Nivel 6: 20%
+Nivel 4: 25%
+Nivel 3: 30%
+Nivel 2: 50%
+Nivel 1: 60%
+
+
+[CASHEA_TARJETA]
+# LA TARJETA QUE VE EL CLIENTE cuando pregunta por Cashea sin decir su nivel.
+# Sale TAL CUAL, con sus líneas en blanco y sus emojis (las líneas que
+# empiezan con # no salen). Si cambias un porcentaje arriba, cámbialo también
+# aquí: las pruebas avisan si no coinciden.
+# Con el nivel dicho ("soy nivel 3") no sale esta tarjeta: sale su inicial,
+# calculada con la tabla de arriba.
+💜 ¡Sí, trabajamos con Cashea!
+
+6 cuotas + 0% de inicial (Beneficio exclusivo para nivel 6)
+
+• Nivel 5 → 20% de inicial
+• Nivel 4 → 25% de inicial
+• Nivel 3 → 30% de inicial
+• Nivel 2 → 50% de inicial
+• Nivel 1 → 60% de inicial
+
+‘’ Para optar por el modo 6 cuotas la compra debe ser de 100$ o más ‘’
+
+¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca 😉
