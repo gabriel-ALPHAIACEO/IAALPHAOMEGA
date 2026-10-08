@@ -82,6 +82,7 @@ import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDel
 // central (ver registro.js).
 vigilarErrores();
 import { usaDrive, catalogoDeDrive, idDeCarpeta, leerUnTrozoDeDrive, catalogoParaInventario } from "./drive.js";
+import { avanzarImportacionesSolas } from "./inventario.js";
 import { avisarAsesor } from "./aviso.js";
 import { anotar, leerRastro, hace } from "./rastro.js";
 import { conPresupuesto, limiteDeSubpeticiones } from "./presupuesto.js";
@@ -132,7 +133,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-07 (65) · ✏️ cada talla se edita en el panel (precio, foto, código de fábrica) · 🔢 lo que nunca se contó dice «sin contar» · y lo de la v62: revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (64) ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 👕 calzado y ropa: tallas · · (63) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍)";
+const VERSION = "2026-10-08 (66) · 📦 «Traer ahora» y el Excel del inventario van por tandas, como la indexación (ya no pasan el límite de Cloudflare): barra de progreso, y si se cierra la página sigue el cron · · (65) ✏️ cada talla se edita en el panel (precio, foto, código de fábrica) · 🔢 lo que nunca se contó dice «sin contar» · y lo de la v62: revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (64) ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 👕 calzado y ropa: tallas · · (63) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -433,6 +434,10 @@ export default {
 
   scheduled(evento, env, ctx) {
     ctx.waitUntil(conPresupuesto(env, () => indexarLoQueFalte(env)).finally(() => guardarErrores(env.DB, env)));
+    // IMPORTAR POR TANDAS (8-oct-2026): si "Traer ahora" o un Excel quedó a
+    // medias (se cerró la página), una tanda en cada pasada del cron. No abre
+    // conexiones afuera: solo la base.
+    ctx.waitUntil(avanzarImportacionesSolas(env.DB));
   },
 };
 
@@ -451,6 +456,8 @@ async function atenderPeticion(request, env, ctx) {
       verTexto: async (ruta) => (await atenderPeticion(pedidoInterno(ruta, url, env), env, ctx)).text(),
       traerCatalogo: () => catalogoParaInventario(env),
       nombreDelCatalogo: "la carpeta de Google Drive (las tallas salen del nombre de cada foto)",
+      // Tiene cron: una importación a medias sigue sola (inventario.js).
+      seSigueSola: true,
       // Calzado, bolsos, camisas, pantalones y gorras: el inventario habla
       // de tallas y de calidad (AA, AAA). Ver marco.js, RUBROS.
       rubro: "moda",

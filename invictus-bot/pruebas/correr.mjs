@@ -39,6 +39,7 @@ const SUITES = [
   ["cupo.mjs", "que sin cupo de OpenAI no se cuente como \"miré y no está\""],
   ["inventario.mjs", "el inventario y la caja: stock que nunca baja de 0, códigos de barras, importar sin duplicar"],
   ["negocio.mjs", "gastos, fiados, anular, el balance, Cashea en la caja, cada tienda con su negocio y la sesión abierta"],
+  ["tandas.mjs", "Traer ahora, el Excel y el Excel del inventario por tandas: ninguna pasada llega al tope de Cloudflare y queda igual que de una vez"],
 ];
 
 let roto = false;

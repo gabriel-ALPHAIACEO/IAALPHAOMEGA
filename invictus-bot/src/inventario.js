@@ -127,6 +127,37 @@ const TABLAS_INVENTARIO = [
     clave TEXT PRIMARY KEY,
     valor TEXT NOT NULL
   )`,
+  // IMPORTAR POR TANDAS (8-oct-2026): "Traer ahora" y "Subir un Excel" ya
+  // no se hacen en una sola pasada del Worker (ver seguirImportacion). Lo
+  // que hay que pasar se guarda aquí y se va pasando de a poco.
+  //   estado: preparando → trabajando → listo (o cancelado)
+  //   ocupado_hasta: mientras una pasada trabaja, ninguna otra lo toca
+  //   (salvo la misma página, ocupado_por, si su pasada anterior murió).
+  `CREATE TABLE IF NOT EXISTS inv_trabajos (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    tipo          TEXT NOT NULL,
+    estado        TEXT NOT NULL,
+    total         INTEGER NOT NULL DEFAULT 0,
+    hechos        INTEGER NOT NULL DEFAULT 0,
+    opciones      TEXT NOT NULL DEFAULT '{}',
+    informe       TEXT NOT NULL DEFAULT '{}',
+    ocupado_hasta INTEGER NOT NULL DEFAULT 0,
+    ocupado_por   TEXT NOT NULL DEFAULT '',
+    creado        INTEGER NOT NULL,
+    actualizado   INTEGER NOT NULL,
+    terminado     INTEGER
+  )`,
+  // Un paquete por fila: un modelo del catálogo, o un trozo de filas del
+  // Excel. clave = origen|origen_id del modelo (para seguirPorCodigo).
+  `CREATE TABLE IF NOT EXISTS inv_trabajo_items (
+    trabajo_id INTEGER NOT NULL,
+    n          INTEGER NOT NULL,
+    clave      TEXT NOT NULL DEFAULT '',
+    datos      TEXT NOT NULL,
+    PRIMARY KEY (trabajo_id, n)
+  )`,
+  "CREATE INDEX IF NOT EXISTS inv_trabajo_clave ON inv_trabajo_items (trabajo_id, clave)",
+  "CREATE INDEX IF NOT EXISTS inv_trabajos_estado ON inv_trabajos (estado, id)",
   "CREATE UNIQUE INDEX IF NOT EXISTS inv_codigo ON inv_variantes (codigo_barras)",
   "CREATE UNIQUE INDEX IF NOT EXISTS inv_codigo_fab ON inv_variantes (codigo_fabricante)",
   "CREATE INDEX IF NOT EXISTS inv_var_producto ON inv_variantes (producto_id)",
@@ -531,7 +562,7 @@ export async function guardarProducto(db, datos) {
   const titulo = String(datos.titulo || "").trim().slice(0, 300);
   if (!titulo) throw new Error("El modelo necesita un nombre.");
   const ahora = Date.now();
-  await db
+  const fila = await db
     .prepare(
       `INSERT INTO inv_productos (origen, origen_id, titulo, marca, gama, precio, precio_local, precio_cashea, enlace, extras, activo, actualizado, costo)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -547,7 +578,8 @@ export async function guardarProducto(db, datos) {
          extras = CASE WHEN excluded.extras <> '{}' THEN excluded.extras ELSE inv_productos.extras END,
          -- Quitado del inventario en el panel: volver a importar no lo revive.
          activo = inv_productos.activo,
-         actualizado = excluded.actualizado`
+         actualizado = excluded.actualizado
+       RETURNING id`
     )
     .bind(
       origen,
@@ -564,8 +596,9 @@ export async function guardarProducto(db, datos) {
       ahora,
       numero(datos.costo)
     )
-    .run();
-  const fila = await db.prepare("SELECT id FROM inv_productos WHERE origen = ? AND origen_id = ?").bind(origen, origenId).first();
+    .first();
+  // RETURNING da el id tanto si lo creó como si lo puso al día: una
+  // consulta menos por modelo al importar (8-oct-2026).
   return Number(fila.id);
 }
 
@@ -601,10 +634,9 @@ export async function guardarFotos(db, productoId, urls) {
   const { results } = await db.prepare("SELECT url FROM inv_fotos WHERE producto_id = ?").bind(productoId).all();
   const ya = new Set((results || []).map((f) => f.url));
   let orden = ya.size;
-  for (const url of limpias) {
-    if (ya.has(url)) continue;
-    await db.prepare("INSERT INTO inv_fotos (producto_id, url, orden) VALUES (?, ?, ?)").bind(productoId, url, orden++).run();
-  }
+  // Las nuevas, juntas: una sola llamada a la base (8-oct-2026).
+  const nuevas = limpias.filter((url) => !ya.has(url)).map((url) => db.prepare("INSERT INTO inv_fotos (producto_id, url, orden) VALUES (?, ?, ?)").bind(productoId, url, orden++));
+  if (nuevas.length) await db.batch(nuevas);
 }
 
 // "40-45" → ["40","41",…,"45"]; "38, 39, 40" → ["38","39","40"]; "" → ["única"].
@@ -671,6 +703,59 @@ export async function guardarVariante(db, productoId, { opcion = "única", color
   }
   if (oculta !== undefined && oculta !== null) await db.prepare("UPDATE inv_variantes SET oculta = ? WHERE id = ?").bind(oculta ? 1 : 0, id).run();
   return id;
+}
+
+// LAS VARIANTES DE UN MODELO, TODAS JUNTAS (8-oct-2026). Hace lo mismo que
+// guardarVariante una por una, pero en tres llamadas a la base en vez de
+// tres o más por talla: un modelo de 40 a 45 costaba 18 llamadas, y
+// Cloudflare corta a las 1000 por pasada. Devuelve los ids, en el orden
+// de la lista.
+export async function guardarVariantes(db, productoId, lista = []) {
+  await asegurarInventario(db);
+  const limpias = (lista || []).map((v) => ({
+    ...v,
+    op: String(v?.opcion || "única").trim().slice(0, 40) || "única",
+    col: String(v?.color || "").trim().slice(0, 40),
+  }));
+  if (!limpias.length) return [];
+  await db.batch(limpias.map((v) => db.prepare("INSERT OR IGNORE INTO inv_variantes (producto_id, opcion, color) VALUES (?, ?, ?)").bind(productoId, v.op, v.col)));
+  const { results } = await db.prepare("SELECT id, opcion, color, codigo_barras FROM inv_variantes WHERE producto_id = ?").bind(productoId).all();
+  const porNombre = new Map((results || []).map((f) => [`${f.opcion}\u0000${f.color}`, f]));
+  const cambios = [];
+  const ids = [];
+  for (const v of limpias) {
+    const fila = porNombre.get(`${v.op}\u0000${v.col}`);
+    if (!fila) throw new Error(`No pude guardar la variante ${v.op}${v.col ? ` ${v.col}` : ""}.`);
+    const id = Number(fila.id);
+    ids.push(id);
+    if (!fila.codigo_barras) {
+      fila.codigo_barras = codigoInterno(id);
+      cambios.push(db.prepare("UPDATE inv_variantes SET codigo_barras = ? WHERE id = ?").bind(fila.codigo_barras, id));
+    }
+    const fab = limpiarCodigo(v.codigo_fabricante);
+    if (fab) {
+      cambios.push(
+        db
+          .prepare("UPDATE inv_variantes SET codigo_fabricante = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM inv_variantes WHERE codigo_fabricante = ? AND id <> ?)")
+          .bind(fab, id, fab, id)
+      );
+    }
+    if (numero(v.precio) !== null || numero(v.precio_cashea) !== null || numero(v.precio_local) !== null) {
+      cambios.push(
+        db
+          .prepare("UPDATE inv_variantes SET precio = COALESCE(?, precio), precio_cashea = COALESCE(?, precio_cashea), precio_local = COALESCE(?, precio_local) WHERE id = ?")
+          .bind(numero(v.precio), numero(v.precio_cashea), numero(v.precio_local), id)
+      );
+    }
+    const laFoto = fotoValida(v.foto);
+    if (laFoto) cambios.push(db.prepare("UPDATE inv_variantes SET foto = ? WHERE id = ?").bind(laFoto, id));
+    if (v.extras && typeof v.extras === "object" && Object.keys(v.extras).length) {
+      cambios.push(db.prepare("UPDATE inv_variantes SET extras = ? WHERE id = ?").bind(JSON.stringify(v.extras), id));
+    }
+    if (v.oculta !== undefined && v.oculta !== null) cambios.push(db.prepare("UPDATE inv_variantes SET oculta = ? WHERE id = ?").bind(v.oculta ? 1 : 0, id));
+  }
+  if (cambios.length) await db.batch(cambios);
+  return ids;
 }
 
 function fotoValida(url) {
@@ -833,8 +918,14 @@ export async function ajustarStock(db, { varianteId, sedeId, cantidad, quien = "
   // Todo en un batch y el cambio se calcula DENTRO de él: si una venta cae
   // justo mientras se ajusta, no se pierde (antes se leía y después se
   // escribía, y una venta en medio dejaba el conteo una unidad abajo).
-  const ahora = Date.now();
-  await db.batch([
+  await db.batch(sentenciasDeAjuste(db, { variante, sede, nueva, tipo, quien, nota, ahora: Date.now() }));
+  return nueva;
+}
+
+// Las tres sentencias de un conteo (también las usa la importación por
+// tandas, que junta las de varias tallas en un solo batch).
+function sentenciasDeAjuste(db, { variante, sede, nueva, tipo, quien = "", nota = "", ahora }) {
+  return [
     db.prepare("INSERT OR IGNORE INTO inv_stock (variante_id, local_id, cantidad, actualizado) VALUES (?, ?, 0, ?)").bind(variante, sede, ahora),
     db
       .prepare(
@@ -843,8 +934,7 @@ export async function ajustarStock(db, { varianteId, sedeId, cantidad, quien = "
       )
       .bind(variante, sede, tipo, nueva, nueva, String(quien).slice(0, 60), String(nota).slice(0, 300), ahora, variante, sede, nueva),
     db.prepare("UPDATE inv_stock SET cantidad = ?, actualizado = ? WHERE variante_id = ? AND local_id = ? AND cantidad <> ?").bind(nueva, ahora, variante, sede, nueva),
-  ]);
-  return nueva;
+  ];
 }
 
 async function existe(db, variante, sede) {
@@ -1009,36 +1099,19 @@ export async function ventasDelDia(db, desde) {
 // Una variante con "cantidad" carga ese stock en la sede indicada, como
 // "Carga inicial" (solo si esa variante todavía no tenía stock: volver a
 // importar no duplica nada).
+//
+// importarCatalogo pasa la lista entera de una vez (las pruebas, o una
+// lista corta). Desde el panel se pasa POR TANDAS: ver empezarImportacion.
 
 export async function importarCatalogo(db, items, { sedeId = 0, quien = "" } = {}) {
   await asegurarInventario(db);
   const sede = Number(sedeId) || (await sedes(db))[0]?.id;
   const cuenta = { modelos: 0, variantes: 0, conStock: 0, juntadas: 0, errores: [] };
-  const enEsteCatalogo = new Set((items || []).map((i) => `${i?.origen || "manual"}|${i?.origen_id || ""}`));
+  const enEsteCatalogo = new Set((items || []).map(claveDelModelo));
+  const estaEnElCatalogo = async (clave) => enEsteCatalogo.has(clave);
   for (const item of items || []) {
     try {
-      await seguirPorCodigo(db, item, enEsteCatalogo);
-      const productoId = await guardarProducto(db, item);
-      cuenta.juntadas += Number(item.juntadas) || 0;
-      cuenta.modelos++;
-      if (item.fotos?.length) await guardarFotos(db, productoId, item.fotos);
-      const variantes = item.variantes?.length ? item.variantes : [{ opcion: "única" }];
-      for (const v of variantes) {
-        const varianteId = await guardarVariante(db, productoId, v);
-        cuenta.variantes++;
-        // Sin número ("SI", vacío) no se inventa nada: queda sin contar. Un
-        // 0 de verdad sí se anota: contada y agotada no es lo mismo que sin
-        // contar (el bot ofrece la que no se contó, no la que está en 0).
-        const crudo = v.cantidad;
-        const n = crudo === null || crudo === undefined || String(crudo).trim() === "" ? NaN : Math.trunc(Number(crudo));
-        if (Number.isFinite(n) && n >= 0) {
-          const yaTiene = await db.prepare("SELECT 1 FROM inv_movimientos WHERE variante_id = ? LIMIT 1").bind(varianteId).first();
-          if (!yaTiene) {
-            await ajustarStock(db, { varianteId, sedeId: sede, cantidad: n, quien, nota: "Importado del catálogo", tipo: "carga" });
-            if (n > 0) cuenta.conStock++;
-          }
-        }
-      }
+      sumarAlInforme(cuenta, await importarUnModelo(db, item, { sede, quien, estaEnElCatalogo }));
     } catch (error) {
       if (cuenta.errores.length < 20) cuenta.errores.push(`${item?.titulo || "(sin nombre)"}: ${error.message}`);
     }
@@ -1046,12 +1119,69 @@ export async function importarCatalogo(db, items, { sedeId = 0, quien = "" } = {
   return cuenta;
 }
 
+function claveDelModelo(item) {
+  return `${item?.origen || "manual"}|${String(item?.origen_id || "").trim()}`;
+}
+
+function sumarAlInforme(cuenta, parte) {
+  cuenta.modelos += parte.modelos;
+  cuenta.variantes += parte.variantes;
+  cuenta.conStock += parte.conStock;
+  cuenta.juntadas += parte.juntadas;
+}
+
+// UN MODELO DEL CATÁLOGO, con sus tallas y su stock inicial. Unas 6 a 8
+// llamadas a la base por modelo, tenga las tallas que tenga (antes eran 3
+// o más por talla).
+async function importarUnModelo(db, item, { sede, quien = "", estaEnElCatalogo }) {
+  await seguirPorCodigo(db, item, estaEnElCatalogo);
+  const productoId = await guardarProducto(db, item);
+  const parte = { modelos: 1, variantes: 0, conStock: 0, juntadas: Number(item.juntadas) || 0 };
+  if (item.fotos?.length) await guardarFotos(db, productoId, item.fotos);
+  const variantes = item.variantes?.length ? item.variantes : [{ opcion: "única" }];
+  const ids = await guardarVariantes(db, productoId, variantes);
+  parte.variantes = ids.length;
+
+  // Sin número ("SI", vacío) no se inventa nada: queda sin contar. Un 0 de
+  // verdad sí se anota: contada y agotada no es lo mismo que sin contar (el
+  // bot ofrece la que no se contó, no la que está en 0).
+  const conCantidad = [];
+  variantes.forEach((v, i) => {
+    const crudo = v.cantidad;
+    const n = crudo === null || crudo === undefined || String(crudo).trim() === "" ? NaN : Math.trunc(Number(crudo));
+    if (Number.isFinite(n) && n >= 0) conCantidad.push({ id: ids[i], n });
+  });
+  if (!conCantidad.length) return parte;
+
+  // La carga va solo a la variante que todavía no tenía ningún movimiento.
+  const conHistoria = new Set();
+  const unicos = [...new Set(conCantidad.map((c) => c.id))];
+  for (let i = 0; i < unicos.length; i += 90) {
+    const trozo = unicos.slice(i, i + 90);
+    const { results } = await db
+      .prepare(`SELECT DISTINCT variante_id FROM inv_movimientos WHERE variante_id IN (${trozo.map(() => "?").join(", ")})`)
+      .bind(...trozo)
+      .all();
+    for (const f of results || []) conHistoria.add(Number(f.variante_id));
+  }
+  const ahora = Date.now();
+  const sentencias = [];
+  for (const { id, n } of conCantidad) {
+    if (conHistoria.has(id)) continue;
+    conHistoria.add(id);
+    sentencias.push(...sentenciasDeAjuste(db, { variante: id, sede, nueva: n, tipo: "carga", quien, nota: "Importado del catálogo", ahora }));
+    if (n > 0) parte.conStock++;
+  }
+  if (sentencias.length) await db.batch(sentencias);
+  return parte;
+}
+
 // EL MISMO MODELO CON OTRO ARCHIVO (El Emperador, 7-oct-2026). En Drive
 // cada modelo es un archivo, y si le cambian la foto el archivo es otro (otro
 // id). Si el modelo trae su código (el COD) y ya hay UNO con ese código que
 // no está en este catálogo, es el mismo: se le pone el id nuevo en vez de
 // crear otro (y su stock sigue donde estaba).
-async function seguirPorCodigo(db, item, enEsteCatalogo) {
+async function seguirPorCodigo(db, item, estaEnElCatalogo) {
   const codigo = String(item?.extras?.codigo || "").trim();
   const origen = String(item?.origen || "");
   const origenId = String(item?.origen_id || "").trim();
@@ -1061,7 +1191,7 @@ async function seguirPorCodigo(db, item, enEsteCatalogo) {
     .prepare("SELECT id, origen_id FROM inv_productos WHERE origen = ? AND json_extract(extras, '$.codigo') = ? COLLATE NOCASE LIMIT 2")
     .bind(origen, codigo)
     .all();
-  if (results?.length !== 1 || enEsteCatalogo.has(`${origen}|${results[0].origen_id}`)) return;
+  if (results?.length !== 1 || (await estaEnElCatalogo(`${origen}|${results[0].origen_id}`))) return;
   await db.prepare("UPDATE inv_productos SET origen_id = ? WHERE id = ?").bind(origenId, results[0].id).run();
 }
 
@@ -1145,6 +1275,17 @@ export function columnasDelCsv(encabezados) {
 }
 
 export async function importarCsv(db, texto, { sedeId = 0, quien = "", aplicar = true } = {}) {
+  const { filas, col, sedeFija } = await prepararCsv(db, texto, { sedeId });
+  const contexto = { col, sedeFija, sedePorNombre: await sedesPorNombre(db), quien, aplicar };
+  const informe = { filas: 0, nuevos: 0, actualizadas: 0, sinCambio: 0, errores: [] };
+  for (const [n, fila] of filas.entries()) await importarFilaCsv(db, fila, n + 2, contexto, informe);
+  return informe;
+}
+
+// Lee el archivo y comprueba que se entiende (los encabezados). Devuelve
+// las filas SIN el encabezado. Un error aquí se le dice al dueño enseguida,
+// antes de empezar a pasar nada.
+export async function prepararCsv(db, texto, { sedeId = 0 } = {}) {
   await asegurarInventario(db);
   const filas = leerCsv(texto);
   if (filas.length < 2) throw new Error("El archivo llegó vacío o con una sola fila.");
@@ -1153,121 +1294,425 @@ export async function importarCsv(db, texto, { sedeId = 0, quien = "", aplicar =
     throw new Error("No encuentro ni la columna del producto ni la del código. Ponle encabezados como 'producto' y 'código'.");
   }
   if (col.cantidad === -1) throw new Error("No encuentro la columna de la cantidad. Ponle un encabezado como 'cantidad' o 'stock'.");
-
   const listaDeSedes = await sedes(db);
-  const sedePorNombre = new Map(listaDeSedes.map((s) => [normal(s.nombre), s.id]));
   const sedeFija = Number(sedeId) || listaDeSedes[0].id;
-  const celda = (fila, clave) => (col[clave] === -1 ? "" : String(fila[col[clave]] ?? "").trim());
+  return { filas: filas.slice(1), col, sedeFija };
+}
 
-  const informe = { filas: 0, nuevos: 0, actualizadas: 0, sinCambio: 0, errores: [] };
-  for (const [n, fila] of filas.slice(1).entries()) {
-    informe.filas++;
-    const numeroDeFila = n + 2;
-    try {
-      const codigo = limpiarCodigo(celda(fila, "codigo"));
-      const titulo = celda(fila, "titulo");
-      const cantidadTexto = celda(fila, "cantidad");
-      const cantidad = numero(cantidadTexto);
-      if (cantidad === null || cantidad < 0) throw new Error(`cantidad "${cantidadTexto}" no es un número`);
-      const nombreSede = celda(fila, "sede");
-      let sede = sedeFija;
-      if (nombreSede) {
-        sede = sedePorNombre.get(normal(nombreSede));
-        if (!sede) throw new Error(`no existe la sede "${nombreSede}" (créala primero en Sedes)`);
+async function sedesPorNombre(db) {
+  return Object.fromEntries((await sedes(db)).map((s) => [normal(s.nombre), s.id]));
+}
+
+// UNA FILA DEL EXCEL. Suma lo que hizo en informe (y el error, si lo hay).
+async function importarFilaCsv(db, fila, numeroDeFila, { col, sedeFija, sedePorNombre, quien = "", aplicar = true }, informe) {
+  const celda = (clave) => (col[clave] === -1 ? "" : String(fila[col[clave]] ?? "").trim());
+  informe.filas++;
+  try {
+    const codigo = limpiarCodigo(celda("codigo"));
+    const titulo = celda("titulo");
+    const cantidadTexto = celda("cantidad");
+    const cantidad = numero(cantidadTexto);
+    if (cantidad === null || cantidad < 0) throw new Error(`cantidad "${cantidadTexto}" no es un número`);
+    const nombreSede = celda("sede");
+    let sede = sedeFija;
+    if (nombreSede) {
+      sede = sedePorNombre[normal(nombreSede)];
+      if (!sede) throw new Error(`no existe la sede "${nombreSede}" (créala primero en Sedes)`);
+    }
+
+    // 1. ¿El código ya es de una variante (el nuestro o el de fábrica)?
+    let variante = codigo ? await buscarPorCodigo(db, codigo) : null;
+    let productoDeLaFila = variante?.producto_id || 0;
+    if (!variante) {
+      if (!titulo && !codigo) throw new Error("fila sin producto ni código");
+      // 2. Un modelo con ese código de origen (el COD de El Emperador) o
+      //    con ese mismo nombre. Si no hay, se crea como manual.
+      //    En El Emperador el COD vive en extras.codigo (el modelo se
+      //    reconoce en Drive por su archivo): se busca en los dos.
+      let producto = codigo
+        ? await db
+            .prepare("SELECT id FROM inv_productos WHERE activo = 1 AND (origen_id = ? OR json_extract(extras, '$.codigo') = ? COLLATE NOCASE) ORDER BY origen = 'manual' LIMIT 1")
+            .bind(codigo, codigo)
+            .first()
+        : null;
+      if (!producto && titulo) {
+        producto = await db.prepare("SELECT id FROM inv_productos WHERE titulo = ? COLLATE NOCASE AND activo = 1 LIMIT 1").bind(titulo).first();
       }
-
-      // 1. ¿El código ya es de una variante (el nuestro o el de fábrica)?
-      let variante = codigo ? await buscarPorCodigo(db, codigo) : null;
-      let productoDeLaFila = variante?.producto_id || 0;
-      if (!variante) {
-        if (!titulo && !codigo) throw new Error("fila sin producto ni código");
-        // 2. Un modelo con ese código de origen (el COD de El Emperador) o
-        //    con ese mismo nombre. Si no hay, se crea como manual.
-        //    En El Emperador el COD vive en extras.codigo (el modelo se
-        //    reconoce en Drive por su archivo): se busca en los dos.
-        let producto = codigo
-          ? await db
-              .prepare("SELECT id FROM inv_productos WHERE activo = 1 AND (origen_id = ? OR json_extract(extras, '$.codigo') = ? COLLATE NOCASE) ORDER BY origen = 'manual' LIMIT 1")
-              .bind(codigo, codigo)
-              .first()
-          : null;
-        if (!producto && titulo) {
-          producto = await db.prepare("SELECT id FROM inv_productos WHERE titulo = ? COLLATE NOCASE AND activo = 1 LIMIT 1").bind(titulo).first();
-        }
-        let productoId = producto?.id;
-        if (!productoId) {
-          if (!aplicar) {
-            informe.nuevos++;
-            continue;
-          }
-          productoId = await guardarProducto(db, {
-            origen: "manual",
-            origen_id: codigo || undefined,
-            titulo: titulo || codigo,
-            marca: celda(fila, "marca"),
-            precio: celda(fila, "precio"),
-            costo: celda(fila, "costo"),
-          });
-          informe.nuevos++;
-        }
-        productoDeLaFila = productoId;
-        // Un código que parece de barras (8 o más dígitos) y no es de los
-        // nuestros queda como "de fábrica": así las etiquetas del sistema
-        // viejo siguen pasando en caja. Un código corto ("125") es el del
-        // modelo, no el de cada talla, y no se guarda como de barras.
-        const pareceDeBarras = /^\d{8,14}$/.test(codigo) && !/^2\d{12}$/.test(codigo);
+      let productoId = producto?.id;
+      if (!productoId) {
         if (!aplicar) {
-          informe.actualizadas++;
-          continue;
+          informe.nuevos++;
+          return;
         }
-        const varianteId = await guardarVariante(db, productoId, {
-          opcion: celda(fila, "opcion") || "única",
-          color: celda(fila, "color"),
-          codigo_fabricante: pareceDeBarras ? codigo : "",
+        productoId = await guardarProducto(db, {
+          origen: "manual",
+          origen_id: codigo || undefined,
+          titulo: titulo || codigo,
+          marca: celda("marca"),
+          precio: celda("precio"),
+          costo: celda("costo"),
         });
-        variante = { id: varianteId };
+        informe.nuevos++;
       }
+      productoDeLaFila = productoId;
+      // Un código que parece de barras (8 o más dígitos) y no es de los
+      // nuestros queda como "de fábrica": así las etiquetas del sistema
+      // viejo siguen pasando en caja. Un código corto ("125") es el del
+      // modelo, no el de cada talla, y no se guarda como de barras.
+      const pareceDeBarras = /^\d{8,14}$/.test(codigo) && !/^2\d{12}$/.test(codigo);
       if (!aplicar) {
         informe.actualizadas++;
-        continue;
+        return;
       }
-      const costo = numero(celda(fila, "costo"));
-      if (costo !== null && productoDeLaFila) await db.prepare("UPDATE inv_productos SET costo = ? WHERE id = ?").bind(costo, productoDeLaFila).run();
-      const antes = await cantidadActual(db, variante.id, sede);
-      const tieneHistoria = await db.prepare("SELECT 1 FROM inv_movimientos WHERE variante_id = ? LIMIT 1").bind(variante.id).first();
-      if (antes === Math.trunc(cantidad) && tieneHistoria) {
-        informe.sinCambio++;
-        continue;
-      }
-      await ajustarStock(db, {
-        varianteId: variante.id,
-        sedeId: sede,
-        cantidad,
-        quien,
-        nota: "Importado de Excel/CSV",
-        tipo: tieneHistoria ? "ajuste" : "carga",
+      const varianteId = await guardarVariante(db, productoId, {
+        opcion: celda("opcion") || "única",
+        color: celda("color"),
+        codigo_fabricante: pareceDeBarras ? codigo : "",
       });
-      informe.actualizadas++;
-    } catch (error) {
-      if (informe.errores.length < 30) informe.errores.push(`Fila ${numeroDeFila}: ${error.message}`);
+      variante = { id: varianteId };
     }
+    if (!aplicar) {
+      informe.actualizadas++;
+      return;
+    }
+    const costo = numero(celda("costo"));
+    if (costo !== null && productoDeLaFila) await db.prepare("UPDATE inv_productos SET costo = ? WHERE id = ?").bind(costo, productoDeLaFila).run();
+    const antes = await cantidadActual(db, variante.id, sede);
+    const tieneHistoria = await db.prepare("SELECT 1 FROM inv_movimientos WHERE variante_id = ? LIMIT 1").bind(variante.id).first();
+    if (antes === Math.trunc(cantidad) && tieneHistoria) {
+      informe.sinCambio++;
+      return;
+    }
+    await ajustarStock(db, {
+      varianteId: variante.id,
+      sedeId: sede,
+      cantidad,
+      quien,
+      nota: "Importado de Excel/CSV",
+      tipo: tieneHistoria ? "ajuste" : "carga",
+    });
+    informe.actualizadas++;
+  } catch (error) {
+    if (esLimiteDeCloudflare(error)) throw error;
+    if (informe.errores.length < 30) informe.errores.push(`Fila ${numeroDeFila}: ${error.message}`);
   }
-  return informe;
+}
+
+/* ── IMPORTAR POR TANDAS (8-oct-2026) ─────────────────────────────────
+
+   QUÉ PASÓ. "Traer ahora" pasaba el catálogo entero en UNA pasada del
+   Worker, y Cloudflare corta cada pasada: a las 1000 llamadas a la base
+   (en El Emperador, cada modelo con sus tallas costaba 20 o 30, y son
+   cientos) y a los 10 ms de CPU en el plan gratis. Lo mismo un Excel
+   grande. (Gabriel, 8-oct: "debe traerse así como la indexación".)
+
+   AHORA, como la indexación:
+     · "Traer ahora" (o "Subir") lee el catálogo o el archivo UNA vez y
+       guarda lo que hay que pasar en inv_trabajo_items. Eso cuesta pocas
+       llamadas.
+     · Después se pasa POR TANDAS (seguirImportacion): los modelos que
+       quepan en cada pasada, contando las llamadas a la base para no
+       llegar al tope.
+     · Mientras la página del progreso está abierta, ella pide la tanda
+       siguiente en cuanto acaba una. Si se cierra, el cron sigue solo
+       (avanzarImportacionesSolas, en Invictus y El Emperador cada 15
+       minutos), y al volver a abrirla sigue rápido.
+     · Pasar dos veces lo mismo no duplica nada (la carga de stock solo
+       va a la variante que no tenía movimientos), así que una tanda que
+       Cloudflare corte a medias se repite sin miedo.
+   ─────────────────────────────────────────────────────────────────── */
+
+// Cloudflare corta a las 1000 llamadas a la base por pasada (también en el
+// plan gratis), y pasado el tope YA NO DEJA NI GUARDAR por dónde se iba: por
+// eso cada tanda se queda muy por debajo, con sitio para lo demás de la
+// pasada (comprobar la sesión, crear las tablas en una pasada nueva). Menos
+// llamadas también es menos espera: cada una tarda lo suyo.
+export const CONSULTAS_POR_TANDA = 300;
+// Filas del Excel en cada paquete (una fila cuesta de 6 a 14 llamadas).
+const FILAS_POR_PAQUETE = 20;
+// Lo que puede llegar a costar un paquete, como mucho, para no empezarlo
+// si no cabe. Un modelo del catálogo cuesta de 6 a 11, tenga las tallas que
+// tenga.
+const COSTO_DE_UN_PAQUETE = { catalogo: 20, csv: FILAS_POR_PAQUETE * 15 };
+// Mientras una pasada trabaja una importación, las demás esperan. Si esa
+// pasada muere (Cloudflare la corta), pasado esto otra sigue donde iba; la
+// misma página (su «llave») sigue enseguida.
+const OCUPADO_MS = 60 * 1000;
+// Las importaciones terminadas se guardan un mes (su informe).
+const GUARDAR_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function esLimiteDeCloudflare(error) {
+  return /too many (api )?(sub)?requests|exceeded (cpu|resource)|worker exceeded/i.test(String(error?.message || error));
+}
+
+// Cuenta las llamadas a la base de una tanda (un batch es UNA llamada).
+function conCuenta(db) {
+  const cuenta = { usadas: 0 };
+  const envolver = (sentencia) => ({
+    original: sentencia,
+    bind: (...args) => envolver(sentencia.bind(...args)),
+    run: (...a) => (cuenta.usadas++, sentencia.run(...a)),
+    first: (...a) => (cuenta.usadas++, sentencia.first(...a)),
+    all: (...a) => (cuenta.usadas++, sentencia.all(...a)),
+    raw: (...a) => (cuenta.usadas++, sentencia.raw(...a)),
+  });
+  return {
+    cuenta,
+    db: {
+      prepare: (consulta) => envolver(db.prepare(consulta)),
+      batch: (lista) => (cuenta.usadas++, db.batch(lista.map((s) => s.original || s))),
+      exec: (...a) => (cuenta.usadas++, db.exec(...a)),
+    },
+  };
+}
+
+function informeVacio(tipo) {
+  return tipo === "csv"
+    ? { filas: 0, nuevos: 0, actualizadas: 0, sinCambio: 0, errores: [] }
+    : { modelos: 0, variantes: 0, conStock: 0, juntadas: 0, errores: [] };
+}
+
+function resumenDe(t) {
+  return {
+    id: Number(t.id),
+    tipo: t.tipo,
+    estado: t.estado,
+    hechos: Number(t.hechos) || 0,
+    total: Number(t.total) || 0,
+    opciones: leerJson(t.opciones, {}),
+    informe: { ...informeVacio(t.tipo), ...leerJson(t.informe, {}) },
+    creado: Number(t.creado) || 0,
+    actualizado: Number(t.actualizado) || 0,
+    terminado: t.terminado ? Number(t.terminado) : null,
+  };
+}
+
+// EMPIEZA una importación. tipo "catalogo": items son los modelos de
+// traerCatalogo(). tipo "csv": items son las filas del Excel (sin el
+// encabezado), y opciones lleva lo que dijo prepararCsv. Devuelve su id.
+// Una del mismo tipo que quedó a medias se reemplaza: "Traer ahora" es
+// traer lo de ahora.
+export async function empezarImportacion(db, { tipo, items = [], opciones = {} } = {}) {
+  if (tipo !== "catalogo" && tipo !== "csv") throw new Error(`No sé importar «${tipo}».`);
+  await asegurarInventario(db);
+  const ahora = Date.now();
+  let paquetes;
+  let guardadas;
+  if (tipo === "catalogo") {
+    paquetes = (items || []).filter(Boolean);
+    const sede = Number(opciones.sedeId) || (await sedes(db))[0]?.id;
+    if (!(await db.prepare("SELECT 1 FROM inv_locales WHERE id = ?").bind(Number(sede) || 0).first())) throw new Error("Esa sede ya no existe.");
+    guardadas = { sede: Number(sede), quien: String(opciones.quien || "").slice(0, 60), botLeeInventario: Boolean(opciones.botLeeInventario) };
+  } else {
+    const filas = (items || []).map((fila, n) => ({ n, fila }));
+    paquetes = [];
+    for (let i = 0; i < filas.length; i += FILAS_POR_PAQUETE) paquetes.push({ filas: filas.slice(i, i + FILAS_POR_PAQUETE) });
+    guardadas = { col: opciones.col, sedeFija: Number(opciones.sedeFija) || 0, quien: String(opciones.quien || "").slice(0, 60), aplicar: opciones.aplicar !== false, filas: filas.length };
+  }
+  if (!paquetes.length) throw new Error("No hay nada que importar.");
+
+  await db.batch([
+    db.prepare("UPDATE inv_trabajos SET estado = 'cancelado', actualizado = ? WHERE tipo = ? AND estado IN ('preparando', 'trabajando')").bind(ahora, tipo),
+    db.prepare("DELETE FROM inv_trabajo_items WHERE trabajo_id IN (SELECT id FROM inv_trabajos WHERE estado IN ('cancelado', 'listo'))"),
+    db.prepare("DELETE FROM inv_trabajos WHERE estado IN ('cancelado', 'listo') AND creado < ?").bind(ahora - GUARDAR_MS),
+  ]);
+  const fila = await db
+    .prepare("INSERT INTO inv_trabajos (tipo, estado, total, hechos, opciones, informe, ocupado_hasta, creado, actualizado) VALUES (?, 'preparando', ?, 0, ?, ?, 0, ?, ?) RETURNING id")
+    .bind(tipo, paquetes.length, JSON.stringify(guardadas), JSON.stringify(informeVacio(tipo)), ahora, ahora)
+    .first();
+  const id = Number(fila.id);
+  // Lo que hay que pasar, de 100 en 100 por llamada.
+  for (let i = 0; i < paquetes.length; i += 100) {
+    await db.batch(
+      paquetes
+        .slice(i, i + 100)
+        .map((p, j) => db.prepare("INSERT INTO inv_trabajo_items (trabajo_id, n, clave, datos) VALUES (?, ?, ?, ?)").bind(id, i + j, tipo === "catalogo" ? claveDelModelo(p) : "", JSON.stringify(p)))
+    );
+  }
+  await db.prepare("UPDATE inv_trabajos SET estado = 'trabajando', actualizado = ? WHERE id = ? AND estado = 'preparando'").bind(Date.now(), id).run();
+  return id;
+}
+
+// UNA TANDA: pasa los paquetes que quepan (como mucho «cuantos», y sin
+// pasar de «consultas» llamadas a la base) y guarda por dónde va. Sin id,
+// la importación en curso más vieja. Devuelve cómo va (o null si no hay).
+// Si otra pasada la está trabajando ahora mismo, no la toca: ocupado.
+export async function seguirImportacion(dbReal, { id = 0, cuantos = 25, consultas = CONSULTAS_POR_TANDA, llave = "" } = {}) {
+  const { db, cuenta } = conCuenta(dbReal);
+  await asegurarInventario(db);
+  const trabajo = Number(id)
+    ? await db.prepare("SELECT * FROM inv_trabajos WHERE id = ?").bind(Number(id)).first()
+    : await db.prepare("SELECT * FROM inv_trabajos WHERE estado = 'trabajando' ORDER BY id LIMIT 1").first();
+  if (!trabajo) return null;
+  if (trabajo.estado !== "trabajando") return resumenDe(trabajo);
+  const ahora = Date.now();
+  const quien = String(llave || "").slice(0, 40);
+  const tomado = await db
+    .prepare("UPDATE inv_trabajos SET ocupado_hasta = ?, ocupado_por = ? WHERE id = ? AND estado = 'trabajando' AND (ocupado_hasta < ? OR (ocupado_por = ? AND ? <> '')) RETURNING hechos, informe")
+    .bind(ahora + OCUPADO_MS, quien, trabajo.id, ahora, quien, quien)
+    .first();
+  if (!tomado) return { ...resumenDe(trabajo), ocupado: true };
+
+  const opciones = leerJson(trabajo.opciones, {});
+  let informe = { ...informeVacio(trabajo.tipo), ...leerJson(tomado.informe, {}) };
+  const desde = Number(tomado.hechos) || 0;
+  let hechos = desde;
+  const tope = Math.max(1, Math.min(Math.trunc(Number(cuantos)) || 1, 200));
+  const presupuesto = Math.max(40, Math.min(Math.trunc(Number(consultas)) || CONSULTAS_POR_TANDA, 900));
+  const costo = COSTO_DE_UN_PAQUETE[trabajo.tipo] || 20;
+  let guardado = false;
+  try {
+    const { results: paquetes } = await db
+      .prepare("SELECT n, datos FROM inv_trabajo_items WHERE trabajo_id = ? AND n >= ? ORDER BY n LIMIT ?")
+      .bind(trabajo.id, desde, tope)
+      .all();
+    const estaEnElCatalogo = async (clave) =>
+      Boolean(await db.prepare("SELECT 1 FROM inv_trabajo_items WHERE trabajo_id = ? AND clave = ? LIMIT 1").bind(trabajo.id, clave).first());
+    let contextoCsv = null;
+    let cortado = false;
+    for (const paquete of paquetes || []) {
+      // Siempre al menos uno por tanda; los demás, si caben.
+      if (hechos > desde && cuenta.usadas + costo > presupuesto) break;
+      const antes = JSON.stringify(informe);
+      const datos = leerJson(paquete.datos, null);
+      try {
+        if (trabajo.tipo === "catalogo") {
+          try {
+            sumarAlInforme(informe, await importarUnModelo(db, datos || {}, { sede: opciones.sede, quien: opciones.quien || "", estaEnElCatalogo }));
+          } catch (error) {
+            if (esLimiteDeCloudflare(error)) throw error;
+            if (informe.errores.length < 20) informe.errores.push(`${datos?.titulo || "(sin nombre)"}: ${error.message}`);
+          }
+        } else {
+          contextoCsv ??= { col: opciones.col, sedeFija: opciones.sedeFija, sedePorNombre: await sedesPorNombre(db), quien: opciones.quien || "", aplicar: opciones.aplicar !== false };
+          for (const { n, fila } of datos?.filas || []) await importarFilaCsv(db, fila, n + 2, contextoCsv, informe);
+        }
+      } catch (error) {
+        if (!esLimiteDeCloudflare(error)) throw error;
+        // Cloudflare cortó en medio de este paquete: lo hecho antes queda,
+        // y este se repite entero en la tanda siguiente.
+        informe = JSON.parse(antes);
+        cortado = true;
+        console.error(`INVENTARIO: tanda cortada por Cloudflare (${error.message}); sigue en la próxima`);
+        break;
+      }
+      hechos = Number(paquete.n) + 1;
+    }
+    const termino = hechos >= Number(trabajo.total) || (!cortado && !(paquetes || []).length);
+    if (termino && trabajo.tipo === "catalogo") {
+      // El stock que se cargó en ESTA importación, contado en la base: si
+      // Cloudflare cortó una tanda después de cargar y antes de guardar la
+      // cuenta, la tanda repetida ya no lo cuenta (la variante tiene
+      // movimiento), pero aquí sí sale.
+      const fila = await db
+        .prepare("SELECT COUNT(DISTINCT variante_id) AS n FROM inv_movimientos WHERE tipo = 'carga' AND nota = 'Importado del catálogo' AND delta > 0 AND creado >= ?")
+        .bind(Number(trabajo.creado) || 0)
+        .first();
+      informe.conStock = Number(fila?.n) || 0;
+    }
+    if (termino && trabajo.tipo === "catalogo" && opciones.botLeeInventario && informe.modelos && (await leerAjuste(db, "catalogo_del_bot")) === null) {
+      // EPICCELL (decisión del dueño): traído el catálogo ENTERO, manda el
+      // inventario. Solo la primera vez: si después se volvió a la hoja,
+      // eso se respeta.
+      await guardarAjuste(db, "catalogo_del_bot", "inventario");
+      informe.pasoAlInventario = true;
+      console.log("INVENTARIO: desde ahora el bot ofrece lo del inventario");
+    }
+    const final = Date.now();
+    await db.batch([
+      db
+        .prepare("UPDATE inv_trabajos SET hechos = ?, informe = ?, estado = ?, terminado = ?, ocupado_hasta = 0, actualizado = ? WHERE id = ? AND estado = 'trabajando'")
+        .bind(hechos, JSON.stringify(informe), termino ? "listo" : "trabajando", termino ? final : null, final, trabajo.id),
+      ...(termino ? [db.prepare("DELETE FROM inv_trabajo_items WHERE trabajo_id = ?").bind(trabajo.id)] : []),
+    ]);
+    guardado = true;
+    return { ...resumenDe({ ...trabajo, hechos, informe: JSON.stringify(informe), estado: termino ? "listo" : "trabajando", terminado: termino ? final : null, actualizado: final }), consultas: cuenta.usadas };
+  } finally {
+    // Si algo falló, se suelta enseguida para que la próxima tanda siga.
+    if (!guardado) await dbReal.prepare("UPDATE inv_trabajos SET ocupado_hasta = 0 WHERE id = ?").bind(trabajo.id).run().catch(() => {});
+  }
+}
+
+export async function verImportacion(db, id) {
+  try {
+    const t = await db.prepare("SELECT * FROM inv_trabajos WHERE id = ?").bind(Number(id) || 0).first();
+    return t ? resumenDe(t) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Las que van a medias (para el aviso del panel). Sin tablas: ninguna.
+export async function importacionesEnCurso(db) {
+  try {
+    const { results } = await db.prepare("SELECT * FROM inv_trabajos WHERE estado = 'trabajando' ORDER BY id").all();
+    return (results || []).map(resumenDe);
+  } catch {
+    return [];
+  }
+}
+
+export async function detenerImportacion(db, id) {
+  await asegurarInventario(db);
+  await db.batch([
+    db.prepare("UPDATE inv_trabajos SET estado = 'cancelado', ocupado_hasta = 0, actualizado = ? WHERE id = ? AND estado IN ('preparando', 'trabajando')").bind(Date.now(), Number(id) || 0),
+    db.prepare("DELETE FROM inv_trabajo_items WHERE trabajo_id = ?").bind(Number(id) || 0),
+  ]);
+}
+
+// EL CRON (Invictus y El Emperador, cada 15 minutos): si hay una
+// importación a medias, una tanda. Sin nada pendiente cuesta una consulta, y
+// en una tienda que nunca importó nada, ninguna escritura.
+// Tandas chicas: la pasada del cron también indexa, y comparte con eso los
+// 10 ms de CPU del plan gratis.
+export async function avanzarImportacionesSolas(db, { cuantos = 10, consultas = 150 } = {}) {
+  if (!db) return null;
+  let hay = null;
+  try {
+    hay = await db.prepare("SELECT id FROM inv_trabajos WHERE estado = 'trabajando' ORDER BY id LIMIT 1").first();
+  } catch {
+    return null;
+  }
+  if (!hay) return null;
+  try {
+    const r = await seguirImportacion(db, { id: hay.id, cuantos, consultas, llave: "cron" });
+    if (r && !r.ocupado) console.log(`INVENTARIO: importación por tandas (cron): ${r.hechos} de ${r.total}${r.estado === "listo" ? ", terminada" : ""}`);
+    return r;
+  } catch (error) {
+    console.error("INVENTARIO: la tanda del cron falló:", error.message);
+    return null;
+  }
 }
 
 // Para bajar el inventario a Excel (CSV): una fila por variante y sede.
-export async function filasParaExportar(db) {
+// POR PARTES (8-oct-2026): con «cuantos», solo los modelos de esa parte
+// (desde el número «desde», en orden de nombre). Armar el archivo entero de
+// una vez pasaba los 10 ms de CPU de Cloudflare en una tienda grande; la
+// página pide las partes una tras otra y las junta en un solo archivo.
+export async function filasParaExportar(db, { desde = 0, cuantos = 0 } = {}) {
   await asegurarInventario(db);
+  const porPartes = Number(cuantos) > 0;
   const { results } = await db
     .prepare(
-      `SELECT p.titulo, p.marca, p.gama, v.opcion, v.color, v.codigo_barras, v.codigo_fabricante,
+      `WITH p AS (
+         SELECT id, titulo, marca, gama, precio, costo FROM inv_productos WHERE activo = 1
+          ORDER BY titulo COLLATE NOCASE, id ${porPartes ? "LIMIT ? OFFSET ?" : ""}
+       )
+       SELECT p.titulo, p.marca, p.gama, v.opcion, v.color, v.codigo_barras, v.codigo_fabricante,
               COALESCE(v.precio, p.precio) AS precio, p.costo, l.nombre AS sede, COALESCE(s.cantidad, 0) AS cantidad
          FROM inv_variantes v
-         JOIN inv_productos p ON p.id = v.producto_id AND p.activo = 1
+         JOIN p ON p.id = v.producto_id
          CROSS JOIN inv_locales l
          LEFT JOIN inv_stock s ON s.variante_id = v.id AND s.local_id = l.id
-        ORDER BY p.titulo COLLATE NOCASE, CAST(v.opcion AS REAL), v.opcion, l.id`
+        ORDER BY p.titulo COLLATE NOCASE, p.id, CAST(v.opcion AS REAL), v.opcion, v.id, l.id`
     )
+    .bind(...(porPartes ? [Math.trunc(Number(cuantos)), Math.max(0, Math.trunc(Number(desde)) || 0)] : []))
     .all();
   return results || [];
+}
+
+export async function contarModelosActivos(db) {
+  await asegurarInventario(db);
+  const fila = await db.prepare("SELECT COUNT(*) AS n FROM inv_productos WHERE activo = 1").first();
+  return Number(fila?.n) || 0;
 }

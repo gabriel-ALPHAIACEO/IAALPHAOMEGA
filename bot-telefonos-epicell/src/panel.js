@@ -1023,7 +1023,7 @@ export async function atenderPanel(request, env, opciones = {}) {
   }
 }
 
-async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda", horasDePausa = 1, conAnuncios = true, traerCatalogo = null, nombreDelCatalogo = "", version = "", tarifaDeCaja = "", rubro = "", botLeeInventario = false } = {}) {
+async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda", horasDePausa = 1, conAnuncios = true, traerCatalogo = null, nombreDelCatalogo = "", version = "", tarifaDeCaja = "", rubro = "", botLeeInventario = false, seSigueSola = false } = {}) {
   const url = new URL(request.url);
 
   // LA APP INSTALABLE (alpha.js): el manifiesto, el trabajador y el ícono.
@@ -1193,7 +1193,7 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
 
   // EL INVENTARIO Y LA CAJA (7-oct-2026, ver inventario-panel.js).
   const ayudas = { pagina: (titulo, cuerpo, extra = {}) => pagina(titulo, cuerpo, { tienda, conAnuncios, ...extra }), vieneDelPanel, redirigir };
-  if (esRutaDeInventario(url)) return atenderInventario(request, env, url, ayudas, { tienda, traerCatalogo, nombreDelCatalogo, tarifaDeCaja, rubro, botLeeInventario });
+  if (esRutaDeInventario(url)) return atenderInventario(request, env, url, ayudas, { tienda, traerCatalogo, nombreDelCatalogo, tarifaDeCaja, rubro, botLeeInventario, seSigueSola });
 
   // EL NEGOCIO: inicio, ventas, gastos, fiados y el asistente (negocio-panel.js).
   if (esRutaDeNegocio(url)) return atenderNegocio(request, env, url, ayudas, { tienda, tarifaDeCaja, rubro });
