@@ -1,4 +1,7 @@
-// Una generacion = una modelo + una escena -> imagenes. Se pide solo la
+// Una generacion = una modelo + una escena -> imagenes. Quien genera de
+// verdad lo decide GENERADOR en wrangler.toml: "local" (tu equipo con
+// ComfyUI y tus LoRA, via puente/) o "fal" (GPU en la nube).
+// Se pide solo la
 // escena; la identidad (LoRA, rostro, cuerpo) la pone la ficha de la modelo
 // (ver modelos.js). Todo queda guardado (escena, prompt completo, LoRA,
 // escala, semilla, imagenes) para repetir lo que funciono y, mas adelante,
@@ -45,6 +48,27 @@ export async function generar(env, origen, pedido) {
   if (semilla != null) parametros.seed = Number(semilla);
 
   const id = crypto.randomUUID();
+  const generador = env.GENERADOR === "fal" ? "fal" : "local";
+  if (generador === "local") {
+    const sinArchivo = loras.find(({ lora }) => !lora.archivo_local);
+    if (sinArchivo) {
+      throw new Error(`El LoRA "${sinArchivo.lora.nombre}" no tiene archivo_local: dile como se llama en tu carpeta models/loras`);
+    }
+  }
+
+  // Se guarda ANTES de encolar: si fal contesta muy rapido, el aviso tiene
+  // que encontrar la fila ya escrita. Con el generador local, guardarla ES
+  // encolarla: el puente de tu equipo la toma de aca (ver trabajos.js).
+  await env.DB.prepare(
+    `INSERT INTO generaciones (id, modelo_id, escena, loras, prompt, parametros, generador, creado)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+  )
+    .bind(id, modelo.id, escena,
+      JSON.stringify(loras.map(({ lora, escala }) => ({ nombre: lora.nombre, escala, archivo: lora.archivo_local }))),
+      prompt, JSON.stringify(parametros), generador, Date.now())
+    .run();
+  if (generador === "local") return leerGeneracion(env, id);
+
   const entrada = {
     ...parametros,
     prompt,
@@ -53,17 +77,6 @@ export async function generar(env, origen, pedido) {
     ),
   };
   const webhook = `${origen}/fal/aviso/${id}?firma=${await firmar(env, `aviso:${id}`)}`;
-
-  // Se guarda ANTES de encolar: si fal contesta muy rapido, el aviso tiene
-  // que encontrar la fila ya escrita.
-  await env.DB.prepare(
-    `INSERT INTO generaciones (id, modelo_id, escena, loras, prompt, parametros, creado)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-  )
-    .bind(id, modelo.id, escena,
-      JSON.stringify(loras.map(({ lora, escala }) => ({ nombre: lora.nombre, escala }))),
-      prompt, JSON.stringify(parametros), Date.now())
-    .run();
 
   try {
     const cola = await encolar(env, entrada, webhook);
@@ -91,7 +104,7 @@ export async function recibirAviso(env, id, cuerpo) {
 
 export async function leerGeneracion(env, id) {
   let fila = await env.DB.prepare("SELECT * FROM generaciones WHERE id = ?1").bind(id).first();
-  if (fila?.estado === "pendiente" && Date.now() - fila.creado > ESPERA_ANTES_DE_CONSULTAR_MS) {
+  if (fila?.generador === "fal" && fila.estado === "pendiente" && Date.now() - fila.creado > ESPERA_ANTES_DE_CONSULTAR_MS) {
     const urls = JSON.parse(fila.fal_urls);
     // Si fal falla al contestar, se devuelve la fila como esta: leer el
     // historial no puede romperse porque fal tenga un mal momento.
@@ -141,15 +154,16 @@ async function guardarResultado(env, id, salida) {
     .run();
 }
 
-function terminarConError(env, id, error) {
+export function terminarConError(env, id, error) {
   return env.DB.prepare(
-    `UPDATE generaciones SET estado = 'error', error = ?2, terminado = ?3 WHERE id = ?1 AND estado = 'pendiente'`,
+    `UPDATE generaciones SET estado = 'error', error = ?2, terminado = ?3
+     WHERE id = ?1 AND estado IN ('pendiente', 'tomado')`,
   )
     .bind(id, String(error).slice(0, 2000), Date.now())
     .run();
 }
 
-function formatear(fila) {
+export function formatear(fila) {
   return {
     ...fila,
     loras: JSON.parse(fila.loras),

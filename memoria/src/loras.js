@@ -1,8 +1,11 @@
-// Registro de LoRA. Cada LoRA vive en uno de dos lugares:
-//  - en el bucket R2 (lo normal): se sube con PUT /loras/<nombre>/archivo,
-//    o con wrangler si pesa mas de 100 MB (ver README).
-//  - afuera (Hugging Face, Civitai, fal storage...): solo se guarda la URL.
+// Registro de LoRA. Con el generador "local" (el normal) el LoRA se queda
+// en tu equipo y aca solo se anota su nombre de archivo (archivo_local):
+// el puente de ComfyUI lo carga de tu carpeta models/loras.
 //
+// Solo para el generador "fal" hace falta que el archivo este en la nube:
+//  - en el bucket R2: se sube con PUT /loras/<nombre>/archivo, o con
+//    wrangler si pesa mas de 100 MB (ver README).
+//  - afuera (Hugging Face, Civitai, fal storage...): solo se guarda la URL.
 // fal no puede leer el bucket, que es privado. Para cada generacion se le
 // da un enlace firmado que caduca en ENLACE_MINUTOS: lo descarga y listo.
 
@@ -16,6 +19,7 @@ export async function registrarLora(env, datos) {
     id: existente?.id || crypto.randomUUID(),
     nombre,
     palabra_clave: String(datos.palabra_clave ?? existente?.palabra_clave ?? ""),
+    archivo_local: String(datos.archivo_local ?? existente?.archivo_local ?? ""),
     modelo_base: String(datos.modelo_base ?? existente?.modelo_base ?? "flux-dev"),
     escala: Number(datos.escala ?? existente?.escala ?? 1),
     r2_key: String(datos.r2_key ?? existente?.r2_key ?? ""),
@@ -23,13 +27,13 @@ export async function registrarLora(env, datos) {
     notas: String(datos.notas ?? existente?.notas ?? ""),
   };
   await env.DB.prepare(
-    `INSERT INTO loras (id, nombre, palabra_clave, modelo_base, escala, r2_key, url_externa, notas, creado)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+    `INSERT INTO loras (id, nombre, palabra_clave, modelo_base, escala, r2_key, url_externa, notas, archivo_local, creado)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
      ON CONFLICT(id) DO UPDATE SET nombre = ?2, palabra_clave = ?3, modelo_base = ?4,
-       escala = ?5, r2_key = ?6, url_externa = ?7, notas = ?8`,
+       escala = ?5, r2_key = ?6, url_externa = ?7, notas = ?8, archivo_local = ?9`,
   )
     .bind(fila.id, fila.nombre, fila.palabra_clave, fila.modelo_base,
-      fila.escala, fila.r2_key, fila.url_externa, fila.notas, Date.now())
+      fila.escala, fila.r2_key, fila.url_externa, fila.notas, fila.archivo_local, Date.now())
     .run();
   return buscarLora(env, nombre);
 }

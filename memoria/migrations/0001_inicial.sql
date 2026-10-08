@@ -1,19 +1,26 @@
 -- Memoria de generacion: que LoRA hay, que modelo usa cada uno, y que se
 -- genero con cada modelo.
 --
--- loras.r2_key        donde esta el .safetensors dentro del bucket. Vacio
---                     si el LoRA vive afuera (url_externa).
+-- loras.archivo_local nombre del .safetensors tal como lo ve ComfyUI en tu
+--                     equipo (carpeta models/loras). Es lo que usa el
+--                     generador "local": el archivo nunca sale de tu equipo.
+-- loras.r2_key        solo para el generador "fal": donde esta el
+--                     .safetensors dentro del bucket. Vacio si el LoRA vive
+--                     afuera (url_externa).
 -- loras.palabra_clave la palabra de activacion con la que se entreno. Si el
 --                     prompt no la trae, se le agrega sola al generar.
 -- generaciones.fal_urls JSON con status_url y response_url que devolvio fal,
 --                     para consultar a mano si el aviso de fal no llega.
--- generaciones.estado pendiente | lista | error
+-- generaciones.generador local (tu equipo, via puente/) | fal
+-- generaciones.estado pendiente | tomado (tu equipo lo esta generando) |
+--                     lista | error
 -- generaciones.imagenes JSON con las claves en R2 de cada imagen, ya
 --                     copiadas: las URL de fal caducan, las de R2 no.
 CREATE TABLE IF NOT EXISTS loras (
   id TEXT PRIMARY KEY,
   nombre TEXT NOT NULL UNIQUE,
   palabra_clave TEXT NOT NULL DEFAULT '',
+  archivo_local TEXT NOT NULL DEFAULT '',
   modelo_base TEXT NOT NULL DEFAULT 'flux-dev',
   escala REAL NOT NULL DEFAULT 1,
   r2_key TEXT NOT NULL DEFAULT '',
@@ -54,6 +61,8 @@ CREATE TABLE IF NOT EXISTS generaciones (
   loras TEXT NOT NULL DEFAULT '[]',
   prompt TEXT NOT NULL,
   parametros TEXT NOT NULL DEFAULT '{}',
+  generador TEXT NOT NULL DEFAULT 'local',
+  tomado INTEGER,
   request_id TEXT NOT NULL DEFAULT '',
   fal_urls TEXT NOT NULL DEFAULT '{}',
   estado TEXT NOT NULL DEFAULT 'pendiente',
@@ -65,4 +74,5 @@ CREATE TABLE IF NOT EXISTS generaciones (
 );
 
 CREATE INDEX IF NOT EXISTS generaciones_request ON generaciones (request_id);
+CREATE INDEX IF NOT EXISTS generaciones_cola ON generaciones (generador, estado, creado);
 CREATE INDEX IF NOT EXISTS generaciones_modelo ON generaciones (modelo_id, creado);
