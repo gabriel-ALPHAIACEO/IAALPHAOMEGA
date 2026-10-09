@@ -174,9 +174,12 @@ REVISOR_IA = "si"
 # saludos y "gracias" sin datos ya no se revisan (ver revisor.js). Tope: $5.
 REVISOR_MODELO = "gpt-5-mini"
 REVISOR_ESFUERZO = "low"
-REVISOR_RESPALDO = "gpt-4o"
+REVISOR_RESPALDO = "gpt-4o-mini"
 REVISOR_CONFIANZA = "alta"
-REVISOR_TOPE_MES = "5"
+# (9-oct-2026) $2 este mes: el saldo de OpenAI de Invictus tiene que durar
+# hasta el 15. Ya gastó $1.64 con gpt-5; al llegar a $2 deja de revisar y el
+# bot sigue respondiendo igual. Para el mes que viene se puede subir a "5".
+REVISOR_TOPE_MES = "2"
 
 # LA IA APRENDE SOLA (ver src/lecciones.js, 6-oct-2026). Cada error que
 # encuentra el revisor se guarda como una regla y la IA de texto (o la de
