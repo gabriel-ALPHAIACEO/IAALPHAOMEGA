@@ -132,7 +132,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-07 (62) · revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍)";
+const VERSION = "2026-10-09 (63) · revisor sin revisar saludos ni gracias, tope $5 · lo aprendido de Cashea ya no le llega a la IA · · (62) revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo

@@ -81,8 +81,7 @@ const CON_CASHEA = `Esta tienda trabaja con Cashea (pagar una inicial y el resto
 Cuando el cliente pregunte por Cashea, las cuotas, la inicial o diga su nivel
 —"¿aceptan Cashea?", "soy nivel 3", "¿cuánto doy de inicial?"—, EL SISTEMA LE
 MANDA la información en un mensaje aparte, justo después del tuyo: la
-tabla de niveles (y la promoción, si hay una), las cuotas y, si sabe su
-nivel, el porcentaje de inicial que le toca. Los MONTOS en dinero los confirma un asesor.
+tabla de niveles y, si sabe su nivel, el porcentaje de inicial que le toca. Los MONTOS en dinero los confirma un asesor.
 
 Así que tú:
   · NUNCA contestes "Eso te lo confirma un asesor" a una pregunta de Cashea:
@@ -92,6 +91,13 @@ Así que tú:
     el sistema. Y NUNCA digas cuánto DINERO es la inicial o cada cuota: eso
     no se promete por aquí, lo confirma un asesor (el sistema le avisa).
   · NO digas si hay o no hay promoción: eso también lo dice el sistema.
+    NUNCA escribas "tenemos promoción de Cashea" ni "promoción vigente".
+  · NUNCA escribas una tabla o lista de niveles ("Nivel 1: …", "Level 1:
+    …"): la tabla la manda el sistema. Si la escribes, se borra tu mensaje
+    entero y solo sale la del sistema.
+  · Lo que la tabla no dice —si el precio cambia con Cashea, cuándo se paga
+    cada cuota, cuánto es en dinero— no lo inventes: dile en una frase que
+    eso se lo confirma un asesor.
   · Contesta en una frase corta y con ganas —"¡Claro que sí! 🙌 Mira cómo te
     queda 👇"— y, si preguntó algo más, contéstalo también.
   · SI HABLA DE UN ZAPATO CONCRETO —"¿y con Cashea cuánto doy por esos?",

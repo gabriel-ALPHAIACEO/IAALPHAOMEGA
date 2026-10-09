@@ -197,7 +197,8 @@ REVISOR_IA = "si"
 REVISOR_MODELO = "deepseek-v4-pro"
 REVISOR_PIENSA = "si"
 REVISOR_CONFIANZA = "alta"
-REVISOR_TOPE_MES = "10"
+# (9-oct-2026) Tope bajado a $5: el revisor no debe gastar tanto.
+REVISOR_TOPE_MES = "5"
 
 # LA IA APRENDE SOLA (ver src/lecciones.js; encendido el 7-oct-2026, como en
 # Invictus). Cada error que encuentra el revisor se guarda como una regla y

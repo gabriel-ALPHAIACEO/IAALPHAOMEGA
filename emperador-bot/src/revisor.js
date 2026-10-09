@@ -313,8 +313,26 @@ async function conversacionReciente(db, igsid) {
 
 // turno: { id, igsid, cliente, pienso, respuesta, productos: [títulos], fichas: [líneas con precio],
 //          categoria?: "bolso"…, contexto?: los datos de la tienda (horario, envíos, ubicación, pagos) }
+// LO QUE NO HACE FALTA REVISAR (9-oct-2026, dueño: "el revisor no debe
+// gastar tanto"). Un "hola", "gracias", "ok" o 👍 contestado sin un número
+// ni una ficha no tiene nada que pueda estar mal: revisarlo es pagar por
+// nada. Lo demás se revisa igual que siempre.
+const DE_CORTESIA =
+  /^(?:[\s¡!¿?.,:;)(*~-]*(?:hola|holi|buenas|buen\s+d[ií]a|buenos\s+d[ií]as|buenas\s+tardes|buenas\s+noches|ok|okey|okay|listo|dale|perfecto|excelente|genial|gracias|muchas\s+gracias|mil\s+gracias|vale|bueno|chao|adi[oó]s|bendiciones|amen|am[eé]n|👍|🙏|❤️|🫶|😊|🙌)[\s¡!¿?.,:;)(*~-]*)+$/iu;
+
+export function noHaceFaltaRevisar(turno = {}) {
+  const cliente = String(turno.cliente || "").trim();
+  const respuesta = String(turno.respuesta || "");
+  const fichas = turno.fichas || turno.productos || [];
+  return Boolean(cliente) && DE_CORTESIA.test(cliente) && !/\d/.test(respuesta) && !fichas.length;
+}
+
 export async function revisarTurno(env, turno) {
   if (!revisorActivo(env) || !turno?.id || !String(turno.respuesta || "").trim()) return null;
+  if (noHaceFaltaRevisar(turno)) {
+    console.log(`REVISOR: "${String(turno.cliente).slice(0, 30)}" es cortesía y la respuesta no trae datos: no gasto en revisarla`);
+    return null;
+  }
   const tope = topeDelRevisor(env);
   if (tope !== Infinity) {
     const gastado = await gastoDelRevisor(env.DB);

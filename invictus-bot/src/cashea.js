@@ -476,6 +476,29 @@ export function tarjetaEscrita() {
   return texto;
 }
 
+// LO QUE EL REVISOR TIENE QUE SABER DE CASHEA (9-oct-2026, caso real: sin
+// la tabla, marcó la tarjeta del dueño como "inventada" y escribió "debió
+// decir: te lo confirma un asesor… hay promoción vigente"; con APRENDER eso
+// se volvió una regla y la IA lo repitió).
+export function casheaParaElRevisor(ahora = Date.now()) {
+  if (!hayCashea()) return "";
+  if (!casheaVigente(ahora)) return "Cashea: la promoción NO está vigente hoy; lo de Cashea lo confirma un asesor.";
+  const { niveles, minimo } = leer();
+  const lasCuotas = nombreDeLasCuotas();
+  const tabla = [...niveles.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([n, v]) => `Nivel ${n} → ${formatoPct(v)} de inicial${lasCuotas && tieneLasCuotas(n) && leer().nivelesConCuotas.size ? ` y ${lasCuotas}${minimo ? ` (compras desde ${minimo}$)` : ""}` : ""}`)
+    .join("; ");
+  return [
+    `Cashea (la tarjeta y los mensajes de Cashea los arma el SISTEMA con esta tabla: son correctos, no son invento): ${tabla}.`,
+    lasCuotas && !leer().nivelesConCuotas.size ? `El resto, en ${lasCuotas}${minimo ? ` (compras desde ${minimo}$)` : ""}.` : "",
+    "Los montos en dinero de la inicial y de las cuotas los confirma un asesor.",
+    momentoDeLaPromocion(ahora) === "siempre" ? "No hay ninguna promoción con fecha: decir \"hay promoción vigente\" es invento." : `Promoción ${fechasDeLaPromocion()}.`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 // Lleva "en un momento" a propósito: así hayEscalada() avisa al asesor.
 export const ASESOR_CONFIRMA_MONTOS = "los montos exactos de la inicial y de cada cuota te los confirma un asesor en un momento 😊";
 
@@ -547,10 +570,19 @@ export function revisarCashea(respuesta, ahora = Date.now(), { nivel = null } = 
     console.error("CASHEA: escribió un monto de dinero de la inicial o las cuotas. Va la tarjeta, sin montos.");
     return { respuesta: tarjetaCashea({ ahora }), corregido: true, motivos: ["monto de dinero de Cashea"] };
   }
-  if (!hayCashea() || !/%/.test(texto)) return { respuesta: texto, corregido: false };
+  // (9-oct-2026, caso real) "Pero tenemos promoción de Cashea en vigencia":
+  // sin fechas en pagos.txt no hay ninguna promoción que anunciar.
+  if (hayCashea() && momentoDeLaPromocion(ahora) === "siempre" && PROMOCION_VIGENTE.test(texto) && /\b(?:c|k)a(?:s|c)?hea\b/i.test(texto)) {
+    console.error("CASHEA: dijo que hay una promoción de Cashea, y no hay ninguna con fecha. Va la tabla de verdad.");
+    return { respuesta: tarjetaCashea(nivel != null && inicialDelNivel(nivel) !== null ? { nivel } : {}), corregido: true, motivos: ["dijo que hay una promoción de Cashea (no hay ninguna con fecha)"] };
+  }
+  const conPorcentaje = /%|\bpor\s*ciento\b/i.test(texto);
+  const conCuotas = /\b(?:\d+|seis)\s+cuotas\b/i.test(texto);
+  if (!hayCashea() || (!conPorcentaje && !conCuotas)) return { respuesta: texto, corregido: false };
 
   // Fuera de fecha, CUALQUIER porcentaje de Cashea es una promoción vencida.
   if (!casheaVigente(ahora)) {
+    if (!conPorcentaje) return { respuesta: texto, corregido: false };
     if (/\b(?:c|k)a(?:s|c)?hea\b|\binicial\b|\bnivel\s*\d/i.test(texto)) {
       console.error("CASHEA: ofreció porcentajes con la promoción fuera de fecha. Lo paso al asesor.");
       return { respuesta: CASHEA_FUERA_DE_FECHA, corregido: true, motivos: ["promoción fuera de fecha"] };
@@ -577,10 +609,68 @@ export function revisarCashea(respuesta, ahora = Date.now(), { nivel = null } = 
     else if (deSuNivel !== null && dicho !== deSuNivel) motivos.push(`le dijo ${dicho}% a un Nivel ${nivel} (es ${deSuNivel}%)`);
   }
 
+  motivos.push(...porFrase(texto, { nivel, validos }));
+
   if (!motivos.length) return { respuesta: texto, corregido: false };
 
   console.error(`CASHEA: ${motivos.join(" y ")}. Lo cambio por la tabla de verdad.`);
   return { respuesta: tarjetaCashea(deSuNivel !== null ? { nivel } : {}), corregido: true, motivos };
+}
+
+// LA TABLA QUE SE INVENTÓ LA IA (9-oct-2026, caso real en Invictus). Al
+// "Tengo nivel 6" la IA escribió su propia tabla —"🔹 Level 1: 20%" …
+// "Level 6: 70%"— y pasó entera: la red solo buscaba "nivel N … X%" y
+// "X% de inicial". Ahora se mira FRASE POR FRASE (cada línea de una lista
+// es una frase), y en cualquier frase que hable de Cashea:
+//   · el nivel puede ir como "nivel", "level", "lvl", "nv", con número o en
+//     letra ("nivel cuatro");
+//   · cualquier porcentaje cuenta ("del 40%", "10% de entrada", "40 por
+//     ciento"), salvo un descuento;
+//   · el porcentaje tiene que ser el de ESE nivel (el de la frase o, si la
+//     frase no nombra ninguno, el del cliente) o, sin nivel, uno de la tabla;
+//   · las cuotas de "Cuotas:" no se le prometen a un nivel que no las tiene;
+//   · y una tabla de niveles escrita por la IA no sale nunca: la tabla la
+//     manda el sistema.
+const PROMOCION_VIGENTE = /promoci[oó]n[^.!?\n]{0,25}\bvigen|promoci[oó]n[^.!?\n]{0,25}\ben\s+vigencia|\bvigente\b[^.!?\n]{0,25}promoci[oó]n/i;
+const NUMERO_EN_LETRA = { uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9 };
+const NIVEL_EN_LA_FRASE = /\b(?:nivel|level|lvl|niv|nv)\s*(\d+|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)\b/gi;
+const PORCENTAJE = /(\d+(?:[.,]\d+)?)\s*(?:%|por\s*ciento\b)(?!\s*(?:de\s+)?(?:descuento|dcto|off)\b)/gi;
+const FRASE_DE_CASHEA = /\b(?:c|k)a(?:s|c)?hea\b|\binicial\b|\bcuotas?\b|\b(?:nivel|level|lvl|niv|nv)\b|\bentrada\b/i;
+
+function porFrase(texto, { nivel = null, validos }) {
+  const motivos = [];
+  const hablaDeCashea = /\b(?:c|k)a(?:s|c)?hea\b/i.test(texto);
+  const { cuotas } = leer();
+  let lineasDeTabla = 0;
+
+  for (const frase of sinTildes(texto).split(/[\n.!?]+/)) {
+    if (!frase.trim()) continue;
+    if (!FRASE_DE_CASHEA.test(frase) && !(hablaDeCashea && !/descuento|dcto|off/i.test(frase))) continue;
+
+    const nombrados = [...frase.matchAll(NIVEL_EN_LA_FRASE)].map((m) => (/^\d+$/.test(m[1]) ? Number(m[1]) : NUMERO_EN_LETRA[m[1].toLowerCase()]));
+    const deLaFrase = nombrados.length === 1 ? nombrados[0] : nombrados.length ? null : nivel != null ? Number(nivel) : null;
+    const porcentajes = [...frase.matchAll(PORCENTAJE)].map((m) => Number(m[1].replace(",", ".")));
+    if (nombrados.length && porcentajes.length) lineasDeTabla++;
+
+    for (const dicho of porcentajes) {
+      if (deLaFrase != null) {
+        const esperado = inicialDelNivel(deLaFrase);
+        if (esperado === null) motivos.push(`habló de un Nivel ${deLaFrase} que no existe`);
+        else if (dicho !== esperado) motivos.push(`dijo ${dicho}% para el Nivel ${deLaFrase} (es ${esperado}%)`);
+      } else if (!validos.has(dicho)) {
+        motivos.push(`inventó una inicial de ${dicho}%`);
+      }
+    }
+
+    // "6 cuotas" a un nivel que no las tiene (las 6 cuotas son del Nivel 6).
+    const cuantas = frase.match(/\b(\d+|seis)\s+cuotas\b/i)?.[1];
+    if (deLaFrase != null && cuotas && cuantas && (cuantas === "seis" ? 6 : Number(cuantas)) === cuotas && !tieneLasCuotas(deLaFrase)) {
+      motivos.push(`le ofreció ${cuotas} cuotas al Nivel ${deLaFrase}, que no las tiene`);
+    }
+  }
+
+  if (lineasDeTabla >= 2) motivos.push("escribió su propia tabla de niveles (la tabla la manda el sistema)");
+  return [...new Set(motivos)];
 }
 
 function sinTildes(texto) {

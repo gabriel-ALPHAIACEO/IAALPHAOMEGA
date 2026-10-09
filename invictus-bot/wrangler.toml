@@ -169,11 +169,14 @@ OPENAI_MODELO_INDICE = "gpt-4o-mini"
 #                      llegar, deja de revisar hasta el mes siguiente (el bot
 #                      sigue respondiendo igual). "no" = sin tope.
 REVISOR_IA = "si"
-REVISOR_MODELO = "gpt-5"
-REVISOR_ESFUERZO = "medium"
+# (9-oct-2026, dueño: "el revisor no debe gastar tanto") gpt-5-mini piensa
+# igual pero cuesta 5 veces menos que gpt-5, con el esfuerzo en "low", y los
+# saludos y "gracias" sin datos ya no se revisan (ver revisor.js). Tope: $5.
+REVISOR_MODELO = "gpt-5-mini"
+REVISOR_ESFUERZO = "low"
 REVISOR_RESPALDO = "gpt-4o"
 REVISOR_CONFIANZA = "alta"
-REVISOR_TOPE_MES = "10"
+REVISOR_TOPE_MES = "5"
 
 # LA IA APRENDE SOLA (ver src/lecciones.js, 6-oct-2026). Cada error que
 # encuentra el revisor se guarda como una regla y la IA de texto (o la de

@@ -152,4 +152,37 @@ titulo("dos reglas dichas con otras palabras son la misma");
 ok(L.parecido("No confirmes una talla si ninguna ficha la dice.", "No confirmes tallas si ninguna ficha las dice: pásaselo a un asesor.") >= 0.5, "parecidas → se cuentan juntas");
 ok(L.parecido("No confirmes una talla si ninguna ficha la dice.", "Ondas de plástico con logo TN son TN.") < 0.5, "distintas → reglas aparte");
 
+// (9-oct-2026, caso real) Una regla aprendida con la tabla vieja de Cashea
+// ("di que hay promoción vigente", "Nivel 5 es 10%") le enseñaba a la IA lo
+// que ya no es verdad. Cashea lo pone el código: ni se aprende ni le llega.
+titulo("Cashea no se aprende: lo pone el código con la tabla de hoy");
+{
+  const nueva = await callado(() => L.aprender(ENV, { regla: "Si preguntan por Cashea, di que hay promoción vigente y que el Nivel 5 es 10% de inicial." }));
+  ok(nueva === null, "una regla nueva de Cashea no se guarda");
+  // Una vieja que ya estaba en la base (de antes de este arreglo).
+  sql.prepare("INSERT INTO lecciones (cuando, ultima, tipo, regla, veces, activa) VALUES (?, ?, 'texto', ?, 5, 1)").run(Date.now(), Date.now(), "Con Cashea, la inicial del Nivel 4 es 20%: dilo así.");
+  await callado(() => L.aprender(ENV, { regla: "No prometas envíos el mismo día si el cliente no dio su dirección." }));
+  const reglas = await L.reglasParaLaIA(ENV, "texto");
+  ok(!/Cashea|Nivel 4 es 20%/.test(reglas), "la vieja de Cashea ya no le llega a la IA", reglas.slice(0, 200));
+  ok(/envíos el mismo día/.test(reglas), "las demás reglas sí");
+}
+
+// (9-oct-2026, dueño: "el revisor no debe gastar tanto")
+titulo("el revisor no gasta en un 'hola' o un 'gracias' sin datos");
+{
+  for (const [cliente, respuesta, fichas, esperado] of [
+    ["Hola", "¡Hola! Soy la asistente virtual de Invictus 👋 ¿Qué estás buscando?", [], true],
+    ["Gracias!!", "¡Con gusto! 😊", [], true],
+    ["ok 👍", "¡Perfecto! Cualquier cosa me escribes", [], true],
+    ["Hola, precio de las jordan?", "Aquí las tienes 👇", ["Jordan 4"], false],
+    ["Gracias", "De nada, el precio es 90$", [], false],
+    ["Tengo nivel 6", "¡Claro que sí!", [], false],
+  ]) ok(V.noHaceFaltaRevisar({ cliente, respuesta, fichas }) === esperado, `"${cliente}" → ${esperado ? "no se revisa" : "se revisa"}`);
+  falso();
+  pedidos = [];
+  await callado(() => V.revisarTurno(ENV, { id: 999, igsid: "c-cortesia", cliente: "gracias", respuesta: "¡Con gusto! 😊", fichas: [] }));
+  ok(pedidos.length === 0, "y no se llama a OpenAI por eso");
+  globalThis.fetch = real;
+}
+
 terminar();

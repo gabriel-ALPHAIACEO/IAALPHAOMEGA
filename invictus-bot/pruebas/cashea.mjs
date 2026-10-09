@@ -264,6 +264,40 @@ titulo("LA TABLA DE HOY (8-oct-2026): 6 cuotas + 0% exclusivo del Nivel 6, y la 
 }
 
 // ───────────────────────────────────────────────────────────────────────
+titulo("LA RED, CON LOS CASOS REALES DEL 9-OCT (la IA se inventaba los porcentajes)");
+{
+  const H = await (await prepararSrc()).cargar("cashea.js");
+  // Captura 1: a "Tengo nivel 6" la IA escribió SU tabla, toda inventada.
+  const TABLA_INVENTADA = "¡Claro que sí! 🙌 Aquí tienes la tabla de niveles de Cashea:\n\n🔹 Level 1: 20%\n🔹 Level 2: 30%\n🔹 Level 3: 40%\n🔹 Level 4: 50%\n🔹 Level 5: 60%\n🔹 Level 6: 70%\n\nCon cada nivel, la promoción vigente ofrece condiciones especiales. ¿Te gustaría que te ayude a ver opciones específicas con tu nivel?";
+  const r1 = H.revisarCashea(TABLA_INVENTADA, Date.now(), { nivel: 6 });
+  ok(r1.corregido && !/Level|70%/.test(r1.respuesta) && /Con tu Nivel 6 en Cashea te lo llevas con 0% de inicial/.test(r1.respuesta), "la tabla inventada (\"Level 1: 20%\"…) no sale: sale lo del Nivel 6", r1.respuesta.split("\n")[0]);
+  // Captura 2: "Pero tenemos promoción de Cashea en vigencia" (no hay ninguna).
+  ok(H.revisarCashea("Pero tenemos promoción de Cashea en vigencia, ¿te gustaría saber más sobre las Nike Nocta?").corregido, "\"tenemos promoción de Cashea en vigencia\" sin promoción: se corrige");
+  for (const [malo, nivel] of [
+    ["La inicial es del 40% 😊", null],
+    ["Con Cashea das solo el 10% de entrada", null],
+    ["Nivel cuatro: 20% de inicial", null],
+    ["Con level 4 te toca el 20%", null],
+    ["inicial: 15%", null],
+    ["Das el 20% y el resto en cuotas", 4],
+    ["Te lo llevas en 6 cuotas con el 30% de inicial", 3],
+  ]) ok(H.revisarCashea(malo, Date.now(), { nivel }).corregido, `atrapa: "${malo}"${nivel ? ` (nivel ${nivel})` : ""}`);
+  for (const [bueno, nivel] of [
+    ["Con tu Nivel 3 pagas el 30% de inicial 🙌", 3],
+    ["¡Claro que sí! 🙌 Mira cómo te queda 👇", 6],
+    ["Con tu Nivel 6 te lo llevas con 0% de inicial y en 6 cuotas", 6],
+    ["Tenemos 20% de descuento en Nike", null],
+    ["Las Jordan tienen 30% de descuento y aceptamos Cashea", null],
+    ["Para optar por el modo 6 cuotas la compra debe ser de 100$ o más", null],
+  ]) ok(!H.revisarCashea(bueno, Date.now(), { nivel }).corregido, `deja pasar: "${bueno}"`);
+
+  // El revisor conoce la tabla (sin ella marcaba la tarjeta del dueño como invento).
+  const paraElRevisor = H.casheaParaElRevisor();
+  ok(/Nivel 6 → 0% de inicial y 6 cuotas \(compras desde 100\$\)/.test(paraElRevisor) && /Nivel 1 → 60% de inicial/.test(paraElRevisor) && /no son invento/.test(paraElRevisor) && /No hay ninguna promoción/.test(paraElRevisor),
+     "el revisor recibe la tabla de verdad", paraElRevisor.slice(0, 160));
+}
+
+// ───────────────────────────────────────────────────────────────────────
 titulo("la ubicación: tal cual, con su botón, desde wrangler.toml");
 
 const TOML = fs.readFileSync(path.join(import.meta.dirname, "..", "wrangler.toml"), "utf8");

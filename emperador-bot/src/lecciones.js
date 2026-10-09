@@ -92,8 +92,20 @@ const corto = (t, n) => String(t ?? "").replace(/\s+/g, " ").trim().slice(0, n);
 // Guarda lo que aprendió. Si ya tenía esa regla, cuenta una vez más. Avisa
 // al dueño (una sola vez por regla) cuando hay que ponerlo en el código.
 // Devuelve { id, veces, aviso } o null.
+// CASHEA (Y KRECE) NO SE APRENDEN (9-oct-2026, caso real en Invictus). Los
+// porcentajes, las cuotas y la tarjeta los pone el CÓDIGO con la tabla de
+// cada tienda, y la tabla cambia: una regla aprendida con la tabla de la
+// semana pasada ("Nivel 5 → 10%", "di que hay promoción vigente") le
+// enseñaba a la IA justo lo que ya no es verdad. Ni se guardan nuevas, ni
+// las que ya estaban le llegan a la IA (siguen viéndose en 🧠 Aprendido).
+export const ES_DE_CASHEA = /\b(?:c|k)a(?:s|c)?hea\b|\bkrece\b|\bcuotas?\b|\b(?:la|de|su|una)\s+inicial\b/i;
+
 export async function aprender(env, { tipo = "texto", regla, cliente = "", dijo = "", correcto = "", codigo = "" }) {
   if (!aprendeActivo(env) || !env?.DB || !String(regla || "").trim()) return null;
+  if (ES_DE_CASHEA.test(`${regla} ${correcto}`)) {
+    console.log(`APRENDER: no guardo una regla de Cashea (la maneja el código): ${String(regla).slice(0, 120)}`);
+    return null;
+  }
   try {
     await asegurar(env.DB);
     const ahora = Date.now();
@@ -158,9 +170,10 @@ export async function reglasActivas(db, tipo, cuantas = REGLAS_EN_EL_PROMPT) {
     await asegurar(db);
     const { results } = await db
       .prepare("SELECT id, regla, correcto, veces FROM lecciones WHERE tipo = ? AND activa = 1 AND ultima > ? ORDER BY veces DESC, ultima DESC LIMIT ?")
-      .bind(tipo, Date.now() - DIAS_QUE_DURA * 86400000, cuantas)
+      .bind(tipo, Date.now() - DIAS_QUE_DURA * 86400000, cuantas * 3)
       .all();
-    return results || [];
+    // Las de Cashea no le llegan a la IA (ver ES_DE_CASHEA).
+    return (results || []).filter((l) => !ES_DE_CASHEA.test(`${l.regla} ${l.correcto || ""}`)).slice(0, cuantas);
   } catch {
     return [];
   }
