@@ -25,6 +25,7 @@ import {
   listarGastos,
   listarVentas,
   verVenta,
+  anotadaDespues,
   textoDelRecibo,
   serialDe,
   listarFiados,
@@ -336,7 +337,7 @@ function filaDeVenta(v) {
         ? `<span class="chip aviso">Debe ${esc(plata(saldo))}</span>`
         : '<span class="chip bien">Fiado pagado</span>'
       : "";
-  const sub = [`#${v.id}`, horaCorta(v.creado), metodo, v.cliente].filter(Boolean).map(esc).join(" · ");
+  const sub = [`#${v.id}`, horaCorta(v.creado), anotadaDespues(v) ? "anotada después" : "", metodo, v.cliente].filter(Boolean).map(esc).join(" · ");
   return `<a class="fila${v.anulada ? " tachada" : ""}" href="/panel/ventas/${v.id}">${insignia(iconoDeMetodo(metodo), v.anulada ? "neutro" : v.fiado ? "aviso" : "marca")}<div class="fila-centro"><div class="fila-titulo">${esc(v.detalle || `Venta #${v.id}`)}</div><div class="fila-sub">${sub}</div></div><div class="fila-fin"><b>${v.total === null ? "—" : esc(plata(v.total, { siempre: true }))}</b>${estado ? `<small>${estado}</small>` : ""}</div></a>`;
 }
 
@@ -390,7 +391,7 @@ async function paginaDeRecibo(env, id, url, { tienda }) {
     ...venta.libres.map((l) => `<div class="linea"><div><b>${esc(l.descripcion)}</b><small>${numero(l.cantidad)} × ${esc(plata(l.precio))} · sin inventario</small></div><b>${esc(plata(l.precio * l.cantidad))}</b></div>`),
   ].join("");
   const recibo = `<div class="recibo" id="recibo">${venta.anulada ? '<div class="anulada-sello">ANULADA</div>' : ""}
-<h2>${esc(tienda)}</h2><div class="recibo-sub">Recibo #${venta.id} · ${esc(fechaHora(venta.creado))}${venta.cliente ? `<br>Cliente: ${esc(venta.cliente)}` : ""}</div>
+<h2>${esc(tienda)}</h2><div class="recibo-sub">Recibo #${venta.id} · ${esc(fechaHora(venta.creado))}${anotadaDespues(venta) ? `<br>Anotada el ${esc(fechaHora(venta.registrada))}` : ""}${venta.cliente ? `<br>Cliente: ${esc(venta.cliente)}` : ""}</div>
 ${lineas || '<p class="recibo-sub">Sin productos.</p>'}
 <div class="total"><span>Total</span><span>${venta.total === null ? "por confirmar" : esc(plata(venta.total, { siempre: true }))}</span></div>
 ${venta.tarifa === "cashea" ? '<div class="recibo-sub" style="margin:6px 0 0;text-align:right">Precio Cashea</div>' : ""}

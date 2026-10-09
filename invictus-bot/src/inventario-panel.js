@@ -46,14 +46,18 @@ import {
   guardarProducto,
   editarProducto,
   archivarProducto,
-  guardarVariante,
+  guardarVariantes,
   editarVariante,
   leerAjuste,
   guardarAjuste,
   leerOpciones,
   moverStock,
   ajustarStock,
+  cargarCantidades,
+  cambiarCantidad,
+  leerCantidad,
   cobrar,
+  DIAS_HACIA_ATRAS,
   ventasDelDia,
   prepararCsv,
   empezarImportacion,
@@ -106,6 +110,19 @@ const FILAS_DE_UNA_VEZ = 2 * FILAS_POR_PAQUETE;
 const MODELOS_POR_PARTE = 100;
 const DESFASE_MS = -4 * 60 * 60 * 1000; // hora de Venezuela
 const DIVISAS = "Divisas (efectivo)";
+
+// "mié 8 oct", en hora de Venezuela.
+function diaCorto(ms) {
+  return new Date(Number(ms)).toLocaleDateString("es-VE", { weekday: "short", day: "numeric", month: "short", timeZone: "America/Caracas" }).replace(/\./g, "");
+}
+
+// Lo que se dice cuando una venta de otro día cae en productos que se contaron
+// después de ese día (ver cobrar): el conteo ya la traía descontada.
+function avisosDeContadas(contadas, cantidades) {
+  return (contadas || []).map(
+    (c) => `«${c.nombre}» se contó el ${diaCorto(c.cuando)}, después de esa venta: si ese conteo ya la traía descontada, súmale ${cantidades.get(c.varianteId) || 1} en Mover › Entrada.`
+  );
+}
 
 function json(datos, estado = 200) {
   return new Response(JSON.stringify(datos), { status: estado, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
@@ -212,6 +229,29 @@ const ESTILO = `<style>
 .stock-cima h2{margin:0}
 .variante-mover{min-height:40px;padding:8px 15px;font-size:13.5px}
 .variante-cantidad b.cero{color:var(--mal)}.variante-cantidad b.poco{color:var(--aviso)}
+.variante-cantidad{display:flex;flex-direction:column;align-items:center;gap:3px}
+.cant-editable{width:86px;min-height:46px;padding:6px 8px;text-align:center;font-size:24px;font-weight:800;letter-spacing:-.03em;line-height:1;border-radius:16px;font-variant-numeric:tabular-nums;-moz-appearance:textfield;appearance:textfield}
+.cant-editable::-webkit-inner-spin-button,.cant-editable::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.cant-editable.cero{color:var(--mal)}.cant-editable.poco{color:var(--aviso)}.cant-editable:disabled{opacity:.5}
+.cantidades{padding:14px;border-radius:20px;background:var(--velo);border:1px solid var(--borde)}
+.cantidades-cabeza{display:flex;align-items:center;justify-content:space-between;gap:10px 16px;flex-wrap:wrap}
+.cantidades-cabeza b{font-size:13px;font-weight:700;color:var(--suave)}
+.cantidades-igual{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--suave)}
+.cantidades-igual input{width:84px;text-align:center}
+.cantidades .solo-grilla{display:none}.cantidades.con-grilla .solo-grilla{display:inline}.cantidades.con-grilla .sin-grilla{display:none}
+.cantidades-grilla{display:none;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:10px;margin-top:12px}
+.cantidades.con-grilla .cantidades-grilla{display:grid}.cantidades-grilla:empty{display:none!important}
+.talla-cant{display:flex;flex-direction:column;gap:6px;font-size:12.5px;font-weight:800;color:var(--texto);text-align:center;min-width:0}
+.talla-cant span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.talla-cant input[type=number]{text-align:center;font-size:20px;font-weight:800;min-height:48px;padding:6px;border-radius:16px;-moz-appearance:textfield;appearance:textfield}
+.talla-cant input::-webkit-inner-spin-button,.talla-cant input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.fecha-venta{margin:0 0 14px}
+.fecha-venta .opciones{gap:6px}.fecha-venta .opcion{padding:7px 12px 7px 9px;font-size:13px}
+.fecha-venta input[type=date]{margin-top:8px;width:100%}.fecha-venta input[type=date][hidden]{display:none}
+.fecha-aviso{margin:8px 2px 0;padding:9px 12px;border-radius:14px;font-size:12.5px;font-weight:650;line-height:1.45;color:var(--aviso);background:var(--aviso-fondo)}
+.fecha-aviso[hidden]{display:none}
+.exito-avisos{margin:10px 0 0;padding:9px 12px;border-radius:14px;font-size:12.5px;font-weight:650;line-height:1.5;color:var(--aviso);background:var(--aviso-fondo);text-align:left}
+.exito-avisos[hidden]{display:none}
 .paso-cantidad{display:flex;align-items:center;gap:8px}
 .paso-cantidad input{flex:1;min-width:0;text-align:center;font-size:28px;font-weight:800;letter-spacing:-.03em;min-height:58px;border-radius:20px;-moz-appearance:textfield;appearance:textfield}
 .paso-cantidad input::-webkit-inner-spin-button,.paso-cantidad input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
@@ -456,8 +496,8 @@ async function paginaDeProducto(env, id, url, opciones = {}) {
     casheaTexto ? `<span>Precio Cashea</span><b>${esc(casheaTexto)}</b>` : "",
     `<span>Te costó</span><b>${p.costo !== null && p.costo !== undefined ? esc(plata(p.costo, { siempre: true })) : "—"}</b>${margen !== null ? `<small>ganas ${esc(plata(margen, { siempre: true }))} por unidad</small>` : "<small>ponlo en Editar para ver la ganancia</small>"}`,
     p.variantes.length && !p.variantes.some((v) => v.contada)
-      ? `<span>Quedan</span><b>—</b><small>sin contar: usa Mover › Contar</small>`
-      : `<span>Quedan</span><b>${esc(numero(total))}</b><small>${listaDeSedes.length > 1 ? "entre todas las sedes" : esc(nombreSede)}</small>`,
+      ? `<span>Quedan</span><b data-n-todas>—</b><small data-sin-contar>sin contar: escribe cuántas hay abajo</small>`
+      : `<span>Quedan</span><b data-n-todas>${esc(numero(total))}</b><small>${listaDeSedes.length > 1 ? "entre todas las sedes" : esc(nombreSede)}</small>`,
   ].filter(Boolean);
   // Si quedan impares, el último ocupa la fila entera (sin huecos).
   const datos = `<div class="datos-lista">
@@ -492,8 +532,8 @@ ${cuadros.map((c, i) => `<div${cuadros.length % 2 && i === cuadros.length - 1 ? 
       const sinContar = !v.contada && !aqui;
       return `<div class="variante"><button type="button" class="variante-nombre" popovertarget="editar-variante" data-variante="${datosEditar}" title="Editar precio, foto y código"><b>${esc(nombreDeVariante(v))}${icono("editar", { clase: "chico" })}</b>${sub ? `<small>${esc(sub)}</small>` : ""}${marcas ? `<span class="variante-marcas">${marcas}</span>` : ""}</button>
 <a class="codigo-mini" href="/panel/inventario/etiquetas?variante=${v.id}" title="Imprimir etiquetas de ${esc(v.codigo_barras)}">${svgEan13(v.codigo_barras, { alto: 30 })}</a>
-<div class="variante-cantidad"><b class="${sinContar ? "" : aqui <= 0 ? "cero" : aqui <= 2 ? "poco" : ""}">${sinContar ? "—" : aqui}</b><small>${sinContar ? "sin contar" : aqui === 1 ? "queda" : "quedan"}</small></div>
-<button type="button" class="variante-mover" popovertarget="mover" data-mover="${datosMover}">${icono("movimientos")}Mover</button></div>`;
+<div class="variante-cantidad"><input class="cant-editable ${sinContar ? "" : aqui <= 0 ? "cero" : aqui <= 2 ? "poco" : ""}" type="number" inputmode="numeric" min="0" max="100000" step="1" placeholder="—" value="${sinContar ? "" : aqui}" data-cantidad="${v.id}" data-sede="${sedeElegida}" data-vista="${sinContar ? "" : aqui}" aria-label="Cuántas hay de ${esc(nombreDeVariante(v))}" title="Escribe la cantidad: se guarda sola"><small>${sinContar ? "sin contar" : aqui === 1 ? "queda" : "quedan"}</small></div>
+<button type="button" class="variante-mover" popovertarget="mover" data-mover-variante="${datosMover}">${icono("movimientos")}Mover</button></div>`;
     })
     .join("");
 
@@ -511,6 +551,7 @@ ${cuadros.map((c, i) => `<div${cuadros.length % 2 && i === cuadros.length - 1 ? 
 <p class="mover-ayuda" id="mover-ayuda">${esc(ayudas.entrada)}</p>
 <label class="campo"><span id="mover-cuantas">Cuántas</span><div class="paso-cantidad"><button type="button" data-paso="-1" aria-label="Una menos">${icono("menos")}</button><input name="cantidad" type="number" inputmode="numeric" min="0" max="100000" value="1" required><button type="button" data-paso="1" aria-label="Una más">${icono("mas")}</button></div></label>
 <label class="campo solo-venta">Cómo pagó<select name="metodo"><option value="">Sin especificar</option>${METODOS_DE_PAGO.map((m) => `<option>${esc(m)}</option>`).join("")}</select>${opciones.tarifaDeCaja === "cashea" ? "<small>Con divisas en efectivo se cobra el precio en dólares; con lo demás, el precio Cashea.</small>" : ""}</label>
+<label class="campo solo-venta">Día de la venta (opcional)<input type="date" name="fecha" max="${esc(diaDe(Date.now()))}" min="${esc(diaDe(Date.now() - DIAS_HACIA_ATRAS * 86400000))}"><small>Vacío = hoy. Si se te olvidó anotarla, pon el día en que fue: cuenta en ese día en Ventas y en el balance.</small></label>
 <div class="campos"><label class="campo">Nota (opcional)<input name="nota" maxlength="200" placeholder="Factura, proveedor, cliente…"></label><label class="campo">Quién<input name="quien" maxlength="60" placeholder="Tu nombre" autocomplete="name"></label></div>
 <div class="acciones">${botonCerrarVentana("mover")}<button class="principal">${icono("check")}Guardar</button></div></form>`;
 
@@ -547,16 +588,17 @@ ${opciones.botLeeInventario ? `<input type="hidden" name="con_bot" value="1"><la
 <div class="ficha-producto">
 <div>${galeria}${datos}</div>
 <div>
-<section class="panel-tarjeta"><div class="stock-cima"><h2>${insignia("inventario", "marca", "chica")}Stock${listaDeSedes.length > 1 ? "" : ` <span class="chip">${esc(numero(enSede))} en total</span>`}</h2>${sedesSegmento}</div>
-${p.variantes.length ? `<div class="variantes">${filas}</div>` : vacio({ icono: "etiqueta", titulo: `Todavía no tiene ${r.variantes}`, texto: "Añádelas abajo: cada una recibe su código de barras sola." })}
-${listaDeSedes.length > 1 ? `<p class="suave" style="margin:12px 2px 0;font-size:13px">Mostrando ${esc(nombreSede)}: ${esc(numero(enSede))} ${enSede === 1 ? "unidad" : "unidades"}. Entre todas las sedes quedan ${esc(numero(total))}.</p>` : ""}
+<section class="panel-tarjeta"><div class="stock-cima"><h2>${insignia("inventario", "marca", "chica")}Stock${listaDeSedes.length > 1 ? "" : ` <span class="chip"><span data-n-aqui>${esc(numero(enSede))}</span> en total</span>`}</h2>${sedesSegmento}</div>
+${p.variantes.length ? `<div class="variantes" data-otras="${total - enSede}">${filas}</div>` : vacio({ icono: "etiqueta", titulo: `Todavía no tiene ${r.variantes}`, texto: "Añádelas abajo: cada una recibe su código de barras sola." })}
+${listaDeSedes.length > 1 ? `<p class="suave" style="margin:12px 2px 0;font-size:13px">Mostrando ${esc(nombreSede)}: <span data-n-aqui>${esc(numero(enSede))}</span> ${enSede === 1 ? "unidad" : "unidades"}. Entre todas las sedes quedan <span data-n-todas>${esc(numero(total))}</span>.</p>` : ""}
 </section>
 <section class="panel-tarjeta" style="margin-top:18px"><h2>${insignia("mas", "marca", "chica")}Añadir ${esc(r.variantes)}</h2>
-<form method="post" action="/panel/inventario/variante" class="campos"><input type="hidden" name="producto" value="${p.id}">
-<label class="campo">${esc(mayuscula(r.variantes))}<input name="opciones" placeholder="${esc(r.ejemploVariantes)}"></label>
+<form method="post" action="/panel/inventario/variante" class="campos" data-quien><input type="hidden" name="producto" value="${p.id}"><input type="hidden" name="sede" value="${sedeElegida}">
+<label class="campo">${esc(mayuscula(r.variantes))}<input name="opciones" data-grilla-opciones placeholder="${esc(r.ejemploVariantes)}" autocomplete="off"></label>
 <label class="campo">Color (opcional)<input name="color" maxlength="40"></label>
 <label class="campo">Código de fábrica (opcional)<input name="codigo_fabricante" placeholder="El que trae la caja" maxlength="40"></label>
-<div class="campo ancho"><button class="principal">${icono("mas")}Añadir</button><small>Cada ${esc(r.variante)} nueva recibe su código de barras. Sin ${esc(r.variantes)}, deja la primera casilla vacía y queda una sola.</small></div></form></section>
+${cantidadesPorVariante(r)}
+<div class="campo ancho"><button class="principal">${icono("mas")}Añadir</button><small>Cada ${esc(r.variante)} nueva recibe su código de barras${listaDeSedes.length > 1 ? `, y lo que escribas queda en ${esc(nombreSede)}` : ""}. Sin ${esc(r.variantes)}, deja la primera casilla vacía y queda una sola.</small></div></form></section>
 </div></div>
 <div class="seccion"><h2>${insignia("movimientos", "neutro", "chica")}Lo que se movió</h2><a href="/panel/inventario/movimientos">Todo el inventario${icono("adelante", { clase: "chico" })}</a></div>
 ${listaDeMovimientos(movimientos, { conModelo: false })}
@@ -572,6 +614,55 @@ document.addEventListener("click",function(e){var b=e.target.closest("[data-vari
  ["variante","precio","precio_cashea","precio_local","foto","codigo_fabricante"].forEach(function(k){var i=fv.querySelector('[name="'+k+'"]');if(i)i.value=k==="variante"?d.id:(d[k]===null||d[k]===undefined?"":d[k])});
  var ab=fv.querySelector('[name="al_bot"]');if(ab)ab.checked=!!d.al_bot;
  document.querySelector("#editar-variante h3").textContent=d.nombre&&d.nombre!=="Única"?"Editar "+d.nombre:"Editar";});
+// LA CANTIDAD SE ESCRIBE Y SE GUARDA SOLA (9-oct-2026): sin abrir Mover ni
+// pulsar Guardar. Se manda la diferencia contra lo que se veía, así que una
+// venta que cayó mientras tanto no se pisa; y queda «Deshacer».
+function esc(t){return String(t==null?"":t).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+function quienSoy(){try{return localStorage.getItem("inv_quien")||""}catch(x){return""}}
+function avisoCantidad(texto,tono,deshacer){
+ document.querySelectorAll(".tostadas").forEach(function(v){v.remove()});
+ var c=document.createElement("div");c.className="tostadas cantidad";c.setAttribute("aria-live","polite");
+ c.innerHTML='<div class="tostada tono-'+tono+'" role="status"><span>'+esc(texto)+'</span>'+(deshacer?'<button type="button" class="enlace-chico" data-deshacer style="margin:0">Deshacer</button>':"")+'<button type="button" class="tostada-cerrar" aria-label="Cerrar" data-cerrar-tostada>×</button></div>';
+ document.body.appendChild(c);
+ if(deshacer)c.querySelector("[data-deshacer]").onclick=function(){c.remove();deshacer()};
+ setTimeout(function(){var t=c.querySelector(".tostada");if(t)t.classList.add("cerrada");setTimeout(function(){c.remove()},500)},tono==="mal"?9000:7000);
+}
+function totalesDeLaFicha(){
+ var aqui=0,otras=0,caja=document.querySelector("[data-otras]");
+ document.querySelectorAll("[data-cantidad]").forEach(function(c){aqui+=parseInt(c.getAttribute("data-vista"),10)||0});
+ if(caja)otras=Number(caja.getAttribute("data-otras"))||0;
+ document.querySelectorAll("[data-n-aqui]").forEach(function(e){e.textContent=aqui.toLocaleString("es-VE")});
+ document.querySelectorAll("[data-n-todas]").forEach(function(e){e.textContent=(aqui+otras).toLocaleString("es-VE")});
+ var sc=document.querySelector("[data-sin-contar]");if(sc)sc.hidden=true;
+}
+function ponerCantidad(i,queda){
+ i.value=queda;i.setAttribute("data-vista",String(queda));
+ i.classList.toggle("cero",queda<=0);i.classList.toggle("poco",queda>0&&queda<=2);
+ var s=i.parentNode.querySelector("small");if(s)s.textContent=queda===1?"queda":"quedan";
+ totalesDeLaFicha();
+}
+function guardarCantidad(i,nueva,vista,esDeshacer){
+ i.disabled=true;
+ fetch("/panel/inventario/cantidad",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify({variante:i.getAttribute("data-cantidad"),sede:i.getAttribute("data-sede"),nueva:nueva,vista:vista,quien:quienSoy()})})
+ .then(function(r){return r.json()}).then(function(d){
+  i.disabled=false;
+  if(!d.ok){i.value=i.getAttribute("data-vista");return avisoCantidad(d.error||"No se pudo guardar.","mal")}
+  ponerCantidad(i,d.queda);
+  if(esDeshacer)avisoCantidad("Vuelto a "+d.queda+".","bien");
+  else avisoCantidad("Quedan "+d.queda+(d.delta>0?" (+"+d.delta+")":d.delta<0?" (−"+Math.abs(d.delta)+")":""),"bien",d.delta?function(){guardarCantidad(i,d.anterior,d.queda,true)}:null);
+ }).catch(function(){i.disabled=false;i.value=i.getAttribute("data-vista");avisoCantidad("Sin conexión: no se guardó nada.","mal")});
+}
+document.addEventListener("change",function(e){
+ var i=e.target;if(!i.getAttribute||i.getAttribute("data-cantidad")==null)return;
+ var texto=String(i.value).trim(),vista=i.getAttribute("data-vista");
+ if(texto===""){i.value=vista;return}
+ var nueva=Number(texto);
+ if(!isFinite(nueva)||nueva<0||Math.floor(nueva)!==nueva){i.value=vista;return avisoCantidad("Escribe un número entero, 0 o más.","mal")}
+ if(vista!==""&&String(nueva)===vista){i.value=vista;return}
+ guardarCantidad(i,nueva,vista,false);
+});
+document.addEventListener("keydown",function(e){var i=e.target;if(e.key==="Enter"&&i.getAttribute&&i.getAttribute("data-cantidad")!=null){e.preventDefault();i.blur()}});
+document.addEventListener("focusin",function(e){var i=e.target;if(i.getAttribute&&i.getAttribute("data-cantidad")!=null&&i.select)i.select()});
 var f=document.getElementById("mover-form");if(!f)return;
 var cantidad=f.querySelector('[name="cantidad"]'),hay=0,laVariante=${JSON.stringify(r.laVariante)},nombreSede=${JSON.stringify(nombreSede).replace(/</g, "\\u003c")};
 function tipo(){var r=f.querySelector('[name="tipo"]:checked');return r?r.value:"entrada"}
@@ -579,31 +670,93 @@ function poner(){var t=tipo(),r=f.querySelector('[name="tipo"]:checked');documen
 f.addEventListener("change",function(e){if(e.target.name==="tipo")poner()});
 cantidad.addEventListener("input",function(){cantidad.dataset.tocada="1"});
 f.addEventListener("click",function(e){var b=e.target.closest("[data-paso]");if(!b)return;var v=(parseInt(cantidad.value,10)||0)+Number(b.getAttribute("data-paso"));cantidad.value=Math.max(Number(cantidad.min)||0,v);cantidad.dataset.tocada="1"});
-document.addEventListener("click",function(e){var b=e.target.closest("[data-mover]");if(!b)return;var d={};try{d=JSON.parse(b.getAttribute("data-mover"))}catch(x){}
+document.addEventListener("click",function(e){var b=e.target.closest("[data-mover-variante]");if(!b)return;var d={};try{d=JSON.parse(b.getAttribute("data-mover-variante"))}catch(x){}
  hay=Number(d.hay)||0;f.querySelector('[name="variante"]').value=d.id;cantidad.dataset.tocada="";
  document.querySelector("#mover h3").textContent=d.nombre&&d.nombre!=="Única"?"Mover "+(/\\d/.test(d.nombre)&&laVariante!=="la variante"?laVariante+" ":"")+d.nombre:"Mover stock";
  document.getElementById("mover-texto").textContent="Quedan "+hay+" en "+nombreSede+".";poner()});
 })();
+</script>${scriptDeCantidades()}`;
+}
+
+// LAS CANTIDADES POR TALLA (9-oct-2026, pedido del dueño: cambiar los números
+// escribiéndolos, sin botones). Al escribir las tallas aparece una casilla
+// por cada una; "Igual para todas" las llena de un golpe. Sin JavaScript queda
+// la casilla de siempre (la misma cantidad para todas).
+function cantidadesPorVariante(r) {
+  return `<div class="cantidades campo ancho" data-grilla>
+<div class="cantidades-cabeza"><b class="solo-grilla">Cuántas hay de cada ${esc(r.variante)}</b><label class="cantidades-igual"><span class="sin-grilla">Cuántas hay de cada una</span><span class="solo-grilla">Igual para todas</span><input name="cantidad" data-grilla-igual type="number" inputmode="numeric" min="0" max="100000" step="1" placeholder="0"></label></div>
+<div class="cantidades-grilla" data-grilla-lista></div></div>`;
+}
+
+function scriptDeCantidades() {
+  // leerOpciones se manda tal cual al navegador: las tallas se entienden igual
+  // aquí y allá ("40-45", "38, 39", "S, M, L").
+  return `<script>
+(function(){
+var parsear=(${leerOpciones.toString()});
+function esc(t){return String(t==null?"":t).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+document.querySelectorAll("[data-grilla]").forEach(function(g){
+ var form=g.closest("form"),texto=form&&form.querySelector("[data-grilla-opciones]"),lista=g.querySelector("[data-grilla-lista]"),igual=g.querySelector("[data-grilla-igual]");
+ if(!texto||!lista)return;
+ var valores={},tocadas={};
+ function pintar(){
+  var html="";
+  parsear(texto.value).forEach(function(n){
+   var v=valores[n]!=null?valores[n]:(igual&&igual.value!==""&&!tocadas[n]?igual.value:"");
+   html+='<label class="talla-cant"><span>'+esc(n==="única"?"Cuántas":n)+'</span><input type="number" name="v_cantidad" inputmode="numeric" min="0" max="100000" step="1" placeholder="0" value="'+esc(v)+'" data-nombre="'+esc(n)+'" aria-label="Cuántas hay de '+esc(n)+'"><input type="hidden" name="v_opcion" value="'+esc(n)+'"></label>'});
+  lista.innerHTML=html;
+ }
+ texto.addEventListener("input",pintar);
+ lista.addEventListener("input",function(e){var i=e.target;if(!i.getAttribute||i.getAttribute("data-nombre")==null)return;var n=i.getAttribute("data-nombre");valores[n]=i.value;tocadas[n]=true});
+ lista.addEventListener("focusin",function(e){if(e.target.select)e.target.select()});
+ lista.addEventListener("keydown",function(e){if(e.key!=="Enter")return;var todos=[].slice.call(lista.querySelectorAll("[data-nombre]")),i=todos.indexOf(e.target);if(i>=0&&i<todos.length-1){e.preventDefault();todos[i+1].focus()}});
+ if(igual)igual.addEventListener("input",function(){lista.querySelectorAll("[data-nombre]").forEach(function(c){var n=c.getAttribute("data-nombre");if(!tocadas[n]){c.value=igual.value;valores[n]=igual.value}})});
+ g.classList.add("con-grilla");pintar();
+});
+})();
 </script>`;
+}
+
+// Lo que mandó la grilla: parejas (talla, cantidad) en el mismo orden.
+function leerGrilla(datos) {
+  const nombres = datos.getAll("v_opcion").map((x) => String(x ?? "").trim().slice(0, 40));
+  const cantidades = datos.getAll("v_cantidad").map((x) => String(x ?? "").trim());
+  const filas = [];
+  const vistos = new Set();
+  nombres.forEach((nombre, i) => {
+    if (!nombre || vistos.has(nombre)) return;
+    vistos.add(nombre);
+    filas.push({ opcion: nombre, cantidad: cantidades[i] ?? "" });
+  });
+  return filas.slice(0, 60);
+}
+
+// Las tallas y cantidades de un formulario: las de la grilla, o (sin
+// JavaScript) las tallas de la casilla con la misma cantidad para todas.
+function tallasDelFormulario(datos) {
+  const grilla = leerGrilla(datos);
+  if (grilla.length) return grilla;
+  const igual = String(datos.get("cantidad") ?? "").trim();
+  return leerOpciones(datos.get("opciones")).map((opcion) => ({ opcion, cantidad: igual }));
 }
 
 async function paginaDeNuevo(env, url, r) {
   const listaDeSedes = await sedes(env.DB);
-  return `${ESTILO}${tostadaDesde(url)}${cabecera({ volver: volverAlInventario, sobre: "Inventario", titulo: "Nuevo producto", texto: `Lo básico basta: el nombre. Cada ${r.variante} recibe su código de barras sola, y si dices cuántas hay, quedan cargadas.` })}
+  return `${ESTILO}${tostadaDesde(url)}${cabecera({ volver: volverAlInventario, sobre: "Inventario", titulo: "Nuevo producto", texto: `Lo básico basta: el nombre. Cada ${r.variante} recibe su código de barras sola, y si escribes cuántas hay de cada una, quedan cargadas.` })}
 <div class="dos">
 <section class="panel-tarjeta"><form method="post" action="/panel/inventario/nuevo" data-quien>
 <div class="campos">
 <label class="campo ancho">Nombre<input name="titulo" required maxlength="300" placeholder="${esc(r.ejemploProducto)}" autofocus></label>
 <label class="campo">Marca<input name="marca" maxlength="80"></label>
 <label class="campo">${esc(r.gama)}<input name="gama" maxlength="20" placeholder="${esc(r.ejemploGama)}"></label>
-<label class="campo">${esc(mayuscula(r.variantes))}<input name="opciones" placeholder="${esc(r.ejemploVariantes)}, o vacío"></label>
+<label class="campo">${esc(mayuscula(r.variantes))}<input name="opciones" data-grilla-opciones placeholder="${esc(r.ejemploVariantes)}, o vacío" autocomplete="off"></label>
 <label class="campo">Color (opcional)<input name="color" maxlength="40"></label>
 <label class="campo">Precio (divisas)<div class="monto chico"><span>$</span><input name="precio" inputmode="decimal" placeholder="0"></div></label>
 <label class="campo">Te costó<div class="monto chico"><span>$</span><input name="costo" inputmode="decimal" placeholder="0"></div></label>
 <label class="campo">Precio Cashea (opcional)<input name="precio_cashea" inputmode="decimal"></label>
 <label class="campo">Código de fábrica (opcional)<input name="codigo_fabricante" maxlength="40" placeholder="El que trae la caja"></label>
-<label class="campo">Cuántas hay de cada una<input name="cantidad" type="number" inputmode="numeric" min="0" max="100000" placeholder="0"></label>
 ${selectorDeSede(listaDeSedes, listaDeSedes[0]?.id)}
+${cantidadesPorVariante(r)}
 </div>
 <div class="formulario-pie"><span class="suave" style="font-size:13px">Lo que no sepas ahora lo pones después en Editar.</span><button class="principal">${icono("check")}Crear producto</button></div>
 </form></section>
@@ -613,7 +766,7 @@ ${selectorDeSede(listaDeSedes, listaDeSedes[0]?.id)}
 <div class="consejo">${insignia("etiqueta", "marca")}<span>Imprime las etiquetas en hoja carta o en impresora de rollo (50 × 25 mm) desde el producto.</span></div>
 <div class="consejo">${insignia("enlace", "marca")}<span>Si la caja ya trae un código de fábrica, escríbelo: también pasa en la caja.</span></div>
 </div></section>
-</div>`;
+</div>${scriptDeCantidades()}`;
 }
 
 async function paginaDeImportar(env, url, opciones = {}) {
@@ -1016,19 +1169,23 @@ ${
 <div class="ticket-lineas" id="lineas"></div>
 <form class="libre-form" id="libre-form" hidden><label class="campo">Qué es<input id="libre-que" maxlength="120" placeholder="Servicio, envío, algo sin código…"></label><label class="campo">Cuánto<input id="libre-cuanto" inputmode="decimal" placeholder="$0"></label><div class="acciones"><button type="button" class="fantasma chico" id="libre-cancelar">Cancelar</button><button class="principal chico">${icono("mas", { clase: "chico" })}Añadir</button></div></form>
 <div class="ticket-total"><span>Total<em class="tarifa-nota" id="tarifa-nota"></em></span><b id="total">$0</b></div>
+<div class="fecha-venta" id="fecha-venta"><div class="campo-titulo">Venta de</div>
+<div class="opciones" id="fecha-opciones"><label class="opcion"><input type="radio" name="dia" value="hoy" checked>Hoy</label><label class="opcion"><input type="radio" name="dia" value="ayer">Ayer</label><label class="opcion"><input type="radio" name="dia" value="otro">${icono("calendario")}Otro día</label></div>
+<input type="date" id="fecha-otro" hidden min="${esc(diaDe(Date.now() - DIAS_HACIA_ATRAS * 86400000))}" max="${esc(diaDe(Date.now()))}" aria-label="Día de la venta">
+<p class="fecha-aviso" id="fecha-aviso" hidden></p></div>
 <div class="campo-titulo">Cómo pagó</div>
 <div class="metodos opciones" id="metodos">${metodos}</div>
 <div class="fiado-datos" id="fiado-datos"><label class="campo">Cliente<input id="cliente" maxlength="80" placeholder="Nombre" autocomplete="off"></label><label class="campo">Teléfono<input id="telefono" maxlength="20" inputmode="tel" placeholder="0414…" autocomplete="off"></label></div>
 ${r.conSerial ? `<label class="campo" style="margin:0 0 12px">IMEI o serial (opcional)<input id="serial" maxlength="60" inputmode="numeric" autocomplete="off" placeholder="Para la garantía: sale en el recibo"></label>` : ""}
 <button type="button" class="enlace-chico" id="btn-cliente">${icono("usuario", { clase: "chico" })}Añadir cliente al recibo</button>
-<button type="button" class="principal boton-cobrar" id="cobrar" title="Cobrar (F9)">${icono("check")}<span>Cobrar</span><b id="total-boton"></b></button>
+<button type="button" class="principal boton-cobrar" id="cobrar" title="Cobrar (F9)">${icono("check")}<span id="cobrar-texto">Cobrar</span><b id="total-boton"></b></button>
 <p class="suave pos-nota">Al cobrar se descuenta el stock de la sede: es la confirmación de que el cliente se lo lleva. Si algo no alcanza, no se descuenta nada.</p>
 </aside>
 </div>
 <div class="pos-flotante" id="pos-flotante" hidden><span><b id="flotante-total">$0</b><small id="flotante-cuenta"></small></span><a class="boton principal" href="#ticket">${icono("recibo")}Cobrar</a></div>
 <div class="exito" id="exito" hidden><div class="exito-caja" role="dialog" aria-modal="true" aria-labelledby="exito-titulo">
 <svg class="exito-check" viewBox="0 0 88 88" aria-hidden="true"><circle class="relleno" cx="44" cy="44" r="40"/><circle cx="44" cy="44" r="40"/><path d="M28 45l11 11 21-23"/></svg>
-<h2 id="exito-titulo">Venta registrada</h2><div class="exito-total" id="exito-total"></div><p class="suave" id="exito-detalle"></p>
+<h2 id="exito-titulo">Venta registrada</h2><div class="exito-total" id="exito-total"></div><p class="suave" id="exito-detalle"></p><p class="exito-avisos" id="exito-avisos" hidden></p>
 <div class="acciones"><button type="button" class="principal" id="exito-nueva">${icono("mas")}Nueva venta</button><a class="boton suave" id="exito-whatsapp" target="_blank" rel="noopener">${icono("enviar")}Mandar el recibo por WhatsApp</a><a class="boton fantasma" id="exito-recibo">${icono("recibo")}Ver el recibo</a></div>
 </div></div>
 <script>
@@ -1113,20 +1270,39 @@ libreForm.addEventListener("submit",function(e){e.preventDefault();var q=$("#lib
  if(!q)return avisar("Escribe qué es.","mal");if(!(c>=0))return avisar("Escribe cuánto cuesta.","mal");
  libres.push({descripcion:q,precio:Math.round(c*100)/100,cantidad:1});$("#libre-que").value="";$("#libre-cuanto").value="";libreForm.hidden=true;pintar(true);pitido(true)});
 function sacudir(el){el.classList.remove("sacude");void el.offsetWidth;el.classList.add("sacude")}
+// VENTAS DE OTRO DÍA (9-oct-2026): "Ayer" y "Otro día" anotan la venta en ese
+// día. La elección se queda mientras se cargan varias seguidas; al abrir la
+// caja de nuevo vuelve a "Hoy", para no anotar nada atrás por descuido.
+function diaCaracas(atras){return new Date(Date.now()-4*3600000-(atras||0)*86400000).toISOString().slice(0,10)}
+function modoDia(){var r=document.querySelector('input[name="dia"]:checked');return r?r.value:"hoy"}
+function fechaVenta(){var m=modoDia();return m==="ayer"?diaCaracas(1):m==="otro"?($("#fecha-otro").value||""):""}
+function diaEnLetras(d){var p=d.split("-");return new Date(Date.UTC(+p[0],+p[1]-1,+p[2],12)).toLocaleDateString("es-VE",{weekday:"long",day:"numeric",month:"long",timeZone:"UTC"})}
+function verFecha(){
+ var m=modoDia(),otro=$("#fecha-otro"),d=fechaVenta(),aviso=$("#fecha-aviso");
+ otro.hidden=m!=="otro";
+ aviso.hidden=m==="hoy";
+ aviso.textContent=d?"Se anota el "+diaEnLetras(d)+". Cuenta en ese día en Ventas y en el balance; el stock baja ahora.":"Elige el día de la venta.";
+ $("#cobrar-texto").textContent=m==="hoy"?"Cobrar":"Anotar la venta";
+}
+$("#fecha-opciones").addEventListener("change",function(){verFecha();if(modoDia()==="otro"){var o=$("#fecha-otro");try{if(o.showPicker)o.showPicker()}catch(e){}}});
+$("#fecha-otro").addEventListener("change",verFecha);
 function cobrarYa(){
  if(ocupado)return;
  if(!lineas.length&&!libres.length)return avisar("La venta está vacía.","mal");
+ var dia=fechaVenta();
+ if(modoDia()==="otro"&&!dia){sacudir($("#fecha-venta"));$("#fecha-otro").focus();return avisar("Elige el día de la venta.","mal")}
  var m=metodo();if(!m){sacudir(metodosEl);return avisar("Elige cómo pagó el cliente.","mal")}
  var fiado=m==="Fiado",cliente=$("#cliente").value.trim(),telefono=$("#telefono").value.trim();
  if(fiado&&!cliente){sacudir(fiadoDatos);$("#cliente").focus();return avisar("Para fiar hace falta el nombre del cliente.","mal")}
  var b=$("#cobrar");ocupado=true;b.classList.add("cargando");
- fetch("/panel/caja/cobrar",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify({sede:sede(),quien:($("#quien")||{}).value||"",nota:$("#serial")&&$("#serial").value.trim()?"IMEI/serial: "+$("#serial").value.trim():"",metodo:fiado?"":m,fiado:fiado,cliente:cliente,telefono:telefono,items:lineas.map(function(l){return{variante:l.id,cantidad:l.cantidad}}),libres:libres.map(function(l){return{descripcion:l.descripcion,precio:l.precio,cantidad:l.cantidad}})})})
+ fetch("/panel/caja/cobrar",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify({sede:sede(),fecha:dia,quien:($("#quien")||{}).value||"",nota:$("#serial")&&$("#serial").value.trim()?"IMEI/serial: "+$("#serial").value.trim():"",metodo:fiado?"":m,fiado:fiado,cliente:cliente,telefono:telefono,items:lineas.map(function(l){return{variante:l.id,cantidad:l.cantidad}}),libres:libres.map(function(l){return{descripcion:l.descripcion,precio:l.precio,cantidad:l.cantidad}})})})
  .then(function(r){return r.json()}).then(function(d){ocupado=false;b.classList.remove("cargando");
   if(!d.ok)return avisar(d.error||"No se pudo cobrar.","mal");
   if(tiles)lineas.forEach(function(l){var t=tiles.querySelector('[data-producto="'+l.producto+'"] [data-cuantos]');if(t){var q=Math.max(0,(Number(t.getAttribute("data-cuantos"))||0)-l.cantidad);t.setAttribute("data-cuantos",q);t.textContent=q;t.classList.toggle("poco",q<=2)}});
   $("#exito-total").textContent=d.total!=null?dinero(d.total):"";
   $("#exito-titulo").textContent="Venta #"+d.ventaId;
-  $("#exito-detalle").textContent=d.unidades+(d.unidades===1?" producto":" productos")+" · "+(fiado?"Fiado a "+cliente:m)+(d.tarifa==="cashea"?" · precio Cashea":"");
+  $("#exito-detalle").textContent=d.unidades+(d.unidades===1?" producto":" productos")+" · "+(fiado?"Fiado a "+cliente:m)+(d.tarifa==="cashea"?" · precio Cashea":"")+(d.deOtroDia?" · del "+d.fechaTexto:"");
+  var av=$("#exito-avisos");av.hidden=!(d.avisos&&d.avisos.length);av.textContent=(d.avisos||[]).join(" ");
   $("#exito-recibo").href=d.recibo;var w=$("#exito-whatsapp");w.href=d.whatsapp||"#";w.hidden=!d.whatsapp;
   document.querySelectorAll(".tostadas").forEach(function(v){v.remove()});
   $("#exito").hidden=false;pitido(true);setTimeout(function(){$("#exito-nueva").focus()},60);
@@ -1285,22 +1461,43 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
     const metodo = String(datos.metodo || "");
     const tarifa = tarifaDeLaVenta(opciones.tarifaDeCaja, datos.fiado ? "Fiado" : metodo);
     try {
+      const items = (datos.items || []).map((i) => ({ varianteId: i.variante, cantidad: i.cantidad }));
       const r = await cobrar(env.DB, {
         sedeId: datos.sede,
         quien: datos.quien,
         metodoPago: metodo,
-        items: (datos.items || []).map((i) => ({ varianteId: i.variante, cantidad: i.cantidad })),
+        items,
         libres: Array.isArray(datos.libres) ? datos.libres : [],
         fiado: Boolean(datos.fiado),
         cliente: datos.cliente || "",
         telefono: datos.telefono || "",
         nota: datos.nota || "",
         tarifa,
+        fecha: datos.fecha || "",
       });
-      console.log(`CAJA: venta ${r.ventaId} (${r.unidades} u) por ${datos.quien || "—"}${tarifa ? ` · ${tarifa}` : ""}`);
+      console.log(`CAJA: venta ${r.ventaId} (${r.unidades} u) por ${datos.quien || "—"}${tarifa ? ` · ${tarifa}` : ""}${r.deOtroDia ? ` · del ${diaDe(r.fecha)}` : ""}`);
       const venta = await verVenta(env.DB, r.ventaId).catch(() => null);
       const whatsapp = venta ? enlaceWhatsapp(datos.telefono, textoDelRecibo(venta, tienda)) : "";
-      return json({ ok: true, ...r, tarifa, recibo: `/panel/ventas/${r.ventaId}`, whatsapp });
+      const cantidades = new Map();
+      for (const i of items) cantidades.set(Number(i.varianteId), (cantidades.get(Number(i.varianteId)) || 0) + (Math.trunc(Number(i.cantidad)) || 0));
+      const { contadasDespues, ...resto } = r;
+      return json({ ok: true, ...resto, tarifa, recibo: `/panel/ventas/${r.ventaId}`, whatsapp, fechaTexto: diaCorto(r.fecha), avisos: avisosDeContadas(contadasDespues, cantidades) });
+    } catch (error) {
+      return json({ ok: false, error: error.message }, error.name === "SinStock" ? 409 : 400);
+    }
+  }
+
+  if (ruta === "/panel/inventario/cantidad") {
+    // La ficha del producto manda aquí el número que se escribió (ver cambiarCantidad).
+    let pedido = {};
+    try {
+      pedido = await request.json();
+    } catch {
+      return json({ ok: false, error: "Pedido inválido." }, 400);
+    }
+    try {
+      const r = await cambiarCantidad(env.DB, { varianteId: pedido.variante, sedeId: pedido.sede, nueva: pedido.nueva, vista: pedido.vista, quien: String(pedido.quien || "").trim() });
+      return json({ ok: true, ...r });
     } catch (error) {
       return json({ ok: false, error: error.message }, error.name === "SinStock" ? 409 : 400);
     }
@@ -1399,10 +1596,12 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
           items: [{ varianteId: args.varianteId, cantidad: args.cantidad }],
           nota: args.nota,
           tarifa: tarifaDeLaVenta(opciones.tarifaDeCaja, metodo),
+          fecha: String(datos.get("fecha") || ""),
         });
         const v = await verVariante(env.DB, args.varianteId);
         const queda = v?.porSede?.[Number(args.sedeId)] ?? 0;
-        return redirigir(conAviso(volver, { ok: `Venta #${r.ventaId} registrada${r.total !== null && r.total !== undefined ? ` por ${plata(r.total, { siempre: true })}` : ""}. Quedan ${queda}.` }));
+        const aviso = r.deOtroDia ? avisosDeContadas(r.contadasDespues, new Map([[Number(args.varianteId), Math.trunc(Number(args.cantidad)) || 1]])).join(" ") : "";
+        return redirigir(conAviso(volver, { ok: `Venta #${r.ventaId}${r.deOtroDia ? ` del ${diaCorto(r.fecha)}` : ""} registrada${r.total !== null && r.total !== undefined ? ` por ${plata(r.total, { siempre: true })}` : ""}. Quedan ${queda}.${aviso ? ` ${aviso}` : ""}` }));
       }
       const queda = await moverStock(env.DB, { ...args, tipo });
       return redirigir(conAviso(volver, { ok: `${TIPOS_DE_MOVIMIENTO[tipo] || "Movido"}. Quedan ${queda} en esa sede.` }));
@@ -1413,6 +1612,10 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
 
   if (ruta === "/panel/inventario/nuevo") {
     try {
+      // Las cantidades se revisan ANTES de crear nada: un número mal escrito
+      // no deja un producto a medias.
+      const tallas = tallasDelFormulario(datos);
+      for (const t of tallas) leerCantidad(t.cantidad, t.opcion === "única" ? "" : t.opcion);
       const productoId = await guardarProducto(env.DB, {
         origen: "manual",
         titulo: datos.get("titulo"),
@@ -1422,19 +1625,19 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
         precio_cashea: datos.get("precio_cashea"),
         costo: datos.get("costo"),
       });
-      const opcionesDeTalla = leerOpciones(datos.get("opciones"));
-      const cantidad = Math.trunc(Number(datos.get("cantidad")) || 0);
-      const sedeId = Number(datos.get("sede")) || (await sedes(env.DB))[0]?.id;
-      for (const opcion of opcionesDeTalla) {
-        const varianteId = await guardarVariante(env.DB, productoId, {
-          opcion,
-          color: datos.get("color"),
-          codigo_fabricante: opcionesDeTalla.length === 1 ? datos.get("codigo_fabricante") : "",
-        });
-        if (cantidad > 0 && sedeId) await ajustarStock(env.DB, { varianteId, sedeId, cantidad, quien, nota: "Al crearlo", tipo: "carga" });
+      const ids = await guardarVariantes(
+        env.DB,
+        productoId,
+        tallas.map((t) => ({ opcion: t.opcion, color: datos.get("color"), codigo_fabricante: tallas.length === 1 ? datos.get("codigo_fabricante") : "" }))
+      );
+      // Si no escribió ninguna cantidad, el stock no se toca (quedan sin contar).
+      let unidades = 0;
+      if (tallas.some((t) => String(t.cantidad).trim() !== "")) {
+        const sedeId = Number(datos.get("sede")) || (await sedes(env.DB))[0]?.id;
+        ({ unidades } = await cargarCantidades(env.DB, { sedeId, quien, nota: "Al crearlo", filas: ids.map((id, i) => ({ varianteId: id, cantidad: tallas[i].cantidad, nombre: tallas[i].opcion })) }));
       }
-      const n = opcionesDeTalla.length;
-      return redirigir(conAviso(`/panel/inventario/p/${productoId}`, { ok: `Creado con ${n} ${n === 1 ? "variante" : "tallas"}, cada una con su código${cantidad > 0 ? ` y ${cantidad} en stock` : ""}.` }));
+      const n = tallas.length;
+      return redirigir(conAviso(`/panel/inventario/p/${productoId}`, { ok: `Creado con ${n} ${n === 1 ? "variante" : "tallas"}, cada una con su código${unidades > 0 ? ` y ${unidades} ${unidades === 1 ? "unidad" : "unidades"} en stock` : ""}.` }));
     } catch (error) {
       return redirigir(conAviso("/panel/inventario/nuevo", { error: error.message }));
     }
@@ -1444,11 +1647,23 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
   const alProducto = `/panel/inventario/p/${productoId}`;
 
   if (ruta === "/panel/inventario/variante") {
-    const lista = leerOpciones(datos.get("opciones"));
-    for (const opcion of lista) {
-      await guardarVariante(env.DB, productoId, { opcion, color: datos.get("color"), codigo_fabricante: lista.length === 1 ? datos.get("codigo_fabricante") : "" });
+    try {
+      const tallas = tallasDelFormulario(datos);
+      for (const t of tallas) leerCantidad(t.cantidad, t.opcion === "única" ? "" : t.opcion);
+      const ids = await guardarVariantes(
+        env.DB,
+        productoId,
+        tallas.map((t) => ({ opcion: t.opcion, color: datos.get("color"), codigo_fabricante: tallas.length === 1 ? datos.get("codigo_fabricante") : "" }))
+      );
+      let unidades = 0;
+      if (tallas.some((t) => String(t.cantidad).trim() !== "")) {
+        const sedeId = Number(datos.get("sede")) || (await sedes(env.DB))[0]?.id;
+        ({ unidades } = await cargarCantidades(env.DB, { sedeId, quien, nota: "Al añadirla", filas: ids.map((id, i) => ({ varianteId: id, cantidad: tallas[i].cantidad, nombre: tallas[i].opcion })) }));
+      }
+      return redirigir(conAviso(alProducto, { ok: `${tallas.length} ${tallas.length === 1 ? "variante añadida" : "tallas añadidas"}${unidades > 0 ? `, con ${unidades} ${unidades === 1 ? "unidad" : "unidades"} en stock` : ""}.` }));
+    } catch (error) {
+      return redirigir(conAviso(alProducto, { error: error.message }));
     }
-    return redirigir(conAviso(alProducto, { ok: `${lista.length} ${lista.length === 1 ? "variante añadida" : "tallas añadidas"}.` }));
   }
   if (ruta === "/panel/inventario/variante/editar") {
     try {

@@ -106,7 +106,12 @@ TU NEGOCIO
   (los métodos de pago de la lista) y se toca Cobrar. Al cobrar baja el
   stock y queda la venta con su recibo.${palabras.conSerial ? ` Para teléfonos pide el IMEI o serial, que sale en el recibo.` : ""}
   También cobra cosas que no están en el inventario (un servicio) y ventas
-  al fiado (pide el nombre del cliente).${tarifaDeCaja === "cashea" ? `
+  al fiado (pide el nombre del cliente). Si se olvidó anotar las ventas de
+  un día, arriba de "Cómo pagó" está "Venta de": Hoy, Ayer u Otro día. La
+  venta queda en ese día (en Ventas, en Inicio y en el balance) y se marca
+  "anotada después"; el stock baja en el momento en que se anota. La
+  elección se queda mientras se cargan varias seguidas. (En "Vendí" de un
+  producto también se puede poner el día.)${tarifaDeCaja === "cashea" ? `
   En esta tienda la caja cobra el PRECIO CASHEA; el precio en dólares solo
   si el cliente paga con "Divisas (efectivo)".` : ""}
 · Ventas (/panel/ventas): todo lo cobrado, por día. Cada venta abre su
@@ -116,10 +121,14 @@ TU NEGOCIO
 · Inventario (/panel/inventario): los productos con cuántos quedan. Buscador
   y filtros (con stock, por reponer, agotados). Al abrir un producto se ven sus ${vs}, el
   stock por sede, su código de barras, y se edita nombre, marca, ${gama.toLowerCase()},
-  precio y costo. Para mover stock de una ${v}: Entrada (llegó mercancía),
-  Vendí (se vendió fuera de la caja), Devolución, o Contar (poner la
-  cantidad exacta que se contó). Cada cambio queda en Movimientos.
+  precio y costo. La cantidad de cada ${v} se cambia escribiéndola ahí mismo
+  (se guarda sola, con Deshacer; sube = Entrada, baja = Ajuste). También se
+  puede mover con el botón Mover: Entrada (llegó mercancía), Vendí (se
+  vendió fuera de la caja), Devolución, o Contar (poner la cantidad exacta
+  que se contó). Cada cambio queda en Movimientos.
   - Nuevo producto (/panel/inventario/nuevo): crear uno a mano con sus ${vs}.
+    Al escribir las ${vs} aparece una casilla por cada una para poner cuántas
+    hay (o "Igual para todas"). Lo mismo al añadir ${vs} a un producto.
   - Importar (/panel/inventario/importar): "Traer del catálogo" (trae los
     productos de la tienda online o la hoja de la tienda) o subir un Excel
     o CSV con columnas como producto, código, ${v}, color, cantidad, precio,
