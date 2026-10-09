@@ -1,0 +1,338 @@
+// Búsqueda de productos en Shopify.
+//
+// Reproduce lo que hacía el módulo de Make: TODAS las palabras del término
+// tienen que aparecer en el título. Por eso se unen con AND y cada una va
+// entre asteriscos, que es el comodín de la búsqueda de Shopify.
+
+import { usaDrive, buscarEnDrive, catalogoCompletoDeDrive } from "./drive.js";
+import { esCategoria, categoriaDelTexto, filtrarPorCategoria, quitarPalabrasDeCategoria } from "./categorias.js";
+
+const VERSION_API = "2026-01";
+
+const CONSULTA = `
+  query buscar($termino: String!, $cuantos: Int!) {
+    products(first: $cuantos, query: $termino) {
+      edges {
+        node {
+          title
+          productType
+          onlineStoreUrl
+          featuredImage { url }
+          priceRangeV2 { minVariantPrice { amount currencyCode } }
+        }
+      }
+    }
+  }
+`;
+
+// Devuelve { productos, hayMas }. "hayMas" es lo que permite distinguir
+// "ya te mostré todo lo que hay de ese modelo" (de verdad son 10 o menos)
+// de "hay más pero no caben en una ficha" (Instagram no admite más de 10
+// elementos en un carrusel) — sin esto, el segundo caso se confundía con el
+// primero y el cliente que preguntaba "¿solo tienes esos?" recibía marcas
+// sin relación en vez del catálogo completo, que es donde sí estaban todos.
+// TODO el catálogo, no una búsqueda.
+//
+// Existe para el barrido del cotejo visual (ver cotejo.js): cuando la
+// búsqueda por nombre no da con el zapato de la foto, la única forma de
+// encontrarlo es mirarlos todos. Shopify entrega hasta 250 por página,
+// así que un catálogo de varios cientos son dos o tres llamadas — se
+// hace en un segundo y no gasta nada de modelo.
+//
+// "maximo" es un tope de seguridad para que un catálogo enorme no se
+// traiga entero sin querer. Devuelve { productos, completo }: "completo"
+// dice si se llegó al final de verdad o si se cortó por el tope.
+const POR_PAGINA = 250;
+
+const CONSULTA_TODO = `
+  query todo($cuantos: Int!, $cursor: String) {
+    products(first: $cuantos, after: $cursor, query: "status:active") {
+      pageInfo { hasNextPage endCursor }
+      edges {
+        node {
+          title
+          productType
+          onlineStoreUrl
+          featuredImage { url }
+          priceRangeV2 { minVariantPrice { amount currencyCode } }
+        }
+      }
+    }
+  }
+`;
+
+export async function traerCatalogoCompleto(env, maximo = 1000) {
+  // CATALOGO = "drive": el catálogo es la carpeta de Google Drive (ver
+  // drive.js). Misma forma de productos: el resto del bot no se entera.
+  if (usaDrive(env)) return catalogoCompletoDeDrive(env, maximo);
+
+  const productos = [];
+  let cursor = null;
+  let completo = false;
+
+  // Un tope duro de páginas: si algún día Shopify devolviera siempre
+  // "hasNextPage", esto no se queda dando vueltas para siempre.
+  for (let pagina = 0; pagina < 20; pagina++) {
+    const datos = await consultar(env, CONSULTA_TODO, {
+      cuantos: Math.min(POR_PAGINA, maximo - productos.length),
+      cursor,
+    });
+
+    if (!datos) break;
+
+    productos.push(...(datos.products?.edges || []).map(aProducto(env)));
+
+    const info = datos.products?.pageInfo;
+    if (!info?.hasNextPage) {
+      completo = true;
+      break;
+    }
+
+    if (productos.length >= maximo) break;
+    cursor = info.endCursor;
+  }
+
+  console.log(
+    `Catálogo completo: ${productos.length} productos` +
+      (completo ? "" : ` (cortado en el tope de ${maximo})`)
+  );
+
+  return { productos, completo };
+}
+
+// LA BÚSQUEDA CON SU CATEGORÍA (5-oct-2026). El Emperador vende calzado,
+// bolsos, camisas, pantalones y gorras: "bolso Nike" no puede devolver
+// zapatos Nike. Con "categoria", el filtro corre ANTES de recortar al
+// carrusel (se piden más y se filtra), igual que el color: si se recortara
+// primero, los diez de arriba podían ser todos zapatos.
+//
+// Si con la frase entera no sale nada de esa categoría, se prueba sin la
+// palabra de la categoría ("mochila Nike" → "Nike" entre los bolsos): en la
+// carpeta los títulos casi nunca dicen "mochila". Y si la búsqueda es SOLO
+// la categoría ("bolsos"), salen los de esa categoría.
+export async function buscarProductos(env, termino, cuantos = 10, { categoria = "" } = {}) {
+  // Sin categoría dada, la de la propia búsqueda ("zapatos" → calzado): así
+  // "zapatos" encuentra la carpeta CALZADOS aunque ningún título lo diga.
+  const cat = esCategoria(categoria) ? categoria : categoriaDelTexto(termino);
+  if (!cat) return buscarSinCategoria(env, termino, cuantos);
+
+  const pedir = Math.max(cuantos * 4, 40);
+  const limpio = String(termino || "").trim();
+  let lista = limpio ? filtrarPorCategoria((await buscarSinCategoria(env, limpio, pedir)).productos, cat) : [];
+
+  if (!lista.length) {
+    const sinPalabra = quitarPalabrasDeCategoria(limpio);
+    if (sinPalabra && sinPalabra !== limpio) {
+      lista = filtrarPorCategoria((await buscarSinCategoria(env, sinPalabra, pedir)).productos, cat);
+    } else if (!sinPalabra) {
+      lista = await todosDeLaCategoria(env, cat, pedir);
+    }
+  }
+
+  return { productos: lista.slice(0, cuantos), hayMas: lista.length > cuantos };
+}
+
+// Todos los de una categoría (para "¿tienen gorras?" o "muéstrame bolsos").
+async function todosDeLaCategoria(env, categoria, maximo) {
+  if (usaDrive(env)) {
+    const { productos } = await catalogoCompletoDeDrive(env, 1000);
+    return filtrarPorCategoria(productos, categoria).slice(0, maximo);
+  }
+  // En Shopify se busca la palabra de la categoría en el título.
+  const palabra = { calzado: "zapato", bolso: "bolso", camisa: "camisa", pantalon: "pantalon", gorra: "gorra" }[categoria];
+  const { productos } = await buscarSinCategoria(env, palabra, maximo);
+  return filtrarPorCategoria(productos, categoria);
+}
+
+async function buscarSinCategoria(env, termino, cuantos = 10) {
+  if (usaDrive(env)) return buscarEnDrive(env, termino, cuantos);
+
+  const palabras = String(termino || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 5);
+
+  if (!palabras.length) return { productos: [], hayMas: false };
+
+  // Las comillas dentro del término romperían la consulta de Shopify.
+  // status:active deja fuera los borradores y los archivados: mostrarle a un
+  // cliente algo que todavía no está publicado le hace pedir lo que no se le
+  // puede vender.
+  const consulta =
+    palabras.map((p) => `title:*${p.replace(/["\\()]/g, "")}*`).join(" AND ") +
+    " AND status:active";
+
+  let respuesta;
+  try {
+    respuesta = await fetch(
+      `https://${env.SHOPIFY_TIENDA}/admin/api/${VERSION_API}/graphql.json`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Shopify-Access-Token": env.SHOPIFY_TOKEN,
+        },
+        body: JSON.stringify({
+          query: CONSULTA,
+          // Se pide uno de más a propósito: si vuelve, es la señal de que
+          // el catálogo tiene más de los que caben en una ficha.
+          variables: { termino: consulta, cuantos: cuantos + 1 },
+        }),
+      }
+    );
+  } catch (error) {
+    console.error("No se pudo llamar a Shopify:", error.message);
+    return { productos: [], hayMas: false };
+  }
+
+  if (!respuesta.ok) {
+    console.error("Shopify respondió", respuesta.status, await respuesta.text());
+    return { productos: [], hayMas: false };
+  }
+
+  const datos = await respuesta.json();
+  if (datos.errors) {
+    console.error("Shopify devolvió errores:", JSON.stringify(datos.errors));
+    return { productos: [], hayMas: false };
+  }
+
+  const productos = (datos.data?.products?.edges || []).map(aProducto(env));
+
+  const filtrados = sinFalsosPositivos(productos, palabras);
+  const hayMas = filtrados.length > cuantos;
+
+  return { productos: hayMas ? filtrados.slice(0, cuantos) : filtrados, hayMas };
+}
+
+// La búsqueda de Shopify es por subcadena, y con palabras cortas eso pesca
+// cosas que no son. Dos casos reales de este catálogo:
+//
+//   "TN"        encuentra "Lebron WiTNess"    (9 de 12 resultados eran eso)
+//   "Jordan 4"  encuentra "Jordan 40"         (y el Jordan 4 se llama Retro 4)
+//
+// Shopify no sabe buscar palabras completas, así que se comprueba aquí. Solo
+// se aplica a las palabras cortas y a los números, que son las que fallan:
+// con las largas la subcadena casi nunca se equivoca, y exigir palabra
+// completa rompería los plurales.
+const LARGO_SEGURO = 3;
+
+function sinFalsosPositivos(productos, palabras) {
+  const exigentes = palabras.filter(
+    (p) => p.length <= LARGO_SEGURO || /^\d+$/.test(p)
+  );
+  if (!exigentes.length) return productos;
+
+  const patrones = exigentes.map(
+    (p) => new RegExp(`(^|[^\\p{L}\\p{N}])${escapar(p)}([^\\p{L}\\p{N}]|$)`, "iu")
+  );
+
+  const buenos = productos.filter((producto) =>
+    patrones.every((patron) => patron.test(producto.titulo))
+  );
+
+  if (buenos.length !== productos.length) {
+    console.log(
+      `Descarté ${productos.length - buenos.length} resultado(s) donde ` +
+        `${exigentes.map((p) => `"${p}"`).join(", ")} estaba dentro de otra palabra`
+    );
+  }
+
+  return buenos;
+}
+
+function escapar(texto) {
+  return String(texto).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function formatearPrecio(precio) {
+  if (!precio?.amount) return "";
+  const cifra = Number(precio.amount);
+  const redondo = Number.isInteger(cifra) ? String(cifra) : cifra.toFixed(2);
+  return `${redondo} ${precio.currencyCode || ""}`.trim();
+}
+
+// Una llamada a la API de Shopify. Devuelve datos.data o null: quien
+// llama decide qué hacer sin nada, pero nunca revienta por un fallo de
+// red — un cliente esperando no se merece un error del sistema.
+async function consultar(env, query, variables) {
+  let respuesta;
+  try {
+    respuesta = await fetch(
+      `https://${env.SHOPIFY_TIENDA}/admin/api/${VERSION_API}/graphql.json`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Shopify-Access-Token": env.SHOPIFY_TOKEN,
+        },
+        body: JSON.stringify({ query, variables }),
+      }
+    );
+  } catch (error) {
+    console.error("No se pudo llamar a Shopify:", error.message);
+    return null;
+  }
+
+  if (!respuesta.ok) {
+    console.error("Shopify respondió", respuesta.status, await respuesta.text());
+    return null;
+  }
+
+  const datos = await respuesta.json();
+  if (datos.errors) {
+    console.error("Shopify devolvió errores:", JSON.stringify(datos.errors));
+    return null;
+  }
+
+  return datos.data || null;
+}
+
+function aProducto(env) {
+  return ({ node }) => ({
+    titulo: node.title,
+    precio: formatearPrecio(node.priceRangeV2?.minVariantPrice),
+    imagen: node.featuredImage?.url || "",
+    url: node.onlineStoreUrl || env.URL_CATALOGO,
+    // El "tipo de producto" de Shopify hace de carpeta (ver categorias.js).
+    categoria: node.productType || "",
+  });
+}
+
+// LA MISMA FOTO, PERO PEQUEÑA.
+//
+// EL FALLO QUE ARREGLA (24-sep-2026, capturado en producción):
+//
+//   El modelo respondió 400 · "Unable to download content from the
+//   provided URL before the timeout" · code: "invalid_image_url"
+//
+// featuredImage devuelve la imagen ORIGINAL, que en esta tienda son fotos
+// de varios MB. Mandarle diez de esas a OpenAI en una sola llamada la
+// hace descargarlas todas antes de mirar nada, y se pasa del tiempo que
+// se da a sí misma. La llamada entera falla — los diez candidatos de esa
+// ronda se pierden, no solo el que pesaba.
+//
+// El CDN de Shopify redimensiona al vuelo si se le pide por la URL. Una
+// foto de 512px se descarga en un pestañeo y, en "detail: low", el modelo
+// no ve ni un pixel menos: a esa resolución la imagen se reescala igual
+// antes de mirarla.
+//
+// No cambia la clave del índice a propósito: lo guardado sigue siendo la
+// URL original, y esto se aplica solo al mandarla. Así el arreglo no
+// obliga a reindexar nada.
+const ANCHO_PARA_EL_MODELO = 512;
+
+export function urlPequena(url) {
+  const limpia = String(url || "");
+  if (!limpia) return "";
+
+  // Las de Drive (drive.js) se piden a 512 con el "=w" de Google.
+  if (/lh3\.googleusercontent\.com\/d\//i.test(limpia)) return limpia.replace(/=w\d+$/, "") + `=w${ANCHO_PARA_EL_MODELO}`;
+
+  // Solo el CDN de Shopify entiende este parámetro. Cualquier otra cosa
+  // se devuelve tal cual: mejor una foto grande que una URL rota.
+  if (!/cdn\.shopify\.com|myshopify\.com/i.test(limpia)) return limpia;
+  if (/[?&]width=/i.test(limpia)) return limpia;
+
+  return limpia + (limpia.includes("?") ? "&" : "?") + `width=${ANCHO_PARA_EL_MODELO}`;
+}

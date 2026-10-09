@@ -1,0 +1,26 @@
+# LOS MODELOS QUE MANEJA EL EMPERADOR, sin género ni color.
+#
+# PARA QUÉ SIRVE. Se le pega al prompt de visión (marcador {{MODELOS}}) para
+# que, al mirar una foto, sepa qué se vende acá y escriba "buscar" con un
+# nombre que exista en los títulos del catálogo.
+#
+# POR QUÉ NO ES EL CATÁLOGO ENTERO. La lista completa de títulos costaba
+# ~3.100 tokens EN CADA FOTO, contra el cupo de 30.000 por minuto del modelo
+# de visión. Esta versión —modelos sin género ni color— son ~640. Que haya
+# diecisiete "New Balance 9060" por color no le hace falta saberlo: de elegir
+# el color se encarga el cotejo, que mira la foto.
+#
+# CÓMO SE LLENA: un modelo por línea, tal como aparece escrito en los
+# títulos de Shopify, erratas incluidas. Las líneas con # son notas para ti.
+#
+#     Air Force One
+#     Retro 4
+#     Adidas Campus
+#
+# MIENTRAS ESTÉ VACÍO el bot sigue funcionando: la visión se queda con sus
+# firmas visuales y con la marca, y el cotejo visual hace el resto. Solo
+# acierta menos el nombre exacto.
+#
+# Se llena solo cuando El Emperador tenga su catálogo cargado (ver
+# EMPEZAR-AQUI.md): de ahí salen estos nombres.
+

@@ -1,0 +1,18 @@
+# Los títulos de los productos de EL EMPERADOR, tal como están escritos en
+# su Shopify.
+#
+# ⚠️ ESTÁ VACÍO. El bot funciona igual —conversa, atiende fotos y vende—
+# pero adivina los términos de búsqueda y va a fallar más de la cuenta
+# hasta que se llene. Mientras esté así, el prompt le dice al modelo que
+# use las palabras exactas del cliente, que es lo más seguro sin la lista.
+#
+# CÓMO LLENARLO: en Shopify, Productos → Exportar → CSV, y se copia la
+# columna "Title". Un título por línea, EXACTAMENTE como está escrito,
+# ERRATAS INCLUIDAS. Las erratas no se corrigen: la búsqueda es literal
+# contra el título, así que si en Shopify dice "New Balamce", acá tiene
+# que decir "New Balamce" o ese producto no se encuentra nunca.
+#
+# NO copies el de Invictus. Esa lista es de la otra tienda: aplicarla acá
+# haría que la búsqueda devolviera cero en productos que sí existen.
+#
+# Las líneas que empiezan con # no se mandan al modelo.

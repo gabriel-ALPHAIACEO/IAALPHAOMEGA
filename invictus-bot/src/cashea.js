@@ -1,0 +1,680 @@
+// CASHEA: CUÁNTO DA DE INICIAL ESTE CLIENTE, CON SU NIVEL Y SU ZAPATO.
+//
+// QUÉ SE PEDÍA (30-sep-2026). Que cuando pregunten por Cashea el bot no
+// pegue una tabla y ya, sino que responda PERSONALIZADO: si el cliente dice
+// "soy nivel 3" y está mirando unos Jordan de 90 USD, que le diga "tu
+// inicial son 27 USD y el resto en cuotas". Bien armado, bonito y que
+// enganche.
+//
+// QUIÉN HACE QUÉ.
+//
+//   · Los datos —la promoción y el porcentaje de cada nivel— salen de la
+//     sección [CASHEA] de prompts/pagos.txt. Si cambia la promoción, se
+//     cambia allí y nada más.
+//   · LAS CUENTAS LAS HACE ESTE ARCHIVO, NO LA IA. Es dinero: un 30% de
+//     85,50 mal calculado es un cliente que llega a la tienda esperando
+//     pagar otra cosa. El modelo de texto es bueno conversando y malo
+//     garantizando una multiplicación.
+//   · La IA sí decide DE QUÉ ZAPATO se habla: si el cliente escribe "¿y con
+//     Cashea cuánto doy por esos?", el prompt le pide que vuelva a buscar
+//     ese producto, igual que con cualquier pregunta de precio. Lo que
+//     encuentra la búsqueda llega aquí con su precio real de Shopify.
+//
+// Y NUNCA EMPEORA. Sin la sección [CASHEA] cargada, nada de esto se activa y
+// Cashea sigue yendo a un asesor, como antes.
+
+import listaPagos from "./prompts/pagos.txt";
+
+let leido = null;
+
+function leer() {
+  if (!leido) {
+    leido = {
+      titular: "",
+      niveles: new Map(),
+      desde: 0,
+      hasta: 0,
+      fechas: "",
+      empieza: "",
+      cuotas: 0,
+      detalleCuotas: "",
+      minimo: 0,
+      minimoAlCero: false,
+      // Los niveles a los que se les ofrecen las cuotas de "Cuotas:". Vacío =
+      // a todos. (8-oct-2026: las 6 cuotas son solo del Nivel 6.)
+      nivelesConCuotas: new Set(),
+      // La tarjeta escrita a mano en [CASHEA_TARJETA], línea por línea.
+      tarjeta: [],
+    };
+    let seccion = "";
+
+    for (const cruda of String(listaPagos || "").split("\n")) {
+      const linea = cruda.trim();
+      if (linea.startsWith("#")) continue;
+
+      const marca = linea.match(/^\[(\w+)\]$/);
+      if (marca) {
+        seccion = marca[1].toUpperCase();
+        continue;
+      }
+      // La tarjeta se guarda TAL CUAL, con sus líneas en blanco: es el
+      // mensaje que ve el cliente.
+      if (seccion === "CASHEA_TARJETA") {
+        leido.tarjeta.push(cruda.replace(/\s+$/, ""));
+        continue;
+      }
+      if (!linea || seccion !== "CASHEA") continue;
+
+      // "Cuotas solo para el nivel: 6" (o "niveles: 5, 6").
+      const soloNiveles = linea.match(/^cuotas\s+solo\s+para\s+(?:el\s+|los\s+)?nivel(?:es)?\s*:\s*(.+)$/i);
+      if (soloNiveles) {
+        for (const n of soloNiveles[1].match(/\d+/g) || []) leido.nivelesConCuotas.add(Number(n));
+        continue;
+      }
+
+      // "Vigencia: 2026-10-01 al 2026-10-06"
+      const vigencia = linea.match(/^vigencia\s*:\s*(\d{4}-\d{2}-\d{2})\s*(?:al|a|hasta|-|–)\s*(\d{4}-\d{2}-\d{2})/i);
+      if (vigencia) {
+        // Hora de Venezuela (UTC-4, sin horario de verano): el día empieza a
+        // las 00:00 de allá y termina a las 23:59:59 de allá.
+        leido.desde = Date.parse(`${vigencia[1]}T00:00:00-04:00`);
+        leido.hasta = Date.parse(`${vigencia[2]}T23:59:59-04:00`);
+        leido.fechas = rangoLegible(vigencia[1], vigencia[2]);
+        leido.empieza = diaLegible(vigencia[1]);
+        continue;
+      }
+
+      // "Mínimo para las cuotas: 100" — desde qué monto aplica el modo de
+      // cuotas (en la moneda de los precios de la tienda).
+      const minimo = linea.match(/^(m[ií]nimo[^:]*):\s*\$?\s*(\d+(?:[.,]\d+)?)/i);
+      if (minimo) {
+        leido.minimo = Number(minimo[2].replace(",", "."));
+        // Si la línea nombra el 0% ("Mínimo para el 0% y las 6 cuotas"), el
+        // mínimo vale también para el 0% de inicial. Si no, solo para las
+        // cuotas —que es lo que decidió el dueño el 30-sep—.
+        leido.minimoAlCero = /0\s*%|cero/i.test(minimo[1]);
+        continue;
+      }
+
+      // "Cuotas: 6" (o "Cuotas: 6 sin interés": lo de después sale tal cual)
+      const cuotas = linea.match(/^cuotas\s*:\s*(\d+)\s*(.*)$/i);
+      if (cuotas) {
+        leido.cuotas = Number(cuotas[1]);
+        leido.detalleCuotas = cuotas[2].trim();
+        continue;
+      }
+
+      // "Nivel 3: 30%"
+      const nivel = linea.match(/^nivel\s*(\d+)\s*[:=\-–—]?\s*(\d+(?:[.,]\d+)?)\s*%/i);
+      if (nivel) {
+        leido.niveles.set(Number(nivel[1]), Number(nivel[2].replace(",", ".")));
+      } else if (!leido.titular) {
+        leido.titular = linea;
+      }
+    }
+  }
+  return leido;
+}
+
+// ¿Hay algo de Cashea cargado? (Aunque esté fuera de fecha.)
+export function hayCashea() {
+  return leer().niveles.size > 0;
+}
+
+// ¿En qué momento de la promoción estamos? "antes" (todavía no empezó),
+// "vigente", "despues" (ya terminó), o "siempre" (sin línea de vigencia). Se
+// pregunta en cada mensaje —no al arrancar— porque un Worker puede seguir
+// vivo de un día para otro, y la promoción tiene que cambiar sola a la
+// medianoche.
+export function momentoDeLaPromocion(ahora = Date.now()) {
+  const { desde, hasta } = leer();
+  if (!desde || !hasta) return "siempre";
+  if (ahora < desde) return "antes";
+  if (ahora > hasta) return "despues";
+  return "vigente";
+}
+
+// ¿Se contesta Cashea con la tabla y las cuentas? SÍ mientras está en fecha
+// Y TAMBIÉN ANTES DE QUE EMPIECE (pedido del dueño, 30-sep-2026: "que
+// responda la IA, no que como no está activa no responda"): antes, se
+// anuncia —"arranca el 1 de octubre"— con sus cuentas. Solo cuando YA
+// TERMINÓ pasa al asesor, que no se promete una promoción vencida.
+export function casheaVigente(ahora = Date.now()) {
+  if (!leer().niveles.size) return false;
+  return momentoDeLaPromocion(ahora) !== "despues";
+}
+
+// Lo que se contesta a una pregunta de Cashea fuera de fecha. Lleva "en un
+// momento" a propósito: así hayEscalada() avisa al asesor, que es quien
+// sabe qué condiciones hay ese día.
+export const CASHEA_FUERA_DE_FECHA = "Lo de Cashea te lo confirma un asesor en un momento 😊";
+
+// Las fechas de la promoción en palabras ("del 1 al 6 de octubre"), o "".
+export function fechasDeLaPromocion() {
+  return leer().fechas;
+}
+
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+  "septiembre", "octubre", "noviembre", "diciembre"];
+
+// "2026-10-01" → "el 1 de octubre".
+function diaLegible(a) {
+  const [, m, d] = a.split("-").map(Number);
+  return `el ${d} de ${MESES[m - 1]}`;
+}
+
+// "2026-10-01", "2026-10-06" → "del 1 al 6 de octubre".
+function rangoLegible(a, b) {
+  const [, ma, da] = a.split("-").map(Number);
+  const [, mb, db] = b.split("-").map(Number);
+  return ma === mb
+    ? `del ${da} al ${db} de ${MESES[mb - 1]}`
+    : `del ${da} de ${MESES[ma - 1]} al ${db} de ${MESES[mb - 1]}`;
+}
+
+// El porcentaje de inicial de un nivel, o null si ese nivel no existe.
+export function inicialDelNivel(nivel) {
+  const pct = leer().niveles.get(Number(nivel));
+  return pct === undefined ? null : pct;
+}
+
+/* ── ¿Pregunta por Cashea? ─────────────────────────────────────────── */
+
+// Cashea escrito como se escribe en un chat: "cashea", "casheа", "kashea",
+// "cachea". Y las otras formas de preguntar lo mismo: las cuotas, el
+// financiamiento, la inicial, o decir su nivel.
+const HABLA_DE_CASHEA =
+  /\b(?:c|k)a(?:s|c)?hea\b|\bcuotas?\b|\bfinanci\w*|\binicial\b|\b(?:nivel|level|lvl|niv|nv)\s*(?:\d|uno|dos|tres|cuatro|cinco|seis)\b|\ba\s+cr[eé]dito\b|\bpor\s+partes\b/i;
+
+export function preguntaPorCashea(texto) {
+  return HABLA_DE_CASHEA.test(sinTildes(texto));
+}
+
+const NUMEROS = { uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9 };
+
+// "soy nivel 3", "nivel tres", "tengo nivel 4 en cashea".
+export function nivelDelCliente(texto) {
+  // "nivel 6", y como lo escribe la gente: "level 6", "lvl6", "nv 6", "niv 6"
+  // (2-oct-2026: "soy level 6" no se entendía y salía la tabla entera).
+  const m = sinTildes(texto).match(/\b(?:nivel|level|lvl|niv|nv)\s*(\d+|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)\b/i);
+  if (!m) return null;
+  const valor = m[1].toLowerCase();
+  return /^\d+$/.test(valor) ? Number(valor) : NUMEROS[valor];
+}
+
+// EL NIVEL SE RECUERDA. Quien dijo "soy nivel 3" hace dos mensajes no tiene
+// por qué repetirlo al preguntar por otro zapato. Se guarda como nota en el
+// historial —la única memoria de texto que hay— con esta forma exacta.
+export function notaDeNivel(nivel) {
+  return `Nivel Cashea: ${nivel}.`;
+}
+
+export function nivelEnElHistorial(historial) {
+  const todos = [...String(historial || "").matchAll(/Nivel Cashea:\s*(\d+)/gi)];
+  return todos.length ? Number(todos[todos.length - 1][1]) : null;
+}
+
+/* ── Las cuentas ───────────────────────────────────────────────────── */
+
+// "90 USD", "85.50 USD", "$85,00" → la cifra, y cómo volver a escribirla
+// con el mismo formato. Devuelve null si no hay un número que entender.
+export function leerPrecio(precio) {
+  const texto = String(precio || "");
+  const token = texto.match(/\d[\d.,]*/)?.[0];
+  if (!token) return null;
+
+  // Decimales con coma ("85,50") o con punto ("85.50"). Un separador seguido
+  // de exactamente 1-2 cifras al final es el decimal; lo demás, miles.
+  const conComa = /,\d{1,2}$/.test(token);
+  const limpio = conComa
+    ? token.replace(/\./g, "").replace(",", ".")
+    : token.replace(/,(?=\d{3}\b)/g, "");
+  const cifra = Number(limpio);
+  if (!Number.isFinite(cifra) || cifra <= 0) return null;
+
+  const escribir = (valor) => {
+    const redondo = Math.round(valor * 100) / 100;
+    let numero = Number.isInteger(redondo) ? String(redondo) : redondo.toFixed(2);
+    if (conComa) numero = numero.replace(".", ",");
+    return texto.replace(token, numero).trim();
+  };
+
+  return { cifra, escribir };
+}
+
+// La inicial y el resto de un precio, con un porcentaje. Todo redondeado a
+// céntimos, y el resto es precio - inicial: así las dos partes suman
+// EXACTAMENTE el precio, sin un céntimo perdido por el redondeo.
+export function cuentaCashea(precio, porcentaje) {
+  const leido = leerPrecio(precio);
+  if (!leido || porcentaje === null || porcentaje === undefined) return null;
+
+  // EL 0% DE INICIAL TAMBIÉN TIENE MÍNIMO (dueño, 30-sep-2026: "a partir de
+  // 100$ es que se admite el 0% de inicial"). Por debajo no se hace la
+  // cuenta con 0%: se avisa, y la inicial de ese par la confirma un asesor.
+  const { minimo: minimoCero, minimoAlCero } = leer();
+  if (porcentaje === 0 && minimoAlCero && minimoCero && leido.cifra < minimoCero) {
+    return {
+      precio: leido.escribir(leido.cifra),
+      ceroSinMinimo: true,
+      alcanzaMinimo: false,
+      cuotas: null,
+    };
+  }
+
+  const inicial = Math.round(leido.cifra * porcentaje) / 100;
+  const resto = Math.round((leido.cifra - inicial) * 100) / 100;
+
+  // LAS CUOTAS, EXACTAS. 63 entre 6 son 10,50 justos. Pero 59,85 entre 6 son
+  // 9,975: redondeando a 9,98 las seis sumarían 59,88 — tres céntimos que no
+  // existen. Así que se dicen como son: cinco de 9,98 y la última de 9,95.
+  // EL MODO DE CUOTAS TIENE UN MÍNIMO ("la compra debe ser 100$ en
+  // adelante"). Por debajo no se le reparte en cuotas: se le dice.
+  const { cuotas: n, minimo } = leer();
+  const alcanzaMinimo = !minimo || leido.cifra >= minimo;
+  let cuotas = null;
+  if (n > 0 && resto > 0 && alcanzaMinimo) {
+    const cada = Math.round((resto / n) * 100) / 100;
+    const ultima = Math.round((resto - cada * (n - 1)) * 100) / 100;
+    cuotas = {
+      cuantas: n,
+      cada: leido.escribir(cada),
+      ultima: leido.escribir(ultima),
+      iguales: Math.abs(ultima - cada) < 0.005,
+      cadaCifra: cada,
+      ultimaCifra: ultima,
+    };
+  }
+
+  return {
+    precio: leido.escribir(leido.cifra),
+    inicial: leido.escribir(inicial),
+    resto: leido.escribir(resto),
+    inicialCifra: inicial,
+    restoCifra: resto,
+    cuotas,
+    alcanzaMinimo,
+  };
+}
+
+// "compras desde 100$", o "" si no hay mínimo.
+export function textoDelMinimo() {
+  const { minimo } = leer();
+  return minimo ? `compras desde ${minimo}$` : "";
+}
+
+// La condición, con las palabras del dueño: "para optar por las 6 cuotas la
+// compra debe ser de 100$ en adelante".
+export function fraseDelMinimo() {
+  const { minimo, minimoAlCero } = leer();
+  if (!minimo) return "";
+  const cuotas = "las " + (nombreDeLasCuotas() || "cuotas");
+  const que = minimoAlCero ? "el cero por ciento de inicial y " + cuotas : cuotas;
+  // (8-oct-2026) Con las palabras nuevas del dueño: "para optar por el modo
+  // 6 cuotas la compra debe ser de 100$ o más".
+  return "para optar por " + que.replace(/^las /, "el modo ") + " la compra debe ser de " + minimo + "$ o más";
+}
+
+// "6 cuotas", o "6 cuotas sin interés" si pagos.txt lo dice. "" sin dato.
+export function nombreDeLasCuotas() {
+  const { cuotas, detalleCuotas } = leer();
+  if (!cuotas) return "";
+  return `${cuotas} cuotas${detalleCuotas ? ` ${detalleCuotas}` : ""}`;
+}
+
+// "en 6 cuotas de 10.50 USD", o "en 6 cuotas: 5 de 9.98 USD y la última de
+// 9.95 USD". Sin cuotas cargadas: "en cuotas".
+function enCuotas(cuenta) {
+  const nombre = nombreDeLasCuotas();
+  if (!cuenta.alcanzaMinimo) {
+    return `en cuotas con Cashea (${fraseDelMinimo()})`;
+  }
+  if (!cuenta.cuotas) return nombre ? `en ${nombre}` : "en cuotas";
+  const c = cuenta.cuotas;
+  return c.iguales
+    ? `en ${nombre} de ${c.cada}`
+    : `en ${nombre}: ${c.cuantas - 1} de ${c.cada} y la última de ${c.ultima}`;
+}
+
+/* ── El mensaje ────────────────────────────────────────────────────── */
+
+// Cuántos zapatos se desglosan como mucho. Más de tres y el mensaje deja de
+// leerse en la pantalla de un teléfono.
+const MAXIMO_EN_LA_CUENTA = 3;
+
+// El mensaje de Cashea, armado para ESTE cliente:
+//
+//   · con su nivel y los zapatos que está mirando → la cuenta de cada uno
+//   · con su nivel y sin zapato → su porcentaje, y le pide el modelo
+//   · sin nivel → la promoción y la tabla, y le pregunta su nivel (y, si
+//     está mirando un zapato, le promete la cuenta de ESE zapato)
+//
+// Devuelve "" si Cashea no está cargado.
+export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now() } = {}) {
+  if (!hayCashea()) return "";
+
+  const { titular, niveles, fechas, empieza } = leer();
+  const pct = nivel ? inicialDelNivel(nivel) : null;
+  const momento = momentoDeLaPromocion(ahora);
+
+  // La línea de las fechas: la urgencia de verdad. Antes de empezar, se
+  // anuncia ("¡Arranca el 1 de octubre!"); en fecha, cuándo termina.
+  const cuando =
+    momento === "antes"
+      ? `⏳ ¡Arranca ${empieza}! Promoción por tiempo limitado ${fechas}.`
+      : fechas
+        ? `⏳ Promoción por tiempo limitado ${fechas}.`
+        : "";
+
+  const conCuenta = (productos || [])
+    .map((p) => ({ p, cuenta: cuentaCashea(p.precio, pct ?? 0) }))
+    .filter((x) => x.p?.titulo && x.cuenta)
+    .slice(0, MAXIMO_EN_LA_CUENTA);
+
+  const lasCuotas = nombreDeLasCuotas();
+  const minimo = textoDelMinimo();
+  const lineaCuotas = lasCuotas
+    ? minimo
+      ? `🗓️ El resto, en ${lasCuotas}.\n💲 ${mayuscula(fraseDelMinimo())}.`
+      : `🗓️ El resto, en ${lasCuotas}.`
+    : "";
+
+  // ── Sin nivel (o uno que no existe), con la tarjeta ESCRITA A MANO en
+  // [CASHEA_TARJETA] de pagos.txt (8-oct-2026, dueño: "debe quedar así"):
+  // sale tal cual, palabra por palabra.
+  // (8-oct-2026, dueño: "si preguntan '¿tienes Cashea?', que diga que sí y
+  // lance el mensaje completo; si dice su nivel, un copy bueno") Sin nivel
+  // (o con uno que no existe): esta tarjeta tal cual, sin frases antes ni
+  // después. Con su nivel: el mensaje de su nivel, más abajo.
+  const escrita = tarjetaEscrita();
+  if (escrita && pct === null) return escrita;
+
+  // ── Sin nivel (o uno que no existe): la promoción, la tabla y la pregunta.
+  if (pct === null) {
+    // Con un 0% (promoción), del nivel más alto al más bajo: el 0% primero,
+    // que es el gancho. Sin promoción (7-oct-2026), del 1 al 6, como en
+    // EPICCELL.
+    const marcaDelCero = minimo && leer().minimoAlCero ? " 🎉 (" + minimo + ")" : " 🎉";
+    const hayCero = [...niveles.values()].some((v) => v === 0);
+    const tabla = [...niveles.entries()]
+      .sort((a, b) => (hayCero ? b[0] - a[0] : a[0] - b[0]))
+      .map(([n, v]) => `• Nivel ${n} → ${formatoPct(v)} de inicial${v === 0 ? marcaDelCero : ""}`)
+      .join("\n");
+
+    const aviso = nivel ? `No tengo el Nivel ${nivel} en la tabla de Cashea. ` : "";
+    const cierre = conCuenta.length
+      ? `¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca por ${nombreCorto(conCuenta[0].p.titulo)} 😉`
+      : "¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca 😉";
+
+    return [
+      titular ? (/🔥/.test(titular) ? titular : `🔥 ${titular}`) : "💜 ¡Sí, trabajamos con Cashea!",
+      cuando,
+      "",
+      titular ? "Bajada de inicial ⬇️" : "Tu inicial según tu nivel 👇",
+      tabla,
+      "",
+      lineaCuotas,
+      lineaCuotas ? "" : null,
+      aviso + cierre,
+    ]
+      .filter((l) => l !== null && l !== undefined)
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/^\n+/, "");
+  }
+
+  // ── Con nivel.
+  //
+  // SIN MONTOS (2-oct-2026, dueño: "eliminemos eso de cuánto dinero son
+  // las cuotas; no debe prometer nada de eso, de eso se encarga un asesor,
+  // cuando habla de dinero"). Se dice lo que es de la PROMOCIÓN —el
+  // porcentaje de inicial de su nivel y en cuántas cuotas— y para QUÉ
+  // producto, pero ni la inicial en dinero ni lo de cada cuota: eso lo
+  // confirma un asesor, que recibe el aviso (ver ASESOR_CONFIRMA_MONTOS).
+  const condicionDelCero = minimo && leer().minimoAlCero ? " en " + minimo : "";
+  const nombres = [...new Set(conCuenta.map(({ p }) => p.titulo))];
+  const delProducto = !nombres.length
+    ? ""
+    : nombres.length === 1
+      ? nombres[0]
+      : nombreComun(nombres) || "";
+  const conProducto = delProducto ? ", " + nombreCorto(delProducto) : "";
+  const encabezadoConProducto =
+    pct === 0
+      ? `🎉 ¡Buenas noticias! Con tu Nivel ${nivel} en Cashea${conProducto} te lo llevas con 0% de inicial${condicionDelCero} 🙌`
+      : `💜 ¡Perfecto! Con tu Nivel ${nivel} en Cashea${conProducto} te lo llevas con el ${formatoPct(pct)} de inicial 🙌`;
+
+  // Las cuotas (y su mínimo), solo a los niveles que las tienen: las 6
+  // cuotas son del Nivel 6 (8-oct-2026). A los demás no se les promete un
+  // número de cuotas: eso lo confirma el asesor con los montos.
+  const conCuotas = tieneLasCuotas(nivel);
+  return [
+    encabezadoConProducto,
+    lasCuotas && conCuotas ? `🗓️ Y el resto lo pagas en ${lasCuotas}.` : "",
+    minimo && conCuotas ? `💲 ${mayuscula(fraseDelMinimo())}.` : "",
+    cuando,
+    "",
+    `💬 ${mayuscula(ASESOR_CONFIRMA_MONTOS)}`,
+  ]
+    .filter((l, n, todas) => l !== "" || (n > 0 && todas[n - 1] !== ""))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
+
+}
+
+// ¿Las cuotas de "Cuotas:" son para este nivel? Sin "Cuotas solo para el
+// nivel", para todos.
+export function tieneLasCuotas(nivel) {
+  const { nivelesConCuotas } = leer();
+  return !nivelesConCuotas.size || nivelesConCuotas.has(Number(nivel));
+}
+
+// La tarjeta de [CASHEA_TARJETA], sin las líneas en blanco de los bordes, o
+// "" si no hay.
+export function tarjetaEscrita() {
+  const texto = leer().tarjeta.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return texto;
+}
+
+// LO QUE EL REVISOR TIENE QUE SABER DE CASHEA (9-oct-2026, caso real: sin
+// la tabla, marcó la tarjeta del dueño como "inventada" y escribió "debió
+// decir: te lo confirma un asesor… hay promoción vigente"; con APRENDER eso
+// se volvió una regla y la IA lo repitió).
+export function casheaParaElRevisor(ahora = Date.now()) {
+  if (!hayCashea()) return "";
+  if (!casheaVigente(ahora)) return "Cashea: la promoción NO está vigente hoy; lo de Cashea lo confirma un asesor.";
+  const { niveles, minimo } = leer();
+  const lasCuotas = nombreDeLasCuotas();
+  const tabla = [...niveles.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([n, v]) => `Nivel ${n} → ${formatoPct(v)} de inicial${lasCuotas && tieneLasCuotas(n) && leer().nivelesConCuotas.size ? ` y ${lasCuotas}${minimo ? ` (compras desde ${minimo}$)` : ""}` : ""}`)
+    .join("; ");
+  return [
+    `Cashea (la tarjeta y los mensajes de Cashea los arma el SISTEMA con esta tabla: son correctos, no son invento): ${tabla}.`,
+    lasCuotas && !leer().nivelesConCuotas.size ? `El resto, en ${lasCuotas}${minimo ? ` (compras desde ${minimo}$)` : ""}.` : "",
+    "Los montos en dinero de la inicial y de las cuotas los confirma un asesor.",
+    momentoDeLaPromocion(ahora) === "siempre" ? "No hay ninguna promoción con fecha: decir \"hay promoción vigente\" es invento." : `Promoción ${fechasDeLaPromocion()}.`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+// Lleva "en un momento" a propósito: así hayEscalada() avisa al asesor.
+export const ASESOR_CONFIRMA_MONTOS = "los montos exactos de la inicial y de cada cuota te los confirma un asesor en un momento 😊";
+
+const MARCA_PRODUCTO = "👟";
+
+// Las palabras con las que empiezan TODOS los títulos: "Jordan 40 negro" y
+// "Jordan 40 blanco" → "Jordan 40". Vacío si no comparten nada.
+function nombreComun(titulos) {
+  const partidos = titulos.map((t) => String(t).trim().split(/\s+/));
+  const comun = [];
+  for (let i = 0; i < partidos[0].length; i++) {
+    const palabra = partidos[0][i];
+    if (!partidos.every((p) => (p[i] || "").toLowerCase() === palabra.toLowerCase())) break;
+    comun.push(palabra);
+  }
+  return comun.join(" ");
+}
+
+function cuotasSueltas() {
+  const nombre = nombreDeLasCuotas();
+  return nombre ? `en ${nombre}` : "en cuotas";
+}
+
+function mayuscula(texto) {
+  return texto ? texto[0].toUpperCase() + texto.slice(1) : "";
+}
+
+function formatoPct(v) {
+  return `${Number.isInteger(v) ? v : String(v).replace(".", ",")}%`;
+}
+
+// "Air Jordan 4 Retro Negro Caballero" se lee mejor como "el Air Jordan 4
+// Retro Negro Caballero" que sin artículo, y cabe en la frase.
+function nombreCorto(titulo) {
+  return `el ${String(titulo).trim()}`;
+}
+
+/* ── La red de seguridad ───────────────────────────────────────────── */
+
+// "nivel 3 ... 25%": el nivel con un porcentaje pegado.
+const NIVEL_CON_PORCENTAJE = /\bnivel\s*(\d+)\b[^.!?\n%]{0,25}?(\d+(?:[.,]\d+)?)\s*%/gi;
+// "30% de inicial", "inicial del 30%", "inicial de 30 %".
+const INICIAL_CON_PORCENTAJE =
+  /(\d+(?:[.,]\d+)?)\s*%\s*(?:de\s+)?inicial|\binicial\s+(?:de\s+|del\s+)?(\d+(?:[.,]\d+)?)\s*%/gi;
+
+// Revisa lo que el modelo quiere mandar. El prompt le dice que no escriba
+// porcentajes de Cashea —la cuenta la manda este archivo aparte—, pero si
+// escribe uno, tiene que ser uno de la tabla y del nivel correcto. Un "nivel
+// 3: 20%" inventado es dinero: se cambia por la tabla de verdad.
+// Un monto de dinero pegado a la inicial o a las cuotas ("inicial de 36$",
+// "6 cuotas de 20 USD", "pagas 14$ por cuota"). La IA no los da: los da un
+// asesor (dueño, 2-oct-2026).
+const MONTO_DE_CASHEA =
+  /\b(?:inicial|cuotas?)\b[^.!?\n]{0,30}?(?:\$\s*\d|\d+(?:[.,]\d+)?\s*(?:\$|usd|d[oó]lares?|bs\.?|bol[ií]vares))|(?:\$\s*\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:\$|usd|d[oó]lares?))[^.!?\n]{0,25}?\b(?:de\s+inicial|por\s+cuota|cada\s+cuota|en\s+cuotas|mensual|quincenal)/i;
+
+// "nivel" (6-oct-2026, informe de errores): con el nivel del cliente
+// conocido, la inicial que se le diga tiene que ser LA DE SU NIVEL. "Con tu
+// nivel 2 te toca una inicial del 30%" pasaba la red porque el 30% existe…
+// para otro nivel. Y el cliente leía 30% en el texto y 40% en la tarjeta.
+export function revisarCashea(respuesta, ahora = Date.now(), { nivel = null } = {}) {
+  const texto = String(respuesta || "");
+  // La condición de la promoción ("la compra debe ser de 100$ en adelante")
+  // no es un monto que se le promete: se quita antes de mirar.
+  const sinCondicion = texto.replace(
+    /(?:la\s+compra\s+)?debe\s+ser\s+de\s+\d+\s*\$?\s*(?:usd\s*)?(?:en\s+adelante|o\s+m[aá]s)|\b(?:desde|a\s+partir\s+de)\s+\d+\s*(?:\$|usd|d[oó]lares)|\bde\s+\d+\s*\$\s+en\s+adelante/gi,
+    ""
+  );
+  if (hayCashea() && MONTO_DE_CASHEA.test(sinCondicion) && /\b(?:c|k)a(?:s|c)?hea\b|\binicial\b|\bcuotas?\b/i.test(texto)) {
+    console.error("CASHEA: escribió un monto de dinero de la inicial o las cuotas. Va la tarjeta, sin montos.");
+    return { respuesta: tarjetaCashea({ ahora }), corregido: true, motivos: ["monto de dinero de Cashea"] };
+  }
+  // (9-oct-2026, caso real) "Pero tenemos promoción de Cashea en vigencia":
+  // sin fechas en pagos.txt no hay ninguna promoción que anunciar.
+  if (hayCashea() && momentoDeLaPromocion(ahora) === "siempre" && PROMOCION_VIGENTE.test(texto) && /\b(?:c|k)a(?:s|c)?hea\b/i.test(texto)) {
+    console.error("CASHEA: dijo que hay una promoción de Cashea, y no hay ninguna con fecha. Va la tabla de verdad.");
+    return { respuesta: tarjetaCashea(nivel != null && inicialDelNivel(nivel) !== null ? { nivel } : {}), corregido: true, motivos: ["dijo que hay una promoción de Cashea (no hay ninguna con fecha)"] };
+  }
+  const conPorcentaje = /%|\bpor\s*ciento\b/i.test(texto);
+  const conCuotas = /\b(?:\d+|seis)\s+cuotas\b/i.test(texto);
+  if (!hayCashea() || (!conPorcentaje && !conCuotas)) return { respuesta: texto, corregido: false };
+
+  // Fuera de fecha, CUALQUIER porcentaje de Cashea es una promoción vencida.
+  if (!casheaVigente(ahora)) {
+    if (!conPorcentaje) return { respuesta: texto, corregido: false };
+    if (/\b(?:c|k)a(?:s|c)?hea\b|\binicial\b|\bnivel\s*\d/i.test(texto)) {
+      console.error("CASHEA: ofreció porcentajes con la promoción fuera de fecha. Lo paso al asesor.");
+      return { respuesta: CASHEA_FUERA_DE_FECHA, corregido: true, motivos: ["promoción fuera de fecha"] };
+    }
+    return { respuesta: texto, corregido: false };
+  }
+
+  const motivos = [];
+
+  for (const m of texto.matchAll(NIVEL_CON_PORCENTAJE)) {
+    const esperado = inicialDelNivel(m[1]);
+    const dicho = Number(m[2].replace(",", "."));
+    if (esperado === null) motivos.push(`habló de un Nivel ${m[1]} que no existe`);
+    else if (dicho !== esperado) {
+      motivos.push(`dijo ${dicho}% para el Nivel ${m[1]} (es ${esperado}%)`);
+    }
+  }
+
+  const validos = new Set(leer().niveles.values());
+  const deSuNivel = nivel != null ? inicialDelNivel(nivel) : null;
+  for (const m of texto.matchAll(INICIAL_CON_PORCENTAJE)) {
+    const dicho = Number((m[1] || m[2]).replace(",", "."));
+    if (!validos.has(dicho)) motivos.push(`inventó una inicial de ${dicho}%`);
+    else if (deSuNivel !== null && dicho !== deSuNivel) motivos.push(`le dijo ${dicho}% a un Nivel ${nivel} (es ${deSuNivel}%)`);
+  }
+
+  motivos.push(...porFrase(texto, { nivel, validos }));
+
+  if (!motivos.length) return { respuesta: texto, corregido: false };
+
+  console.error(`CASHEA: ${motivos.join(" y ")}. Lo cambio por la tabla de verdad.`);
+  return { respuesta: tarjetaCashea(deSuNivel !== null ? { nivel } : {}), corregido: true, motivos };
+}
+
+// LA TABLA QUE SE INVENTÓ LA IA (9-oct-2026, caso real en Invictus). Al
+// "Tengo nivel 6" la IA escribió su propia tabla —"🔹 Level 1: 20%" …
+// "Level 6: 70%"— y pasó entera: la red solo buscaba "nivel N … X%" y
+// "X% de inicial". Ahora se mira FRASE POR FRASE (cada línea de una lista
+// es una frase), y en cualquier frase que hable de Cashea:
+//   · el nivel puede ir como "nivel", "level", "lvl", "nv", con número o en
+//     letra ("nivel cuatro");
+//   · cualquier porcentaje cuenta ("del 40%", "10% de entrada", "40 por
+//     ciento"), salvo un descuento;
+//   · el porcentaje tiene que ser el de ESE nivel (el de la frase o, si la
+//     frase no nombra ninguno, el del cliente) o, sin nivel, uno de la tabla;
+//   · las cuotas de "Cuotas:" no se le prometen a un nivel que no las tiene;
+//   · y una tabla de niveles escrita por la IA no sale nunca: la tabla la
+//     manda el sistema.
+const PROMOCION_VIGENTE = /promoci[oó]n[^.!?\n]{0,25}\bvigen|promoci[oó]n[^.!?\n]{0,25}\ben\s+vigencia|\bvigente\b[^.!?\n]{0,25}promoci[oó]n/i;
+const NUMERO_EN_LETRA = { uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9 };
+const NIVEL_EN_LA_FRASE = /\b(?:nivel|level|lvl|niv|nv)\s*(\d+|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)\b/gi;
+const PORCENTAJE = /(\d+(?:[.,]\d+)?)\s*(?:%|por\s*ciento\b)(?!\s*(?:de\s+)?(?:descuento|dcto|off)\b)/gi;
+const FRASE_DE_CASHEA = /\b(?:c|k)a(?:s|c)?hea\b|\binicial\b|\bcuotas?\b|\b(?:nivel|level|lvl|niv|nv)\b|\bentrada\b/i;
+
+function porFrase(texto, { nivel = null, validos }) {
+  const motivos = [];
+  const hablaDeCashea = /\b(?:c|k)a(?:s|c)?hea\b/i.test(texto);
+  const { cuotas } = leer();
+  let lineasDeTabla = 0;
+
+  for (const frase of sinTildes(texto).split(/[\n.!?]+/)) {
+    if (!frase.trim()) continue;
+    if (!FRASE_DE_CASHEA.test(frase) && !(hablaDeCashea && !/descuento|dcto|off/i.test(frase))) continue;
+
+    const nombrados = [...frase.matchAll(NIVEL_EN_LA_FRASE)].map((m) => (/^\d+$/.test(m[1]) ? Number(m[1]) : NUMERO_EN_LETRA[m[1].toLowerCase()]));
+    const deLaFrase = nombrados.length === 1 ? nombrados[0] : nombrados.length ? null : nivel != null ? Number(nivel) : null;
+    const porcentajes = [...frase.matchAll(PORCENTAJE)].map((m) => Number(m[1].replace(",", ".")));
+    if (nombrados.length && porcentajes.length) lineasDeTabla++;
+
+    for (const dicho of porcentajes) {
+      if (deLaFrase != null) {
+        const esperado = inicialDelNivel(deLaFrase);
+        if (esperado === null) motivos.push(`habló de un Nivel ${deLaFrase} que no existe`);
+        else if (dicho !== esperado) motivos.push(`dijo ${dicho}% para el Nivel ${deLaFrase} (es ${esperado}%)`);
+      } else if (!validos.has(dicho)) {
+        motivos.push(`inventó una inicial de ${dicho}%`);
+      }
+    }
+
+    // "6 cuotas" a un nivel que no las tiene (las 6 cuotas son del Nivel 6).
+    const cuantas = frase.match(/\b(\d+|seis)\s+cuotas\b/i)?.[1];
+    if (deLaFrase != null && cuotas && cuantas && (cuantas === "seis" ? 6 : Number(cuantas)) === cuotas && !tieneLasCuotas(deLaFrase)) {
+      motivos.push(`le ofreció ${cuotas} cuotas al Nivel ${deLaFrase}, que no las tiene`);
+    }
+  }
+
+  if (lineasDeTabla >= 2) motivos.push("escribió su propia tabla de niveles (la tabla la manda el sistema)");
+  return [...new Set(motivos)];
+}
+
+function sinTildes(texto) {
+  return String(texto || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+}

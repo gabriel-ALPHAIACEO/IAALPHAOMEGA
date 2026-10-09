@@ -1,0 +1,377 @@
+# Los títulos de los productos, tal como están escritos en Shopify.
+#
+# ESTE ES EL ÚNICO LUGAR DONDE VIVE LA LISTA. Antes estaba copiada dentro
+# de texto.txt Y de vision.txt: 317 títulos en una, 315 en la otra, 315
+# idénticos. Dos listas para mantener a mano, y ninguna forma de saber
+# cuál de las dos estaba vieja.
+#
+# Ahora se pega acá y ya. ia.js la mete en el prompt al arrancar.
+#
+# CÓMO ACTUALIZARLA: en Shopify, Productos → Exportar → CSV, y se copia la
+# columna "Title". Un título por línea, EXACTAMENTE como está escrito,
+# ERRATAS INCLUIDAS. Las erratas no se corrigen: la búsqueda es literal
+# contra el título, así que si en Shopify dice "New Balamce", acá tiene
+# que decir "New Balamce" o ese producto no se encuentra nunca.
+#
+# Las líneas que empiezan con # no se mandan al modelo.
+
+# Actualizada el 23-09-2026 desde el export de inventario de Shopify.
+#
+# El export trae 581 FILAS pero solo 347 NOMBRES distintos: en Shopify
+# hay muchos productos con el mismo título y distinta foto (hay 17
+# "New Balance 9060 Dama" y 15 "On Cloud caballero", uno por color).
+# Acá va el nombre UNA sola vez: esta lista es para que el modelo sepa
+# qué nombres existen, no cuántas variantes hay. De elegir entre las 17
+# se encarga el cotejo por imagen, que para eso mira la foto.
+#
+# Por eso tampoco se repite un nombre por cambiarle una mayúscula
+# ("On Cloud caballero" y "On Cloud Caballero" son el mismo zapato).
+# Las erratas de verdad SÍ se respetan, que la búsqueda es literal.
+
+Adidas Adistar XLG beige caballero
+Adidas adistar XLG caballero
+Adidas adistar XLG gris caballero
+Adidas Adizero adiós pro 4 beige plata rosa dama
+Adidas Adizero Evo SL azul blanco Caballero
+Adidas Adizero Evo SL caballero
+Adidas Adizero Evo SL Dama
+Adidas Adizero Evo SL negro caballero
+Adidas Adizero Evo SL negro plateado caballero
+Adidas Bad Bunny caballero
+Adidas Bad Bunny Dama
+Adidas caballero
+Adidas caballero promoción
+Adidas campus azul marino caballero
+Adidas Campus Dama
+Adidas campus dama/caballero
+Adidas Campus gris caballero
+Adidas Campus marrón caballero
+Adidas campus negro caballero
+Adidas dama
+Adidas dama promoción
+Adidas Damian lillard X caballero
+Adidas Gallagher dama y caballero
+Adidas Gallangher caballero
+Adidas promoción dama
+Adidas samba dama
+Adidas SL 72 dama
+Adidas SL 72 negro dama
+Adidas SL72 dama
+Adidas super Nova dama
+Adidas Superstar negro blanco dama
+Adidas Swicth Dama/Caballero
+Adidas Switch Dama
+Adidas Switch Dama/Caballero
+Adidas terrex azul marino caballero
+Adidas terrex blanco/negro caballero
+Adidas terrex gris caballero
+Adidas terrex negro caballero
+Adidas terrex negro gris caballero
+Adidas terrex negro verde caballero
+Adidas terrex negro/blanco caballero
+Adidas terrex todo negro caballero
+Adidas Yeezy 700 caballero
+Adidas Yeezy 700 dama/caballero
+Air Force One clásicos blancos dama
+Air Force One ED dama
+Air Force One GLDDMY Gris Blanco Caballero
+Air Force One Gucci caballero
+Air Force One Ja Morant beige caballero
+Air Force One Kobe morado caballero
+Air Force One Kobe negro caballero
+Air Force One Kobe rojo caballero
+Air Force One marrón blanco Caballero
+Air Force One Negro dama
+Air Force One negro gamuza Caballero
+Air Force One suela Vibram caballero
+Air Force One trenzas gruesas caballero
+Air Max 270 caballero
+Air Max 270 New caballero
+Air Max 270 New Caballero/ Dama
+Air Max Élite Caballero
+Alo caballero
+Alo Dama
+Armani Exchange caballero
+Asics caballero
+Asics Dama
+Asics GT-2160 dama
+Bape Sta caballero
+Bota táctica caballero
+Bota táctica dama
+Bota táctica Dama/Caballero
+Calvin Klein caballero
+Charles Barkley Caballero
+Chola dama
+Chola Nike caballero
+Chola Nike dama
+Chola Nike Ozuna Caballero
+Chola quiksilver dama
+Cristian Dior B27 caballero
+Cristian Dior B30 caballero
+Cristian Dior B30 dama
+Cristian Dior caballero
+Cristian Dior khrono Dama
+DC shoes acsed caballero
+Dc shoes ascend caballero
+Dior B22 caballero
+Dior b22 dama y juvenil
+Dolce Gabanna caballero
+Emporio Armani caballero
+Giannis caballero
+Golden Goose dama
+Hermes Bounccing Caballero
+Hermes Gramme Caballero
+Hugo Boss Caballero
+Hugo Boss Negro Caballero
+Hugo Boss todo negro Caballero
+Ja Morant 3 caballero
+Ja Morant 3 negra azul caballero
+Ja Morant 3 negro azul caballero
+Ja Morant 3 roja caballero
+Ja Morant 3 verde caballero
+Jordan 40 blanca beige rojo caballero
+Jordan 40 blanca negra caballero
+Jordan 40 Dorado tornasol Caballero
+Jordan 40 negro blanco caballero
+Jordan 40 negro gris rojo caballero
+Jordan Lukka caballero
+Jordan Retro 5 azul university caballero
+Jordan Retro 5 beige gris caballero
+Jordan Retro 5 blanco vino verde caballero
+Jordan Retro 5 gris caballero
+Jordan Retro 5 negra caballero
+Jordan Retro 5 negro gris caballero
+Jordan Retro 5 roja caballero
+Kirie Irving 4 caballero
+Kirie Irving 4 dama/caballero
+Kobe Bryant Caballero
+Kyrie Irving 1 caballero
+Kyrie Irving 1 dama
+Kyrie Irving 2 caballero
+Kyrie Irving 3 caballero
+Lebron 15 caballero
+Lebron 4 caballero
+Lebron soldier 9 gris amarillo naranja caballero
+Lebron Witness 5 blanco caballero
+Lebron Witness 5 Caballero/ Dama
+Lebron Witness 5 Caballero/Dama
+Lebron Witness 9 azul turquesa caballero
+Lebron Witness 9 blanco caballero
+Lebron Witness 9 negro beige caballero
+Lebron Witness 9 roja caballero
+Lebron Witness 9 roja negro caballero
+Lebron Witness 9 rosada beige caballero
+Louis Vuitton Caballero
+LV caballero
+LV Skate negro caballero
+LV trainer caballero
+Merrell Caballero
+Mizuno caballero
+Mizuno gris caballero
+Mizuno negro caballero
+NB 530 MIU MIU Dama
+New Balamce 9060 dama
+New Balance 1000 Dama
+New Balance 2000 caballero
+New balance 2000 dama
+New Balance 2000 dama/caballero
+New Balance 204 beige dama
+New Balance 509 caballero
+New balance 530 dama
+New Balance 550 dama
+New balance 9060 caballero
+New Balance 9060 Dama
+New Balance 9060 marrón verde caballero
+New balance 9060 verde caballero
+New Balance Caballero
+New Balance Course Rebel Caballero
+New Balance More Dama
+New Balance More Dama/Caballero
+Nike 2k5 dama
+Nike 4 resortes supreme Caballero
+nike a'ja wilson a'one caballero
+Nike ACG Pegasus trail negro blanco caballero
+Nike ACG Pegasus trail negro gris caballero
+Nike ACG Pegasus trail todo negro
+Nike ACG Pegasus trail verde beige caballero
+Nike Air Max caballero
+Nike Air Max liquitmax blanco caballero
+Nike Air Max liquitmax gris caballero
+Nike Air Max liquitmax negro caballero
+Nike Air Max pulse gris caballero
+Nike Air Max TN plus Dama
+Nike Alpha blanca roja negro caballero
+Nike Alpha negro blanco caballero
+Nike Alpha negro caballero
+Nike Alpha roja gris blanco caballero
+Nike ava Rover beige dama
+Nike ava Rover caballero
+Nike ava Rover negro dama
+Nike bailleli dama
+Nike Cortez Dama
+Nike DN 8 Caballero
+Nike DN 8 dama
+Nike DN caballero
+Nike Hiperdunk caballero
+Nike Hiperset Caballero
+Nike Huarache azul rojo blanco caballero
+Nike Huarache negro dorado caballero
+Nike M2K caballero
+Nike metcon 6 Caballero
+Nike metcon 6 dama
+Nike Metcon 6 Dama/Caballero
+Nike metcon 6 negro dama
+Nike Metcon 6 rosado dama
+Nike metcon 7 azul caballero
+Nike metcon 7 azul celeste dama
+Nike Metcon 7 beige dama
+Nike metcon 7 beige dama/caballero
+Nike Metcon 7 Blanco dama
+Nike metcon 7 blanco dama/caballero
+Nike metcon 7 blanco negro caballero
+Nike Metcon 7 blanco rojo rosa dama
+Nike metcon 7 blanco rosado dama
+Nike metcon 7 gris blanco caballero
+Nike metcon 7 negro beige dama
+Nike metcon 7 negro blanco dama/caballero
+Nike metcon 7 negro dama/caballero
+Nike metcon 7 negro gris caballero
+Nike metcon 7 negro rojo caballero
+Nike metcon 7 rosado dama
+Nike Metcon 7 verde menta caballero
+Nike Mind 001 Caballero
+Nike Mind 001 caballero/ dama
+Nike Mind 001 caballero/dama
+Nike Mind 002 caballero
+Nike Mind 002 caballero/Dama
+Nike Mind 002 Dama
+Nike Mind 002 gris caballero
+Nike Mind 002 morado dama
+Nike Nocta 1 caballero
+Nike Nocta Glide blanco/negro caballero
+Nike P6000 caballero
+Nike P6000 gris azul caballero
+Nike P6000 negro dama/caballero
+Nike P6000 nergro/gris/blanco Dama/ caballero
+Nike P6000 plateado caballero
+Nike P6000 plateado dama
+Nike Pegasus Premium caballero
+Nike promoción
+Nike promoción caballero
+Nike promoción dama
+Nike pulse dama
+Nike react caballero
+Nike renew negro blanco dama
+Nike renew negro caballero
+Nike retro 1 caballero
+Nike Shox 12 resortes caballero
+Nike Shox 12 resortes dama
+Nike shox 12 resortes dama/caballero
+Nike Shox 4 resorte caballero
+Nike Shox 4 resortes Caballero
+Nike TN caballero
+Nike total 90 futsal suela plana futbol caballero
+Nike total 90 microtaco futbol caballero
+Nike total 90 tacos de futbol gris vino caballero
+Nike trail Dama
+Nike Trail dama y caballero
+Nike trail wildhorse 10 dama
+Nike uplift azul dama
+Nike uplift azul suela blanca
+Nike uplift blanco dama
+Nike uplift blanco negro caballero
+Nike uplift blanco negro det morado dama
+Nike uplift negro blanco caballero
+Nike uplift negro gris caballero
+Nike uplift negro rosado dama
+Nike uplift todo blanco caballero/dama
+Nike V5 Dama
+Nike Vapormax plus caballero
+Nike Vomero 5 caballero
+Nike vomero 5 dama
+Nike Vomero 5 dama/caballero
+Nike waffle trainer 2 caballero
+Nike Wildhorse 10 Caballero
+Nike zoom caballero
+Nike zoom dama
+Off white Dama/Juvenil
+On cloud beige blanco dama
+On cloud beige caballero
+On cloud beige crema negro caballero
+On cloud Beige dama
+On cloud beige gris caballero
+On Cloud blanco naranja Caballero
+On cloud blanco vinotinto caballero
+On cloud blanco/negro caballero
+On cloud bota beige caballero
+On cloud bota caballero
+On Cloud caballero
+On cloud casual negro caballero
+On Cloud Dama
+On Cloud Dama/Caballero
+On cLoud gris caballero
+On cloud gris dama/caballero
+On cLoud Loewe blanco caballero
+On cloud loewe blanco crema dama
+On cloud loewe caballero
+On cloud Loewe gris suela blanca caballero
+On cloud loewe negro dama
+On cloud Monster dama/caballero
+On cloud Monster new dama/caballero
+On cloud negro dama/caballero
+On cloud negro naranja caballero
+On Cloud niño
+Onitsuka Tiguer beige rosa dama
+Onitsuka Tiguer Blanco negro dama
+Onitsuka Tiguer Crema marrón dama
+Paul George 2 caballero
+Paul George caballero
+Puma 180 todo negro caballero
+Puma caballero
+Puma Dama
+Puma Palermo Niño
+Reebok caballero
+Reebok energy 4 caballero
+Retro 1 low caballero
+Retro 1 low Paris dama
+Retro 1 low travis caballero
+Retro 1 low Travis Phantom caballero
+Retro 13 Caballero
+Retro 3 Black Cat caballero
+Retro 3 dama/caballero
+Retro 3 full black dama
+Retro 3 niño
+Retro 3 niños
+Retro 4 blanco negro caballero
+Retro 4 caballero
+Retro 4 dama
+Retro 4 full Black Caballero
+Retro 4 niño
+Salomon XT-6 dama
+SB Dunk Caballero
+SB Dunk gris gamuza caballero
+SB Dunk panda negro blanco dama
+Sb dunk play station verde caballero
+SB Dunk rosa blanco dama
+Sb dunk supreme beige caballero
+SB Dunk supreme caballero
+Skechers caballero
+Skechers dama
+Stephen Curry 4 caballero
+Superstar azul blessd caballero
+Superstar beige Ed dama
+Superstar clasico blessd caballero
+Superstar Dama
+Superstar edición limitada dama
+The North Face Caballero
+TN niño
+Tommy clásico blanco Caballero
+Vans Caballero
+Vans Era 95 DX blanco dama
+Vans Era 95 DX negro dama
+Vans Hylene blanco caballero
+Vans Hylene negro caballero
+Veja Dama
+Wildhorse caballero
+Wildhorse Dama
+Yeezy caballero

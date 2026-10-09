@@ -1,0 +1,202 @@
+# LOS MODELOS QUE EXISTEN EN LA TIENDA, para el prompt de VISIÓN.
+#
+# QUÉ ES ESTO Y EN QUÉ SE DIFERENCIA DE catalogo.txt.
+#
+#   catalogo.txt   los 347 TÍTULOS completos ("Nike Metcon 7 negro blanco
+#                  dama/caballero"). Va al prompt de TEXTO, que es el que
+#                  conversa y tiene que nombrar producto con precisión.
+#
+#   modelos.txt    los MODELOS, sin género y sin color ("Nike Metcon 7").
+#                  Va al prompt de VISIÓN.
+#
+# POR QUÉ NO SE LE MANDA A LA VISIÓN LA LISTA COMPLETA. Se le mandaba, y
+# se quitó el 22-sep porque costaba ~3.100 tokens EN CADA FOTO contra el
+# cupo de 30.000 por minuto de OpenAI — el mismo cupo del que vive el
+# cotejo visual. Pero quitarla del todo dejó al modelo de visión sin saber
+# qué existe aquí, justo cuando el prompt le exige escribir el término
+# "como aparece en los títulos del catálogo".
+#
+# Esta lista es el término medio: ~640 tokens en vez de 3.100. Y es lo que
+# la visión necesita de verdad — que en la tienda hay "New Balance 9060"
+# no le hace falta saberlo 17 veces, una por color. De elegir el color se
+# encarga el cotejo, que para eso compara la foto.
+#
+# CÓMO SE HIZO, POR SI HAY QUE REHACERLA: se sacan los títulos del export
+# de inventario, se les quitan género y colores, y se queda lo que SIGA
+# APARECIENDO LITERALMENTE en algún título. Esa última condición es la que
+# importa: si un nombre de aquí no está dentro de un título real, el
+# modelo lo escribiría en "buscar" y la búsqueda devolvería cero.
+#
+# LAS ERRATAS NO SE CORRIGEN. "Adidas Gallangher", "New Balamce 9060",
+# "Kirie Irving 4", "Onitsuka Tiguer", "Dolce Gabanna" están así en
+# Shopify, y la búsqueda es literal: corregirlas es perder el producto.
+# Por eso conviven las dos formas cuando las dos existen.
+#
+# Las líneas que empiezan con # no se mandan al modelo.
+
+# Actualizada el 24-09-2026 desde el export de inventario (581 filas,
+# 347 títulos distintos, 163 modelos).
+
+Adidas
+Adidas Adistar XLG
+Adidas Adizero adiós pro 4
+Adidas Adizero Evo SL
+Adidas Bad Bunny
+Adidas campus
+Adidas Damian lillard X
+Adidas Gallagher
+Adidas Gallangher
+Adidas samba
+Adidas SL 72
+Adidas SL72
+Adidas super Nova
+Adidas Superstar
+Adidas Swicth
+Adidas Switch
+Adidas terrex
+Adidas Yeezy 700
+Air Force One
+Air Force One Gucci
+Air Force One Ja Morant
+Air Force One Kobe
+Air Max 270
+Air Max Élite
+Alo
+Armani Exchange
+Asics
+Asics GT-2160
+Bape Sta
+Bota táctica
+Calvin Klein
+Charles Barkley
+Chola
+Chola Nike
+Chola Nike Ozuna
+Chola quiksilver
+Cristian Dior
+Cristian Dior B27
+Cristian Dior B30
+Cristian Dior khrono
+DC shoes acsed
+Dc shoes ascend
+Dior B22
+Dolce Gabanna
+Emporio Armani
+Giannis
+Golden Goose
+Hermes Bounccing
+Hermes Gramme
+Hugo Boss
+Ja Morant 3
+Jordan 40
+Jordan Lukka
+Jordan Retro 5
+Kirie Irving 4
+Kobe Bryant
+Kyrie Irving 1
+Kyrie Irving 2
+Kyrie Irving 3
+Lebron 15
+Lebron 4
+Lebron soldier 9
+Lebron Witness 5
+Lebron Witness 9
+Louis Vuitton
+LV Skate
+LV trainer
+Merrell
+Mizuno
+NB 530 MIU MIU
+New Balamce 9060
+New Balance
+New Balance 1000
+New Balance 2000
+New Balance 204
+New Balance 509
+New balance 530
+New Balance 550
+New Balance 9060
+New Balance Course Rebel
+New Balance More
+Nike
+Nike 2k5
+Nike 4 resortes supreme
+nike a'ja wilson a'one
+Nike ACG Pegasus trail
+Nike Air Max
+Nike Air Max liquitmax
+Nike Air Max pulse
+Nike Air Max TN plus
+Nike Alpha
+Nike ava Rover
+Nike bailleli
+Nike Cortez
+Nike DN
+Nike DN 8
+Nike Hiperdunk
+Nike Hiperset
+Nike Huarache
+Nike M2K
+Nike metcon 6
+Nike Metcon 7
+Nike Mind 001
+Nike Mind 002
+Nike Nocta 1
+Nike Nocta Glide
+Nike P6000
+Nike Pegasus Premium
+Nike pulse
+Nike react
+Nike renew
+Nike retro 1
+Nike Shox 12 resortes
+Nike Shox 4 resorte
+Nike Shox 4 resortes
+Nike TN
+Nike total 90 microtaco futbol
+Nike total 90 tacos de futbol
+Nike Trail
+Nike trail wildhorse 10
+Nike uplift
+Nike V5
+Nike Vapormax plus
+Nike Vomero 5
+Nike waffle trainer 2
+Nike Wildhorse 10
+Nike zoom
+On Cloud
+On cloud bota
+On cloud casual
+On cLoud Loewe
+On cloud Monster
+Onitsuka Tiguer
+Paul George
+Paul George 2
+Puma
+Puma 180
+Puma Palermo
+Reebok
+Reebok energy 4
+Retro 1 low
+Retro 1 low Paris
+Retro 1 low travis
+Retro 13
+Retro 3
+Retro 3 Black Cat
+Retro 4
+Salomon XT-6
+SB Dunk
+SB Dunk panda
+Sb dunk play station
+SB Dunk supreme
+Skechers
+Stephen Curry 4
+Superstar
+The North Face
+Tommy
+Vans
+Vans Era 95 DX
+Vans Hylene
+Veja
+Wildhorse
+Yeezy

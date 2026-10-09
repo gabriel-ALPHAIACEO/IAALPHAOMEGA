@@ -1,0 +1,236 @@
+# ---------------------------------------------------------------------
+# EL EMPERADOR — wrangler.toml
+#
+# Lo que hace que este Worker sea de El Emperador y no de otra tienda: su
+# nombre, su base de datos, su IA (DeepSeek) y sus datos. Este archivo NO se
+# copia de Invictus ni a Invictus: cada tienda tiene el suyo.
+#
+# src/ es casi igual al de Invictus, con una diferencia a propósito: El
+# Emperador habla con DEEPSEEK (deepseek.js), no con OpenAI.
+#
+# Las lineas marcadas con PENDIENTE hay que rellenarlas. Para comprobar
+# que el archivo esta completo antes de desplegar:
+#   node pruebas/correr.mjs      (incluye config.mjs, que revisa ESTE archivo)
+# ---------------------------------------------------------------------
+
+# El nombre del Worker. Tiene que ser DISTINTO al de Invictus, o el
+# despliegue pisaria el bot que ya funciona.
+name = "emperador-bot"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Lo necesita src/presupuesto.js para llevar la cuenta de las conexiones de
+# cada pasada (Cloudflare corta a las 50 en el plan gratis). NO lo quites:
+# sin esto el despliegue falla con "Could not resolve node:async_hooks".
+compatibility_flags = ["nodejs_als"]
+
+# Permite importar los prompts como texto
+[[rules]]
+type = "Text"
+globs = ["**/*.txt"]
+fallthrough = true
+
+# --- Base de datos (D1) - la memoria del bot entre mensajes -----------
+# Es una base PROPIA de El Emperador: compartirla con Invictus mezclaria
+# las conversaciones y las pausas de asesor de las dos tiendas.
+#
+# La tabla y las columnas se crean solas con el primer mensaje que atienda
+# el bot. No hace falta correr migraciones.
+[[d1_databases]]
+binding = "DB"
+database_name = "emperador-bot-db"
+database_id = "8dae7a41-4c7a-490c-97af-461dcd2350f7"
+
+# --- El indice del catalogo se llena solo ------------------------------
+# Cloudflare llama al Worker cada 15 minutos y este cataloga los productos
+# que le falten (con el modelo de IMAGENES de DeepSeek, ver abajo). Es lo
+# que deja al cotejo comparar la foto del cliente contra TODO el catalogo.
+#
+# Mientras SHOPIFY_TIENDA siga en PENDIENTE no hay nada que catalogar: la
+# pasada no hace nada y no gasta. En cuanto conectes Shopify, se llena
+# solo en un par de horas. Para ver como va: /estado o /indexar-catalogo
+[triggers]
+crons = ["*/15 * * * *"]
+
+[vars]
+# Solo para que /estado imprima los comandos ya escritos. Tiene que ser
+# el mismo database_name de arriba.
+D1_NOMBRE = "emperador-bot-db"
+
+# --- La IA: TODO con DeepSeek, con DOS modelos ---------------------------
+# Uno redacta y otro mira las fotos. Todo con DeepSeek, que es el que
+# acepto la tarjeta: una sola clave (DEEPSEEK_API_KEY), una sola factura.
+PROVEEDOR = "deepseek"
+
+# El que hace SOLO el TEXTO: redacta las respuestas. El mas capaz de
+# DeepSeek para escribir.
+DEEPSEEK_MODELO = "deepseek-v4-pro"
+
+# El que hace SOLO las IMAGENES: identifica el zapato de la foto del
+# cliente, lo coteja con el catalogo y cataloga el indice. Es el unico de
+# DeepSeek que ve fotos (deepseek-v4-pro no ve imagenes: no lo pongas aqui).
+DEEPSEEK_MODELO_VISION = "deepseek-flash"
+
+# =======================================================================
+# EL CATALOGO: HOY GOOGLE DRIVE, MAÑANA SHOPIFY
+#
+# El bot saca los productos (nombre, precio, foto) de UNO de los dos, y se
+# elige con una sola linea:
+#
+#   CATALOGO = "drive"      la carpeta de Google Drive   <- LO DE AHORA
+#   CATALOGO = "shopify"    la tienda de Shopify         <- cuando este lista
+#
+# Todo lo demas (buscar, las fichas, el cotejo de fotos, el indice) funciona
+# igual con los dos: el bot no nota la diferencia.
+# =======================================================================
+CATALOGO = "drive"
+
+# --- DRIVE (activo) -----------------------------------------------------
+# Cada foto de la carpeta es un producto. Del NOMBRE del archivo (o de su
+# descripcion, si trae el precio) se sacan el nombre, el codigo y el precio:
+#   "Nike Air Force One blanco COD 125 45$.jpg"
+#   "AIR MAX 90 - Cod: AM90 - $55"
+# Las subcarpetas ("Nike", "Adidas"...) se leen todas, y su nombre tambien
+# sirve para buscar.
+#
+# La carpeta tiene que estar compartida como "Cualquier persona con el
+# enlace — Lector". NO hace falta ninguna clave de Google: el bot la lee
+# como la ve cualquiera con el enlace.
+# Para ver como la lee el bot ANTES de que la vea un cliente:
+#   https://emperador-bot.elemperadorca1992.workers.dev/probar-drive
+DRIVE_CARPETA = "https://drive.google.com/drive/folders/14lvw1gxxkZSMEdtZbvJ_fIuaCcCcZykA"
+
+# --- SHOPIFY (preparado, todavia no) --------------------------------------
+# Mientras CATALOGO sea "drive", esto no se usa. EL DIA QUE ACTIVES SHOPIFY:
+#   1. Aqui abajo, el dominio de la tienda (el que termina en .myshopify.com)
+#   2. npx.cmd wrangler secret put SHOPIFY_TOKEN
+#   3. Arriba, CATALOGO = "shopify"
+#   4. En URL_CATALOGO, el enlace de la tienda online
+#   5. npx.cmd wrangler deploy
+# El indice del catalogo se rehace solo con las fotos de Shopify (el cron).
+SHOPIFY_TIENDA = "PENDIENTE.myshopify.com"
+
+# --- Lo que ve el cliente, con cualquiera de los dos ----------------------
+# El boton "Ver catalogo". Hoy, la carpeta de Drive; el dia del cambio, el
+# enlace de la tienda de Shopify.
+URL_CATALOGO = "https://drive.google.com/drive/folders/14lvw1gxxkZSMEdtZbvJ_fIuaCcCcZykA"
+
+# WhatsApp de El Emperador, para el boton "Comprar" de cada ficha. El "+"
+# no molesta: el bot deja solo los numeros.
+WHATSAPP = "+584224848573"
+
+# --- La ubicacion de la tienda -------------------------------------------
+# Cuando preguntan "¿donde estan?", el bot manda DIRECCION tal cual, con un
+# boton "MAPS/GOOGLE" que abre MAPS_URL, y si hay FOTO_LOCAL, la foto.
+# Vacio = el bot no la sabe y esa pregunta va a un asesor (no se inventa).
+# Para ver como queda antes de que la vea un cliente: /probar-ubicacion
+# Dato del dueño (5-oct-2026).
+DIRECCION = "📍 Estamos ubicados en Porlamar, justo en el Boulevard Gómez, frente a la Cancha Fray Elías."
+# PROVISIONAL: abre el Boulevard Gómez en el mapa, no el pin exacto de la
+# tienda. Cámbialo por el enlace del pin: Google Maps → busca la tienda (o
+# deja el dedo sobre el sitio) → Compartir → Copiar vínculo.
+MAPS_URL = "https://www.google.com/maps/search/?api=1&query=Boulevard+G%C3%B3mez+Porlamar+Nueva+Esparta"
+# La foto del local: súbela a Drive FUERA de la carpeta del catálogo (si no,
+# el bot la enseñaría como un producto), compártela como "Cualquier persona
+# con el enlace" y pega aquí ese enlace tal cual: el bot lo convierte solo.
+FOTO_LOCAL = ""
+
+# --- El limite de Cloudflare ---------------------------------------------
+# Conexiones que Cloudflare deja abrir en cada pasada del Worker: 50 en el
+# plan GRATIS (lo de ahora), 1000 en el de pago. El bot reparte el indice y el
+# cotejo para no pasarse nunca. Si algun dia pasas al plan de pago, cambialo
+# a "1000" y el indice se llena mucho mas rapido.
+SUBPETICIONES_MAXIMAS = "50"
+
+# --- Meta (Instagram) ----------------------------------------------------
+#   "todo"   atiende todo tipo de mensaje  <- por defecto
+#   "off"    nada; el webhook queda desactivado
+META_MODO = "todo"
+
+# El que TU te inventas y escribes igual en el panel de Meta al dar de alta
+# el webhook.
+META_VERIFY_TOKEN = "emperador2026"
+
+# --- El cotejo visual ----------------------------------------------------
+# Cuando el cliente manda una foto o responde a una historia y el zapato
+# no aparece buscando por su nombre, el bot compara la foto contra las
+# fotos del catalogo. Con el indice lleno mira el catalogo entero; sin
+# indice, unos pocos productos por mensaje.
+#   "si"  activado   <- por defecto        "no"  apagado
+COTEJO_BARRIDO = "si"
+COTEJO_LOTES = "2"
+COTEJO_MAXIMO = "600"
+
+# --- El asesor ----------------------------------------------------------
+# Horas que se calla el bot despues de que un asesor le escribe a mano a un
+# cliente. Se cuenta desde el ULTIMO mensaje del asesor. Admite decimales:
+#   0.5 = 30 minutos    0.25 = 15 minutos
+PAUSA_HORAS = "1"
+
+# La frase con la que el asesor le DEVUELVE la conversacion al bot desde
+# el mismo chat. Basta con que aparezca dentro del mensaje. El cliente la
+# lee, asi que tiene que sonar a despedida normal, por ejemplo:
+#   "Te dejo con la asistente virtual, ella te sigue ayudando 😊"
+FRASE_DESPAUSAR = "te dejo con la asistente"
+
+# El nombre de la tienda: sale en su panel (/panel), en el panel central y
+# en la tarjeta de la ubicación.
+TIENDA_NOMBRE = "El Emperador"
+
+# EL REVISOR (ver src/revisor.js): después de cada respuesta, ya enviada,
+# una segunda IA la lee, compara cada dato con las fichas, la conversación
+# y los datos de la tienda, y la marca 🔴 en el panel (con la frase exacta)
+# si alucinó, se contradijo, no contestó lo que le preguntaron o tuvo mal
+# tono. El cliente no espera nada. Encendido por el dueño (5-oct-2026).
+#   REVISOR_IA         "si" lo enciende, "no" lo apaga
+#   REVISOR_MODELO     el más listo (el mismo que conversa). Para gastar
+#                      ~4 veces menos: "deepseek-flash"
+#   REVISOR_CONFIANZA  "alta": solo marca lo que está seguro (pocas falsas
+#                      alarmas). "media": marca también las dudas.
+#   REVISOR_TOPE_MES   cuántos dólares al mes puede gastar como mucho; al
+#                      llegar, deja de revisar hasta el mes siguiente (el bot
+#                      sigue respondiendo igual). "no" = sin tope.
+#   REVISOR_PIENSA     "si": razona antes de decidir (7-oct-2026, como gpt-5
+#                      en Invictus). Si el modelo no lo acepta, revisa sin
+#                      pensar: no se apaga nunca.
+REVISOR_IA = "si"
+REVISOR_MODELO = "deepseek-v4-pro"
+REVISOR_PIENSA = "si"
+REVISOR_CONFIANZA = "alta"
+# (9-oct-2026) Tope bajado a $5: el revisor no debe gastar tanto.
+REVISOR_TOPE_MES = "5"
+
+# LA IA APRENDE SOLA (ver src/lecciones.js; encendido el 7-oct-2026, como en
+# Invictus). Cada error que encuentra el revisor se guarda como una regla y
+# la IA de texto (o la de fotos) la recibe en cada mensaje: deja de
+# repetirlo sin tocar el código. Las alertas rojas (🔴 ⚠️ 👎) ya no suenan en
+# ALPHA IA: solo llega 🛠️ cuando una regla no basta y hay que ponerlo en el
+# código (y los ❌/⚙️ de fallos técnicos). Lo aprendido se ve y se olvida en
+# ALPHA IA › la tienda › 🧠 Aprendido. "no" lo apaga.
+APRENDER = "si"
+
+# ------------------------------------------------------------------------
+# SECRETOS - NUNCA van en este archivo. Se cargan uno por uno, ESTANDO
+# DENTRO DE LA CARPETA DE EL EMPERADOR (si no, se le cargan a Invictus):
+#
+#   npx.cmd wrangler secret put DEEPSEEK_API_KEY   <- platform.deepseek.com →
+#                                                     API keys (con saldo)
+#   (DRIVE_API_KEY ya NO hace falta: la carpeta se lee sin clave.)
+#   npx.cmd wrangler secret put SHOPIFY_TOKEN      <- el dia que se active
+#                                                     Shopify (no antes)
+#   npx.cmd wrangler secret put META_APP_SECRET    <- PROPIO de esta tienda
+#   npx.cmd wrangler secret put META_APP_SECRET_IG <- el del producto Instagram
+#   npx.cmd wrangler secret put IG_TOKEN           <- PROPIO de esta tienda
+#   npx.cmd wrangler secret put SLACK_WEBHOOK      (puede ser el mismo)
+#   npx.cmd wrangler secret put PANEL_CLAVE        <- para entrar a /panel
+#                                                     (6 letras o mas)
+#   npx.cmd wrangler secret put PANEL_API_CLAVE    <- la que comparte con el
+#                                                     panel central (16 o mas;
+#                                                     alli va como CLAVE_EMPERADOR)
+#   npx.cmd wrangler secret put PANEL_CENTRAL_URL  <- la direccion del panel
+#                                                     central (alertas al momento)
+#
+# Si te quedaron cargadas claves de antes que ya no se usan, quitalas:
+#   npx.cmd wrangler secret delete GEMINI_API_KEY
+#   npx.cmd wrangler secret delete OPENAI_API_KEY
+# ------------------------------------------------------------------------

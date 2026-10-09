@@ -1,0 +1,233 @@
+name = "invictus-bot"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Permite importar los prompts como texto (import promptTexto from "./prompts/texto.txt")
+[[rules]]
+type = "Text"
+globs = ["**/*.txt"]
+fallthrough = true
+
+# --- Base de datos (D1) - la memoria del bot entre mensajes -----------
+# 19-sep-2026: se retiro ManyChat, asi que el historial de cada
+# conversacion ya no vive en sus campos - vive aca. Sin esto el bot no
+# recuerda nada de un mensaje al siguiente (vuelve a saludar siempre,
+# pierde el hilo de "y en negro?", etc.)
+#
+# Antes de desplegar, hace falta crear la base y correr la migracion:
+#   npx wrangler d1 create invictus-bot-db
+#   (el comando anterior imprime un database_id: pegalo abajo)
+#   npx wrangler d1 migrations apply invictus-bot-db --remote
+[[d1_databases]]
+binding = "DB"
+database_name = "invictus-bot-db"
+database_id = "b7cc27df-dbcf-4188-b0f2-c00a1629d1e2"
+
+# --- El indice del catalogo se llena solo ------------------------------
+# Cloudflare llama al Worker cada 15 minutos y este indexa los productos
+# que le falten, por tandas, dentro de un presupuesto de tiempo.
+#
+# POR QUE IMPORTA. El cotejo visual -lo que reconoce el zapato de una foto
+# o de una historia- compara los rasgos de la foto contra los de TODO el
+# catalogo guardado en D1, sin gastar tokens, y solo manda al modelo los
+# 10 mas parecidos. Sin indice no puede: cae al barrido corto, que mira 20
+# productos de 581, y el zapato casi nunca esta entre esos veinte.
+#
+# Llenarlo a mano eran ~15 recargas de /indexar-catalogo. Ahora no hay que
+# hacer nada: desde vacio tarda un par de horas y despues se mantiene solo
+# (los productos nuevos los recoge en la siguiente pasada).
+#
+# Cuando ya no falta nada, la pasada no gasta ni una llamada al modelo.
+# Para ver como va: /estado  o  /indexar-catalogo
+[triggers]
+crons = ["*/15 * * * *"]
+
+[vars]
+# El nombre de la base D1, SOLO para que /estado imprima los comandos ya
+# escritos y se puedan copiar y pegar (reanudar una conversacion pausada,
+# por ejemplo). Sin esto, /estado los escribe con "tu-base-d1" y hay que
+# corregirlos a mano cada vez. Tiene que ser el mismo database_name de
+# arriba.
+D1_NOMBRE = "invictus-bot-db"
+
+# --- LA UBICACION DE LA TIENDA ---------------------------------------
+#
+# A quien pregunte "donde estan?", "direccion", "tienen tienda fisica?" le
+# llega ESTE texto tal cual, con el boton "MAPS/GOOGLE" que le abre el mapa,
+# y la foto del local si pones una. Sin gastar ni una llamada a OpenAI.
+#
+# Para verlo antes que un cliente, abre en el navegador:
+#   https://invictus-bot.invictusshoes.workers.dev/probar-ubicacion
+
+# El texto exacto que lee el cliente. Una linea (sin saltos).
+DIRECCION = "Estamos ubicados en el centro comercial mercado la isla, (LOCAL CF-04 y CF-05 TIENDA INVICTUS SHOES) avenida llano adentro entre circunvalación y terranova (Isla de margarita)"
+
+# El enlace de Google Maps: busca tu local en Google Maps -> Compartir ->
+# Copiar vinculo. Vale el corto (maps.app.goo.gl/...).
+MAPS_URL = "https://maps.app.goo.gl/H1UF1f5CjcJc1LeWA"
+
+# Una FOTO del local: la direccion de LA IMAGEN, la que termina en .jpg o
+# .png (no un enlace de Maps, ni de Google Fotos, ni de Instagram: esos son
+# paginas y la foto saldria rota). Un "Compartir" de Google Drive SI vale:
+# el bot lo arregla solo (la foto en Drive tiene que estar en "Cualquier
+# persona con el enlace"). Vacio = la ubicacion sale sin foto.
+FOTO_LOCAL = ""
+
+# Enlace que se le manda al cliente cuando no hay productos que mostrar
+URL_CATALOGO = "https://8vds1e-jw.myshopify.com/"
+
+# Numero de WhatsApp de la tienda, para el boton "Comprar" de cada ficha.
+# En formato internacional, SIN el +, sin espacios y sin guiones:
+#   Venezuela  0412-123 45 67  ->  "584121234567"
+# Si lo dejas vacio, las fichas salen solo con "Ver producto".
+WHATSAPP = "+584262992111"
+
+# Dominio de tu tienda, el que termina en .myshopify.com (sin https://)
+SHOPIFY_TIENDA = "8vds1e-jw.myshopify.com"
+
+# --- Meta es el unico canal --------------------------------------------
+# El webhook atiende texto, fotos, respuestas a historias y ecos (para la
+# pausa automatica). Todo lo demas -los "visto", las reacciones, los
+# comentarios- se descarta sin gastar nada.
+#
+# Eso es lo que se comio los creditos de Make: Meta manda cientos de
+# avisos al dia y Make pagaba una operacion por cada uno.
+#
+#   "todo"   atiende todo tipo de mensaje  <- por defecto
+#   "off"    nada; el webhook queda desactivado
+META_MODO = "todo"
+
+# El que TU te inventas y escribes igual en el panel de Meta, en la
+# casilla "Token de verificacion" al dar de alta el webhook.
+META_VERIFY_TOKEN = "invictus2026"
+
+# Modelo de OpenAI que REDACTA las respuestas de texto (ya no necesita ver
+# imagenes: eso lo hace un modelo aparte, ver OPENAI_MODELO_VISION).
+OPENAI_MODELO = "gpt-4o-mini"
+
+# 22-sep-2026: modelo que IDENTIFICA las fotos. Antes era el mismo que
+# OPENAI_MODELO y hacia dos trabajos a la vez (mirar y redactar). Ahora que
+# solo tiene que mirar, vale la pena que sea el modelo completo: identifica
+# mejor que el "mini" y el costo extra es acotado porque el "mini" sigue
+# siendo el que atiende todo el texto.
+OPENAI_MODELO_VISION = "gpt-4o"
+
+# --- El barrido del catalogo ---------------------------------------------
+# Cuando el cliente manda una foto (o responde a una historia) y el zapato
+# no aparece buscando por su nombre, el bot compara la foto contra las
+# fotos del catalogo hasta encontrarlo.
+#
+# EL LIMITE NO ES EL CATALOGO, ES EL CUPO DE OPENAI. Tu organizacion
+# tiene 30.000 tokens por minuto en gpt-4o, y cada lote de fotos gasta
+# unos 8.500. Por eso el barrido mira unos POCOS productos por mensaje y
+# contesta: insistir mas da 429 y deja al cliente sin respuesta.
+#
+# Para barrer el catalogo COMPLETO hay dos caminos, los dos fuera de este
+# archivo: subir de tier en OpenAI (platform.openai.com, seccion Limits)
+# o indexar el catalogo una sola vez. Ver el README.
+#
+#   "si"  barrido activado   <- por defecto
+#   "no"  desactivado (el bot se rinde si el nombre no acierta)
+COTEJO_BARRIDO = "si"
+
+# Cuantos lotes de 10 fotos se miran POR MENSAJE. Con 2 el barrido entra
+# en el cupo aun contando la identificacion de la foto. Subilo solo
+# despues de subir de tier en OpenAI: con el cupo actual, mas lotes = 429.
+COTEJO_LOTES = "2"
+
+# Cuantos productos se traen de Shopify para ordenarlos y elegir a cuales
+# mirar. Traerlos no gasta modelo, asi que conviene que entren todos.
+COTEJO_MAXIMO = "600"
+
+# Modelo con el que se INDEXA el catalogo (abrir /indexar-catalogo). Son
+# cientos de fotos, asi que va el mini: tiene un cupo por minuto mucho mas
+# alto que el modelo grande y para una foto de producto limpia alcanza.
+# La foto del CLIENTE, que es una sola y decide la venta, sigue yendo a
+# OPENAI_MODELO_VISION.
+OPENAI_MODELO_INDICE = "gpt-4o-mini"
+
+# EL REVISOR (ver src/revisor.js): después de cada respuesta, ya enviada,
+# una segunda IA la lee, compara cada dato con las fichas, la conversación
+# y los datos de la tienda (horario, envíos, delivery, ubicación, pagos,
+# Cashea), y la marca 🔴 en el panel (con la frase exacta) si alucinó, se
+# contradijo, no contestó lo que le preguntaron o tuvo mal tono. El cliente
+# no espera nada: ya le llegó la respuesta.
+#   REVISOR_IA         "si" lo enciende, "no" lo apaga
+#   REVISOR_MODELO     el modelo del REVISOR, y solo de él: son tres IA
+#                      distintas (la de texto es OPENAI_MODELO, la de imagen
+#                      OPENAI_MODELO_VISION). "gpt-5" (6-oct-2026, dueño:
+#                      "una IA potente que piense bien las cosas y corrija
+#                      todo"): razona antes de decidir y escribe lo que el
+#                      bot debió decir. ~$0,015 por respuesta revisada.
+#   REVISOR_ESFUERZO   cuánto piensa: "low" (rápido), "medium", "high" (más
+#                      fino, más lento y más caro).
+#   REVISOR_RESPALDO   si el de arriba no está disponible en la cuenta de
+#                      OpenAI, revisa con este (no se apaga nunca).
+#   REVISOR_CONFIANZA  "alta": solo marca lo que está seguro (pocas falsas
+#                      alarmas). "media": marca también las dudas.
+#   REVISOR_TOPE_MES   cuántos dólares al mes puede gastar como mucho; al
+#                      llegar, deja de revisar hasta el mes siguiente (el bot
+#                      sigue respondiendo igual). "no" = sin tope.
+REVISOR_IA = "si"
+# (9-oct-2026, dueño: "el revisor no debe gastar tanto") gpt-5-mini piensa
+# igual pero cuesta 5 veces menos que gpt-5, con el esfuerzo en "low", y los
+# saludos y "gracias" sin datos ya no se revisan (ver revisor.js). Tope: $5.
+REVISOR_MODELO = "gpt-5-mini"
+REVISOR_ESFUERZO = "low"
+REVISOR_RESPALDO = "gpt-4o-mini"
+REVISOR_CONFIANZA = "alta"
+# (9-oct-2026) $2 este mes: el saldo de OpenAI de Invictus tiene que durar
+# hasta el 15. Ya gastó $1.64 con gpt-5; al llegar a $2 deja de revisar y el
+# bot sigue respondiendo igual. Para el mes que viene se puede subir a "5".
+REVISOR_TOPE_MES = "2"
+
+# LA IA APRENDE SOLA (ver src/lecciones.js, 6-oct-2026). Cada error que
+# encuentra el revisor se guarda como una regla y la IA de texto (o la de
+# imágenes) la recibe en cada mensaje: deja de repetirlo sin tocar el código.
+# Las alertas rojas (🔴 ⚠️ 👎) ya no suenan en ALPHA IA: solo te llega 🛠️
+# cuando una regla no basta y hay que ponerlo en el código (y los ❌/⚙️ de
+# fallos técnicos). Lo aprendido se ve y se olvida en ALPHA IA › la tienda ›
+# 🧠 Aprendido. "no" lo apaga (y vuelven las alertas rojas).
+APRENDER = "si"
+
+# Cuantas horas se calla el bot despues de que un asesor le escribe a un
+# cliente a mano desde la app de Instagram (para no hablar por encima).
+#
+# SE CUENTA DESDE EL ULTIMO MENSAJE DEL ASESOR, no desde el primero: cada
+# vez que el asesor escribe, el reloj vuelve a empezar.
+#
+# Mientras dura la pausa el cliente NO se queda a oscuras: si escribe, el
+# bot le confirma que ya lo atienden (una vez cada 10 minutos, no mas), y
+# si el asesor lleva 15 minutos callado le llega un aviso a Slack
+# ("TE ESTAN ESPERANDO"). Ya NO sale el aviso "BOT EN PAUSA" con cada
+# mensaje del asesor.
+#
+# Admite decimales:  0.5 = 30 minutos   0.25 = 15 minutos
+#
+# Puede ser largo sin miedo: el asesor le devuelve la conversacion al bot
+# cuando quiera con FRASE_DESPAUSAR (abajo), sin esperar a que venza.
+PAUSA_HORAS = "4"
+
+# La frase con la que el asesor le DEVUELVE la conversacion al bot, desde el
+# mismo chat de Instagram. Basta con que aparezca dentro del mensaje; no
+# importan tildes, mayusculas ni signos. El cliente la lee, asi que tiene
+# que sonar a despedida normal. Lo comodo es guardarla como Respuesta
+# guardada de Instagram, por ejemplo:
+#   "Te dejo con la asistente virtual, ella te sigue ayudando 😊"
+FRASE_DESPAUSAR = "te dejo con la asistente"
+
+# ------------------------------------------------------------------------
+# Los secretos NO van aqui. Se cargan uno por uno con:
+#
+#   npx wrangler secret put OPENAI_API_KEY
+#   npx wrangler secret put SHOPIFY_TOKEN
+#   npx wrangler secret put SLACK_WEBHOOK
+#   npx wrangler secret put META_APP_SECRET_IG
+#   npx wrangler secret put IG_TOKEN
+#
+# ManyChat esta retirado (21-sep-2026). Si todavia tienes cargados
+# MANYCHAT_SECRET, MANYCHAT_API_TOKEN o MANYCHAT_CAMPO_IMAGEN, puedes
+# borrarlos cuando quieras con:
+#   npx wrangler secret delete MANYCHAT_SECRET
+# Dejarlos tampoco rompe nada: el codigo ya no los lee.
+# ------------------------------------------------------------------------

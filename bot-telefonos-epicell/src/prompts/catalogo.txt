@@ -1,0 +1,156 @@
+# Los nombres de los productos de EPICCELL, como están escritos en la hoja.
+#
+# ESTE ES EL ÚNICO LUGAR DONDE VIVE LA LISTA. ia.js la mete en el prompt
+# al arrancar, donde texto.txt dice {{CATALOGO}}.
+#
+# GENERADO DEL INVENTARIO REAL (INVENTARIO AL 050926, actualizado el
+# 6-oct-2026 con el que mandó el dueño: 99 productos).
+# Antes estaba escrito a mano y le faltaban productos —los Apple, el Fire
+# TV Stick— que la tienda sí vende: el modelo no podía nombrar lo que no
+# sabía que existía.
+#
+# PARA QUÉ SIRVE, Y PARA QUÉ NO
+#
+# Sirve para que el modelo sepa QUÉ NOMBRES EXISTEN: que hay Poco, que hay
+# cables Aorax, que "audífonos" acá son varias cosas distintas. Con eso
+# construye bien el término de búsqueda en vez de adivinar.
+#
+# NO dice qué hay en stock, ni el precio, ni la capacidad, ni el color. Eso
+# lo decide la hoja EN VIVO, en cada mensaje: lo que tenga Cantidad 0 no se
+# le muestra a nadie aunque su nombre esté acá.
+#
+# CÓMO ACTUALIZARLA: un nombre por línea, EXACTAMENTE como está escrito en
+# la hoja, ERRATAS INCLUIDAS. La búsqueda es literal: si en la hoja dice
+# "antiagua", acá dice "antiagua". Corregirlo lo rompe.
+#
+# Las líneas que empiezan con # no se le mandan al modelo. Los nombres
+# repetidos van UNA vez: en el inventario hay dos "Honor play 10" (dos
+# capacidades), pero al modelo le basta saber que existe.
+
+## Redmi
+Redmi A7 pro
+Redmi 15c
+Redmi 15
+Redmi 17 4G
+Redmi Note 17
+Redmi Note 17 Pro 5G
+Redmi Note 17 Pro Max 5G
+Redmi Note 15 Pro 5G
+Redmi Note 15 pro + 5G
+Redmi Pad 2
+
+## Poco
+Poco x8 pro 5g
+Poco m8 pro 5g
+Poco c81 pro
+
+## Tecno
+Tecno Camon 50 Ultra
+Tecno spark 50
+Tecno spark go 3
+
+## Samsung
+Samsung A57
+Samsung A37
+Samsung A27
+Samsung A17
+Samsung A07
+Samsung Cargador original 45w Samsung
+Samsung Cargador original 25w Samsung
+Samsung Cargador certificado 45w
+Samsung Cargador certificado 25w
+Samsung Cargador de carro
+Samsung Cable Tipo C 1Metro
+Samsung Cable Tipo C 2metros
+Samsung Auriculares Tipo C
+
+## Infinix
+Infinix Note 60 Pro
+Infinix Hot 70
+
+## Honor
+Honor play 10
+Reloj Honor choice watch 2i
+Audifonos honor choice earbuds clip
+
+## Xiaomi
+Reloj Xiaomi Mi band 10
+Audifonos redmi buds 8 Lite
+Audifonos redmi buds 8 Active
+Sheaver afeitadora
+
+## Tp link
+Tplink router Ex141/ Router Ax1500
+
+## Mercusys
+Mercusysy router Mr62x/ Router Ax1500
+
+## Yookie
+Yookie Audifonos Headphone EB620
+Yookie Audifonos Coconuts Ows ES49
+Yookie Audifonos YKS96
+Yookie Audifonos XG23 PRO
+Auriculares Tipo C  YTL09
+Auriculares tipo C EL01
+Teclado Inalambrico YE07
+Cable 4 en 1 CB95
+Selfie Stick Yc38
+Cable Usb a C 30w / Ec19
+yookie Cargador de carro 48w  Pc18
+Base Metálica para moto YC28
+Yookie Cable 2 en 1 CB97
+Yookie Multipuerto Hub 7en1
+
+## Maspower
+Maspower Microfono Inalambrico ( Dual)
+Maspower Microfono Inalambrico k9 Dual, tipo C y L
+Maspower Mouse Inalambrico
+Maspower Game TV Stick
+Maspower Audifonos inalambrico i15
+Maspower Camara web Q19 (4k)
+Maspower Camara Web Q20 Full HD
+Fan Cooler 3 velocidades
+
+## Xbyte
+Xbyte Base para carro  Xb-4978
+xbyte OTG Sx-54
+xbyte Cable 100w XB4771
+xbyte Audifonos Sport Xb 4755
+xbyte Audifonos Sport Xb 4756
+xbyte Funda antiagua Xb-5015
+xbyte Base para telefono metalica Xb-4797
+xbyte Base para carro XB-4796
+
+## 1hora
+Cargador para carro Gar241
+Powerbank 20.000mAh GAr 158
+
+## Skydolphing
+Skydolphing  cable 4 en 1  S40E
+Skydolphing  S13T cable c a c 36w
+Skydolphing  Sr26 cable lightning
+Skydolphing  sc 35m Taco 25w usb
+Skydolphing  Cargador 48w/30w  Sc02mt
+
+## Aorax
+Aorax M659 cable Usb a c 66w
+Aorax MY-601 cable usb a c 2 metros
+Aorax M105 cable usb a c 6A
+Aorax My02 cable usb a c 3 metros
+Aorax Powerbank 10.000 mAh
+
+## Apple
+Apple cargador iphone 20w certificado  taco y cable
+Apple cargador iphone 35w certificado  taco y cable
+Apple cargador iphone 40w certificado  taco y cable
+Apple cable usb C a lightning certificado (1 metro)
+Apple cable usb C a C certificado 60w (1 metro)
+Apple cable Usb C a C certificado 240w (2 metro)
+Apple cargador de 20w certificado
+Apple Airpods 4
+Apple Airpods PRO 2
+
+## Amazon
+Amazon fire tv stick 4k
+Amazon Kindle Colorsoft ( usada)
+Amazon Kindle Basic ( usada)

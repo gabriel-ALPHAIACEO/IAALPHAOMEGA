@@ -2,6 +2,343 @@
 
 Repositorio de trabajo para los chatbots de IA de los distintos clientes. Punto de partida: **Invictus Shoes**.
 
+## Dónde está cada cosa (22-sep-2026)
+
+| Carpeta | Qué es |
+|---|---|
+| `invictus-bot/` | **Producción.** El código que atiende clientes hoy. Todo cambio para Invictus va acá. |
+
+Lo que sigue describe el bot en general; donde hay diferencia, manda `invictus-bot/`.
+
+### Reconocimiento por foto: cómo quedó (lo más importante)
+
+Tres capas, y cada una arregla el fallo de la anterior:
+
+1. **`identificarEnImagen` (gpt-4o)** mira la foto y devuelve el modelo + 15 rasgos sí/no de lo que VE. Schema estricto: los rasgos no pueden faltar.
+2. **`identificar.js`** verifica ese nombre contra esos rasgos, sin IA de por medio. Y desde el 22-sep distingue dos cosas que antes trataba igual:
+   - **Un rasgo lo CONTRADICE** (la IA dijo "Air Max 270" y ella misma marcó suela redondeada sin cámara de aire) → se rechaza y se baja a la marca. Es el caso del Uplift, el fallo que originó todo esto.
+   - **Falta el rasgo que lo CONFIRMA, pero nada lo contradice** (dijo "Air Force One" y no marcó la pieza metálica del ojal, que es diminuta y en media foto no se ve) → **ya no se tira el nombre**. Se busca igual, marcado como *sin confirmar*, y lo verifica la capa 3. Tirar un nombre correcto por un detalle invisible era la contradicción que se veía a simple vista: "si sabe que es un AF1, ¿por qué no lo buscó?".
+3. **`cotejo.js` (cotejo visual)** compara la foto del cliente contra las fotos reales del catálogo de Shopify. Tiene dos modos:
+   - **Desempatar** — hay varios candidatos y hay que saber cuál es. Los candidatos se eligen **por los rasgos** (`terminosCompatibles`, la tabla de `identificar.js` leída al revés), no por el orden del catálogo.
+   - **Verificar** — la identificación venía sin confirmar. Ahí corre **aunque haya un solo resultado**, porque la pregunta no es "cuál" sino "¿es este?".
+
+   Y si con eso no aparece, **barre el catálogo** (`traerCatalogoCompleto` en `shopify.js`): trae todos los productos activos de Shopify —250 por llamada, un par de llamadas— y compara la foto contra todos, en lotes de 20 imágenes, de a 4 lotes en paralelo, parando en cuanto uno acierta. Los títulos que comparten palabra con lo que se buscó van primero, así que lo normal es que caiga en el primer lote. Es el único paso caro del bot y solo corre cuando lo barato ya falló; se apaga con `COTEJO_BARRIDO = "no"`.
+
+   **El techo del barrido no es el catálogo: es el cupo de OpenAI.** Primera prueba real (22-sep): catálogo de 400+, lotes de 20 fotos, y OpenAI devolvió `429 — Limit 30000 TPM, Used 13868, Requested 16908` desde el segundo lote. El cliente se quedó **sin respuesta**, porque Cloudflare cortó la tarea en segundo plano. La cuenta: un lote de 20 fotos son ~17.000 tokens y el cupo son 30.000 por minuto — no entran ni dos seguidos, y barrer 400 productos tardaría once minutos.
+
+   Por eso el barrido es ahora una pasada **corta y con presupuesto**: lotes de 10, de a 2, un tope de lotes por mensaje (`COTEJO_LOTES`, por defecto 2 = 20 productos) y un reloj de 15 s. Si OpenAI devuelve 429, `ia.js` lo anota y el barrido **se corta solo** en vez de insistir. La respuesta al cliente sale siempre.
+
+   **Para barrer el catálogo COMPLETO de verdad hay dos caminos, los dos fuera de este código:**
+   - **Subir de tier en OpenAI.** Es la solución de cinco minutos: con más TPM, `COTEJO_LOTES` se sube y el barrido cubre todo. El código ya está listo.
+   - **Indexar el catálogo una sola vez** ← **esto es lo que se hizo.** Ver abajo.
+
+### Fuera la plantilla que siempre mandaba lo mismo (26-sep-2026)
+
+Reportado por el dueño: *"siempre manda, cuando no sabe qué es, manda Nike Trail y otros ahí"*. Tres cambios, todos sobre lo mismo.
+
+#### 1. Sin reconocer la foto → el catálogo completo, y aviso al asesor
+
+Lo que había: cuando el cotejo se abstenía, se le enseñaban los **6 del índice que más se parecían**, con un *"¿es alguno de estos?"*. La idea —no pedirle el nombre a quien no lo sabe— sigue siendo buena, pero en producción falló: **cuando la descripción de la foto es pobre el parecido por palabras da casi empate entre cientos, y desempata siempre igual.** Al cliente le llegaban los mismos seis zapatos una y otra vez, ninguno el suyo. Seis fichas equivocadas no son mejores que una pregunta: son peores, porque **parecen** una respuesta.
+
+Ahora va el **catálogo completo** — lo honesto y lo más útil a la vez — y además **se avisa al asesor**. Quien manda una foto ya vio el zapato y lo quiere: es de los mensajes que más cerca están de una venta, y si la máquina no lo reconoció, una persona sí va a poder. El cliente no espera: recibe el catálogo mientras tanto.
+
+`parecidosDeLaFoto()` se eliminó; no queda código muerto.
+
+#### 2. Reconocido → solo su familia, nunca la marca
+
+Cuando la visión se queda en la marca (`"Nike"`), la búsqueda trae diez Nike cualesquiera. `resultado()` los ponía **detrás del zapato reconocido**, así que al cliente le llegaba su zapato y, pegados, un `Nike Trail` y compañía que no tenían nada que ver.
+
+Eso se añadió para el caso de los Jordan 40, donde los de la búsqueda **sí** eran del modelo correcto. La diferencia estaba disponible todo el tiempo: `nombreFiable` es true cuando la visión nombró un MODELO y false cuando se quedó en la marca. Ahora la cola solo se añade en el primer caso.
+
+#### 3. La familia, no el título exacto
+
+`hermanos` buscaba los del **mismo título**. Eso cubría los 17 `New Balance 9060 Dama`, pero en este catálogo cada color suele tener su propio nombre (`Air Force One marrón blanco Caballero`, `Air Force One Negro dama`), así que lo normal era mandar **una ficha suelta**.
+
+`familiaDelTitulo()` (en `ia.js`) usa `prompts/modelos.txt` —los 163 modelos reales— y elige **la más específica que encaje**: un `Nike Metcon 7` trae Metcon 7, no cualquier Nike. El de la foto va **primero** y detrás su familia.
+
+### EPICELL: el bot prometió "0% con Cashea", que no existe (26-sep-2026)
+
+La inicial más baja de Cashea es **20%** (niveles 5 y 6) y la de Krece **15%** (Platino). El cliente lee "0%", entiende que no paga nada el primer día, viene a la tienda con las manos vacías, y la venta se cae en el mostrador.
+
+**De dónde sale.** El prompt dice **SIN INTERESES**, que es cierto, y el modelo lo convierte en "0%". Son dos cosas distintas: los intereses son lo que se paga de más por financiar (ahí sí es cero); la inicial es lo que se paga el primer día (nunca es cero).
+
+**Dos capas, porque esto es dinero:**
+
+1. **`prompts/texto.txt`** lo prohíbe con todas las letras: no existe el 0%, no se escribe "0%" ni "cero por ciento" en ningún mensaje, "sin intereses" se dice con esas palabras. Y no hay más niveles que los de la tabla — ni un 7, ni un 0, ni uno "especial".
+2. **`src/cuotas.js`** (nuevo) revisa lo que el modelo quiere mandar **antes de enviarlo**. Si el mensaje habla de financiamiento y trae un porcentaje que no está en `{60, 50, 30, 25, 20, 15}`, la respuesta se sustituye por pasar a un asesor y se manda el aviso. Es la misma idea que `identificar.js` en el bot de calzado: código puro revisando a la IA, porque un número inventado no puede depender de que el modelo se acuerde.
+
+Lo que **no** hace: no comprueba el nivel que dice tener el cliente, no hace cuentas y no valida el texto que acompaña. Solo lo que cuesta dinero. Y solo mira mensajes que hablan de cuotas, así que un "10% de descuento" no lo toca.
+
+### Una historia de la tienda entera ya no se adivina (26-sep-2026)
+
+El dueño publicó un vídeo recorriendo el local, con estantes llenos. Un cliente respondió a esa historia y el bot le mandó calzados que no tenían nada que ver.
+
+**La causa estaba escrita en el prompt:** *"Si no dice nada, elige el que sale más grande o más centrado"*. En una vitrina no hay ninguno principal — están todos parejos — así que elegir es adivinar.
+
+- **`variosProductos`**, campo nuevo y obligatorio del JSON de visión: true cuando la imagen es el local, un estante o una mesa con veinte pares. El prompt explica cómo distinguirlo de "varios zapatos pero uno destacado" (ese sí se identifica), y **ante la duda es vitrina**: mandar el catálogo nunca está mal, mandar el zapato equivocado sí.
+- **Si el cliente escribió algo concreto, eso manda** aunque la foto sea un estante lleno. Lo decide `textoPideAlgo()`, que ignora saludos y preguntas genéricas ("precio", "cuánto", "me interesa") y solo cuenta palabras que nombran producto.
+- **Y entonces ni se busca:** `decidir()` corta antes, así no se gastan llamadas para acabar adivinando. Sale el catálogo completo, que es justo lo que pedía quien estaba mirando la tienda entera.
+
+Es un caso nuevo para la regla 6 de `CLAUDE.md` (el catálogo no es la respuesta por defecto): se suma a los cuatro de siempre.
+
+### Las fotos del catálogo las baja el Worker, no OpenAI (24-sep-2026)
+
+El `invalid_image_url` seguía saliendo aunque las fotos ya se pedían a 512px, y cada mensaje con foto se comía el cupo entero del minuto:
+
+```
+(error) 400 · "Unable to download content from the provided URL before the timeout"
+(error) OpenAI puso límite de tokens por minuto en gpt-4o · Limit 30000, Used 24768
+```
+
+**La causa de fondo era el reparto de trabajo.** Se le pasaba a OpenAI la URL de Shopify y **era ella** quien tenía que salir a descargarla. Con diez URLs por llamada, basta que una tarde para que falle la llamada entera — y con ella se pierden los diez candidatos, no solo el que tardó. Pedirlas más pequeñas ayudó, pero no quitó la dependencia: Shopify genera el tamaño nuevo en la primera petición, y ahí es cuando más tarda.
+
+**Ahora las baja el Worker** —que está al lado del CDN, tarda milisegundos y tiene la caché de Cloudflare delante— y las manda ya convertidas dentro de la llamada. **OpenAI no sale a Internet a buscar nada, así que ese error desaparece de raíz.**
+
+- **Una foto que no baja ya no cuesta la ronda:** se queda fuera y los demás siguen, renumerados para que el índice que devuelve el modelo siga apuntando al producto correcto. Antes tumbaba las diez.
+- **Se guardan mientras vive el Worker**, así que la ronda 2 no vuelve a bajarlas. Solo se cachean las que sí bajaron: cachear un fallo dejaba ese producto fuera del cotejo durante minutos por un tropiezo de un segundo.
+- **Y se gasta la mitad.** Las rondas bajan de 3 a 2 y los candidatos de 10 a 8: de ~30 fotos por mensaje a 16, de ~28.000 tokens a ~15.000. El cupo de gpt-4o son 30.000 **por minuto** para toda la tienda, así que antes una sola foto se lo comía y el siguiente cliente se quedaba sin cotejo. Se puede subir con `COTEJO_RONDAS` cuando la cuenta aguante más.
+
+### "Air Force One marrón blanco" existía y el bot dijo que no (24-sep-2026)
+
+```
+Meta → ATIENDO texto: "Air Force One marrón blanco"
+Color pedido: blanco + marrón · busco: "Air Force One"
+Del modelo había 10; en blanco + marrón quedan 0
+Sin resultados para "Air Force One"
+```
+
+El catálogo tiene **trece** `Air Force One` y la búsqueda pedía **diez**. El filtro de color corre en el Worker, sobre lo que llegó — así que se aplicaba a una lista ya recortada, y `Air Force One marrón blanco Caballero` estaba entre los tres que nunca se pidieron.
+
+**El filtro de color tiene que ser lo último que recorte, nunca lo segundo.** Ahora, cuando hay color que filtrar, se piden 60 (cubre con holgura el modelo más repetido: 17 `New Balance 9060 Dama`), se filtra, y lo que quede se recorta al tamaño del carrusel. Una búsqueda sin color sigue pidiendo 10, como antes.
+
+### El bot enseñó diez 9060 justo después de decir que ninguno era (24-sep-2026)
+
+El cliente mandó un **New Balance 2000** por chat y recibió **9060**. El registro lo cuenta entero:
+
+```
+La IA de visión vio: "N grande lateral, suela con cápsulas blancas, malla blanca"
+                     · color: blanco → busco: "9060"
+Busqué "9060": 10 resultado(s)
+Cotejo visual: ninguno del catálogo es el de la foto (la suela del cliente tiene
+               una apariencia más bulbosa en comparación con las opciones...)
+La búsqueda por "9060" trajo 10 producto(s) y la visión nombró el modelo:
+               no toco el índice, esos son los que hay que enseñar
+```
+
+**El cotejo acertó y el código lo ignoró.** Miró los diez 9060, dijo que ninguno era, y hasta explicó por qué. Y acto seguido el guard `nombreFiable` —que yo había puesto el día anterior para el caso de los Jordan 40— los enseñaba igual.
+
+**Dónde estaba mi error.** Ese guard nació de un caso donde el nombre era CORRECTO (Jordan 40) y el cotejo simplemente no llegaba a confianza alta. Lo escribí como "si la visión nombró el modelo, el índice no toca nada" — sin distinguir *el cotejo no pudo confirmarlo* de *el cotejo dijo que no es*. Son cosas distintas y la segunda es una opinión sobre el nombre.
+
+**Dos cambios, y juntos quitan la elección imposible:**
+
+1. **Un rechazo del cotejo gana al nombre.** Si el cotejo miró los del nombre y los descartó a todos, el nombre no es de fiar y se sigue al índice.
+2. **Lo que encontró la búsqueda ya no se tira.** Antes, si el par salía del índice, `resultado()` devolvía solo ese. Ahora los del nombre van **detrás** del elegido, en la misma ficha. Si el índice acierta, el bueno va primero; si se equivoca, el cliente todavía ve lo que la búsqueda encontró. **Ninguno de los dos casos reportados acaba peor que antes** — y el de los Jordan 40 acaba mejor, porque los cinco buenos ya no desaparecen.
+
+**Y la causa de raíz: la visión se inventó el número.** De *"N grande, suela con cápsulas, malla blanca"* salió un `9060` que no estaba escrito en ninguna parte. El catálogo tiene New Balance 550, 1000, 2000, 204, 509, 530, 9060, More y Course Rebel: acertar de memoria entre ellos es imposible.
+
+Regla nueva en `vision.txt`, en los dos bots: **un número solo va en `buscar` si se leyó** en el zapato, la caja o la etiqueta, o si ese modelo tiene una firma visual propia en el prompt. Si no, va la familia sin número y `pedirNombreExacto: true` — que es justo lo que enciende el cotejo visual. Con la lista de las familias donde más duele: Retro, Kyrie, Metcon, Air Max, Lebron y New Balance.
+
+### La foto del catálogo pesaba demasiado, y la descripción decía muy poco (24-sep-2026)
+
+Un cliente mandó por chat un Nike Zoom blanco y azul. Del registro salieron dos fallos distintos.
+
+#### 1. Una foto pesada tumbaba la ronda entera
+
+```
+Índice (ronda 3): 581 productos guardados, miro los 10 más parecidos...
+(error) El modelo respondió 400 · "Unable to download content from the provided
+        URL before the timeout" · code: "invalid_image_url"
+(error) El cotejo visual no devolvió JSON válido
+```
+
+`featuredImage { url }` devuelve la imagen **original** de Shopify, que en esta tienda son fotos de varios MB. Con diez en una sola llamada, OpenAI tiene que descargarlas todas antes de mirar nada y se pasa de su propio tiempo. **La llamada entera falla: se pierden los 10 candidatos, no solo el que pesaba.**
+
+- **`urlPequena()`** pide la misma foto a 512px. En `detail: "low"` el modelo no ve ni un pixel menos, porque a esa resolución la reescala igual antes de mirarla. **No cambia la clave del índice**, así que el arreglo no obliga a reindexar.
+- **Y si aun así una foto no se puede bajar, ya no cuesta la ronda.** `llamar()` avisa del motivo, y el cotejo reintenta una vez con la primera mitad — que además son los más parecidos, porque vienen ordenados. Si la foto rota estaba en la otra mitad, la ronda se salva entera.
+- Lo mismo en EPICELL, con las de Google Drive: de `=w1000` a `=w512`.
+
+#### 2. La descripción no decía lo único que servía
+
+La visión reportó: `"swoosh lateral, corte medio, detalles azul y blanco"`. Cientos de zapatos encajan con eso.
+
+Lo que la foto tenía y nadie miró: **"ZOOM" escrito en la mediasuela**, "JUST DO IT" en el talón, la etiqueta NIKE. Un swoosh lo tienen cientos de modelos; la palabra `ZOOM` la tienen cinco — y el catálogo tiene un `Nike zoom`.
+
+Dos causas, las dos en el prompt:
+
+- **`visto` tenía un máximo de 15 palabras**, y el texto del zapato iba en el ÚLTIMO lugar de la lista de qué mirar. Se cortaba siempre.
+- **`indexar.txt` no pedía el texto en absoluto**, así que las fichas del catálogo tampoco lo tenían.
+
+Ahora, en los dos prompts y en los dos bots: **el texto escrito en el producto va primero**, con su propia explicación de por qué vale más que el logo, y el límite sube a 20-35 palabras.
+
+**Esto sí obliga a reindexar** (`/indexar-catalogo?rehacer=si`): las fichas guardadas se escribieron con el prompt viejo y no traen el texto. Es el único cambio de esta tanda que lo pide.
+
+### EPICELL: el cotejo visual, portado de Invictus (24-sep-2026)
+
+Lo que se aprendió en el bot de calzado, llevado al de teléfonos. **Archivos nuevos en `bot-telefonos-epicell/`:** `src/indice.js`, `src/cotejo.js`, `src/prompts/indexar.txt`, `src/prompts/cotejo.txt`.
+
+**Qué NO se portó, y por qué.**
+
+- **Los 15 rasgos.** Son de calzado —cámara de aire, swoosh, jumpman, tres franjas, puntera de concha— y no hay equivalente útil para un teléfono. Con lo aprendido en Invictus resultó que no hacían falta: lo que resolvió los casos difíciles fue la **similitud por descripción**, que es agnóstica de categoría porque el peso de las palabras se calcula sobre el propio catálogo. Así que Epicell se salta los rasgos y `identificar.js` entero.
+- **El color.** Fuera **por decisión del dueño**, y con razón: el mismo equipo se vende en cinco colores, el vidrio refleja la luz de la tienda y las historias llevan filtros. En calzado sí se usa, porque ahí el título dice el color y el cliente lo pide. Los nombres de color están en la lista de palabras vacías de `indice.js` para que no puntúen ni por accidente.
+- **El barrido.** Epicell lee de Google Sheets y la hoja se trae entera de una, así que el problema de paginación y cupo que tenía Shopify no se plantea.
+
+**Qué sí se portó:** el índice en D1 con clave por foto, el cron que lo llena solo, el refresco de precios sin gastar modelo, el ranking por descripción con pesos TF-IDF, **enseñar en vez de preguntar**, el orden que ve el cliente, y las dos protecciones que salieron de fallos reales de Invictus — *el índice no sustituye un nombre que ya acertó* y *la alarma cuando las filas se pisan*.
+
+**Es más barato:** 82 productos contra 581. La indexación entera cabe en una pasada del cron.
+
+**Prompts propios de teléfono.** `indexar.txt` pide lo que distingue un equipo: cuántas cámaras y cómo están puestas, el tipo de muesca, el material, y lo que esté escrito en el equipo o la caja. `cotejo.txt` decide por la disposición de cámaras primero, y avisa explícitamente de que decenas de modelos comparten "tres cámaras en un cuadrado negro" y eso no alcanza para decidir.
+
+### Un fallo del peso de las palabras, encontrado portando (24-sep-2026)
+
+La fórmula TF-IDF era `log(total/veces)`: una palabra que sale en **todos** los productos vale exactamente **0**. Si la descripción de la foto solo trae palabras comunes (`"telefono con tres camaras"`), el total da 0 y **no puntúa nadie**. Lo encontró una prueba del port con un catálogo de dos equipos: devolvía lista vacía en vez de ordenar.
+
+Corregido a `log(1 + total/veces)` **en los dos bots**: una palabra común sigue valiendo poco (0,69) pero no cero, y el orden entre raras y comunes no cambia. En Invictus el fallo degradaba en silencio —la descripción dejaba de desempatar— porque ahí el ranking suma además rasgos y color; en Epicell, donde la descripción es lo único, dejaba la lista vacía.
+
+### Dos fallos que se veían igual y no lo eran (24-sep-2026)
+
+Reportados por el dueño el mismo día:
+
+1. *"Pregunté en una historia (salía un Jordan 40) y me mostró unos Jordan Lukka."*
+2. *"Otra historia con unos Adidas Adistar XLG blancos, y me mostró uno beige."*
+
+**Descartado primero:** que `sinTalla()` se comiera el "40" de Jordan 40. No lo hace — solo quita el número cuando va detrás de `talla`/`size`/`número`, y está comprobado: `"Jordan 40"` → `"Jordan 40"`.
+
+#### 1. El índice sustituía un nombre que ya había acertado
+
+La visión nombró bien el Jordan 40, la búsqueda devolvió los 5 del catálogo, y el cotejo no llegó a confianza `alta` sobre ninguno. Hasta ahí, bien. Pero entonces **las rondas del índice se lanzaban igual**, miraban los 581 productos, encontraban un `Jordan Lukka` —que también lleva jumpman y también es bota de basket— y ESE se le mandaba al cliente. Peor: `resultado()` se queda con el elegido y sus hermanos, así que **los 5 Jordan 40 buenos se descartaban**.
+
+El índice existe para cuando el NOMBRE falla. Si el nombre acertó y trajo producto, lo que se enseña son esos: como mucho hay que ordenarlos, nunca cambiarlos por otro modelo. Ahora `cotejoPorImagen` recibe `nombreFiable` (la visión llegó al modelo, no solo a la marca) y con eso corta antes de tocar el índice.
+
+#### 2. El orden por color no llegaba al cliente
+
+Este es el más tonto y el más caro. El orden por color **ya existía desde la versión 14** — pero se aplicaba solo a la copia que se le pasa al modelo para cotejar. Lo que sale por Instagram era la lista **tal cual la devolvió Shopify**.
+
+O sea: el bot sabía cuál era el bueno y lo mandaba en tercer lugar.
+
+```
+Shopify devolvía:   XLG beige | XLG (blanco) | XLG gris
+el cliente veía:    XLG beige   ← el primero del carrusel
+ahora ve:           XLG (blanco) | XLG beige | XLG gris
+```
+
+`ordenarPorLaFoto()` ordena lo que de verdad se envía, por color + rasgos + descripción. Corre cuando el cotejo no afirmó nada y la búsqueda sí trajo producto — que es el caso más frecuente de todos. Si el cotejo sí acertó no hace falta: ese ya viene primero.
+
+### Los zapatos sin logo (24-sep-2026)
+
+Caso real: `"sin logo visible, corte bajo, suela blanca plana, cuero blanco"`. El bot miró 30 candidatos y falló los 30.
+
+**No ordenaba mal: no ordenaba.** Los 15 rasgos describen zapatos **ruidosos** — cámara de aire, swoosh, jumpman, tres franjas, puntera de concha. Un zapato de cuero liso sin logo pone los 15 en `false`, y en `puntuar()` dos productos con los 15 en `false` sacan **exactamente los mismos puntos**. Empate perfecto entre todos los zapatos lisos del catálogo, desempatado por el orden en que D1 devolviera las filas. Y los lisos son buena parte de esta tienda: Tommy, Calvin Klein, Hugo Boss, Alo, Armani, Golden Goose, Veja.
+
+**La salida no costó ni una llamada al modelo.** Al indexar ya se guardaba de cada producto una frase con lo que se ve —*"el logo si lo hay, la altura de la caña, la forma de la suela, el material"*— y la foto del cliente trae la suya. Ese campo `visto` estaba en la base sin usarse para nada. Comparar las dos frases distingue justo donde los rasgos no llegan: cuero contra malla, corte bajo contra bota, suela plana contra plataforma.
+
+**Las palabras se pesan por lo raras que son** (TF-IDF sobre el propio catálogo): `"zapato"` y `"suela"` salen en las 581 descripciones y valen casi cero; `"gamuza"`, `"charol"`, `"plataforma"` o `"trenzado"` salen en pocas y valen mucho. Se calcula solo, así que **no hay ninguna lista de palabras que mantener a mano**.
+
+Pesos: descripción hasta 50 puntos, color 60, rasgos hasta 45. El color sigue mandando —es la queja más cara— y la descripción desempata por debajo.
+
+Medido con el caso real, catálogo simulado de 40 Air Max y 5 lisos:
+
+| | 1º | 2º | 3º |
+|---|---|---|---|
+| **Antes** | Air Max 270 | Air Max 270 | Air Max 270 |
+| **Ahora** | Tommy blanco | Calvin Klein | Alo |
+
+**No hizo falta reindexar nada:** el campo ya estaba guardado desde la primera indexación.
+
+**Lo que sigue pendiente, si hiciera falta.** Los 15 rasgos siguen sin tener vocabulario para el zapato tranquilo: no hay `cañaAlta`, ni `cueroLiso`, ni `suelaPlataforma`, ni `sinLogoVisible`. Añadirlos daría una señal más limpia que el texto, pero obliga a **reindexar los 581 productos** (`/indexar-catalogo?rehacer=si`, unas horas de cron y el gasto de 581 llamadas de visión). Se dejó sin hacer porque la descripción ya resuelve el caso y es gratis.
+
+### El color de la foto manda (24-sep-2026)
+
+Reportado por el dueño: *"pregunté por un calzado, en la historia sale en color negro y me mostró otro color nada que ver; con los Tommy igual"*. Y el otro síntoma: *"a veces dice ¿son adidas? ¿me dices cómo se llama? y muestra algo nada que ver"*.
+
+**Por qué pasaba.** El ranking del índice solo miraba los 15 rasgos — y entre dos colores del MISMO modelo esos rasgos son **idénticos**. Así que el desempate lo hacía el orden en que D1 devolviera las filas. Con 17 `New Balance 9060 Dama` en el catálogo, acertar el color era una lotería de 1 entre 17. Lo mismo con los resultados de marca: diez Adidas sin ordenar, y el modelo solo ve los 8 primeros.
+
+**Qué cambió:**
+
+1. **La visión devuelve el color** en su propio campo del JSON (`color`), no enterrado en la frase libre de `visto` — ahí *"suela blanca"* convertía un zapato negro en uno blanco. El prompt es explícito: el color del CUERPO del zapato, no el de la suela ni el del swoosh; vacío si el filtro no deja verlo.
+2. **El color pesa en el ranking, y pesa más que los rasgos.** Coincidir suma 60; llevar OTRO color escrito en el título resta 25; un título que no nombra color (`Tommy caballero`) ni suma ni resta — no contradice nada. El máximo por los 15 rasgos son 45 puntos, así que el color gana los empates, que es justo donde se perdía.
+3. **Los resultados de marca también se ordenan.** Se piden 3x candidatos a Shopify y se ordenan por color + rasgos antes de enseñárselos al modelo, que solo mira 8.
+4. **El prompt del cotejo desempata por color.** Sigue diciendo que un color distinto no descarta un modelo — eso es correcto y evita perder ventas por un filtro de Instagram— pero ahora añade: si varios candidatos son el mismo modelo y solo cambian de color, elige el de la foto.
+5. **Detrás del elegido van sus hermanos.** Antes, cuando el par salía del índice o de la marca, se mandaba SOLO. Pero en este catálogo el mismo título se repite una vez por color, así que los que comparten título son el mismo zapato en otros colores — que es exactamente lo que el cliente quiere ver después del suyo. **El de la foto va primero** y detrás hasta 9 más.
+
+### El barrido a Shopify ya no corre con el catálogo indexado (24-sep-2026)
+
+Capturado en producción por el dueño, en `wrangler tail`. Una respuesta a una historia con `"Precio"`:
+
+```
+Índice: 581 productos guardados, los 10 más parecidos a la foto van al cotejo
+Cotejo visual: ninguno del catálogo es el de la foto
+Catálogo completo: 581 productos                      ← llamada a Shopify
+Barrido del catálogo: miro 20 de 539 sin mirar (2 lotes de 10)
+Cotejo visual: ninguno ...
+Barrido: no encontré el de la foto entre los 20 que miré
+```
+
+**El índice se consultaba y acto seguido se ignoraba.** Con los 581 ya indexados, el bot miraba los 10 mejores, fallaba, y entonces pedía el catálogo ENTERO a Shopify para barrer 20 productos elegidos por **parecido de título** — con un término que en ese mensaje era `"NADA"`. Dos llamadas más al modelo, medio minuto del cliente, y **peores candidatos que los que acababa de descartar**: el índice ordena por los rasgos de la foto; el barrido, por palabras de un título que no existía. El comentario del código ya decía *"solo hace falta si el catálogo NO está indexado"* — pero el código no lo comprobaba.
+
+**Ahora:**
+
+- **Se baja por el ranking del índice**, hasta 3 rondas de 10 (`RONDAS_DEL_INDICE`). Son los 30 productos que más se parecen a la foto de todo el catálogo, no veinte cualesquiera. Si acierta en la ronda 1, no gasta las otras.
+- **Con el índice por encima de 200 filas (`INDICE_SUFICIENTE`), el barrido no corre.** Lo que había que mirar ya se miró.
+- **Por debajo de eso el barrido sigue siendo la red** — indexación a medias, tienda recién desplegada, o una tienda sin índice como El Emperador. Y `COTEJO_BARRIDO = "no"` lo sigue apagando.
+- Si OpenAI se queda sin cupo entre rondas, corta ahí en vez de encadenar llamadas que ya se sabe que fallan.
+
+### Con una foto, el bot enseña — no pregunta (24-sep-2026)
+
+Con el catálogo ya indexado, pedirle al cliente el nombre del modelo es absurdo por dos razones: **el bot sí sabe qué hay**, y **quien manda una foto casi nunca sabe el nombre** — si lo supiera, lo habría escrito. Aun así el bot terminaba en `"No logro identificar bien ese modelo 😅 ¿Sabes cómo se llama?"` cada vez que el cotejo se abstenía.
+
+**Qué pasaba.** El cotejo visual solo muestra producto con confianza `alta` (y está bien: lo que sale de ahí es una ficha con precio y botón de compra). Cuando decía `media`, y la búsqueda por nombre tampoco había dejado nada, no quedaba nada que mostrar y la respuesta que el modelo de texto ya había escrito —"no sé, ¿cómo se llama?"— salía tal cual.
+
+**Qué hace ahora.** `parecidosDeLaFoto()` en `cotejo.js`: compara los 15 rasgos de la foto contra los del índice **en código, sin una sola llamada al modelo ni un token del cupo**, y devuelve los 6 que más puntúan. El bot los enseña con un `"Mira, ¿es alguno de estos? 👇"`.
+
+- **No afirma nada.** Esa es la diferencia con el cotejo, que sí afirma y por eso exige confianza alta. Aquí se enseña y se pregunta *cuál*, que es lo que hace una vendedora con el zapato delante.
+- **Elegir sí puede; nombrar no.** La rama de "reconocí la marca pero no el modelo" también cambió: antes pedía el nombre exacto, ahora muestra lo de esa marca y pregunta cuál de esos es.
+- **Los prompts dejaron de enseñar la respuesta mala.** En `texto.txt` ya no está `"No logro identificar"` ni `"¿Sabes cómo se llaman?"`, y la instrucción es explícita: prohibido decir que no lo reconoces, prohibido pedir el nombre del modelo, prohibido pedir otra foto.
+- **Cuando la historia es un vídeo y no hay imagen, sigue preguntando** — y debe: ahí no hay rasgos contra los que comparar, así que no hay nada que enseñar. Eso no se tocó.
+
+**Los precios del índice se refrescan solos.** Como ahora se mandan fichas que salen del índice, un precio guardado el día que se indexó sería un precio viejo en pantalla. Mirar la foto cuesta una llamada al modelo; copiar el precio no cuesta nada —ya viene en la respuesta de Shopify que el cron acaba de pedir—, así que `indexarTanda()` actualiza precio, enlace y título de **todas** las filas en cada pasada, sin volver a mirar ninguna imagen. Sale en `/indexar-catalogo` como `Precio o enlace actualizados: N`.
+
+### Las dos listas de productos: `catalogo.txt` y `modelos.txt`
+
+| Archivo | Qué trae | A qué prompt va | Peso |
+|---|---|---|---|
+| `prompts/catalogo.txt` | Los **347 títulos** completos, tal cual están en Shopify (`Nike Metcon 7 negro blanco dama/caballero`) | `texto.txt`, vía `{{CATALOGO}}` | ~2.400 tokens, una vez por arranque |
+| `prompts/modelos.txt` | Los **163 modelos**, sin género ni color (`Nike Metcon 7`) | `vision.txt`, vía `{{MODELOS}}` | ~584 tokens |
+
+**Por qué son dos y no una (24-sep-2026).** El 22-sep se le quitaron al prompt de visión los 347 títulos porque costaban **~3.100 tokens en cada foto** contra el cupo de 30.000/min de OpenAI — el mismo cupo del que vive el cotejo visual. El recorte estaba bien, pero dejó al modelo de visión sin saber qué se vende aquí, justo mientras el prompt le exige escribir `buscar` *"como aparece en los títulos del catálogo"*. `modelos.txt` es el término medio: **+584 tokens en vez de +2.399, 4 veces más barato**. Que haya 17 `New Balance 9060` por color no le hace falta saberlo a la visión — de elegir el color se encarga el cotejo, que para eso mira la foto.
+
+**La regla que hace que la lista sirva:** cada nombre tiene que aparecer **literalmente dentro de algún título real**. Si no, el modelo lo escribiría en `buscar` y la búsqueda devolvería cero. Está comprobado sobre los 581 títulos del export: los 163 pasan.
+
+**Las erratas no se corrigen, en ninguna de las dos listas.** `New Balamce 9060`, `Adidas Gallangher`, `Kirie Irving 4`, `Onitsuka Tiguer`, `Dolce Gabanna` están así en Shopify y la búsqueda es literal: corregirlas es perder el producto. Cuando existen las dos formas, van las dos.
+
+**Cómo rehacer `modelos.txt`:** de los títulos del export se quitan género y colores, y se queda lo que **siga apareciendo literalmente** en algún título. El encabezado del archivo lo explica.
+
+**Nota sobre el export del 24-09-2026:** 581 filas, 347 nombres — **idéntico** al que ya estaba cargado. La columna `Available` viene en 0 en las 581 filas, así que ese export no sirve para saber stock.
+
+### El índice del catálogo (`indice.js` + `/indexar-catalogo`)
+
+El trabajo de mirar el catálogo no hace falta repetirlo en cada mensaje: el catálogo no cambia entre un cliente y el siguiente. Así que se mira **una vez**, se guardan los 15 rasgos de cada producto en D1, y cuando llega una foto sus rasgos se comparan con los guardados **en código, sin gastar una sola llamada ni un token de cupo**. Solo los 10 más parecidos van a un único cotejo.
+
+**De 20 llamadas por mensaje a 1**, y el cliente espera segundos en vez de minutos.
+
+- **Se indexaba por título y se pisaba a sí mismo — corregido el 24-sep-2026.** Capturado en producción: la indexación subía, se paraba en seco alrededor del 24% y `FALTAN N` no bajaba de ahí, **sin un solo error en el registro**. La tabla tenía `titulo TEXT PRIMARY KEY`, y el catálogo tiene **581 productos pero solo 347 títulos distintos** (el mismo nombre para varios colores): 234 productos se borraban unos a otros al guardarse.
+  - **Por qué no terminaba nunca.** Al guardar, el último de cada título pisa al anterior. En la pasada siguiente el pisado vuelve a salir como pendiente —su foto no coincide con la guardada—, se vuelve a mirar, y se vuelve a pisar. El índice no puede pasar del número de títulos y `faltan` no llega nunca a cero. Cada pasada tiraba 40 llamadas de visión para nada, en bucle.
+  - **La clave ahora es la URL de la foto**, que sí es única por producto (el CDN de Shopify le mete el id de la imagen). De regalo arregla el reindexado: si a un producto le cambian la foto es una clave nueva, entra sola, y la vieja la limpia `limpiarLosQueYaNoEstan()` — que también pasó a comparar por foto, porque por título un color retirado seguía pareciendo vigente.
+  - **La tabla vieja se migra sola y no se pierde lo ya indexado.** `asegurarIndice()` mira la clave primaria con `PRAGMA table_info`; si es la vieja, copia las filas a la tabla nueva usando su foto como clave y renombra. Lo que ya se le pagó al modelo por esos productos sigue valiendo: no se vuelve a mirar ni uno.
+  - **Y ahora grita si vuelve a pasar.** Tras guardar, se compara cuántas filas nuevas quedaron contra cuántas se guardaron; si no cuadra, sale un `console.error` diciendo que se están pisando. Lo peor de este fallo no fue el fallo: fue que no dijo nada.
+  - **El porcentaje ya no miente.** Se cuenta sobre los productos **indexables** (los que tienen foto), no sobre los 581. Los que no tienen `featuredImage` no se pueden indexar —el cotejo compara imágenes— y ahora salen contados aparte en `/indexar-catalogo`.
+  - **`mejoresPorRasgos()` devuelve un candidato por título**, el color cuyos rasgos más se parecen a la foto. Antes, con varias filas del mismo modelo, media lista de candidatos se iba en repetidos que `cotejo.js` colapsaba después.
+- **Cómo se llena: solo (24-sep-2026).** `[triggers] crons` en `wrangler.toml` llama al Worker cada 15 minutos y el handler `scheduled()` indexa lo que falte, por tandas de 40, con un presupuesto de 60 s y un tope de 5 tandas por pasada. Desde vacío tarda un par de horas; después se mantiene solo, y los productos nuevos los recoge en la siguiente pasada. **Cuando ya no falta nada, la pasada no gasta ni una llamada al modelo.**
+  - **Por qué hubo que cambiarlo.** Antes era abrir `/indexar-catalogo` y recargar ~15 veces (581 productos, tandas de 40). Una tarea que depende de que alguien recargue quince veces no se hace: el índice se quedaba vacío y el cotejo, sin su vía buena, caía al barrido corto — 20 productos de 581. Misma lección que la columna `mostrados`: lo que se pueda resolver desde el archivo que sí se copia, se resuelve ahí.
+  - **La ruta sigue existiendo** para mirar cómo va o adelantar una tanda a mano (`?cuantos=N`, `?rehacer=si`). La lógica de la tanda vive ahora en `indexarTanda()` dentro de `indice.js`, y la usan tanto la ruta como el cron.
+  - **Si algo va mal no insiste:** sin saldo o sin permiso para el modelo, la pasada lo anota en `wrangler tail` y corta; si se acaba el cupo por minuto, guarda lo que alcanzó y sigue en la próxima.
+- **Con qué modelo:** `OPENAI_MODELO_INDICE` (por defecto `gpt-4o-mini`), que tiene un cupo por minuto mucho más alto y para una foto de producto limpia alcanza. La foto del **cliente** sigue yendo al modelo bueno.
+- **Cómo puntúa:** compartir un rasgo **presente** ("los dos tienen cámara de aire en el talón") vale 3; compartir uno ausente vale 1, porque casi todos los pares no tienen casi ningún rasgo y los "no" coinciden por defecto sin distinguir nada; diferir resta 2, porque un rasgo que uno tiene y el otro no es justo lo que descarta un modelo.
+- **Se mantiene solo:** un producto se reindexa si le cambió la foto (la URL del CDN de Shopify cambia con la imagen), y los que desaparecen de Shopify se borran del índice al terminar una pasada completa — si no, el bot podría enseñar la ficha de algo que ya no se vende.
+- **El cupo se cuenta por modelo.** Esto empezó siendo un solo número y estaba mal: OpenAI da un cupo por minuto **a cada modelo por separado**. Con un número compartido, un 429 de `gpt-4o` —que en esta cuenta pasa seguido— apagaba también la indexación, que corre con el mini y tenía cupo de sobra: la primera indexación real guardó **cero productos** sin que se entendiera por qué. Ahora cada modelo lleva su propia cuenta, y la indexación **espera** a que vuelva el cupo en vez de rendirse (puede hacerlo: no hay ningún cliente del otro lado). La respuesta a un cliente nunca espera.
+- **`/estado` dice cuántos hay indexados.** Si dice `VACÍO`, el cotejo se queda sin su vía buena y cae al barrido corto.
+
+   Solo la confianza **"alta"** llega al cliente. Si no confirma, no descarta nada: el bot muestra lo que encontró preguntando si es ese, que es lo honesto.
+
 ## Proyecto actual: Invictus Shoes
 
 Chatbot vendedor de calzado por Instagram (carrusel de productos vía Shopify).
@@ -50,7 +387,7 @@ Las dos ramas divergieron a arquitecturas **incompatibles**:
    ```
    npx wrangler d1 create invictus-bot-db
    ```
-   Copiar el `database_id` que imprime ese comando dentro de `worker/wrangler.toml` (busca `PENDIENTE`), y luego:
+   Copiar el `database_id` que imprime ese comando dentro del `wrangler.toml` de esa tienda (busca `PENDIENTE`), y luego:
    ```
    npx wrangler d1 migrations apply invictus-bot-db --remote
    ```
@@ -58,23 +395,72 @@ Las dos ramas divergieron a arquitecturas **incompatibles**:
 3. **Confirmar en el panel de Meta Developers** que el webhook de Instagram está suscrito al campo `message_echoes` además de `messages` — sin eso, la pausa automática cuando un asesor responde a mano no funciona (nunca le llega el eco al Worker).
 4. Revisar `GET /estado` después de desplegar: tiene que decir "DB conectada". Si dice "FALTA", el paso 1 no se completó.
 
-### Multi-tienda (22-sep-2026)
+### Un Worker por tienda (decidido el 29-sep-2026)
 
-El mismo código atiende a varias tiendas. Lo que cambia por tienda son dos archivos: `wrangler.toml` (credenciales, Shopify, WhatsApp, y `TIENDA = "..."`) y `src/tiendas/<tienda>.js` (nombre, horarios, calidad, catálogo, términos de búsqueda). **Todo lo que hay en `src/` es idéntico en las dos carpetas de despliegue**, así que un arreglo se aplica pegando los mismos archivos en las dos.
+Se probó la vía multi-tienda —un solo Worker atendiendo a varias, con
+`tienda.js`, `tiendas/*.js` y prompts con `{{TIENDA}}`— y **se descartó**. Con
+pocos clientes que son negocios de verdad, el aislamiento vale más que dar de
+alta rápido:
 
-- `src/tienda.js` — elige la tienda según `env.TIENDA` y rellena los marcadores de los prompts. Si `TIENDA` no existe, **lanza** en vez de seguir: con la tienda equivocada el bot se presentaría con el nombre de otro negocio y buscaría en el catálogo que no es.
-- `src/tiendas/invictus.js`, `src/tiendas/emperador.js` — los datos de cada una.
-- Los prompts (`texto.txt`, `vision.txt`) quedaron **sin marca**: `{{TIENDA}}`, `{{CALIDAD}}`, `{{CATALOGO}}`, `{{TERMINOS}}`, `{{HORARIOS}}`. Se rellenan una vez por arranque en `ia.js` y se guardan en memoria. Así las ~1000 líneas de tono, reglas y ejemplos —lo que más costó afinar— valen para cualquier tienda.
-- **Comprobado que Invictus no cambia:** el prompt reconstruido difiere del anterior en 8 líneas, todas intencionales (el nombre fijo que se quitó, un salto de línea y un ejemplo con la frase de calidad completa).
-- Una tienda **sin catálogo todavía** no rompe: `tienda.js` mete en su lugar un texto que le dice al modelo que use las palabras exactas del cliente y no invente nombres de modelos. Conversa y vende; busca peor hasta que se cargue la lista.
-- `parecidos.js` se comparte a propósito: el parecido entre un Vapormax y un TN es de los zapatos, no de quién los venda. Si una tienda no maneja un término, la búsqueda devuelve cero y se pasa a la siguiente alternativa.
-- **El Emperador vende doble A y triple A**, no 1.1 como Invictus. Como son dos gamas y el bot no puede saber de cuál es un par concreto (ve el título y la foto, no la gama), su sección de calidad nombra las dos y manda al asesor cuando preguntan por un modelo en particular. Decir "triple A" de un par que es doble A es la equivocación más cara que podría cometer.
+- Un despliegue malo tumba **una** tienda, no todas a la vez.
+- Cada tienda tiene su D1. Los datos de un cliente no pueden mezclarse con los
+  de otro — y eso no es teórico: `contactos` se indexa por el igsid del
+  cliente, y la misma persona puede escribirle a dos tiendas. En una base
+  compartida sería la misma fila.
+- El índice del catálogo se lee entero (`SELECT ... FROM catalogo`). Compartido,
+  el cotejo visual de una tienda compararía la foto contra los zapatos de otra.
+- `gasto.js` ya mide por tienda sin hacer nada más: cada Worker tiene su tabla.
+
+La carpeta `worker/` se borró. Está en el historial de git si hace falta.
+
+**Lo que evita que las copias se separen no es meter todo en un Worker**, es
+que `src/` sea idéntico en todas las carpetas y que un arreglo se pegue en
+todas. Lo que NUNCA se cruza: `wrangler.toml`, `src/prompts/` y los secretos.
+
+- `parecidos.js` se comparte a propósito: el parecido entre un Vapormax y un TN
+  es de los zapatos, no de quién los venda. Si una tienda no maneja un término,
+  la búsqueda devuelve cero y se pasa a la siguiente alternativa.
+- **El Emperador vende doble A y triple A**, no 1.1 como Invictus. Como son dos
+  gamas y el bot no puede saber de cuál es un par concreto (ve el título y la
+  foto, no la gama), su sección de calidad nombra las dos y manda al asesor
+  cuando preguntan por un modelo en particular. Decir "triple A" de un par que
+  es doble A es la equivocación más cara que podría cometer.
 - Guía de montaje paso a paso: `MONTAR-OTRA-TIENDA.md`.
+
+### Cotejo visual contra el catálogo (22-sep-2026)
+
+Hasta ahora **todo** el reconocimiento por foto terminaba en un nombre: la IA miraba la imagen, decía "Vapormax", y ese texto se buscaba en Shopify. Cuando el nombre no acertaba, no había búsqueda que valiera — y fallaba seguido (el Uplift saliendo como "Air Max 270", tres veces documentadas arriba). Es el fallo más caro del bot: quien responde a una historia ya vio el zapato y lo quiere, y recibía un "¿sabes cómo se llama?".
+
+`src/cotejo.js` + `src/prompts/cotejo.txt` cambian la pregunta. En vez de adivinar el nombre, se le ponen al modelo **la foto del cliente al lado de las fotos reales del catálogo** (Shopify ya devuelve `featuredImage` en cada resultado) y se le pregunta cuál es el mismo par. Comparar dos imágenes es mucho más fácil que recordar un nombre, y lo que sale es un producto REAL de la tienda —título exacto, precio y enlace— en vez de un término que ojalá exista.
+
+**Cuándo corre.** Cada cotejo es una llamada de visión más, así que no corre en cada mensaje. Solo con foto, y solo cuando la vía normal no dejó una respuesta buena:
+
+| Lo que devolvió la búsqueda por nombre | Qué hace el cotejo |
+|---|---|
+| **Nada** | Busca por la marca (la primera palabra del término) y cotea esos. Es el caso que más duele y el que más gana. |
+| **Varios** (típico cuando `identificar.js` bajó a nivel marca: "Nike" trae diez) | Los cotea y pone el acertado **primero**, sin descartar el resto. |
+| **Uno solo** | No corre. No hay nada que elegir, y descartarlo por una duda sería cambiar un resultado bueno por ninguno. |
+
+**Las decisiones que lo hacen seguro:**
+- **Se elige por número, no por título.** Si se le pidiera el nombre, el modelo lo parafrasearía ("Air Max 97 plateadas" por el título real) y habría que adivinar a cuál se refería. Con un índice, o es uno de los que se le mandaron o es 0. Garantizado con `json_schema` + `strict`, igual que la visión.
+- **Solo pasa la confianza "alta".** Lo que sale de aquí se convierte en una ficha con precio y botón de compra: con una corazonada no se manda. El prompt dice explícitamente que **"ninguno" (eleccion 0) es una respuesta correcta**, y prohíbe elegir "el más parecido" por no quedarse sin respuesta.
+- **El color se mira el último.** El mismo modelo existe en veinte colores, y una historia trae filtro, luz de tienda y stickers encima. Decide la suela, después el corte.
+- **Nunca empeora.** Si no está seguro, si el modelo falla o si Shopify no responde, devuelve `null` y el bot sigue exactamente igual que sin este archivo.
+
+**Costo.** La foto del cliente va en `detail:"high"` (hay que leerla al detalle); las del catálogo en `detail:"low"`, porque son fotos de producto limpias sobre fondo liso donde la silueta y la suela se leen igual de bien. Máximo 8 candidatos — subirlo además empeora la comparación: cuantos más pares mira, más fácil es que se conforme con el más parecido.
+
+**Pendiente de prueba real:** no hay acceso a la tienda desde este entorno, así que el cotejo está comprobado en su lógica de ramas (cuándo corre, cuándo no, qué manda) pero **no contra fotos reales del catálogo**. La primera prueba en vivo debería ser una respuesta a una historia de un modelo que el bot venía fallando.
+
+### La tabla de D1 se crea sola (22-sep-2026)
+
+`asegurarColumnas` en `estado.js` agregaba columnas, pero si la tabla **no existía** se rendía — y eso dejaba el arranque dependiendo de que alguien se acordara de correr `wrangler d1 migrations apply` a mano. En el primer arranque de EPICELL no se corrió: la base estaba creada pero vacía, y cada mensaje moría con `D1_ERROR: no such table: contactos`. El cliente escribió "Hola" y no recibió nada.
+
+Ahora la tabla se crea desde el código igual que las columnas (`CREATE TABLE IF NOT EXISTS`, que no pisa nada si ya está). Las migraciones siguen existiendo para quien prefiera correrlas, pero ya no son la única forma. Es la regla 3 del `CLAUDE.md`, que hasta ahora se cumplía a medias.
 
 ### Estructura
 
 ```
-worker/
+invictus-bot/        (y emperador-bot/, bot-telefonos-epicell/: la misma forma)
   wrangler.toml          configuración del Worker (vars, binding de D1, binding de prompts .txt)
   migrations/
     0001_contactos.sql   crea la tabla de memoria en D1
@@ -87,6 +473,8 @@ worker/
     instagram.js           firma del webhook, envío de mensajes/fichas, lectura de eventos (incluye ecos)
     estado.js               memoria en D1: historial, nombre, pausa por asesor humano
     identificar.js          red de seguridad determinista para lo que identifica la IA en una foto
+    cotejo.js               compara la foto del cliente con las fotos del catálogo y saca el par exacto
+    indice.js               el catálogo mirado una vez y guardado en D1: rasgos por producto
     shopify.js              búsqueda de productos (Admin GraphQL API)
     color.js                separa el color del término de búsqueda y filtra por color
     historial.js            arma el contexto que ve el modelo (separa pasado/presente, recorta historial)
@@ -97,15 +485,16 @@ worker/
     prompts/
       texto.txt              prompt de conversación/ventas
       vision.txt              prompt de análisis de fotos (respuestas a historias / fotos directas)
+      cotejo.txt              prompt del cotejo visual: cuál del catálogo es el de la foto
 ```
 
 ### Prompts
 
-- `worker/src/prompts/texto.txt` — prompt principal de conversación/ventas. Devuelve JSON `{"respuesta":"...","buscar":"...","historial":"..."}`. Tabla de términos verificados para el catálogo de Shopify, reglas de tono (español neutro), bienvenida, manejo de historial, divisas, tallas, precios, etc.
+- `src/prompts/texto.txt` — prompt principal de conversación/ventas. Devuelve JSON `{"respuesta":"...","buscar":"...","historial":"..."}`. Tabla de términos verificados para el catálogo de Shopify, reglas de tono (español neutro), bienvenida, manejo de historial, divisas, tallas, precios, etc.
   - **21-sep-2026 — vendedor, no repartidor de enlaces.** Se eliminó la contradicción entre "CATÁLOGO GENERAL" (elige una marca y búscala) y "MÁS MODELOS" (no busques, manda a la tienda): ganó la primera. "¿Qué más tienen?", "¿eso es todo?" y "¿solo tienen esos?" ahora se responden mostrando OTRA marca del catálogo. Sección nueva **"SI NO SABE QUÉ QUIERE, OFRÉCELE TÚ"**, con una tabla de pista→búsqueda ("para el gym" → `metcon`, "algo elegante" → `Superstar`, "para mi novia" → `dama`). Punto 7 nuevo en el repaso final: si la respuesta manda al catálogo, se reescribe. Se arregló además un ejemplo cortado a la mitad ("PEDIR MÁS — variantes del mismo producto" no tenía ni mensaje del cliente ni JSON).
   - **21-sep-2026 — historias reales.** Toda la sección "RESPUESTAS A HISTORIAS" describía un marcador `[PRODUCTO DE LA HISTORIA: X]` que el código dejó de mandar al retirar ManyChat: eran ~70 líneas y 6 ejemplos enseñando un contrato inexistente. Reescrita con los marcadores que `index.js` sí manda (historia en vídeo / imagen que no se pudo ver), y con la regla que faltaba: si el mensaje del cliente ya nombra marca, color o tipo, se busca en vez de preguntar.
   - **21-sep-2026 — se resolvió la contradicción del "¡sí tenemos!".** El prompt lo prohibía en una sección y lo pedía como ejemplo correcto en otras tres. Ahora la regla es una sola y tiene condición verificable: el entusiasmo vale **si en el mismo mensaje `buscar` no es "NADA"** — si la búsqueda no devuelve nada, `decidir()` sustituye la respuesta entera por la del asesor antes de que llegue al cliente, así que nunca se afirma en falso.
-- `worker/src/prompts/vision.txt` — prompt de análisis de imágenes. Devuelve JSON `{"visto":"...","rasgos":{...},"respuesta":"...","buscar":"...","historial":"..."}`. Usa "escalera de confianza" (4 niveles) y firmas visuales por marca/modelo.
+- `src/prompts/vision.txt` — prompt de análisis de imágenes. Devuelve JSON `{"visto":"...","rasgos":{...},"respuesta":"...","buscar":"...","historial":"..."}`. Usa "escalera de confianza" (4 niveles) y firmas visuales por marca/modelo.
   - **19-sep-2026 (1):** ampliado con firmas visuales para ~30 marcas más (LV, Dior, Hermès, Golden Goose, Off White, Bape, Asics, Salomon, firmas de jugadores NBA, etc. — antes solo cubría ~12 modelos de Nike/Adidas/On Cloud/Vans/Puma) y con una "regla de marca única" que evita exigir dos rasgos en marcas donde el catálogo solo tiene un modelo. También se suavizó el sesgo hacia "no reconozco nada" en la escalera de confianza.
   - **19-sep-2026 (2):** una foto de prueba real (Nike Uplift, verde menta) salió identificada como "Air Max 270" — mal, porque no había firma para Uplift ni para el propio Air Max 270. Se agregaron esas dos, más Huarache, Cortez, Vapormax, M2K Tekno, Waffle Trainer, Wildhorse, Total 90, Puma Palermo, Adidas SL 72, Adidas Bad Bunny (Forum) y NB 530 Miu Miu — y una regla nueva, "NO FUERCES EL AJUSTE AL MODELO MÁS PARECIDO".
   - **19-sep-2026 (3):** firma completa para Metcon 6/7 (suela plana con placa dura, muesca lateral para trepar cuerda) — antes solo tenía una línea suelta. Se aclaró que Metcon 6 y 7 buscan igual (`metcon`).
