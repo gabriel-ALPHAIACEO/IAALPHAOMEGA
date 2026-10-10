@@ -120,7 +120,7 @@ function diaCorto(ms) {
 // después de ese día (ver cobrar): el conteo ya la traía descontada.
 function avisosDeContadas(contadas, cantidades) {
   return (contadas || []).map(
-    (c) => `«${c.nombre}» se contó el ${diaCorto(c.cuando)}, después de esa venta: si ese conteo ya la traía descontada, súmale ${cantidades.get(c.varianteId) || 1} en Mover › Entrada.`
+    (c) => `«${c.nombre}» se contó o se cambió a mano el ${diaCorto(c.cuando)}, después de esa venta: si ese número ya la traía descontada, súmale ${cantidades.get(c.varianteId) || 1} en Mover › Entrada.`
   );
 }
 
@@ -134,11 +134,18 @@ export function tarifaDeLaVenta(tarifaDeCaja, metodo) {
   return tarifaDeCaja === "cashea" && metodo !== DIVISAS ? "cashea" : "";
 }
 
-function conAviso(ruta, { ok = "", error = "" } = {}) {
+function conAviso(ruta, { ok = "", error = "", cuenta = "" } = {}) {
   const [camino, hash = ""] = ruta.split("#");
   const sep = camino.includes("?") ? "&" : "?";
-  const extra = error ? `error=${encodeURIComponent(error)}` : ok ? `ok=${encodeURIComponent(ok)}` : "";
-  return `${camino}${extra ? sep + extra : ""}${hash ? `#${hash}` : ""}`;
+  const partes = [error ? `error=${encodeURIComponent(error)}` : ok ? `ok=${encodeURIComponent(ok)}` : "", cuenta ? `cuenta=${encodeURIComponent(cuenta)}` : ""].filter(Boolean);
+  return `${camino}${partes.length ? sep + partes.join("&") : ""}${hash ? `#${hash}` : ""}`;
+}
+
+// Un aviso que NO se va solo (la tostada sí): lo que la persona tiene que revisar
+// a mano, como una venta de otro día sobre un producto que se contó después.
+function avisoFijo(url) {
+  const texto = String(url.searchParams.get("cuenta") || "").trim().slice(0, 600);
+  return texto ? `<div class="aviso-fijo" role="alert">${insignia("alerta", "aviso", "chica")}<span>${esc(texto)}</span></div>` : "";
 }
 
 function volverSeguro(valor, porDefecto) {
@@ -238,6 +245,8 @@ const ESTILO = `<style>
 .cantidades-cabeza b{font-size:13px;font-weight:700;color:var(--suave)}
 .cantidades-igual{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--suave)}
 .cantidades-igual input{width:84px;text-align:center}
+.cantidades-nota{display:block;margin-top:10px;color:var(--suave);font-size:12.5px}
+.aviso-fijo{display:flex;gap:12px;align-items:flex-start;margin:0 0 16px;padding:14px 16px;border-radius:18px;background:var(--aviso-fondo);color:var(--texto);box-shadow:inset 0 0 0 1px rgba(255,191,71,.28);font-size:14px;line-height:1.45}
 .cantidades .solo-grilla{display:none}.cantidades.con-grilla .solo-grilla{display:inline}.cantidades.con-grilla .sin-grilla{display:none}
 .cantidades-grilla{display:none;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:10px;margin-top:12px}
 .cantidades.con-grilla .cantidades-grilla{display:grid}.cantidades-grilla:empty{display:none!important}
@@ -532,7 +541,7 @@ ${cuadros.map((c, i) => `<div${cuadros.length % 2 && i === cuadros.length - 1 ? 
       const sinContar = !v.contada && !aqui;
       return `<div class="variante"><button type="button" class="variante-nombre" popovertarget="editar-variante" data-variante="${datosEditar}" title="Editar precio, foto y código"><b>${esc(nombreDeVariante(v))}${icono("editar", { clase: "chico" })}</b>${sub ? `<small>${esc(sub)}</small>` : ""}${marcas ? `<span class="variante-marcas">${marcas}</span>` : ""}</button>
 <a class="codigo-mini" href="/panel/inventario/etiquetas?variante=${v.id}" title="Imprimir etiquetas de ${esc(v.codigo_barras)}">${svgEan13(v.codigo_barras, { alto: 30 })}</a>
-<div class="variante-cantidad"><input class="cant-editable ${sinContar ? "" : aqui <= 0 ? "cero" : aqui <= 2 ? "poco" : ""}" type="number" inputmode="numeric" min="0" max="100000" step="1" placeholder="—" value="${sinContar ? "" : aqui}" data-cantidad="${v.id}" data-sede="${sedeElegida}" data-vista="${sinContar ? "" : aqui}" aria-label="Cuántas hay de ${esc(nombreDeVariante(v))}" title="Escribe la cantidad: se guarda sola"><small>${sinContar ? "sin contar" : aqui === 1 ? "queda" : "quedan"}</small></div>
+<div class="variante-cantidad"><input class="cant-editable ${sinContar ? "" : aqui <= 0 ? "cero" : aqui <= 2 ? "poco" : ""}" type="number" inputmode="numeric" min="0" max="100000" step="1" placeholder="—" autocomplete="off" value="${sinContar ? "" : aqui}" data-cantidad="${v.id}" data-sede="${sedeElegida}" data-vista="${sinContar ? "" : aqui}" aria-label="Cuántas hay de ${esc(nombreDeVariante(v))}" title="Escribe la cantidad: se guarda sola"><small>${sinContar ? "sin contar" : aqui === 1 ? "queda" : "quedan"}</small></div>
 <button type="button" class="variante-mover" popovertarget="mover" data-mover-variante="${datosMover}">${icono("movimientos")}Mover</button></div>`;
     })
     .join("");
@@ -543,7 +552,7 @@ ${cuadros.map((c, i) => `<div${cuadros.length % 2 && i === cuadros.length - 1 ? 
     devolucion: "Vuelve al stock. Si fue una venta de la caja, mejor anúlala desde Ventas: así no cuenta como vendida.",
     ajuste: "Escribe cuántas contaste: el stock queda exacto y la diferencia se guarda en el historial.",
   };
-  const formMover = `<form method="post" action="/panel/inventario/mover" data-quien id="mover-form">
+  const formMover = `<form method="post" action="/panel/inventario/mover" data-quien data-una-vez id="mover-form">
 <input type="hidden" name="variante" value=""><input type="hidden" name="sede" value="${sedeElegida}"><input type="hidden" name="volver" value="${esc(volver)}">
 <div class="opciones mover-tipos">${Object.entries(TEXTO_DE_MOVIMIENTO)
     .map(([tipo, texto], i) => `<label class="opcion"><input type="radio" name="tipo" value="${tipo}"${i ? "" : " checked"} data-ayuda="${esc(ayudas[tipo])}">${icono(ICONO_DE_MOVIMIENTO[tipo][0])}${esc(texto)}</label>`)
@@ -585,7 +594,7 @@ ${opciones.botLeeInventario ? `<input type="hidden" name="con_bot" value="1"><la
     titulo: p.titulo,
     acciones: `<a class="boton suave" href="/panel/inventario/etiquetas?producto=${p.id}">${icono("etiqueta")}Etiquetas</a><button type="button" class="boton suave" popovertarget="editar">${icono("editar")}Editar</button>`,
   })}
-<div class="ficha-producto">
+${avisoFijo(url)}<div class="ficha-producto">
 <div>${galeria}${datos}</div>
 <div>
 <section class="panel-tarjeta"><div class="stock-cima"><h2>${insignia("inventario", "marca", "chica")}Stock${listaDeSedes.length > 1 ? "" : ` <span class="chip"><span data-n-aqui>${esc(numero(enSede))}</span> en total</span>`}</h2>${sedesSegmento}</div>
@@ -593,11 +602,11 @@ ${p.variantes.length ? `<div class="variantes" data-otras="${total - enSede}">${
 ${listaDeSedes.length > 1 ? `<p class="suave" style="margin:12px 2px 0;font-size:13px">Mostrando ${esc(nombreSede)}: <span data-n-aqui>${esc(numero(enSede))}</span> ${enSede === 1 ? "unidad" : "unidades"}. Entre todas las sedes quedan <span data-n-todas>${esc(numero(total))}</span>.</p>` : ""}
 </section>
 <section class="panel-tarjeta" style="margin-top:18px"><h2>${insignia("mas", "marca", "chica")}Añadir ${esc(r.variantes)}</h2>
-<form method="post" action="/panel/inventario/variante" class="campos" data-quien><input type="hidden" name="producto" value="${p.id}"><input type="hidden" name="sede" value="${sedeElegida}">
+<form method="post" action="/panel/inventario/variante" class="campos" data-quien data-una-vez><input type="hidden" name="producto" value="${p.id}"><input type="hidden" name="sede" value="${sedeElegida}">
 <label class="campo">${esc(mayuscula(r.variantes))}<input name="opciones" data-grilla-opciones placeholder="${esc(r.ejemploVariantes)}" autocomplete="off"></label>
 <label class="campo">Color (opcional)<input name="color" maxlength="40"></label>
 <label class="campo">Código de fábrica (opcional)<input name="codigo_fabricante" placeholder="El que trae la caja" maxlength="40"></label>
-${cantidadesPorVariante(r)}
+${cantidadesPorVariante(r, { suma: true })}
 <div class="campo ancho"><button class="principal">${icono("mas")}Añadir</button><small>Cada ${esc(r.variante)} nueva recibe su código de barras${listaDeSedes.length > 1 ? `, y lo que escribas queda en ${esc(nombreSede)}` : ""}. Sin ${esc(r.variantes)}, deja la primera casilla vacía y queda una sola.</small></div></form></section>
 </div></div>
 <div class="seccion"><h2>${insignia("movimientos", "neutro", "chica")}Lo que se movió</h2><a href="/panel/inventario/movimientos">Todo el inventario${icono("adelante", { clase: "chico" })}</a></div>
@@ -642,24 +651,35 @@ function ponerCantidad(i,queda){
  totalesDeLaFicha();
 }
 function guardarCantidad(i,nueva,vista,esDeshacer){
- i.disabled=true;
+ i.readOnly=true;
  fetch("/panel/inventario/cantidad",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify({variante:i.getAttribute("data-cantidad"),sede:i.getAttribute("data-sede"),nueva:nueva,vista:vista,quien:quienSoy()})})
  .then(function(r){return r.json()}).then(function(d){
-  i.disabled=false;
-  if(!d.ok){i.value=i.getAttribute("data-vista");return avisoCantidad(d.error||"No se pudo guardar.","mal")}
+  i.readOnly=false;
+  if(!d.ok){if(typeof d.queda==="number")ponerCantidad(i,d.queda);else i.value=i.getAttribute("data-vista");return avisoCantidad(d.error||"No se pudo guardar.","mal")}
   ponerCantidad(i,d.queda);
   if(esDeshacer)avisoCantidad("Vuelto a "+d.queda+".","bien");
-  else avisoCantidad("Quedan "+d.queda+(d.delta>0?" (+"+d.delta+")":d.delta<0?" (−"+Math.abs(d.delta)+")":""),"bien",d.delta?function(){guardarCantidad(i,d.anterior,d.queda,true)}:null);
- }).catch(function(){i.disabled=false;i.value=i.getAttribute("data-vista");avisoCantidad("Sin conexión: no se guardó nada.","mal")});
+  else avisoCantidad("Quedan "+d.queda+(d.delta>0?" (+"+d.delta+")":d.delta<0?" (−"+Math.abs(d.delta)+")":""),"bien",d.delta&&d.anterior!==null?function(){guardarCantidad(i,d.anterior,d.queda,true)}:null);
+ }).catch(function(){
+  // Se cortó la respuesta: el servidor pudo haberlo guardado. No se dice "no se guardó nada": se recarga para ver lo que quedó de verdad.
+  avisoCantidad("Se cortó la conexión y no sé si se guardó. Recargo para mostrarte lo que quedó.","mal");
+  setTimeout(function(){location.reload()},2200);
+ });
 }
-document.addEventListener("change",function(e){
- var i=e.target;if(!i.getAttribute||i.getAttribute("data-cantidad")==null)return;
+function confirmarCantidad(i){
  var texto=String(i.value).trim(),vista=i.getAttribute("data-vista");
  if(texto===""){i.value=vista;return}
  var nueva=Number(texto);
  if(!isFinite(nueva)||nueva<0||Math.floor(nueva)!==nueva){i.value=vista;return avisoCantidad("Escribe un número entero, 0 o más.","mal")}
  if(vista!==""&&String(nueva)===vista){i.value=vista;return}
  guardarCantidad(i,nueva,vista,false);
+}
+var esperaCantidad={};
+document.addEventListener("change",function(e){
+ var i=e.target;if(!i.getAttribute||i.getAttribute("data-cantidad")==null)return;
+ var id=i.getAttribute("data-cantidad");clearTimeout(esperaCantidad[id]);
+ // Con las flechas ↑↓ el navegador avisa en cada paso y la casilla sigue con el foco: se espera a que termine de subir o bajar.
+ if(document.activeElement===i){esperaCantidad[id]=setTimeout(function(){confirmarCantidad(i)},900);return}
+ confirmarCantidad(i);
 });
 document.addEventListener("keydown",function(e){var i=e.target;if(e.key==="Enter"&&i.getAttribute&&i.getAttribute("data-cantidad")!=null){e.preventDefault();i.blur()}});
 document.addEventListener("focusin",function(e){var i=e.target;if(i.getAttribute&&i.getAttribute("data-cantidad")!=null&&i.select)i.select()});
@@ -671,7 +691,7 @@ f.addEventListener("change",function(e){if(e.target.name==="tipo")poner()});
 cantidad.addEventListener("input",function(){cantidad.dataset.tocada="1"});
 f.addEventListener("click",function(e){var b=e.target.closest("[data-paso]");if(!b)return;var v=(parseInt(cantidad.value,10)||0)+Number(b.getAttribute("data-paso"));cantidad.value=Math.max(Number(cantidad.min)||0,v);cantidad.dataset.tocada="1"});
 document.addEventListener("click",function(e){var b=e.target.closest("[data-mover-variante]");if(!b)return;var d={};try{d=JSON.parse(b.getAttribute("data-mover-variante"))}catch(x){}
- hay=Number(d.hay)||0;f.querySelector('[name="variante"]').value=d.id;cantidad.dataset.tocada="";
+ var fila=b.closest(".variante"),ci=fila&&fila.querySelector("[data-cantidad]"),vi=ci?ci.getAttribute("data-vista"):"";hay=vi!==""&&vi!=null?(Number(vi)||0):(Number(d.hay)||0);f.querySelector('[name="variante"]').value=d.id;cantidad.dataset.tocada="";
  document.querySelector("#mover h3").textContent=d.nombre&&d.nombre!=="Única"?"Mover "+(/\\d/.test(d.nombre)&&laVariante!=="la variante"?laVariante+" ":"")+d.nombre:"Mover stock";
  document.getElementById("mover-texto").textContent="Quedan "+hay+" en "+nombreSede+".";poner()});
 })();
@@ -682,10 +702,11 @@ document.addEventListener("click",function(e){var b=e.target.closest("[data-move
 // escribiéndolos, sin botones). Al escribir las tallas aparece una casilla
 // por cada una; "Igual para todas" las llena de un golpe. Sin JavaScript queda
 // la casilla de siempre (la misma cantidad para todas).
-function cantidadesPorVariante(r) {
+function cantidadesPorVariante(r, { suma = false } = {}) {
+  const dice = suma ? "Cuántas llegaron de cada" : "Cuántas hay de cada";
   return `<div class="cantidades campo ancho" data-grilla>
-<div class="cantidades-cabeza"><b class="solo-grilla">Cuántas hay de cada ${esc(r.variante)}</b><label class="cantidades-igual"><span class="sin-grilla">Cuántas hay de cada una</span><span class="solo-grilla">Igual para todas</span><input name="cantidad" data-grilla-igual type="number" inputmode="numeric" min="0" max="100000" step="1" placeholder="0"></label></div>
-<div class="cantidades-grilla" data-grilla-lista></div></div>`;
+<div class="cantidades-cabeza"><b class="solo-grilla">${dice} ${esc(r.variante)}</b><label class="cantidades-igual"><span class="sin-grilla">${dice} una</span><span class="solo-grilla">Igual para todas</span><input name="cantidad" data-grilla-igual type="number" inputmode="numeric" min="0" max="100000" step="1" placeholder="0" autocomplete="off"></label></div>
+<div class="cantidades-grilla" data-grilla-lista></div>${suma ? `<small class="cantidades-nota">Se suman a lo que ya hay: si la ${esc(r.variante)} ya existe, es una entrada.</small>` : ""}</div>`;
 }
 
 function scriptDeCantidades() {
@@ -703,7 +724,7 @@ document.querySelectorAll("[data-grilla]").forEach(function(g){
   var html="";
   parsear(texto.value).forEach(function(n){
    var v=valores[n]!=null?valores[n]:(igual&&igual.value!==""&&!tocadas[n]?igual.value:"");
-   html+='<label class="talla-cant"><span>'+esc(n==="única"?"Cuántas":n)+'</span><input type="number" name="v_cantidad" inputmode="numeric" min="0" max="100000" step="1" placeholder="0" value="'+esc(v)+'" data-nombre="'+esc(n)+'" aria-label="Cuántas hay de '+esc(n)+'"><input type="hidden" name="v_opcion" value="'+esc(n)+'"></label>'});
+   html+='<label class="talla-cant"><span>'+esc(n==="única"?"Cuántas":n)+'</span><input type="number" name="v_cantidad" inputmode="numeric" min="0" max="100000" step="1" placeholder="0" autocomplete="off" value="'+esc(v)+'" data-nombre="'+esc(n)+'" aria-label="Cuántas hay de '+esc(n)+'"><input type="hidden" name="v_opcion" value="'+esc(n)+'"></label>'});
   lista.innerHTML=html;
  }
  texto.addEventListener("input",pintar);
@@ -713,6 +734,11 @@ document.querySelectorAll("[data-grilla]").forEach(function(g){
  if(igual)igual.addEventListener("input",function(){lista.querySelectorAll("[data-nombre]").forEach(function(c){var n=c.getAttribute("data-nombre");if(!tocadas[n]){c.value=igual.value;valores[n]=igual.value}})});
  g.classList.add("con-grilla");pintar();
 });
+// Un doble toque (o un reenvío con conexión lenta) no repite la carga: el formulario se manda una sola vez.
+document.addEventListener("submit",function(e){var f=e.target;if(!f.hasAttribute||!f.hasAttribute("data-una-vez")||e.defaultPrevented)return;
+ if(f.__enviado){e.preventDefault();return}
+ f.__enviado=1;[].forEach.call(f.querySelectorAll("button:not([type=button])"),function(b){setTimeout(function(){b.disabled=true},0)})});
+window.addEventListener("pageshow",function(e){if(!e.persisted)return;document.querySelectorAll("form[data-una-vez]").forEach(function(f){f.__enviado=0;[].forEach.call(f.querySelectorAll("button:disabled"),function(b){b.disabled=false})})});
 })();
 </script>`;
 }
@@ -744,7 +770,7 @@ async function paginaDeNuevo(env, url, r) {
   const listaDeSedes = await sedes(env.DB);
   return `${ESTILO}${tostadaDesde(url)}${cabecera({ volver: volverAlInventario, sobre: "Inventario", titulo: "Nuevo producto", texto: `Lo básico basta: el nombre. Cada ${r.variante} recibe su código de barras sola, y si escribes cuántas hay de cada una, quedan cargadas.` })}
 <div class="dos">
-<section class="panel-tarjeta"><form method="post" action="/panel/inventario/nuevo" data-quien>
+<section class="panel-tarjeta"><form method="post" action="/panel/inventario/nuevo" data-quien data-una-vez>
 <div class="campos">
 <label class="campo ancho">Nombre<input name="titulo" required maxlength="300" placeholder="${esc(r.ejemploProducto)}" autofocus></label>
 <label class="campo">Marca<input name="marca" maxlength="80"></label>
@@ -1170,8 +1196,8 @@ ${
 <form class="libre-form" id="libre-form" hidden><label class="campo">Qué es<input id="libre-que" maxlength="120" placeholder="Servicio, envío, algo sin código…"></label><label class="campo">Cuánto<input id="libre-cuanto" inputmode="decimal" placeholder="$0"></label><div class="acciones"><button type="button" class="fantasma chico" id="libre-cancelar">Cancelar</button><button class="principal chico">${icono("mas", { clase: "chico" })}Añadir</button></div></form>
 <div class="ticket-total"><span>Total<em class="tarifa-nota" id="tarifa-nota"></em></span><b id="total">$0</b></div>
 <div class="fecha-venta" id="fecha-venta"><div class="campo-titulo">Venta de</div>
-<div class="opciones" id="fecha-opciones"><label class="opcion"><input type="radio" name="dia" value="hoy" checked>Hoy</label><label class="opcion"><input type="radio" name="dia" value="ayer">Ayer</label><label class="opcion"><input type="radio" name="dia" value="otro">${icono("calendario")}Otro día</label></div>
-<input type="date" id="fecha-otro" hidden min="${esc(diaDe(Date.now() - DIAS_HACIA_ATRAS * 86400000))}" max="${esc(diaDe(Date.now()))}" aria-label="Día de la venta">
+<div class="opciones" id="fecha-opciones"><label class="opcion"><input type="radio" name="dia" value="hoy" checked autocomplete="off">Hoy</label><label class="opcion"><input type="radio" name="dia" value="ayer" autocomplete="off">Ayer</label><label class="opcion"><input type="radio" name="dia" value="otro" autocomplete="off">${icono("calendario")}Otro día</label></div>
+<input type="date" id="fecha-otro" hidden autocomplete="off" min="${esc(diaDe(Date.now() - DIAS_HACIA_ATRAS * 86400000))}" max="${esc(diaDe(Date.now()))}" aria-label="Día de la venta">
 <p class="fecha-aviso" id="fecha-aviso" hidden></p></div>
 <div class="campo-titulo">Cómo pagó</div>
 <div class="metodos opciones" id="metodos">${metodos}</div>
@@ -1275,7 +1301,9 @@ function sacudir(el){el.classList.remove("sacude");void el.offsetWidth;el.classL
 // caja de nuevo vuelve a "Hoy", para no anotar nada atrás por descuido.
 function diaCaracas(atras){return new Date(Date.now()-4*3600000-(atras||0)*86400000).toISOString().slice(0,10)}
 function modoDia(){var r=document.querySelector('input[name="dia"]:checked');return r?r.value:"hoy"}
-function fechaVenta(){var m=modoDia();return m==="ayer"?diaCaracas(1):m==="otro"?($("#fecha-otro").value||""):""}
+// «Ayer» se fija al elegirlo: el día que dice el aviso es el que se manda (aunque pase la medianoche).
+var diaAyer=diaCaracas(1);
+function fechaVenta(){var m=modoDia();return m==="ayer"?diaAyer:m==="otro"?($("#fecha-otro").value||""):""}
 function diaEnLetras(d){var p=d.split("-");return new Date(Date.UTC(+p[0],+p[1]-1,+p[2],12)).toLocaleDateString("es-VE",{weekday:"long",day:"numeric",month:"long",timeZone:"UTC"})}
 function verFecha(){
  var m=modoDia(),otro=$("#fecha-otro"),d=fechaVenta(),aviso=$("#fecha-aviso");
@@ -1284,11 +1312,14 @@ function verFecha(){
  aviso.textContent=d?"Se anota el "+diaEnLetras(d)+". Cuenta en ese día en Ventas y en el balance; el stock baja ahora.":"Elige el día de la venta.";
  $("#cobrar-texto").textContent=m==="hoy"?"Cobrar":"Anotar la venta";
 }
-$("#fecha-opciones").addEventListener("change",function(){verFecha();if(modoDia()==="otro"){var o=$("#fecha-otro");try{if(o.showPicker)o.showPicker()}catch(e){}}});
+$("#fecha-opciones").addEventListener("change",function(){diaAyer=diaCaracas(1);verFecha();if(modoDia()==="otro"){var o=$("#fecha-otro");try{if(o.showPicker)o.showPicker()}catch(e){}}});
 $("#fecha-otro").addEventListener("change",verFecha);
+// Al volver con «Atrás» el navegador puede traer la elección vieja con el aviso oculto: se arranca siempre en «Hoy».
+(function(){var h=document.querySelector('input[name="dia"][value="hoy"]');if(h)h.checked=true;$("#fecha-otro").value="";verFecha()})();
 function cobrarYa(){
  if(ocupado)return;
  if(!lineas.length&&!libres.length)return avisar("La venta está vacía.","mal");
+ if(modoDia()==="ayer"&&diaCaracas(1)!==diaAyer){diaAyer=diaCaracas(1);verFecha();return avisar("Pasó la medianoche: ahora «Ayer» es el "+diaEnLetras(diaAyer)+". Revisa el día y vuelve a tocar.","mal")}
  var dia=fechaVenta();
  if(modoDia()==="otro"&&!dia){sacudir($("#fecha-venta"));$("#fecha-otro").focus();return avisar("Elige el día de la venta.","mal")}
  var m=metodo();if(!m){sacudir(metodosEl);return avisar("Elige cómo pagó el cliente.","mal")}
@@ -1499,7 +1530,7 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
       const r = await cambiarCantidad(env.DB, { varianteId: pedido.variante, sedeId: pedido.sede, nueva: pedido.nueva, vista: pedido.vista, quien: String(pedido.quien || "").trim() });
       return json({ ok: true, ...r });
     } catch (error) {
-      return json({ ok: false, error: error.message }, error.name === "SinStock" ? 409 : 400);
+      return json({ ok: false, error: error.message, ...(Number.isInteger(error.queda) ? { queda: error.queda } : {}) }, error.name === "SinStock" ? 409 : 400);
     }
   }
 
@@ -1601,7 +1632,7 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
         const v = await verVariante(env.DB, args.varianteId);
         const queda = v?.porSede?.[Number(args.sedeId)] ?? 0;
         const aviso = r.deOtroDia ? avisosDeContadas(r.contadasDespues, new Map([[Number(args.varianteId), Math.trunc(Number(args.cantidad)) || 1]])).join(" ") : "";
-        return redirigir(conAviso(volver, { ok: `Venta #${r.ventaId}${r.deOtroDia ? ` del ${diaCorto(r.fecha)}` : ""} registrada${r.total !== null && r.total !== undefined ? ` por ${plata(r.total, { siempre: true })}` : ""}. Quedan ${queda}.${aviso ? ` ${aviso}` : ""}` }));
+        return redirigir(conAviso(volver, { ok: `Venta #${r.ventaId}${r.deOtroDia ? ` del ${diaCorto(r.fecha)}` : ""} registrada${r.total !== null && r.total !== undefined ? ` por ${plata(r.total, { siempre: true })}` : ""}. Quedan ${queda}.`, cuenta: aviso }));
       }
       const queda = await moverStock(env.DB, { ...args, tipo });
       return redirigir(conAviso(volver, { ok: `${TIPOS_DE_MOVIMIENTO[tipo] || "Movido"}. Quedan ${queda} en esa sede.` }));

@@ -176,6 +176,12 @@ export async function listarGastos(db, { desde, hasta, limite = 500 } = {}) {
 
 /* ── Ventas ──────────────────────────────────────────────────────────── */
 
+// Una venta que se anotó mucho después de hacerse (la de «ayer» que se cargó
+// hoy). Con menos de 6 horas de diferencia no se marca: es solo la hora.
+export function anotadaDespues(venta) {
+  return Number(venta?.registrada) > 0 && Number(venta.registrada) - Number(venta.creado) > 6 * 60 * 60 * 1000;
+}
+
 export async function listarVentas(db, { desde, hasta, q = "", limite = 300 } = {}) {
   await asegurarNegocio(db);
   const texto = String(q || "").trim().slice(0, 40);
@@ -189,7 +195,7 @@ export async function listarVentas(db, { desde, hasta, q = "", limite = 300 } = 
               COALESCE((SELECT SUM(monto) FROM neg_abonos a WHERE a.venta_id = ve.id), 0) AS abonado
          FROM inv_ventas ve LEFT JOIN inv_locales l ON l.id = ve.local_id
         WHERE ve.creado >= ? AND ve.creado < ? ${filtro}
-        ORDER BY ve.id DESC LIMIT ?`
+        ORDER BY ve.creado DESC, ve.id DESC LIMIT ?`
     )
     .bind(desde, hasta, ...args, Math.min(Number(limite) || 300, 2000))
     .all();

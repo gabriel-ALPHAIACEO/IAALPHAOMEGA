@@ -183,6 +183,10 @@ const COLUMNAS_NUEVAS = [
   ["inv_movimientos", "costo", "REAL"],
   // "cashea" si la venta se cobró con el precio Cashea (EPICCELL).
   ["inv_ventas", "tarifa", "TEXT NOT NULL DEFAULT ''"],
+  // VENTAS DE OTRO DÍA (9-oct-2026): "creado" es el día de la venta (el que
+  // cuentan Ventas, el balance y lo más vendido); "registrada" es cuándo se
+  // anotó de verdad. Vacía en las ventas de siempre.
+  ["inv_ventas", "registrada", "INTEGER"],
   // LA FILA ENTERA DE LA HOJA EN SU VARIANTE (EPICCELL, 7-oct-2026): cada
   // capacidad tiene su precio en Bs, su foto y sus columnas (RAM, estado…),
   // y "oculta" es el Activo = NO de la hoja: está en el inventario, pero
@@ -517,7 +521,7 @@ export async function movimientosRecientes(db, { productoId = 0, limite = 50 } =
          JOIN inv_productos p ON p.id = v.producto_id
          LEFT JOIN inv_locales l ON l.id = m.local_id
          ${filtro}
-        ORDER BY m.id DESC LIMIT ?`
+        ORDER BY m.creado DESC, m.id DESC LIMIT ?`
     )
     .bind(...args, Math.max(1, Math.min(Number(limite) || 50, 500)))
     .all();
@@ -857,7 +861,9 @@ export async function catalogoParaElBot(db) {
 // fuera a quedar en negativo, el CHECK de la tabla lo rechaza y no se
 // escribe nada.
 
-function sentenciasDeMovimiento(db, { variante, sede, tipo, delta, quien = "", nota = "", contacto = null, ventaRef = null, ahora, precio = null, costo = null }) {
+// "dia": cuándo cuenta el movimiento en el historial (una venta anotada
+// después va en el día en que se hizo); el stock se actualiza "ahora".
+function sentenciasDeMovimiento(db, { variante, sede, tipo, delta, quien = "", nota = "", contacto = null, ventaRef = null, ahora, dia = null, precio = null, costo = null }) {
   return [
     db.prepare("INSERT OR IGNORE INTO inv_stock (variante_id, local_id, cantidad, actualizado) VALUES (?, ?, 0, ?)").bind(variante, sede, ahora),
     db.prepare("UPDATE inv_stock SET cantidad = cantidad + ?, actualizado = ? WHERE variante_id = ? AND local_id = ?").bind(delta, ahora, variante, sede),
@@ -867,7 +873,7 @@ function sentenciasDeMovimiento(db, { variante, sede, tipo, delta, quien = "", n
          VALUES (?, ?, ?, ?, (SELECT cantidad FROM inv_stock WHERE variante_id = ? AND local_id = ?), ?, ?, ?,
                  (SELECT id FROM inv_ventas WHERE ref = ?), ?, ?, ?)`
       )
-      .bind(variante, sede, tipo, delta, variante, sede, String(quien).slice(0, 60), String(nota).slice(0, 300), contacto, ventaRef, ahora, precio, costo),
+      .bind(variante, sede, tipo, delta, variante, sede, String(quien).slice(0, 60), String(nota).slice(0, 300), contacto, ventaRef, dia ?? ahora, precio, costo),
   ];
 }
 
@@ -945,6 +951,98 @@ async function existe(db, variante, sede) {
   return Boolean(fila?.v && fila?.s);
 }
 
+// Una cantidad escrita en una casilla: vacía = 0; si no es un entero de 0 a
+// 100000, error que dice de cuál talla.
+export function leerCantidad(texto, nombre = "") {
+  const t = String(texto ?? "").trim();
+  const n = t === "" ? 0 : Number(t);
+  const de = nombre ? ` de ${nombre}` : "";
+  if (!Number.isInteger(n) || n < 0) throw new Error(`La cantidad${de} tiene que ser un número entero, 0 o más.`);
+  if (n > 100000) throw new Error(`La cantidad${de} no parece real.`);
+  return n;
+}
+
+// LAS CANTIDADES QUE SE ESCRIBEN AL CREAR UN PRODUCTO O AÑADIR TALLAS
+// (9-oct-2026, pedido del dueño: cambiar los números directo, sin botones).
+// Cada fila es { varianteId, cantidad }. Lo que se escribe SE SUMA: en una
+// talla nueva es su carga inicial; en una que ya tenía stock, una entrada
+// (nunca se pisa lo que había). Una casilla vacía o en 0 deja la talla contada
+// en 0: "de esta no hay". Todo en UN batch (3 llamadas por talla como mucho,
+// aunque sean 60 tallas).
+export async function cargarCantidades(db, { sedeId, quien = "", nota = "Al crearlo", filas = [] } = {}) {
+  await asegurarInventario(db);
+  const sede = Number(sedeId) || (await sedes(db))[0]?.id || 0;
+  if (!(await db.prepare("SELECT 1 FROM inv_locales WHERE id = ?").bind(sede).first())) throw new Error("Esa sede no existe.");
+  const limpias = [];
+  for (const f of filas || []) {
+    const variante = Number(f?.varianteId) || 0;
+    if (!variante) continue;
+    limpias.push({ variante, n: leerCantidad(f?.cantidad, f?.nombre) });
+  }
+  if (!limpias.length) return { cargadas: 0, unidades: 0 };
+  if (limpias.length > 200) throw new Error("Demasiadas tallas de una vez.");
+  const { results } = await db
+    .prepare(`SELECT variante_id FROM inv_stock WHERE local_id = ? AND variante_id IN (${limpias.map(() => "?").join(",")})`)
+    .bind(sede, ...limpias.map((l) => l.variante))
+    .all();
+  const conFila = new Set((results || []).map((r) => Number(r.variante_id)));
+  const ahora = Date.now();
+  const sentencias = [];
+  for (const { variante, n } of limpias) {
+    if (n > 0) sentencias.push(...sentenciasDeMovimiento(db, { variante, sede, tipo: conFila.has(variante) ? "entrada" : "carga", delta: n, quien, nota, ahora }));
+    else sentencias.push(db.prepare("INSERT OR IGNORE INTO inv_stock (variante_id, local_id, cantidad, actualizado) VALUES (?, ?, 0, ?)").bind(variante, sede, ahora));
+  }
+  await db.batch(sentencias);
+  return { cargadas: limpias.filter((l) => l.n > 0).length, unidades: limpias.reduce((a, l) => a + l.n, 0) };
+}
+
+// CAMBIAR LA CANTIDAD ESCRIBIÉNDOLA EN LA FICHA (9-oct-2026): la persona ve
+// "5", escribe "8" y se guarda sola. Se aplica la DIFERENCIA sobre lo que haya
+// en ese momento, no el número a pelo: si una venta cayó mientras tanto, no
+// se pierde. Sube = Entrada; baja = Ajuste (nunca una venta: eso es Vendí o la
+// caja). Sin "vista", pone el número exacto (como Contar).
+export async function cambiarCantidad(db, { varianteId, sedeId, nueva, vista = null, quien = "" } = {}) {
+  await asegurarInventario(db);
+  const variante = Number(varianteId) || 0;
+  const sede = Number(sedeId) || 0;
+  const n = Number(String(nueva ?? "").trim() === "" ? NaN : nueva);
+  if (!Number.isInteger(n) || n < 0) throw new Error("La cantidad tiene que ser un número entero, 0 o más.");
+  if (n > 100000) throw new Error("Esa cantidad no parece real.");
+  if (!(await existe(db, variante, sede))) throw new Error("No encuentro ese producto o esa sede.");
+  const antes = await db.prepare("SELECT cantidad FROM inv_stock WHERE variante_id = ? AND local_id = ?").bind(variante, sede).first();
+  const veia = vista === null || vista === undefined || String(vista).trim() === "" ? null : Number(vista);
+  if (veia !== null && (!Number.isInteger(veia) || veia < 0)) throw new Error("No entendí la cantidad anterior.");
+  if (veia === null || !antes) {
+    // Sin referencia (o nunca contada): el número escrito es el conteo. Si la
+    // talla nunca se había contado no hay un "antes" al que volver: anterior
+    // null (la ficha no ofrece Deshacer, que la dejaría contada en 0).
+    await ajustarStock(db, { varianteId: variante, sedeId: sede, cantidad: n, quien, nota: "Cantidad escrita en la ficha", tipo: antes ? "ajuste" : "carga" });
+    return { queda: n, delta: n - (Number(antes?.cantidad) || 0), anterior: antes ? Number(antes.cantidad) || 0 : null };
+  }
+  const actual = Number(antes.cantidad) || 0;
+  const delta = n - veia;
+  if (delta === 0) return { queda: actual, delta: 0, anterior: actual };
+  // La ficha estaba vieja pero el stock ya es justo el número escrito (otra
+  // pestaña, o el mismo cambio reenviado): lo que la persona quería ya se
+  // cumple. No se mueve nada, así un reintento no suma dos veces.
+  if (actual === n) return { queda: n, delta: 0, anterior: n };
+  const nota = `Cambiada en la ficha: de ${veia} a ${n}`;
+  try {
+    await db.batch(sentenciasDeMovimiento(db, { variante, sede, tipo: delta > 0 ? "entrada" : "ajuste", delta, quien, nota, ahora: Date.now() }));
+  } catch (error) {
+    if (esFaltaDeStock(error)) {
+      const queda = await cantidadActual(db, variante, sede);
+      throw Object.assign(new SinStock(`Mientras tanto se vendió y ese cambio dejaría el stock en negativo. Ahora quedan ${queda}.`), { queda });
+    }
+    throw error;
+  }
+  // "anterior" es lo que había justo antes de ESTE cambio (no lo que se veía en
+  // pantalla): Deshacer aplica la diferencia inversa y no devuelve al stock lo
+  // que se vendió mientras tanto.
+  const queda = await cantidadActual(db, variante, sede);
+  return { queda, delta, anterior: Math.max(0, queda - delta) };
+}
+
 /* ── La caja ─────────────────────────────────────────────────────────── */
 //
 // Cobrar es la confirmación de que el cliente se lleva el producto (regla
@@ -952,19 +1050,50 @@ async function existe(db, variante, sede) {
 // La venta entera es UN batch: si un solo producto no alcanza, no se
 // descuenta ninguno y la caja dice cuál falta.
 
+// VENTAS DE OTRO DÍA (9-oct-2026, pedido del dueño: "se le olvidó colocar la
+// venta del día y quiere colocar todo lo que hizo ayer"). La fecha llega como
+// día ("2026-10-08", hora de Venezuela). Devuelve el momento que se le pone a
+// la venta, o null si es de hoy (cuenta desde ahora mismo). Un día pasado
+// cuenta a mediodía, igual que los gastos. Ni del futuro ni de hace más de
+// un año: una fecha así casi seguro es un error de dedo.
+export const DIAS_HACIA_ATRAS = 400;
+const DESFASE_VENEZUELA_MS = -4 * 60 * 60 * 1000;
+const DIA_EN_MS = 24 * 60 * 60 * 1000;
+
+export function momentoDeLaVenta(dia, ahora = Date.now()) {
+  const texto = String(dia ?? "").trim();
+  if (!texto) return null;
+  const inicio = Date.parse(`${texto}T00:00:00Z`);
+  // El 31 de febrero se corre solo al 3 de marzo: eso no es una fecha.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(texto) || !Number.isFinite(inicio) || new Date(inicio).toISOString().slice(0, 10) !== texto) {
+    throw new Error("Esa fecha no es válida.");
+  }
+  const hoy = new Date(ahora + DESFASE_VENEZUELA_MS).toISOString().slice(0, 10);
+  if (texto > hoy) throw new Error("Una venta no puede ser de un día que todavía no llega.");
+  if (texto === hoy) return null;
+  // El tope se mide en días (el mismo que ofrece el selector), no en horas: así el día más lejano que ofrece siempre es válido.
+  const masViejo = new Date(ahora + DESFASE_VENEZUELA_MS - DIAS_HACIA_ATRAS * DIA_EN_MS).toISOString().slice(0, 10);
+  if (texto < masViejo) throw new Error("Esa fecha es de hace más de un año. Revísala.");
+  return inicio - DESFASE_VENEZUELA_MS + 12 * 60 * 60 * 1000;
+}
+
 // Además de los productos del inventario, una venta puede llevar "libres"
 // ([{ descripcion, precio, cantidad }]: un servicio, algo que no se lleva en
 // stock). Fiado: el cliente se lleva el producto y paga después (Fiados en
 // el panel). Para fiar hace falta saber a quién.
 // tarifa: "cashea" cobra el precio Cashea de cada producto (si lo tiene; si
 // no, el normal). Lo decide la caja de la tienda (ver inventario-panel.js).
-export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = [], libres = [], contactoId = null, cliente = "", telefono = "", fiado = false, nota = "", tarifa = "" }) {
+export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = [], libres = [], contactoId = null, cliente = "", telefono = "", fiado = false, nota = "", tarifa = "", fecha = "" }) {
   await asegurarInventario(db);
   const sede = Number(sedeId) || (await sedes(db))[0]?.id || 0;
   if (!(await db.prepare("SELECT 1 FROM inv_locales WHERE id = ?").bind(sede).first())) throw new Error("Esa sede no existe.");
   const nombreCliente = String(cliente || "").trim().slice(0, 80);
   const tel = String(telefono || "").replace(/[^\d+]/g, "").slice(0, 20);
   if (fiado && !nombreCliente) throw new Error("Para fiar hace falta el nombre del cliente.");
+  const ahora = Date.now();
+  // De otro día: cuenta en ese día; "registrada" guarda cuándo se anotó.
+  const delDia = momentoDeLaVenta(fecha, ahora);
+  const cuando = delDia ?? ahora;
   const lineasLibres = [];
   for (const l of libres || []) {
     const descripcion = String(l?.descripcion || "").trim().slice(0, 120);
@@ -1003,16 +1132,15 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
     else total += Number(precio) * n;
     const costo = variante.costo_producto ?? null;
     if (costo !== null) costoTotal += Number(costo) * n;
-    datos.set(v, { precio, costo });
+    datos.set(v, { precio, costo, nombre: `${variante.titulo}${variante.opcion !== "única" ? ` (${variante.opcion})` : ""}` });
   }
   if (faltan.length) throw new SinStock(`No alcanza en esta sede: ${faltan.join(" · ")}`);
 
   const ref = crypto.randomUUID();
-  const ahora = Date.now();
   const sentencias = [
     db
       .prepare(
-        "INSERT INTO inv_ventas (ref, local_id, quien, metodo_pago, total, contacto_id, creado, cliente, telefono, fiado, nota, costo, tarifa) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO inv_ventas (ref, local_id, quien, metodo_pago, total, contacto_id, creado, cliente, telefono, fiado, nota, costo, tarifa, registrada) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       )
       .bind(
         ref,
@@ -1021,20 +1149,20 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
         fiado ? "Fiado" : String(metodoPago).slice(0, 40),
         totalConocido ? Math.round(total * 100) / 100 : null,
         contactoId,
-        ahora,
+        cuando,
         nombreCliente,
         tel,
         fiado ? 1 : 0,
         String(nota || "").slice(0, 300),
         Math.round(costoTotal * 100) / 100,
-        tarifa === "cashea" ? "cashea" : ""
+        tarifa === "cashea" ? "cashea" : "",
+        delDia === null ? null : ahora
       ),
   ];
+  const notaDeCaja = (fiado ? "Caja · Fiado" : metodoPago ? `Caja · ${metodoPago}` : "Caja") + (delDia === null ? "" : " · anotada después");
   for (const [v, n] of agrupados) {
     const { precio, costo } = datos.get(v);
-    sentencias.push(
-      ...sentenciasDeMovimiento(db, { variante: v, sede, tipo: "venta", delta: -n, quien, nota: fiado ? "Caja · Fiado" : metodoPago ? `Caja · ${metodoPago}` : "Caja", contacto: contactoId, ventaRef: ref, ahora, precio, costo })
-    );
+    sentencias.push(...sentenciasDeMovimiento(db, { variante: v, sede, tipo: "venta", delta: -n, quien, nota: notaDeCaja, contacto: contactoId, ventaRef: ref, ahora, dia: cuando, precio, costo }));
   }
   for (const l of lineasLibres) {
     sentencias.push(
@@ -1048,7 +1176,44 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
     throw error;
   }
   const venta = await db.prepare("SELECT id, total FROM inv_ventas WHERE ref = ?").bind(ref).first();
-  return { ventaId: Number(venta.id), total: venta.total, unidades: [...agrupados.values()].reduce((a, b) => a + b, 0) + lineasLibres.reduce((a, l) => a + l.cantidad, 0) };
+  const contadasDespues = delDia === null ? [] : await contadasDespuesDe(db, { sede, desde: delDia, variantes: [...agrupados.keys()], datos });
+  return {
+    ventaId: Number(venta.id),
+    total: venta.total,
+    unidades: [...agrupados.values()].reduce((a, b) => a + b, 0) + lineasLibres.reduce((a, l) => a + l.cantidad, 0),
+    fecha: cuando,
+    deOtroDia: delDia !== null,
+    contadasDespues,
+  };
+}
+
+// Una venta de otro día baja el stock de hoy. Si alguien contó ese producto
+// DESPUÉS de esa fecha, el conteo ya la traía descontada y quedaría
+// descontada dos veces: se avisa cuáles para que la persona lo corrija.
+// Cuenta como conteo: Contar (ajuste), la carga inicial y la importación, y lo
+// escrito en la casilla de la ficha ("Cambiada en la ficha…", suba o baje)
+// salvo que se haya deshecho (su suma desde la venta da 0: nadie contó nada).
+async function contadasDespuesDe(db, { sede, desde, variantes, datos }) {
+  if (!variantes.length) return [];
+  try {
+    const { results } = await db
+      .prepare(
+        `SELECT variante_id, MAX(creado) AS cuando FROM inv_movimientos
+          WHERE local_id = ? AND creado > ? AND variante_id IN (${variantes.map(() => "?").join(",")})
+            AND (tipo IN ('ajuste', 'carga') OR COALESCE(nota, '') LIKE 'Cambiada en la ficha%')
+          GROUP BY variante_id
+         HAVING SUM(CASE WHEN tipo IN ('ajuste', 'carga') AND COALESCE(nota, '') NOT LIKE 'Cambiada en la ficha%' THEN 1 ELSE 0 END) > 0
+             OR SUM(CASE WHEN COALESCE(nota, '') LIKE 'Cambiada en la ficha%' THEN delta ELSE 0 END) <> 0`
+      )
+      .bind(sede, desde, ...variantes)
+      .all();
+    return (results || []).map((f) => {
+      const d = datos.get(Number(f.variante_id));
+      return { varianteId: Number(f.variante_id), nombre: d?.nombre || `producto ${f.variante_id}`, cuando: Number(f.cuando) };
+    });
+  } catch {
+    return [];
+  }
 }
 
 // ANULAR UNA VENTA (se cobró por error, o el cliente devolvió todo): el
@@ -1082,7 +1247,7 @@ export async function ventasDelDia(db, desde) {
       `SELECT ve.id, ve.creado, ve.quien, ve.metodo_pago, ve.total, l.nombre AS sede,
               (SELECT SUM(-delta) FROM inv_movimientos m WHERE m.venta_id = ve.id) AS unidades
          FROM inv_ventas ve LEFT JOIN inv_locales l ON l.id = ve.local_id
-        WHERE ve.creado >= ? ORDER BY ve.id DESC LIMIT 200`
+        WHERE ve.creado >= ? ORDER BY ve.creado DESC, ve.id DESC LIMIT 200`
     )
     .bind(desde)
     .all();

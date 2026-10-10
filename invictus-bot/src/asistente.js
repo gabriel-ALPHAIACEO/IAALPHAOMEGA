@@ -128,7 +128,7 @@ TU NEGOCIO
   que se contó). Cada cambio queda en Movimientos.
   - Nuevo producto (/panel/inventario/nuevo): crear uno a mano con sus ${vs}.
     Al escribir las ${vs} aparece una casilla por cada una para poner cuántas
-    hay (o "Igual para todas"). Lo mismo al añadir ${vs} a un producto.
+    hay (o "Igual para todas"). Lo mismo al añadir ${vs} a un producto, pero ahí lo que escribes se SUMA a lo que ya había (es una entrada).
   - Importar (/panel/inventario/importar): "Traer del catálogo" (trae los
     productos de la tienda online o la hoja de la tienda) o subir un Excel
     o CSV con columnas como producto, código, ${v}, color, cantidad, precio,

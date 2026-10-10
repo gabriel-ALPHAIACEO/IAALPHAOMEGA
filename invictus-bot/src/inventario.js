@@ -1013,20 +1013,34 @@ export async function cambiarCantidad(db, { varianteId, sedeId, nueva, vista = n
   const veia = vista === null || vista === undefined || String(vista).trim() === "" ? null : Number(vista);
   if (veia !== null && (!Number.isInteger(veia) || veia < 0)) throw new Error("No entendí la cantidad anterior.");
   if (veia === null || !antes) {
-    // Sin referencia (o nunca contada): el número escrito es el conteo.
+    // Sin referencia (o nunca contada): el número escrito es el conteo. Si la
+    // talla nunca se había contado no hay un "antes" al que volver: anterior
+    // null (la ficha no ofrece Deshacer, que la dejaría contada en 0).
     await ajustarStock(db, { varianteId: variante, sedeId: sede, cantidad: n, quien, nota: "Cantidad escrita en la ficha", tipo: antes ? "ajuste" : "carga" });
-    return { queda: n, delta: n - (Number(antes?.cantidad) || 0), anterior: Number(antes?.cantidad) || 0 };
+    return { queda: n, delta: n - (Number(antes?.cantidad) || 0), anterior: antes ? Number(antes.cantidad) || 0 : null };
   }
+  const actual = Number(antes.cantidad) || 0;
   const delta = n - veia;
-  if (delta === 0) return { queda: Number(antes.cantidad) || 0, delta: 0, anterior: veia };
+  if (delta === 0) return { queda: actual, delta: 0, anterior: actual };
+  // La ficha estaba vieja pero el stock ya es justo el número escrito (otra
+  // pestaña, o el mismo cambio reenviado): lo que la persona quería ya se
+  // cumple. No se mueve nada, así un reintento no suma dos veces.
+  if (actual === n) return { queda: n, delta: 0, anterior: n };
   const nota = `Cambiada en la ficha: de ${veia} a ${n}`;
   try {
     await db.batch(sentenciasDeMovimiento(db, { variante, sede, tipo: delta > 0 ? "entrada" : "ajuste", delta, quien, nota, ahora: Date.now() }));
   } catch (error) {
-    if (esFaltaDeStock(error)) throw new SinStock(`Mientras tanto se vendió y ese cambio dejaría el stock en negativo. Ahora quedan ${await cantidadActual(db, variante, sede)}.`);
+    if (esFaltaDeStock(error)) {
+      const queda = await cantidadActual(db, variante, sede);
+      throw Object.assign(new SinStock(`Mientras tanto se vendió y ese cambio dejaría el stock en negativo. Ahora quedan ${queda}.`), { queda });
+    }
     throw error;
   }
-  return { queda: await cantidadActual(db, variante, sede), delta, anterior: veia };
+  // "anterior" es lo que había justo antes de ESTE cambio (no lo que se veía en
+  // pantalla): Deshacer aplica la diferencia inversa y no devuelve al stock lo
+  // que se vendió mientras tanto.
+  const queda = await cantidadActual(db, variante, sede);
+  return { queda, delta, anterior: Math.max(0, queda - delta) };
 }
 
 /* ── La caja ─────────────────────────────────────────────────────────── */
@@ -1057,9 +1071,10 @@ export function momentoDeLaVenta(dia, ahora = Date.now()) {
   const hoy = new Date(ahora + DESFASE_VENEZUELA_MS).toISOString().slice(0, 10);
   if (texto > hoy) throw new Error("Una venta no puede ser de un día que todavía no llega.");
   if (texto === hoy) return null;
-  const cuando = inicio - DESFASE_VENEZUELA_MS + 12 * 60 * 60 * 1000;
-  if (ahora - cuando > DIAS_HACIA_ATRAS * DIA_EN_MS) throw new Error("Esa fecha es de hace más de un año. Revísala.");
-  return cuando;
+  // El tope se mide en días (el mismo que ofrece el selector), no en horas: así el día más lejano que ofrece siempre es válido.
+  const masViejo = new Date(ahora + DESFASE_VENEZUELA_MS - DIAS_HACIA_ATRAS * DIA_EN_MS).toISOString().slice(0, 10);
+  if (texto < masViejo) throw new Error("Esa fecha es de hace más de un año. Revísala.");
+  return inicio - DESFASE_VENEZUELA_MS + 12 * 60 * 60 * 1000;
 }
 
 // Además de los productos del inventario, una venta puede llevar "libres"
@@ -1175,14 +1190,20 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
 // Una venta de otro día baja el stock de hoy. Si alguien contó ese producto
 // DESPUÉS de esa fecha, el conteo ya la traía descontada y quedaría
 // descontada dos veces: se avisa cuáles para que la persona lo corrija.
+// Cuenta como conteo: Contar (ajuste), la carga inicial y la importación, y lo
+// escrito en la casilla de la ficha ("Cambiada en la ficha…", suba o baje)
+// salvo que se haya deshecho (su suma desde la venta da 0: nadie contó nada).
 async function contadasDespuesDe(db, { sede, desde, variantes, datos }) {
   if (!variantes.length) return [];
   try {
     const { results } = await db
       .prepare(
         `SELECT variante_id, MAX(creado) AS cuando FROM inv_movimientos
-          WHERE local_id = ? AND tipo IN ('ajuste', 'carga') AND creado > ? AND variante_id IN (${variantes.map(() => "?").join(",")})
-          GROUP BY variante_id`
+          WHERE local_id = ? AND creado > ? AND variante_id IN (${variantes.map(() => "?").join(",")})
+            AND (tipo IN ('ajuste', 'carga') OR COALESCE(nota, '') LIKE 'Cambiada en la ficha%')
+          GROUP BY variante_id
+         HAVING SUM(CASE WHEN tipo IN ('ajuste', 'carga') AND COALESCE(nota, '') NOT LIKE 'Cambiada en la ficha%' THEN 1 ELSE 0 END) > 0
+             OR SUM(CASE WHEN COALESCE(nota, '') LIKE 'Cambiada en la ficha%' THEN delta ELSE 0 END) <> 0`
       )
       .bind(sede, desde, ...variantes)
       .all();
