@@ -455,9 +455,10 @@ titulo("informe del 6-oct: lo que se arregló en el código");
   ];
   // 81 🔴: "¿Precio?" y el bot no lo decía.
   const p = await conversar("precio de los jordan 40?", { productos: J40, respuestaModelo: { respuesta: "¡Claro! Mira 👇", buscar: "Jordan 40", historial: "Pidió precio de Jordan 40." } });
-  ok(/💵 Jordan 40 negro: 120 USD/.test(p.todo) && /💵 Jordan 40 blanco: 110 USD/.test(p.todo), "pregunta el precio con 2 fichas: se le escribe el de cada una (el de la ficha)", p.textos[0]);
+  // 11-oct: el dueño no quiere los precios en texto (ya van en cada foto).
+  ok(/precios están en cada foto/.test(p.textos[0]) && !/💵|120 USD/.test(p.textos[0]), "pregunta el precio con 2 fichas: se le dice que están en cada foto, sin escribirlos", p.textos[0]);
   const uno = await conversar("cuanto cuesta?", { productos: J40.slice(0, 1), respuestaModelo: { respuesta: "¡Este es! 👇", buscar: "Jordan 40", historial: "Precio." } });
-  ok(/Cuesta 120 USD 💵/.test(uno.todo), "con una sola ficha: 'Cuesta 120 USD'", uno.textos[0]);
+  ok(/precios están en cada foto/.test(uno.textos[0]) && !/Cuesta 120/.test(uno.textos[0]), "con una sola ficha: tampoco se escribe", uno.textos[0]);
   const sin = await conversar("tienen jordan 40?", { productos: J40, respuestaModelo: { respuesta: "¡Sí tengo! Mira 👇", buscar: "Jordan 40", historial: "Pidió Jordan 40." } });
   ok(!/💵/.test(sin.todo), "si no preguntó el precio, nada cambia (el precio va en la foto, como siempre)");
 

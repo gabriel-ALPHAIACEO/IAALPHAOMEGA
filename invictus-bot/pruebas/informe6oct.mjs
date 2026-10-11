@@ -12,9 +12,9 @@ const EN_FECHA = Date.parse("2026-10-03T12:00:00-04:00");
 titulo("el precio, cuando lo pregunta (81 🔴)");
 {
   const f = (n) => Array.from({ length: n }, (_, i) => ({ titulo: `Retro 4 negro ${i} caballero`, precio: `$${60 + i}` }));
-  ok(/Cuesta \$60 💵/.test(P.contestaElPrecio("¡Ese mismo lo manejamos! 👟 Mira 👇", { texto: "Precio?", fichas: f(1) }).respuesta), "una ficha → 'Cuesta $60'");
+  ok(/precios están en cada foto/.test(P.contestaElPrecio("¡Ese mismo lo manejamos! 👟 Mira 👇", { texto: "Precio?", fichas: f(1) }).respuesta), "una ficha → los precios están en la foto (no en texto, 11-oct)");
   const tres = P.contestaElPrecio("Mira 👇", { texto: "que precio tienen?", fichas: f(3) }).respuesta;
-  ok((tres.match(/💵/g) || []).length === 3 && /Retro 4 negro 2: \$62/.test(tres), "tres fichas → el precio de cada una (sin 'caballero')", tres);
+  ok(!/💵|\$6/.test(tres) && /precios están en cada foto/.test(tres), "tres fichas → tampoco se escriben los precios (11-oct)", tres);
   ok(/Los precios están en cada foto/.test(P.contestaElPrecio("Mira estas", { texto: "precio", fichas: f(6) }).respuesta), "más de tres → 'los precios están en cada foto'");
   ok(!P.contestaElPrecio("Cuesta $60 👇", { texto: "precio?", fichas: f(1) }).corregido, "si ya lo dice, no se repite");
   ok(!P.contestaElPrecio("Este cuesta 120 USD 👇", { texto: "precio?", fichas: f(1) }).corregido, "si ya lo dice en USD (como lo escribe Shopify), no se repite");
