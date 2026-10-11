@@ -924,6 +924,7 @@ escriba el nombre de otra forma. Si lo que pide está aquí, no improvises.
   p6000 · p600                        P6000
   uplift                              uplift
   vomero                              Vomero
+  nocta hot step · hot step · drake    Nocta hot step
   nocta                               Nocta
   mind 001 · chola mind               Mind 001
   mind 002 · zapato mind              Mind 002

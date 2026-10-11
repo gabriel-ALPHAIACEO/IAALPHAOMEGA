@@ -136,6 +136,11 @@ LAS IMÁGENES: a veces te llegan la FOTO DEL CLIENTE y las fotos de las
 FICHAS que se le enseñaron. Míralas: ¿es el mismo zapato? Fíjate en lo que
 separa un modelo de otro (la suela, los logos, las piezas de plástico, lo
 que lleva escrito), no en el color.
+Un caso que ya pasó (11-oct-2026): la foto era una Nike NOCTA HOT STEP 2
+(charol brillante, líneas en relieve que recorren el lateral, swoosh chico
+plateado en una ventanita, cámara de aire chica) y se le enseñó un "Nike
+270" (malla, burbuja de aire enorme). Eso es "foto_equivocada", ia
+"imagen", con una regla que diga cómo se reconoce la Hot Step 2.
 
 QUÉ IA SE EQUIVOCÓ ("ia"): "imagen" si el error fue reconocer mal el
 zapato de la foto; "texto" en todo lo demás.

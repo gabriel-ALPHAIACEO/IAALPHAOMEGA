@@ -30,7 +30,7 @@
 // de marcas sigue dependiendo del prompt solo. Se amplía esta tabla según
 // vayan apareciendo más casos reales.
 
-// Las 15 claves que tiene que traer "rasgos". Única fuente de verdad:
+// Las 16 claves que tiene que traer "rasgos". Única fuente de verdad:
 // ia.js la importa para armar el schema JSON estricto que le exige a
 // OpenAI esta forma exacta — así el prompt y el código nunca se desalinean.
 export const RASGOS_CLAVE = [
@@ -49,6 +49,10 @@ export const RASGOS_CLAVE = [
   "tresFranjas",
   "punteraGamuzaT",
   "punteraGomaConcha",
+  // 11-oct-2026: la Nike Nocta Hot Step 2 (Drake) blanca de una historia
+  // salió como "Nike 270 beige". Su seña es el charol brillante con líneas
+  // en relieve que recorren el lateral; ningún Air Max 270 la tiene.
+  "charolLineasRelieve",
 ];
 
 // term: con qué tiene que EMPEZAR "buscar" (sin distinguir mayúsculas)
@@ -59,10 +63,31 @@ export const RASGOS_CLAVE = [
 //   "NADA" cuando ni siquiera la marca es segura (caso On Cloud: si no
 //   hay nubes huecas, no hay nada más en el catálogo que se le parezca).
 const REGLAS = [
+  // Va antes que "nocta" a secas: startsWith elige la primera que encaja.
+  {
+    term: "nocta hot step",
+    requiere: ["charolLineasRelieve"],
+    prohibe: ["camaraAireCompleta", "suelaTransparente", "tresFranjas", "jumpman"],
+    marcaFallback: "Nike",
+  },
   {
     term: "air max 270",
     requiere: ["camaraAireTalon"],
-    prohibe: ["camaraAireCompleta", "suelaTransparente", "suelaRedondeadaSinAire"],
+    prohibe: ["camaraAireCompleta", "suelaTransparente", "suelaRedondeadaSinAire", "charolLineasRelieve"],
+    marcaFallback: "Nike",
+  },
+  // En el catálogo nuevo muchos se llaman "Nike 270 ..." (sin "Air Max"):
+  // la misma regla con los dos nombres.
+  {
+    term: "nike 270",
+    requiere: ["camaraAireTalon"],
+    prohibe: ["camaraAireCompleta", "suelaTransparente", "suelaRedondeadaSinAire", "charolLineasRelieve"],
+    marcaFallback: "Nike",
+  },
+  {
+    term: "270",
+    requiere: ["camaraAireTalon"],
+    prohibe: ["camaraAireCompleta", "suelaTransparente", "suelaRedondeadaSinAire", "charolLineasRelieve"],
     marcaFallback: "Nike",
   },
   {
@@ -170,6 +195,32 @@ export function validarIdentificacion({ buscar, rasgos, pedirNombreExacto }) {
   }
 
   const buscarNormalizado = String(buscar || "").trim().toLowerCase();
+
+  // EL ÚNICO CASO EN QUE ESTO PROPONE UN NOMBRE EN VEZ DE QUITARLO.
+  // Charol brillante con líneas en relieve por el lateral es la Nocta Hot
+  // Step 2 y nada más del catálogo. Si la IA lo vio pero dijo otro Nike
+  // ("Nike 270", "Air Max", "Nike" a secas), se busca la Hot Step, marcada
+  // "sin confirmar" para que el cotejo visual la verifique contra las fotos.
+  if (
+    rasgos.charolLineasRelieve === true &&
+    !buscarNormalizado.startsWith("nocta hot step") &&
+    !buscarNormalizado.includes("hot step") &&
+    rasgos.tresFranjas !== true &&
+    rasgos.jumpman !== true &&
+    /^(nike|air max|270|nocta)\b/.test(buscarNormalizado || "nike")
+  ) {
+    console.log(
+      `Corrección determinista: la IA dijo "buscar":"${buscar}" pero marcó ` +
+        "charol con líneas en relieve: eso es la Nocta Hot Step 2."
+    );
+    return {
+      buscar: "Nocta hot step",
+      pedirNombreExacto: false,
+      corregido: true,
+      confirmar: true,
+    };
+  }
+
   const regla = REGLAS.find((r) => buscarNormalizado.startsWith(r.term));
   if (!regla) {
     return {
