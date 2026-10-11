@@ -19,6 +19,7 @@ const SRC = path.join(AQUI, "..", "src");
 const SUITES = [
   ["pagos.mjs", "los métodos de pago, la tasa y el guardián de los datos"],
   ["gasto.mjs", "la medición del gasto de OpenAI"],
+  ["catalogo.mjs", "los 535 productos del dueño: enteros en catalogo.txt y dentro del prompt"],
   ["prompt.mjs", "que los prompts se armen y las reglas sigan escritas"],
   ["corpus.mjs", "que los guardianes no alteren respuestas buenas"],
   ["cotejo.mjs", "que llegue al modelo el zapato del color correcto"],
