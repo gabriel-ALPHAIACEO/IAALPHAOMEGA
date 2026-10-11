@@ -6,7 +6,9 @@
 // crudo.
 
 import { TIPOS } from "./alertas.js";
-import { ESTILO_ALPHA, SCRIPT_ALPHA, marcaAlpha, cajaDeEntrada, htmlDeAdjuntos, textoVisible, kpi, barras, fechaCorta, selectorDePeriodo } from "./alpha.js";
+import { ESTILO_APP, SCRIPT_APP } from "./marco.js";
+import { SPRITE_ICONOS, icono } from "./iconos.js";
+import { ESTILO_ALPHA, SCRIPT_ALPHA, botonDeTema, SCRIPT_TEMA, marcaAlpha, cajaDeEntrada, htmlDeAdjuntos, textoVisible, kpi, barras, fechaCorta, selectorDePeriodo } from "./alpha.js";
 export { fechaCorta, selectorDePeriodo };
 
 export function esc(texto) {
@@ -52,42 +54,42 @@ export const MARCAS = {
    recorrido, las tablas, "En vivo" y los avisos. La serie de los gráficos
    es una sola (el azul de la marca); los estados (error, bien) van siempre
    con su símbolo, nunca solo con color. */
-const ESTILO = `${ESTILO_ALPHA}
+const ESTILO = `${ESTILO_ALPHA}${ESTILO_APP}
+.lado-grupo+.lado-tienda{margin-top:0}
+.lado-nav a .n,.pestanas .n{margin-left:auto;background:var(--mal);color:#fff;border-radius:999px;font-size:10.5px;padding:0 6px;min-width:18px;text-align:center;box-shadow:0 0 12px rgba(255,107,107,.6)}
+.pestanas .n{position:absolute;top:2px;right:18%;margin:0}
+.lado-avisos{margin:0 6px 8px}
+#notificar{width:100%}
 .campana{position:relative}.campana .n{position:absolute;top:-2px;right:-2px;background:var(--mal);color:#fff;border-radius:999px;font-size:10.5px;padding:0 5px;min-width:17px;text-align:center;box-shadow:0 0 12px rgba(255,107,107,.6)}
 #notificar{font-size:12px;padding:5px 11px;border-radius:999px}
 form.dentro{margin:10px 0 0}
-.pestanas{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 16px}
-.pestanas a{padding:6px 12px;border-radius:999px;border:1px solid var(--borde);background:var(--tarjeta);font-size:13.5px;color:var(--suave);transition:all .2s}
-.pestanas a:hover{color:var(--texto);border-color:var(--borde-fuerte)}
-.pestanas a.activa{color:#fff;background:linear-gradient(135deg,#2f7bff,#0a5cf5);border-color:transparent;box-shadow:0 4px 16px -6px rgba(10,92,245,.8)}
+.subpestanas{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 16px}
+.subpestanas a{padding:6px 12px;border-radius:999px;border:1px solid var(--borde);background:var(--tarjeta);font-size:13.5px;color:var(--suave);transition:all .2s}
+.subpestanas a:hover{color:var(--texto);border-color:var(--borde-fuerte)}
+.subpestanas a.activa{color:#fff;background:linear-gradient(135deg,#2f7bff,#0a5cf5);border-color:transparent;box-shadow:0 4px 16px -6px rgba(10,92,245,.8)}
 .recorrido{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0;align-items:center;color:var(--suave)}
 .paso{font-size:12px;border:1px solid var(--borde);border-radius:999px;padding:1px 8px;background:rgba(255,255,255,.03);color:var(--texto)}
-form.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+form.linea{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
 input{min-width:0;flex:1}textarea{width:100%;min-height:90px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
 /* LAS MISMAS ANIMACIONES QUE EL PANEL DE LAS TIENDAS (marco.js, 11-oct-2026):
    al cambiar de página el contenido se desvanece y el nuevo sube por partes;
    la cabecera se queda quieta. */
-@view-transition{navigation:auto}
-header{view-transition-name:cabecera}
-main#contenido{view-transition-name:contenido}
-main#contenido>*{animation:subir .8s var(--salida) both}
-main#contenido>:nth-child(2){animation-delay:.04s}main#contenido>:nth-child(3){animation-delay:.08s}main#contenido>:nth-child(4){animation-delay:.12s}
-main#contenido>:nth-child(5){animation-delay:.16s}main#contenido>:nth-child(6){animation-delay:.2s}main#contenido>:nth-child(n+7){animation-delay:.24s}
-@keyframes subir{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-::view-transition-old(contenido){animation:.16s ease-in both desvanecer}
-::view-transition-new(contenido){animation:none}
-::view-transition-group(contenido){animation-duration:0s}
-::view-transition-old(cabecera),::view-transition-new(cabecera){animation:none;mix-blend-mode:normal}
-@keyframes desvanecer{to{opacity:0;transform:translateY(-6px)}}
+/* Las animaciones (el contenido sube por partes, la transición entre
+   páginas) y el marco con la barra lateral son los de marco.js, el mismo
+   archivo del panel de las tiendas (11-oct-2026). */
 /* CÓMO FUNCIONA: un mapa mental que se lee como un flujo, de izquierda a
    derecha (de arriba abajo en el teléfono). Cada etapa es una columna; las
    líneas animadas son el camino del mensaje. Tocar un paso lo explica. */
-.mf-mapa{display:grid;grid-template-columns:repeat(6,minmax(158px,1fr));gap:26px;overflow-x:auto;padding:18px 4px 26px;margin:6px 0 18px;scrollbar-width:thin}
+.mf-mapa{--hueco:26px;display:grid;grid-template-columns:repeat(6,minmax(158px,1fr));gap:var(--hueco);overflow-x:auto;padding:18px 4px 26px;margin:6px 0 18px;scrollbar-width:thin}
 .mf-etapa{position:relative;display:flex;flex-direction:column;gap:12px;animation:subir .8s var(--salida) both;animation-delay:calc(var(--n) * 90ms + .1s)}
 .mf-titulo{align-self:flex-start;display:inline-flex;align-items:center;gap:7px;font-size:11.5px;font-weight:750;letter-spacing:.08em;text-transform:uppercase;color:var(--h);padding:5px 11px;border-radius:999px;background:color-mix(in srgb,var(--h) 14%,transparent);border:1px solid color-mix(in srgb,var(--h) 40%,transparent)}
 .mf-titulo i{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:11px;color:#fff;background:var(--h)}
-.mf-etapa:not(:last-child)::after{content:"";position:absolute;top:15px;right:-26px;width:26px;height:2px;background:linear-gradient(90deg,var(--h),var(--h2));-webkit-mask:repeating-linear-gradient(90deg,#000 0 6px,transparent 6px 10px);mask:repeating-linear-gradient(90deg,#000 0 6px,transparent 6px 10px);background-size:200% 100%;animation:fluir 1.4s linear infinite}
-.mf-etapa:not(:last-child)::before{content:"";position:absolute;top:11px;right:-4px;border:5px solid transparent;border-left:7px solid var(--h2);z-index:1}
+/* La línea sale PEGADA a la etiqueta de la etapa y llega hasta la etiqueta
+   de la siguiente (cruza el hueco entre columnas), con la punta encima. */
+.mf-cabeza{display:flex;align-items:center;min-height:32px}
+.mf-linea{position:relative;flex:1;min-width:14px;height:2px;margin-left:-1px;margin-right:calc(7px - var(--hueco));background:linear-gradient(90deg,var(--h),var(--h2));-webkit-mask:repeating-linear-gradient(90deg,#000 0 6px,transparent 6px 10px);mask:repeating-linear-gradient(90deg,#000 0 6px,transparent 6px 10px);animation:fluir 1.4s linear infinite}
+.mf-punta{width:0;height:0;margin-right:-7px;flex:none;border:5px solid transparent;border-left:7px solid var(--h2);border-right:0;position:relative;z-index:1}
+.mf-etapa:last-child .mf-linea,.mf-etapa:last-child .mf-punta{display:none}
 @keyframes fluir{from{-webkit-mask-position:0 0;mask-position:0 0}to{-webkit-mask-position:20px 0;mask-position:20px 0}}
 .mf-paso{position:relative;border-radius:16px;border:1px solid color-mix(in srgb,var(--h) 35%,var(--borde));background:linear-gradient(180deg,color-mix(in srgb,var(--h) 10%,transparent),rgba(255,255,255,.02));box-shadow:0 10px 30px -18px color-mix(in srgb,var(--h) 80%,transparent);transition:transform .25s var(--salida),box-shadow .25s}
 .mf-paso:hover{transform:translateY(-2px);box-shadow:0 16px 34px -16px color-mix(in srgb,var(--h) 90%,transparent)}
@@ -110,8 +112,9 @@ details.mf-paso{margin-top:0}
 .mf-pie{font-size:13px}
 @media (max-width:900px){
   .mf-mapa{grid-template-columns:1fr;gap:38px;overflow:visible}
-  .mf-etapa:not(:last-child)::after{top:auto;bottom:-30px;right:auto;left:22px;width:2px;height:24px;background:linear-gradient(180deg,var(--h),var(--h2));-webkit-mask:repeating-linear-gradient(180deg,#000 0 6px,transparent 6px 10px);mask:repeating-linear-gradient(180deg,#000 0 6px,transparent 6px 10px);animation:fluir-abajo 1.4s linear infinite}
-  .mf-etapa:not(:last-child)::before{top:auto;bottom:-38px;right:auto;left:18px;border:5px solid transparent;border-top:7px solid var(--h2)}
+  .mf-linea,.mf-punta{display:none}
+  .mf-etapa:not(:last-child)::after{content:"";position:absolute;bottom:-30px;left:22px;width:2px;height:24px;background:linear-gradient(180deg,var(--h),var(--h2));-webkit-mask:repeating-linear-gradient(180deg,#000 0 6px,transparent 6px 10px);mask:repeating-linear-gradient(180deg,#000 0 6px,transparent 6px 10px);animation:fluir-abajo 1.4s linear infinite}
+  .mf-etapa:not(:last-child)::before{content:"";position:absolute;bottom:-38px;left:18px;border:5px solid transparent;border-top:7px solid var(--h2)}
 }
 @keyframes fluir-abajo{from{-webkit-mask-position:0 0;mask-position:0 0}to{-webkit-mask-position:0 20px;mask-position:0 20px}}
 .rama{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
@@ -152,7 +155,7 @@ const VIVO = `
   function revisar(){
     fetch("/vivo?desde="+ultimo+(primera?"&primera=1":""),{credentials:"same-origin"}).then(function(r){return r.ok?r.json():null}).then(function(d){
       if(!d)return;
-      var n=document.getElementById("sinleer");if(n){n.textContent=d.sinLeer||"";n.style.display=d.sinLeer?"":"none"}
+      document.querySelectorAll("[data-sinleer]").forEach(function(n){n.textContent=d.sinLeer||"";n.style.display=d.sinLeer?"":"none"});
       if(!primera&&d.nuevas&&d.nuevas.length){d.nuevas.slice(0,5).forEach(aviso);pitido()}
       primera=false;if(d.ultimo>ultimo){ultimo=d.ultimo;try{sessionStorage.setItem("ultimaAlerta",String(ultimo))}catch(e){}}
     }).catch(function(){})
@@ -165,20 +168,90 @@ const VIVO = `
 })();
 </script>`;
 
-export function pagina(titulo, cuerpo, { conMenu = true, vivo = false, marca = "", sinLeer = 0, nombre = "ALPHA IA" } = {}) {
-  const menu = conMenu
-    ? `<nav class="menu"><a href="/">Inicio</a><a href="/en-vivo">🟢 En vivo</a><a class="campana" href="/alertas">🔔 Alertas<span class="n" id="sinleer" style="${sinLeer ? "" : "display:none"}">${sinLeer || ""}</span></a>
-<a href="/en-pausa">⏸️ En pausa</a><a href="/metricas">Métricas</a><a href="/ganadores">Ganadores</a><a href="/errores">Errores</a><a href="/gastos">Gastos</a><a href="/salud">Estado</a><a href="/como-funciona">Cómo funciona</a><a href="/salir">Salir</a>
-<button id="notificar" style="display:none">Activar avisos</button></nav>`
-    : "";
-  const entrando = !conMenu && titulo === "Entrar";
-  const arriba = entrando ? "" : `<header><div class="fila">${marcaAlpha("", nombre === "ALPHA IA" ? "Panel central" : nombre)}${menu}</div></header>`;
+// EL MARCO DEL PANEL CENTRAL ES EL MISMO QUE EL DE LAS TIENDAS (11-oct-2026,
+// pedido del dueño): barra lateral con íconos a la izquierda, barra de
+// pestañas abajo en el teléfono, y el estilo y las animaciones de marco.js.
+const MENU = [
+  ["inicio", "/", "Inicio", "inicio"],
+  ["en-vivo", "/en-vivo", "En vivo", "chats"],
+  ["alertas", "/alertas", "Alertas", "alerta"],
+  ["en-pausa", "/en-pausa", "En pausa", "pausa"],
+  ["metricas", "/metricas", "Métricas", "metricas"],
+  ["ganadores", "/ganadores", "Ganadores", "ganadores"],
+  ["errores", "/errores", "Errores", "errores"],
+  ["gastos", "/gastos", "Gastos", "gastos"],
+  ["salud", "/salud", "Estado", "escudo"],
+  ["como-funciona", "/como-funciona", "Cómo funciona", "idea"],
+];
+const EN_LA_BARRA = ["inicio", "en-vivo", "alertas", "errores"];
+
+// Qué sección está activa, por la dirección.
+function seccionDe(ruta = "") {
+  if (ruta === "/" || ruta === "") return "inicio";
+  const tienda = /^\/t\/([^/]+)/.exec(ruta);
+  if (tienda) return `t:${decodeURIComponent(tienda[1])}`;
+  const uno = ruta.split("/")[1] || "";
+  if (uno === "informe") return "errores";
+  return MENU.some((m) => m[0] === uno) ? uno : "";
+}
+
+function contador(n) {
+  return `<span class="n" data-sinleer style="${n ? "" : "display:none"}">${n || ""}</span>`;
+}
+
+function enlace([clave, href, texto, ico], activa, sinLeer) {
+  const activo = clave === activa;
+  return `<a href="${href}"${activo ? ' class="activo" aria-current="page"' : ""}>${activo ? '<span class="pastilla"></span>' : ""}${icono(ico)}<span>${esc(texto)}</span>${clave === "alertas" ? contador(sinLeer) : ""}</a>`;
+}
+
+function barraLateral({ nombre, activa, sinLeer, tiendas }) {
+  return `<aside class="lado" aria-label="Menú">
+<a class="lado-marca" href="/"><img src="/isotipo.png?v=1" alt="" width="40" height="28"><span><b>ALPHA <i>IA</i></b><small>${esc(nombre === "ALPHA IA" ? "Panel central" : nombre)}</small></span></a>
+<nav class="lado-nav"><div class="lado-grupo">Todas las tiendas</div>${MENU.map((m) => enlace(m, activa, sinLeer)).join("")}
+${tiendas.length ? `<div class="lado-grupo">Cada tienda</div>${tiendas.map((t) => enlace([`t:${t.id}`, `/t/${encodeURIComponent(t.id)}`, t.nombre, "sede"], activa, 0)).join("")}` : ""}</nav>
+<div class="lado-pie">
+<div class="lado-avisos"><button type="button" id="notificar" class="lado-boton" style="display:none">${icono("alerta")}<span>Activar avisos</span></button></div>
+<div class="lado-tema"><span>Tema</span>${botonDeTema()}</div>
+<a class="lado-boton" href="/salir">${icono("salir")}<span>Salir</span></a>
+</div></aside>`;
+}
+
+function pestanasAbajo({ activa, sinLeer, tiendas }) {
+  const una = (clave) => {
+    const [, href, texto, ico] = MENU.find((m) => m[0] === clave);
+    const activo = clave === activa;
+    return `<a href="${href}"${activo ? ' class="activo" aria-current="page"' : ""}><span class="pestana-ico">${activo ? '<span class="pestana-fondo"></span>' : ""}${icono(ico)}</span><span>${esc(texto)}</span>${clave === "alertas" ? contador(sinLeer) : ""}</a>`;
+  };
+  const resto = MENU.filter((m) => !EN_LA_BARRA.includes(m[0]));
+  const enMas = activa && !EN_LA_BARRA.includes(activa);
+  const tarjeta = ([clave, href, texto, ico]) => `<a href="${href}"${clave === activa ? ' class="activo"' : ""}><span class="insignia ${clave === activa ? "tono-marca" : "tono-neutro"}">${icono(ico)}</span><span>${esc(texto)}</span></a>`;
+  return `<nav class="pestanas" aria-label="Menú">${EN_LA_BARRA.map(una).join("")}<button type="button" popovertarget="hoja-mas"${enMas ? ' class="activo"' : ""}><span class="pestana-ico">${enMas ? '<span class="pestana-fondo"></span>' : ""}${icono("rejilla")}</span><span>Más</span></button></nav>
+<div popover id="hoja-mas" class="ventana hoja-mas"><div class="ventana-asa"></div>
+<div class="hoja-grupo">Todas las tiendas</div><div class="hoja-rejilla">${resto.map(tarjeta).join("")}</div>
+${tiendas.length ? `<div class="hoja-grupo">Cada tienda</div><div class="hoja-rejilla">${tiendas.map((t) => tarjeta([`t:${t.id}`, `/t/${encodeURIComponent(t.id)}`, t.nombre, "sede"])).join("")}</div>` : ""}
+<div class="hoja-pie"><a class="boton fantasma" href="/salir">${icono("salir")}Salir</a></div></div>`;
+}
+
+export function pagina(titulo, cuerpo, { conMenu = true, vivo = false, marca = "", sinLeer = 0, nombre = "ALPHA IA", ruta = "", tiendas = [] } = {}) {
+  const entrando = !conMenu;
+  const activa = seccionDe(ruta);
+  const atributos = `${vivo ? ` data-vivo="${typeof vivo === "number" ? vivo : 60000}"` : ""}${marca ? ` data-marca="${esc(marca)}"` : ""}`;
+  const cuerpoHtml = entrando
+    ? `<body${atributos}>${cuerpo}`
+    : `<body class="app"${atributos}>
+${barraLateral({ nombre, activa, sinLeer, tiendas })}
+<div class="lienzo">
+<header class="barra-app"><a class="barra-marca" href="/"><img src="/isotipo.png?v=1" alt="" width="34" height="24"><span>${esc(nombre === "ALPHA IA" ? "Panel central" : nombre)}</span></a><div class="barra-derecha">${botonDeTema()}</div></header>
+<main class="contenido" id="contenido">${cuerpo}</main>
+</div>
+${pestanasAbajo({ activa, sinLeer, tiendas })}
+${VIVO}${SCRIPT_ALPHA}${SCRIPT_APP}`;
   return new Response(
-    `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="#05070d"><link rel="icon" href="/isotipo.png?v=1">
-<title>${esc(titulo)} · ${esc(nombre)}</title><style>${ESTILO}</style></head>
-<body${vivo ? ` data-vivo="${typeof vivo === "number" ? vivo : 60000}"` : ""}${marca ? ` data-marca="${esc(marca)}"` : ""}>${arriba}
-${entrando ? cuerpo : `<main id="contenido">${cuerpo}</main>`}${conMenu ? VIVO + SCRIPT_ALPHA : ""}</body></html>`,
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&display=swap">
+<title>${esc(titulo)} · ${esc(nombre)}</title><style>${ESTILO}</style>${SCRIPT_TEMA}</head>
+${SPRITE_ICONOS}${cuerpoHtml}</body></html>`,
     {
       status: 200,
       headers: {
@@ -190,7 +263,7 @@ ${entrando ? cuerpo : `<main id="contenido">${cuerpo}</main>`}${conMenu ? VIVO +
         // Nada de fuera: ni scripts ni a dónde mandar datos. Imágenes sí
         // (https): las fotos de los clientes y las fichas de las tiendas.
         "content-security-policy":
-          "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+          "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
       },
     }
   );
@@ -218,7 +291,7 @@ export function pestanasDeTienda(t, activa) {
     ["bases", "Bases de datos"],
     ["estado", "Estado"],
   ];
-  return `<h2>${esc(t.nombre)}</h2><div class="pestanas">${p
+  return `<h2>${esc(t.nombre)}</h2><div class="subpestanas">${p
     .map(([ruta, nombre]) => `<a class="${activa === ruta ? "activa" : ""}" href="/t/${esc(t.id)}${ruta ? `/${ruta}` : ""}">${esc(nombre)}</a>`)
     .join("")}</div>`;
 }
@@ -382,9 +455,9 @@ ${faltan.length ? `<div class="tarjeta mal">Faltan claves: ${faltan.map((f) => `
 export function vistaChats(t, lista, { q = "", f = "" } = {}) {
   const filtro = (clave, nombre) => `<a class="${f === clave ? "activa" : ""}" href="/t/${esc(t.id)}/chats${clave ? `?f=${clave}` : ""}">${esc(nombre)}</a>`;
   return `${pestanasDeTienda(t, "chats")}
-<form class="fila" method="get"><input name="q" value="${esc(q)}" placeholder="Buscar por nombre, @usuario o lo que escribió">${f ? `<input type="hidden" name="f" value="${esc(f)}">` : ""}<button>Buscar</button></form>
+<form class="linea" method="get"><input name="q" value="${esc(q)}" placeholder="Buscar por nombre, @usuario o lo que escribió">${f ? `<input type="hidden" name="f" value="${esc(f)}">` : ""}<button>Buscar</button></form>
 <div class="leyenda">${Object.values(MARCAS).map((m) => `<span>${m.simbolo} ${esc(m.nombre)}</span>`).join("")}</div>
-<div class="pestanas">${filtro("", "Todas")}${filtro("problemas", "Con problemas")}${filtro("pausados", "Bot en pausa")}${filtro("anuncios", "Vinieron de un anuncio")}</div>
+<div class="subpestanas">${filtro("", "Todas")}${filtro("problemas", "Con problemas")}${filtro("pausados", "Bot en pausa")}${filtro("anuncios", "Vinieron de un anuncio")}</div>
 ${f === "pausados" && lista.some((c) => c.pausado) ? botonDevolverTodas(t, lista.filter((c) => c.pausado).length, `/t/${t.id}/chats?f=pausados`) : ""}
 ${lista.length ? lista.map((c) => tarjetaDeChat(t, c, `/t/${t.id}/chats${f || q ? `?${new URLSearchParams({ ...(f ? { f } : {}), ...(q ? { q } : {}) })}` : ""}`)).join("") : `<div class="tarjeta suave">${f === "pausados" ? "Nadie en pausa: el bot está atendiendo a todos ✅" : "No hay conversaciones con eso."}</div>`}`;
 }
@@ -569,7 +642,7 @@ const SCRIPT_EN_VIVO = `<script>
 export function vistaEnVivo(tiendas, { tienda = null } = {}) {
   const arriba = tienda
     ? pestanasDeTienda(tienda, "en-vivo")
-    : `<h2>🟢 En vivo</h2><div class="pestanas"><a class="activa" href="/en-vivo">Todas</a>${tiendas.map((t) => `<a href="/t/${esc(t.id)}/en-vivo">${esc(t.nombre)}</a>`).join("")}</div>`;
+    : `<h2>🟢 En vivo</h2><div class="subpestanas"><a class="activa" href="/en-vivo">Todas</a>${tiendas.map((t) => `<a href="/t/${esc(t.id)}/en-vivo">${esc(t.nombre)}</a>`).join("")}</div>`;
   return `${arriba}<p class="suave">Los mensajes van entrando solos, el más nuevo arriba: 👤 cliente, 🤖 bot, 🧑‍💼 asesor y 🧠 lo que pensó la IA antes de responder. Toca uno para abrir la conversación entera.</p>
 <div class="leyenda">${Object.values(MARCAS).map((m) => `<span>${m.simbolo} ${esc(m.nombre)}</span>`).join("")}</div>
 <div class="acciones"><span id="vivo-estado" class="suave">Conectando…</span><button id="vivo-pausa">⏸ Pausar</button></div>
@@ -592,7 +665,7 @@ export function vistaTabla(t, datos, q = "") {
   const base = `/t/${esc(t.id)}/bases/${encodeURIComponent(tabla)}`;
   const navegar = `${pagina > 1 ? `<a href="${base}?pagina=${pagina - 1}&q=${encodeURIComponent(q)}">← Anterior</a>` : ""} Página ${pagina} de ${paginas} · ${total} filas ${pagina < paginas ? `<a href="${base}?pagina=${pagina + 1}&q=${encodeURIComponent(q)}">Siguiente →</a>` : ""}`;
   return `${pestanasDeTienda(t, "bases")}<p><a href="/t/${esc(t.id)}/bases">← Tablas</a></p><h3>${esc(tabla)}</h3>
-<form class="fila" method="get"><input name="q" value="${esc(q)}" placeholder="Buscar en todas las columnas"><button>Buscar</button></form>
+<form class="linea" method="get"><input name="q" value="${esc(q)}" placeholder="Buscar en todas las columnas"><button>Buscar</button></form>
 <p class="suave">${navegar}</p>
 <div class="tabla"><table><tr><th></th><th>rowid</th>${columnas.map((c) => `<th>${esc(c.nombre)}${c.clave ? " 🔑" : ""}</th>`).join("")}</tr>
 ${filas.map((f) => `<tr><td><a href="${base}/${f._rowid}">✏️</a></td><td class="num">${esc(f._rowid)}</td>${columnas.map((c) => `<td><span class="corto" title="${esc(String(f[c.nombre] ?? "").slice(0, 500))}">${esc(String(f[c.nombre] ?? "").slice(0, 120))}</span></td>`).join("")}</tr>`).join("")}</table></div>
@@ -642,7 +715,7 @@ function paso(icono, titulo, texto, clase = "") {
 
 // Una etapa = una columna del mapa, con su color.
 function etapa(n, titulo, color, siguiente, contenido) {
-  return `<section class="mf-etapa" style="--n:${n};--h:${color};--h2:${siguiente}"><div class="mf-titulo"><i>${n}</i>${esc(titulo)}</div>${contenido}</section>`;
+  return `<section class="mf-etapa" style="--n:${n};--h:${color};--h2:${siguiente}"><div class="mf-cabeza"><div class="mf-titulo"><i>${n}</i>${esc(titulo)}</div><span class="mf-linea"></span><span class="mf-punta"></span></div>${contenido}</section>`;
 }
 
 const COLORES = ["#3d86ff", "#8b7cff", "#22c3ee", "#3ddc97", "#f5b73b", "#ff7ab6"];
@@ -655,7 +728,7 @@ export function vistaComoFunciona() {
 ${etapa(1, "Llega", c(0), c(1), `
 ${paso("📩", "Llega el mensaje", "Instagram avisa al Worker de la tienda. Se le contesta a Meta al instante y el trabajo sigue aparte, así no repite mensajes.")}
 <div class="mf-hojas"><b>texto</b><b>foto</b><b>nota de voz</b><b>historia</b><b>publicación</b><b>comentario</b><b>anuncio</b><b>WhatsApp (EPICCELL)</b></div>`)}
-${etapa(2, "¿Quién atiende?", c(1), c(2), `
+${etapa(2, "¿Quién?", c(1), c(2), `
 ${paso("❓", "¿Lo escribió un asesor?", "Si el mensaje salió de la cuenta y no fue el bot, es una persona: el bot se calla con ese cliente para no hablarle encima.", "decision")}
 <div class="mf-rama"><b>Sí →</b> el bot se pone en pausa</div>
 ${paso("⏸️", "¿Está en pausa?", "Si un asesor lo está atendiendo, el bot no contesta. Si el asesor lleva rato callado, el bot vuelve solo.", "decision")}
@@ -668,7 +741,7 @@ ${etapa(4, "Decidir", c(3), c(4), `
 ${paso("🧠", "La IA de texto piensa", "Lee la conversación, el catálogo y lo que sabe de la tienda (y las reglas que aprendió). Escribe lo que piensa, decide qué buscar y si responde con texto, fichas o voz.")}
 ${paso("🔎", "Busca en el catálogo", "Shopify (Invictus), Drive (El Emperador) o el inventario / la hoja (EPICCELL). Si no hay justo eso, rescata: la misma familia, otro color, lo más parecido.")}
 ${paso("🗂️", "Fichas o catálogo", "Hasta 10 fichas con foto y precio. El botón del catálogo solo si lo pidió, no hubo nada, se acabaron o hay más de 10.")}`)}
-${etapa(5, "Cuidar y responder", c(4), c(5), `
+${etapa(5, "Responder", c(4), c(5), `
 ${paso("🛡️", "Las redes de seguridad", "Antes de salir, el código revisa lo que escribió la IA: precios o porcentajes de Cashea inventados, groserías o regaños, marcas que sí hay negadas, tallas y bolívares sin contestar, catálogo o fotos prometidos que no van. Si atrapa algo, lo corrige y queda marcado ⚠️.", "red")}
 ${paso("✍️", "Redacta viendo lo encontrado", "En EPICCELL, con las fichas que de verdad salieron delante, la IA escribe la respuesta final; las redes vuelven a pasar.")}
 ${paso("📤", "Responde", "Texto, fichas, nota de voz o el botón del catálogo. Cada mensaje queda guardado para los paneles.")}`)}

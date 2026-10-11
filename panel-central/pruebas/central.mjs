@@ -190,7 +190,8 @@ titulo("inicio: todas las tiendas");
   ok(/<b>1<\/b> clientes/.test(inicio.html), "los clientes de hoy de Invictus", (inicio.html.match(/Hoy:[^<]*<b>\d+<\/b>[^<]*/) || [""])[0]);
   const csp = inicio.r.headers.get("content-security-policy") || "";
   ok(/default-src 'none'/.test(csp) && /frame-ancestors 'none'/.test(csp), "con CSP: nada de fuera");
-  ok(/id="sinleer"/.test(inicio.html) && /\/vivo\?desde=/.test(inicio.html), "la campana y el sondeo en tiempo real van en cada página");
+  ok(/data-sinleer/.test(inicio.html) && /\/vivo\?desde=/.test(inicio.html), "la campana y el sondeo en tiempo real van en cada página");
+  ok(/<aside class="lado"/.test(inicio.html) && /class="pestanas"/.test(inicio.html) && /<aside class="lado"[\s\S]*Cada tienda[\s\S]*Invictus[\s\S]*<\/aside>/.test(inicio.html), "el marco de las tiendas: barra lateral (con cada tienda) y pestañas abajo");
 }
 
 titulo("alertas en tiempo real");
@@ -299,7 +300,7 @@ titulo("ALPHA IA: el logo, las fotos y el carrusel de fichas");
   await P1.anotarMensaje(BASE1.DB, "123", "cliente", "", { fotos: ["https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=7"] });
   await P1.anotarMensaje(BASE1.DB, "123", "bot", "📷 Fichas: Jordan 4 · Dunk", { fichas: [{ titulo: "Jordan 4", precio: "$70", imagen: "https://cdn.shopify.com/j4.jpg" }, { titulo: "Dunk", precio: "$50", imagen: "https://cdn.shopify.com/dunk.jpg" }] });
   const conv = await abrir("/t/invictus/c/123");
-  ok(/class="alpha"/.test(conv.html) && /isotipo\.png/.test(conv.html), "arriba, la marca ALPHA IA");
+  ok(/class="lado-marca"/.test(conv.html) && /isotipo\.png/.test(conv.html), "la marca ALPHA IA en la barra lateral");
   ok(/<img src="https:\/\/lookaside\.fbsbx\.com/.test(conv.html), "la foto que mandó el cliente se ve");
   ok(/class="carrusel"/.test(conv.html) && /cdn\.shopify\.com\/j4\.jpg/.test(conv.html) && /\$70/.test(conv.html), "las fichas, en un carrusel que se desliza, con su precio");
   ok(/img-src 'self' data: https:/.test(conv.r.headers.get("content-security-policy") || ""), "la política de seguridad deja ver imágenes https");

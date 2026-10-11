@@ -294,7 +294,7 @@ export function vistaInforme(informe, { kpi = (v, e) => `<div class="kpi"><div c
     .join("");
   return `<h2>🧾 Informe de errores</h2>
 <p class="suave">Todo lo que salió mal en todas las tiendas, agrupado por problema (el mismo error repetido es un solo arreglo). Bájalo para guardarlo y arreglarlo después: los errores técnicos se borran solos de cada tienda a los 30 días y las respuestas señaladas a los 60.</p>
-<div class="pestanas">${periodo}</div>${tiendas}
+<div class="subpestanas">${periodo}</div>${tiendas}
 <div class="kpis">${kpi(t.problemas, "problemas distintos")}${kpi(t.tecnicos, "⚙️ errores técnicos")}${kpi(t.senaladas, "❌🔴⚠️👎 respuestas señaladas")}${kpi(t.correcciones, "🛡️ correcciones")}</div>
 <p class="acciones"><a class="boton" href="/errores/informe.csv?dias=${n}">⬇️ Excel (una fila por cada vez)</a> <a class="boton" href="/errores/informe.md?dias=${n}">⬇️ Informe en texto (para arreglar)</a> <a href="/errores?dias=${Math.min(n, 30)}">ver la lista de errores</a></p>
 ${
