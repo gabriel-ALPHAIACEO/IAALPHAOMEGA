@@ -11,6 +11,7 @@ const CONSULTA = `
     products(first: $cuantos, query: $termino) {
       edges {
         node {
+          id
           title
           onlineStoreUrl
           featuredImage { url }
@@ -240,6 +241,7 @@ async function consultar(env, query, variables) {
 
 function aProducto(env) {
   return ({ node }) => ({
+    id: node.id || "",
     titulo: node.title,
     precio: formatearPrecio(node.priceRangeV2?.minVariantPrice),
     imagen: node.featuredImage?.url || "",
@@ -280,4 +282,22 @@ export function urlPequena(url) {
   if (/[?&]width=/i.test(limpia)) return limpia;
 
   return limpia + (limpia.includes("?") ? "&" : "?") + `width=${ANCHO_PARA_EL_MODELO}`;
+}
+
+// PARA EL INVENTARIO (7-oct-2026): los modelos de Shopify como los entiende
+// inventario.js. Invictus no maneja tallas (decisión del dueño): cada modelo
+// es una sola variante "única" y el stock se carga en el panel o con su Excel.
+export async function catalogoParaInventario(env) {
+  const { productos } = await traerCatalogoCompleto(env, 2000);
+  return productos
+    .filter((p) => p.titulo)
+    .map((p) => ({
+      origen: "shopify",
+      origen_id: String(p.id || p.url || p.titulo).replace("gid://shopify/Product/", ""),
+      titulo: p.titulo,
+      precio: p.precio,
+      enlace: p.url,
+      fotos: p.imagen ? [p.imagen] : [],
+      variantes: [{ opcion: "única" }],
+    }));
 }

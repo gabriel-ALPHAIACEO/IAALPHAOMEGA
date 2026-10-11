@@ -117,6 +117,15 @@ titulo("la carpeta entera, con subcarpetas, como si fuera Shopify");
   ok(S.urlPequena(af.imagen).endsWith("=w512"), "para el cotejo se pide pequeña (512)", S.urlPequena(af.imagen));
 }
 
+titulo("para el inventario: cada foto un modelo, las tallas del nombre");
+{
+  const items = await conDrive(() => D.catalogoParaInventario(env));
+  const af = items.find((i) => /Air Force/.test(i.titulo));
+  ok(items.length === 3 && af.origen === "drive" && af.origen_id === "f1", "un modelo por foto, con el id del archivo", af && af.origen_id);
+  ok(af.fotos[0] === af.enlace.replace(/\/view$/, "").replace("drive.google.com/file/d/", "lh3.googleusercontent.com/d/") + "=w1000", "con su foto");
+  ok(items.every((i) => i.variantes.length >= 1), "siempre con al menos una variante");
+}
+
 titulo("buscar, igual que en Shopify");
 {
   const r1 = await conDrive(() => S.buscarProductos(env, "air force", 10));

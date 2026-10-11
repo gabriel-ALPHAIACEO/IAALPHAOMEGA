@@ -69,6 +69,7 @@ const SINONIMOS = {
 import { tipoQuePide, tipoDelProducto } from "./tipos.js";
 import { juntarModelo } from "./modelo.js";
 import { resumenDeMarcas } from "./disponible.js";
+import { elBotLeeElInventario, catalogoParaElBot } from "./inventario.js";
 
 // Devuelve { productos, hayMas }. "hayMas" dice si había MÁS de los que se
 // devuelven: un carrusel de Instagram admite 10, y si de ese modelo hay 14,
@@ -629,9 +630,18 @@ export async function listaDeTitulos(env, limite = MAXIMO_CARACTERES_CATALOGO) {
 // Lo que ve el Worker cuando mira tu hoja, en texto plano. Lo usa la ruta
 // /probar-hoja para que no haya que adivinar qué está fallando.
 export async function diagnosticoHoja(env) {
-  const { productos, aviso, encabezados, filasLeidas, columnas } = await leerHoja(env);
+  const inventario = await leerDelInventario(env);
+  const { productos, aviso, encabezados, filasLeidas, columnas } = await leerSoloLaHoja(env);
 
   const lineas = [
+    ...(inventario
+      ? [
+          `EL BOT OFRECE LO DEL INVENTARIO DEL PANEL: ${inventario.productos.length} productos visibles`,
+          "(con stock o sin contar, y sin ocultar). La hoja de abajo YA NO SE USA para",
+          "contestar; para volver a ella: panel › Inventario › Importar › Lo que ofrece el bot.",
+          "",
+        ]
+      : []),
     `SHEET_ID:     ${env.SHEET_ID || "(sin definir)"}`,
     `SHEET_NOMBRE: ${env.SHEET_NOMBRE || "(sin definir, se usa 'Hoja 1')"}`,
     "",
@@ -717,6 +727,11 @@ export async function diagnosticoHoja(env) {
 let cacheEnMemoria = null; // { clave, vencido, datos }
 
 async function leerHoja(env) {
+  // Traída la hoja al inventario, MANDA EL INVENTARIO (ver más abajo).
+  return (await leerDelInventario(env)) || leerSoloLaHoja(env);
+}
+
+async function leerSoloLaHoja(env) {
   const clave = `${env.SHEET_ID}::${env.SHEET_NOMBRE || "Hoja 1"}`;
 
   if (
@@ -739,7 +754,92 @@ async function leerHoja(env) {
   return datos;
 }
 
-async function leerHojaDeVerdad(env) {
+// EL BOT OFRECE LO DEL INVENTARIO (7-oct-2026, decisión del dueño: "en
+// EPICCELL todo pasa, hasta precios y fotos, absolutamente todo"). Desde
+// que el catálogo se trae al inventario del panel (Inventario › Importar),
+// la hoja ya no se lee: el bot ofrece cada capacidad de cada modelo que
+// tenga stock (o que nunca se contó, como el "SI" de la hoja), que no esté
+// oculta, con los precios, la foto y las columnas que tiene en el panel.
+// Lo que se vende en la caja deja de ofrecerse solo, y nada se aparta.
+//
+// Cada fila sale con la MISMA forma que una fila de la hoja (titulo,
+// marca, precio, precioCashea, capacidad, imagen, url, extras, busqueda),
+// así que la búsqueda, las fichas, las cuotas de Cashea y la ficha técnica
+// no notan la diferencia. En Importar hay un botón para volver a la hoja.
+//
+// Se mira cada 30 segundos (no en cada mensaje). Si la base falla, el bot
+// sigue con la hoja: un cliente nunca se queda sin respuesta por esto.
+const SEGUNDOS_DEL_INVENTARIO = 30;
+let cacheDelInventario = null; // { vence, datos } — datos null: se lee la hoja
+
+async function leerDelInventario(env) {
+  if (!env.DB) return null;
+  if (cacheDelInventario && cacheDelInventario.vence > Date.now()) return cacheDelInventario.datos;
+  let datos = null;
+  try {
+    if (await elBotLeeElInventario(env.DB)) {
+      const filas = await catalogoParaElBot(env.DB);
+      datos = {
+        productos: filas.map((f) => productoDelInventario(f, env)),
+        encabezados: [],
+        filasLeidas: filas.length,
+        columnas: { titulo: "(inventario del panel)", precio: "(inventario del panel)" },
+        fuente: "inventario",
+      };
+      console.log(`Inventario → ${datos.productos.length} productos visibles para el bot`);
+    }
+  } catch (error) {
+    console.error(`No pude leer el inventario; sigo con la hoja: ${error.message}`);
+    datos = null;
+  }
+  cacheDelInventario = { vence: Date.now() + SEGUNDOS_DEL_INVENTARIO * 1000, datos };
+  return datos;
+}
+
+// Solo para las pruebas: que la próxima lectura vuelva a mirar la base.
+export function olvidarElInventario() {
+  cacheDelInventario = null;
+}
+
+export function productoDelInventario(f, env = {}) {
+  const capacidad = String(f.opcion || "").trim();
+  const extras = f.extras && typeof f.extras === "object" ? f.extras : {};
+  const textos = [f.titulo, f.marca, capacidad, f.color, ...Object.values(extras)].map((t) => String(t ?? "").trim()).filter(Boolean);
+  const piezas = palabrasDeBusqueda(textos.join(" "));
+  return {
+    titulo: f.titulo,
+    marca: f.marca || "",
+    precio: combinarPrecio(enDolares(f.precio), enBolivares(f.precioLocal)),
+    precioCashea: f.precioCashea === null || f.precioCashea === undefined ? "" : cifra(f.precioCashea),
+    capacidad,
+    imagen: enlaceDeImagen(f.foto),
+    url: f.enlace || env.URL_CATALOGO || "",
+    extras,
+    busqueda: { piezas, junto: piezas.join("") },
+  };
+}
+
+// 420 → "420"; 182.5 → "182.50" (son montos que se pagan).
+function cifra(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "";
+  return Number.isInteger(x) ? String(x) : x.toFixed(2);
+}
+
+function enDolares(n) {
+  return n === null || n === undefined || !Number.isFinite(Number(n)) ? "" : `$${cifra(n)}`;
+}
+
+// 15000 → "Bs 15.000"; 15000.5 → "Bs 15.000,50" (como se escribe en Venezuela).
+function enBolivares(n) {
+  const x = Number(n);
+  if (n === null || n === undefined || !Number.isFinite(x)) return "";
+  const [entero, decimales] = Math.abs(x).toFixed(2).split(".");
+  const conPuntos = entero.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `Bs ${x < 0 ? "-" : ""}${conPuntos}${decimales === "00" ? "" : `,${decimales}`}`;
+}
+
+async function leerHojaDeVerdad(env, opciones = {}) {
   const vacio = { productos: [], encabezados: [], filasLeidas: 0, columnas: {} };
 
   if (!env.SHEET_ID || /^PEGA_AQUI/i.test(env.SHEET_ID)) {
@@ -791,7 +891,7 @@ async function leerHojaDeVerdad(env) {
     return { ...vacio, aviso };
   }
 
-  return convertir(leerCsv(texto), env);
+  return convertir(leerCsv(texto), env, opciones);
 }
 
 // Quita tildes, mayúsculas, espacios y signos para comparar nombres de
@@ -804,7 +904,10 @@ function normalizar(texto) {
     .replace(/[^a-z0-9]/g, "");
 }
 
-function convertir(filas, env) {
+// todas: true (para el inventario) no esconde nada —ni lo agotado ni lo
+// inactivo— y añade a cada fila su cantidad, su precio en divisas solo y si
+// está activa. Sin eso, la lista es la de siempre: lo que el cliente puede ver.
+function convertir(filas, env, { todas = false } = {}) {
   const vacio = { productos: [], encabezados: [], filasLeidas: filas.length, columnas: {} };
 
   if (filas.length < 2) {
@@ -866,10 +969,12 @@ function convertir(filas, env) {
 
     // Solo se esconde con un NO explícito: una celda vacía se toma como
     // activo, para que no haya que rellenar la columna producto a producto.
+    let activo = true;
     if (indices.activo !== -1) {
       const estado = normalizar(fila[indices.activo]);
       if (["no", "0", "false", "borrador", "inactivo", "agotado", "agotada", "vendido", "vendida", "nohay", "sinexistencia", "sinstock"].includes(estado)) {
-        continue;
+        activo = false;
+        if (!todas) continue;
       }
     }
 
@@ -877,7 +982,8 @@ function convertir(filas, env) {
     // "no hay" escrito. Y TODAS las columnas de existencia cuentan
     // (6-oct-2026): con "Cantidad" y "Existencia" a la vez, cualquiera de
     // las dos en 0 o en NO lo esconde. Mayúsculas o minúsculas, igual.
-    if (indices.existencias.some((i) => sinExistencia(fila[i]))) continue;
+    const agotado = indices.existencias.some((i) => sinExistencia(fila[i]));
+    if (agotado && !todas) continue;
 
     const precioPrincipal = indices.precio === -1 ? "" : String(fila[indices.precio] || "").trim();
     const precioLocal =
@@ -916,6 +1022,7 @@ function convertir(filas, env) {
       // lo que el modelo cree saber de ese teléfono.
       extras: otrasColumnas(fila, encabezados, indices),
       busqueda: indiceDeBusqueda(titulo, fila, encabezados, indices),
+      ...(todas ? { activo, precioDivisas: precioPrincipal, precioBs: precioLocal, cantidad: agotado ? 0 : cantidadDeLaFila(fila, indices) } : {}),
     });
   }
 
@@ -925,6 +1032,95 @@ function convertir(filas, env) {
   );
 
   return { productos, encabezados, filasLeidas: filas.length, columnas };
+}
+
+// Cuántas hay según la hoja: el primer número de las columnas de existencia.
+// "SI" o "hay" no dicen cuántas: null, y el inventario no inventa un número.
+function cantidadDeLaFila(fila, indices) {
+  for (const i of indices.existencias) {
+    const bruto = String(fila[i] ?? "").trim();
+    if (/^\d[\d.,\s]*$/.test(bruto)) {
+      const n = Number(bruto.replace(/[.,\s]/g, ""));
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return null;
+}
+
+// PARA EL INVENTARIO (7-oct-2026): EPICCELL pasa entera al inventario nuevo
+// (decisión del dueño): cada fila de la hoja, también las agotadas y las
+// inactivas (siguen en el inventario: la hoja solo decide qué ve el
+// cliente), con sus precios (divisas, Bs, Cashea), su foto, su capacidad,
+// todas las demás columnas y su cantidad. Las filas con el mismo nombre y
+// distinta capacidad (o distinto color, si la hoja tiene columna de color)
+// son UN modelo con varias variantes. Dos filas con el mismo nombre, la
+// misma capacidad y el mismo color son la MISMA variante: se suman sus
+// cantidades (antes la segunda se perdía) y el informe dice cuántas se
+// juntaron.
+export function colorDeLaFila(extras) {
+  for (const [nombre, valor] of Object.entries(extras || {})) {
+    if (["color", "colores", "colour"].includes(normalizar(nombre))) return String(valor ?? "").trim().slice(0, 40);
+  }
+  return "";
+}
+
+export function juntarParaInventario(productos) {
+  const modelos = new Map();
+  for (const p of productos) {
+    const clave = normalizar(p.titulo);
+    if (!modelos.has(clave)) {
+      modelos.set(clave, {
+        origen: "sheets",
+        origen_id: clave.slice(0, 120),
+        titulo: p.titulo,
+        marca: p.marca,
+        precio: p.precioDivisas,
+        precio_local: p.precioBs,
+        precio_cashea: p.precioCashea,
+        enlace: p.url,
+        extras: p.extras,
+        fotos: [],
+        variantes: [],
+        juntadas: 0,
+      });
+    }
+    const m = modelos.get(clave);
+    if (p.imagen && !m.fotos.includes(p.imagen)) m.fotos.push(p.imagen);
+    const opcion = p.capacidad || "única";
+    const color = colorDeLaFila(p.extras);
+    const ya = m.variantes.find((v) => normalizar(v.opcion) === normalizar(opcion) && normalizar(v.color) === normalizar(color));
+    if (ya) {
+      if (p.cantidad !== null && p.cantidad !== undefined) ya.cantidad = (Number(ya.cantidad) || 0) + Number(p.cantidad);
+      if (!ya.precio) ya.precio = p.precioDivisas;
+      if (!ya.precio_cashea) ya.precio_cashea = p.precioCashea;
+      if (!ya.precio_local) ya.precio_local = p.precioBs;
+      if (!ya.foto) ya.foto = p.imagen;
+      // Con que UNA de las filas esté activa, el bot la ofrece.
+      ya.oculta = ya.oculta && p.activo === false;
+      m.juntadas++;
+      continue;
+    }
+    // Cada fila con lo suyo: su precio en Bs, su foto, sus otras columnas
+    // (RAM, estado…) y su Activo (oculta = el bot no la ofrece).
+    m.variantes.push({
+      opcion,
+      color,
+      precio: p.precioDivisas,
+      precio_cashea: p.precioCashea,
+      precio_local: p.precioBs,
+      foto: p.imagen,
+      extras: p.extras,
+      oculta: p.activo === false,
+      cantidad: p.cantidad,
+    });
+  }
+  return [...modelos.values()];
+}
+
+export async function catalogoParaInventario(env) {
+  const { productos, aviso } = await leerHojaDeVerdad(env, { todas: true });
+  if (!productos.length && aviso) throw new Error(aviso);
+  return juntarParaInventario(productos);
 }
 
 // ¿Esta celda de existencia dice que NO hay? (6-oct-2026)

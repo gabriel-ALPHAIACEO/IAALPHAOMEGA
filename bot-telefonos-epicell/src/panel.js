@@ -29,23 +29,36 @@
 // en el contacto (EPICELL, columna "conversacion") se ve igual: si no hay
 // mensajes en la tabla, se lee de ahí.
 
+import { atenderInventario, esRutaDeInventario } from "./inventario-panel.js";
+import { atenderNegocio, esRutaDeNegocio } from "./negocio-panel.js";
+import { documento, cabecera, vacio, avatar, icono, insignia, segmento } from "./marco.js";
 import { cargarContacto, pausar, despausar, asegurarColumnas } from "./estado.js";
 import { gastoDelMes } from "./gasto.js";
 import { TABLAS, leerTabla, tipoDeError, esIntencionDeCompra, asegurarTurnos, asegurarErrores, solucionarErrores, MARCA_VISIBLE, MARCAS } from "./registro.js";
-import { ESTILO_ALPHA, SCRIPT_ALPHA, imagenDeAlpha, marcaAlpha, cajaDeEntrada, adjuntosLimpios, leerAdjuntos, textoDeAdjuntos, textoVisible, htmlDeAdjuntos, kpi, barras, selectorDePeriodo, aCsv, respuestaCsv } from "./alpha.js";
+import { imagenDeAlpha, cajaDeEntrada, rutaDeApp, atenderApp, etiquetasDeApp, scriptDeApp, adjuntosLimpios, leerAdjuntos, textoDeAdjuntos, textoVisible, htmlDeAdjuntos, kpi, barras, selectorDePeriodo, aCsv, respuestaCsv } from "./alpha.js";
 import { listarLecciones, olvidarLeccion, aprendeActivo, VECES_PARA_CODIGO } from "./lecciones.js";
 import { clientesDelCrm, guardarCrm, htmlListaDeClientes, htmlFichaDeCliente, filtrarClientes, filasCsvDeClientes } from "./crm.js";
 import { esDeWhatsApp, textoDesdeElPanel } from "./whatsapp.js";
 
 // El "usuario" de un cliente de WhatsApp es su teléfono ("+58…", ver
-// whatsapp.js): va con 📱 en vez de @.
-const arroba = (u) => (String(u || "").startsWith("+") ? "📱 " : "@");
+// whatsapp.js): sale tal cual, sin la @ de Instagram.
+const arroba = (u) => (String(u || "").startsWith("+") ? "" : "@");
 
 // Se reexporta para que index.js lo siga importando desde aquí.
 export { anotarTurno } from "./registro.js";
 
 const COOKIE = "panel_tienda";
-const SESION_MS = 30 * 24 * 60 * 60 * 1000;
+// LA SESIÓN (7-oct-2026). Al entrar se pregunta si dejarla abierta en ese
+// equipo (Gabriel: "para que no estén todo el tiempo colocando contraseña").
+//   · Abierta: dura 90 días y se renueva sola cada vez que se usa el panel
+//     (pasados 10 días), así quien entra seguido no vuelve a escribir la clave.
+//   · No abierta: se cierra al cerrar el navegador (o a las 12 horas).
+// SameSite=Lax y no Strict: con Strict, abrir el panel desde un enlace de
+// WhatsApp o de otra app pedía la clave otra vez. Lo que cambia algo va por
+// POST y vieneDelPanel() lo comprueba, así que otra web sigue sin poder.
+const SESION_LARGA_MS = 90 * 24 * 60 * 60 * 1000;
+const SESION_CORTA_MS = 12 * 60 * 60 * 1000;
+const RENOVAR_TRAS_MS = 10 * 24 * 60 * 60 * 1000;
 const TURNOS_DIAS = 60;
 const MENSAJES_DIAS = 90;
 
@@ -76,12 +89,45 @@ function mismoTexto(a, b) {
   return diferencia === 0;
 }
 
-async function sesionValida(request, env) {
+// La cookie: "<expira>.<modo>.<firma>", modo "r" (dejarla abierta) o "s"
+// (solo esta vez). Las de antes ("<expira>.<firma>", 30 días) siguen
+// valiendo y cuentan como abiertas.
+async function leerSesion(request, env) {
   const galletas = request.headers.get("cookie") || "";
   const valor = galletas.split(/;\s*/).find((g) => g.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1) || "";
-  const [expira, firma] = valor.split(".");
-  if (!expira || !firma || Number(expira) < Date.now()) return false;
-  return mismoTexto(firma, await firmar(env, `panel:${expira}`));
+  const partes = valor.split(".");
+  const [expira, modo, firma] = partes.length === 3 ? partes : partes.length === 2 ? [partes[0], "", partes[1]] : [];
+  if (!expira || !firma || !["", "r", "s"].includes(modo) || Number(expira) < Date.now()) return null;
+  if (!mismoTexto(firma, await firmar(env, modo ? `panel:${expira}:${modo}` : `panel:${expira}`))) return null;
+  return { expira: Number(expira), abierta: modo !== "s" };
+}
+
+async function sesionValida(request, env) {
+  return Boolean(await leerSesion(request, env));
+}
+
+async function cookieDeSesion(env, abierta) {
+  const modo = abierta ? "r" : "s";
+  const expira = Date.now() + (abierta ? SESION_LARGA_MS : SESION_CORTA_MS);
+  const valor = `${expira}.${modo}.${await firmar(env, `panel:${expira}:${modo}`)}`;
+  return `${COOKIE}=${valor}; Path=/panel; HttpOnly; Secure; SameSite=Lax${abierta ? `; Max-Age=${Math.floor(SESION_LARGA_MS / 1000)}` : ""}`;
+}
+
+// Quien dejó la sesión abierta y sigue usando el panel no la ve vencer:
+// pasados 10 días desde la última, la respuesta lleva una cookie nueva.
+async function conSesionRenovada(request, env, respuesta) {
+  if (request.method !== "GET" || !panelActivo(env) || respuesta.headers.has("set-cookie")) return respuesta;
+  const sesion = await leerSesion(request, env).catch(() => null);
+  if (!sesion?.abierta || sesion.expira - Date.now() > SESION_LARGA_MS - RENOVAR_TRAS_MS) return respuesta;
+  const galleta = await cookieDeSesion(env, true);
+  try {
+    respuesta.headers.append("set-cookie", galleta);
+    return respuesta;
+  } catch {
+    const copia = new Response(respuesta.body, respuesta);
+    copia.headers.append("set-cookie", galleta);
+    return copia;
+  }
 }
 
 // Las acciones (pausar, devolver) solo valen si vienen de una página del
@@ -299,43 +345,75 @@ function horaExacta(ms) {
   });
 }
 
-// El diseño es el de ALPHA IA (alpha.js, igual en el panel central). Aquí
-// solo lo que es de este panel.
-const ESTILO = `${ESTILO_ALPHA}
-.lista a.dentro{display:block;color:inherit}.lista form.acciones{margin:10px 0 0}
-.filtros{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 14px}
-.filtros a{font-size:13.5px;color:var(--suave);padding:6px 12px;border-radius:999px;border:1px solid var(--borde);background:var(--tarjeta);transition:all .2s}
+// El diseño es el de ALPHA IA (alpha.js) y el marco de la app (marco.js).
+// Aquí solo lo que es de estas pantallas.
+const ESTILO = `<style>
+.lista{display:flex;flex-direction:column;gap:10px}
+.lista a.dentro{display:block;color:inherit}
+.chat-fila{display:flex;align-items:center;gap:14px}
+.chat-fila .fila-centro{flex:1;min-width:0}
+.chat-fila .fila-sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-fila .cuando{flex:none;font-size:12px;font-weight:700;color:var(--tenue);align-self:flex-start;padding-top:3px}
+.lista .tarjeta{padding:14px 16px;margin:0}
+.lista form.acciones{margin:12px 0 0}
+.filtros{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}
+.filtros a{display:inline-flex;align-items:center;gap:7px;font-size:13.5px;font-weight:700;color:var(--suave);padding:8px 14px;border-radius:999px;border:1px solid var(--borde);background:rgba(255,255,255,.03);transition:color .25s,border-color .25s,transform .5s var(--resorte)}
+.filtros a .ico{width:16px;height:16px}
 .filtros a:hover{color:var(--texto);border-color:var(--borde-fuerte)}
-.filtros a.activo{color:#fff;background:linear-gradient(135deg,#2f7bff,#0a5cf5);border-color:transparent;box-shadow:0 4px 16px -6px rgba(10,92,245,.8)}
-form.buscar{display:flex;gap:8px;margin-bottom:12px}
-.solucionar-uno{float:right;margin:0 0 6px 10px}.solucionar-uno button{font-size:12.5px;padding:5px 10px}
-input{flex:1;min-width:0}
+.filtros a:active{transform:scale(.95)}
+.filtros a.activo{color:#fff;background:var(--grad);border-color:transparent;box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 6px 18px -8px rgba(10,92,245,.9)}
+.filtros a.activo .ico{--ico-acento:#fff;--ico-opacidad:.35}
+form.buscar{display:flex;gap:10px;margin-bottom:14px}
+.solucionar-uno{float:right;margin:0 0 6px 10px}.solucionar-uno button{min-height:36px;padding:6px 12px;font-size:12.5px}
 textarea{width:100%}
-`;
+.marca{display:inline-flex;align-items:center;gap:5px}
+.marca .ico{width:15px;height:15px}
+.marca.tono-mal,.marca.tono-aviso{background:none;box-shadow:none}
+.leyenda .marca .ico{width:16px;height:16px}
+.caso{padding:18px 20px}
+.caso dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:12px 0 0;font-size:14px}
+.caso dt{color:var(--suave);font-weight:700;font-size:12.5px;padding-top:2px}
+.caso dd{margin:0}
+.borrar-mini{border:0;background:none;min-height:0;padding:2px;color:var(--tenue);opacity:.7}
+.borrar-mini:hover{color:var(--mal);background:none;opacity:1}
+.borrar-mini .ico{width:15px;height:15px}
+.contacto-cabeza{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.contacto-cabeza .avatar{width:52px;height:52px;font-size:17px}
+.escribir{display:flex;flex-direction:column;gap:12px}
+.escribir textarea{min-height:90px;border-radius:18px}
+.puestos td:first-child{display:flex;align-items:center;gap:10px}
+</style>`;
 
-function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnuncios = true, enVivo = false, entrada = false } = {}) {
-  const menu = conMenu
-    ? `<nav class="menu"><a href="/panel">Chats</a><a href="/panel/clientes">Clientes</a><a href="/panel/metricas">Métricas</a><a href="/panel/ganadores">Ganadores</a><a href="/panel/errores">Errores IA</a>${conAnuncios ? '<a href="/panel/anuncios">Anuncios</a>' : ""}<a href="/panel/salir">Salir</a></nav>`
-    : "";
-  const vivo = enVivo ? '<span class="en-vivo" title="Se pone al día sola en cuanto llega un mensaje"><i></i>en vivo</span>' : "";
-  const arriba = entrada ? "" : `<header><div class="fila">${marcaAlpha("/panel", tienda)}${menu}${vivo}</div></header>`;
-  return new Response(
-    `<!doctype html><html lang="es"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex"><meta name="theme-color" content="#05070d">
-<link rel="icon" href="/panel/isotipo.png?v=1">
-<title>${esc(titulo)} · ${esc(tienda)} · ALPHA IA</title><style>${ESTILO}</style></head>
-<body${enVivo ? ' data-marca="/panel/marca"' : ""}>${arriba}${entrada ? cuerpo : `<main>${cuerpo}</main>`}${conMenu ? SCRIPT_ALPHA : ""}</body></html>`,
-    {
-      status: 200,
-      headers: {
-        "content-type": "text/html; charset=utf-8",
-        "cache-control": "no-store",
-        "x-frame-options": "DENY",
-        "referrer-policy": "same-origin",
-      },
-    }
-  );
+function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnuncios = true, enVivo = false, entrada = false, ruta = "chats" } = {}) {
+  const html = documento({
+    titulo,
+    cuerpo: conMenu || entrada ? cuerpo : `<div class="entrada"><div class="entrada-caja" style="text-align:left">${cuerpo}</div></div>`,
+    tienda,
+    ruta,
+    conAnuncios,
+    enVivo,
+    entrada: entrada || !conMenu,
+    extraCabeza: ESTILO,
+  });
+  return new Response(html, {
+    status: 200,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "x-frame-options": "DENY",
+      "referrer-policy": "same-origin",
+    },
+  });
+}
+
+// Las marcas de las respuestas (❌ 🔴 ⚠️ 👎 en registro.js), con nuestros
+// íconos en vez de los emojis.
+const ICONO_DE_MARCA = { error: ["cerrar", "mal"], indebida: ["alerta", "mal"], corregida: ["errores", "aviso"], queja: ["queja", "aviso"] };
+
+function marcaVisible(m, { conNombre = false } = {}) {
+  const [ico, tono] = ICONO_DE_MARCA[m] || ["info", "neutro"];
+  const nombre = MARCAS[m]?.nombre || m;
+  return `<span class="marca tono-${tono}" title="${esc(nombre)}">${icono(ico, { titulo: conNombre ? "" : nombre })}${conNombre ? ` ${esc(nombre)}` : ""}</span>`;
 }
 
 function redirigir(a, cookie = "") {
@@ -597,55 +675,61 @@ async function paginaDeLista(env, url, tienda, conAnuncios = true) {
   const q = url.searchParams.get("q") || "";
   const filtro = url.searchParams.get("f") || "";
   const contactos = await contactosParaLista(env.DB, { q, filtro });
-  const enlaceFiltro = (f, nombre) =>
-    `<a class="${filtro === f ? "activo" : ""}" href="/panel${f ? `?f=${f}` : ""}">${nombre}</a>`;
-
   const aqui = `/panel${filtro || q ? `?${new URLSearchParams({ ...(filtro ? { f: filtro } : {}), ...(q ? { q } : {}) })}` : ""}`;
   const filas = contactos
     .map((c) => {
-      const enlace = `<a class="${c.pausado ? "dentro" : "tarjeta"}"${c.pausado ? "" : ` data-k="c${esc(c.id)}"`} href="/panel/c/${encodeURIComponent(c.id)}">
-<span class="nombre">${esc(c.nombre || c.usuario || c.id)}</span>${c.usuario ? ` <span class="suave">${arroba(c.usuario)}${esc(c.usuario)}</span>` : ""}
-${Object.entries(c.problemas).map(([m, n]) => `<span class="etiqueta pausa" title="${esc(MARCAS[m]?.nombre || m)}">${MARCAS[m]?.simbolo || "!"} ${n}</span>`).join("")}${c.pausado ? `<span class="etiqueta pausa">⏸️ bot en pausa hasta ${esc(horaExacta(c.pausadoHasta))}</span>` : ""}${c.anuncio ? `<span class="etiqueta anuncio">anuncio · ${esc(String(c.anuncio).slice(0, 30))}</span>` : ""}
-<div class="suave">${esc(cuandoFue(c.ultimo))}${c.ultima ? ` · ${c.ultima.de === "bot" ? "Bot: " : c.ultima.de === "asesor" ? "Asesor: " : ""}${esc(String(c.ultima.texto || "").slice(0, 90))}` : ""}</div></a>`;
+      const nombre = c.nombre || c.usuario || c.id;
+      const quien = c.ultima ? (c.ultima.de === "bot" ? "Bot: " : c.ultima.de === "asesor" ? "Asesor: " : "") : "";
+      const etiquetas = [
+        ...Object.entries(c.problemas).map(([m, n]) => `<span class="chip mal">${marcaVisible(m)} ${n}</span>`),
+        c.pausado ? `<span class="chip aviso">${icono("pausa")}en pausa hasta ${esc(horaExacta(c.pausadoHasta))}</span>` : "",
+        c.anuncio ? `<span class="chip marca">${icono("anuncios")}${esc(String(c.anuncio).slice(0, 30))}</span>` : "",
+      ].join("");
+      const enlace = `<a class="${c.pausado ? "dentro" : "tarjeta"}"${c.pausado ? "" : ` data-k="c${esc(c.id)}"`} href="/panel/c/${encodeURIComponent(c.id)}"><div class="chat-fila">${avatar(nombre)}<div class="fila-centro">
+<div class="fila-titulo">${esc(nombre)}${c.usuario && c.nombre ? ` <span class="suave">${arroba(c.usuario)}${esc(c.usuario)}</span>` : ""}</div>
+<div class="fila-sub">${c.ultima ? `${quien}${esc(String(c.ultima.texto || "").slice(0, 90))}` : ""}</div>${etiquetas ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${etiquetas}</div>` : ""}</div><span class="cuando">${esc(cuandoFue(c.ultimo))}</span></div></a>`;
       if (!c.pausado) return enlace;
       // En pausa: el botón para devolvérsela al bot, sin tener que abrirla.
-      return `<div class="tarjeta" data-k="c${esc(c.id)}">${enlace}<form class="acciones" method="post" action="/panel/devolver"><input type="hidden" name="id" value="${esc(c.id)}"><input type="hidden" name="volver" value="${esc(aqui)}"><button class="principal">▶️ Devolverle la conversación al bot</button></form></div>`;
+      return `<div class="tarjeta" data-k="c${esc(c.id)}">${enlace}<form class="acciones" method="post" action="/panel/devolver"><input type="hidden" name="id" value="${esc(c.id)}"><input type="hidden" name="volver" value="${esc(aqui)}"><button class="principal chico">${icono("reanudar", { clase: "chico" })}Devolverle la conversación al bot</button></form></div>`;
     })
     .join("");
   const enPausa = contactos.filter((c) => c.pausado).length;
   const todas =
     filtro === "pausados" && enPausa
-      ? `<form class="acciones" method="post" action="/panel/devolver-todos" onsubmit="return confirm('¿Devolverle al bot las ${enPausa} conversaciones en pausa?')"><button>▶️ Devolverle todas al bot (${enPausa})</button></form>`
+      ? `<form class="acciones" method="post" action="/panel/devolver-todos" onsubmit="return confirm('¿Devolverle al bot las ${enPausa} conversaciones en pausa?')"><button>${icono("reanudar")}Devolverle todas al bot (${enPausa})</button></form>`
       : "";
+  const enlaceFiltro = (f, nombre, ico) =>
+    `<a class="${filtro === f ? "activo" : ""}" href="/panel${f ? `?f=${f}` : ""}">${icono(ico)}${nombre}</a>`;
 
   return pagina(
     "Conversaciones",
-    `<form class="buscar" method="get" action="/panel"><input name="q" value="${esc(q)}" placeholder="Buscar por nombre, @usuario o lo que escribió">
+    `${cabecera({ sobre: "Ventas con IA", titulo: "Chats", texto: "Lo que hablan tus clientes con el bot, en vivo. Entra a una conversación para atenderla tú." })}
+<form class="herramientas" method="get" action="/panel"><label class="buscador">${icono("buscar")}<input name="q" value="${esc(q)}" placeholder="Buscar por nombre, @usuario o lo que escribió"></label>
 ${filtro ? `<input type="hidden" name="f" value="${esc(filtro)}">` : ""}<button>Buscar</button></form>
-<div class="leyenda">${Object.values(MARCAS).map((m) => `<span>${m.simbolo} ${esc(m.nombre)}</span>`).join("")}</div>
-<div class="filtros">${enlaceFiltro("", "Todas")}${enlaceFiltro("problemas", "Con problemas")}${enlaceFiltro("pausados", "Con el bot en pausa")}${conAnuncios ? enlaceFiltro("anuncios", "Vinieron de un anuncio") : ""}</div><br>
-<div data-zona="lista">${todas}<div class="lista">${filas || `<p class="suave">${filtro === "pausados" ? "Nadie en pausa: el bot está atendiendo a todos ✅" : "No hay conversaciones con eso."}</p>`}</div></div>`,
-    { tienda, conAnuncios, enVivo: true }
+<div class="filtros">${enlaceFiltro("", "Todas", "chats")}${enlaceFiltro("problemas", "Con problemas", "alerta")}${enlaceFiltro("pausados", "Bot en pausa", "pausa")}${conAnuncios ? enlaceFiltro("anuncios", "De un anuncio", "anuncios") : ""}</div>
+<div class="leyenda">${Object.keys(MARCAS).map((m) => `<span>${marcaVisible(m, { conNombre: true })}</span>`).join("")}</div>
+<div data-zona="lista">${todas}<div class="lista">${filas || vacio({ icono: filtro === "pausados" ? "check" : "chats", titulo: filtro === "pausados" ? "Nadie en pausa" : "Sin conversaciones", texto: filtro === "pausados" ? "El bot está atendiendo a todos." : "No hay conversaciones con eso." })}</div></div>`,
+    { tienda, conAnuncios, enVivo: true, ruta: "chats" }
   );
 }
 
 // La marca del turno, con su símbolo: ❌ 🔴 ⚠️ 👎 (ver registro.js).
 function sello(t) {
   const m = MARCAS[t?.marca];
-  return m ? `<div class="sello sello-${esc(t.marca)}">${m.simbolo} ${esc(m.nombre)}${t.motivo ? `: ${esc(t.motivo)}` : ""}</div>` : "";
+  return m ? `<div class="sello sello-${esc(t.marca)}">${marcaVisible(t.marca)} ${esc(m.nombre)}${t.motivo ? `: ${esc(t.motivo)}` : ""}</div>` : "";
 }
 
 function cajaDePienso(t) {
   const partes = [sello(t)];
-  if (t.pienso) partes.push(`<b>🧠 Lo que pensó la IA</b>${esc(t.pienso)}`);
+  if (t.pienso) partes.push(`<b>${icono("ia", { clase: "chico" })} Lo que pensó la IA</b>${esc(t.pienso)}`);
   const hizo = [
     t.buscar && t.buscar.toUpperCase() !== "NADA" ? `Buscó: “${esc(t.buscar)}”` : "No buscó nada",
     t.mostrar ? `Eligió: ${esc({ texto: "solo texto", texto_e_imagenes: "texto con fichas", imagenes: "fichas" }[t.mostrar] || t.mostrar)}` : "",
   ].filter(Boolean);
   partes.push(`<div>${hizo.join(" · ")}</div>`);
   // Las fichas ya se ven en el carrusel: aquí, plegadas.
-  if (t.productos.length) partes.push(`<details><summary>🗂 ${t.productos.length} ficha(s)</summary>${t.productos.map(esc).join(" · ")}</details>`);
-  if (t.notas.length) partes.push(`<div>🛠 ${t.notas.map(esc).join(" · ")}</div>`);
+  if (t.productos.length) partes.push(`<details><summary>${t.productos.length} ficha(s)</summary>${t.productos.map(esc).join(" · ")}</details>`);
+  if (t.notas.length) partes.push(`<div class="suave">${icono("herramienta", { clase: "chico" })} ${t.notas.map(esc).join(" · ")}</div>`);
   return `<div class="pienso"${t.id ? ` data-k="t${esc(t.id)}"` : ""}>${partes.join("")}<div class="suave">${esc(horaExacta(t.cuando))}</div></div>`;
 }
 
@@ -677,7 +761,7 @@ async function paginaDeConversacion(env, id, tienda, { horasDePausa = 1, conAnun
       usados.add(i);
       const marca = MARCAS[turnos[i].marca];
       // La burbuja misma lleva el símbolo: se ve sin leer la caja de abajo.
-      const conSimbolo = marca ? caja.replace('<span class="quien">', `<span class="quien">${marca.simbolo} `) : caja;
+      const conSimbolo = marca ? caja.replace('<span class="quien">', `<span class="quien">${marcaVisible(turnos[i].marca)} `) : caja;
       return conSimbolo + cajaDePienso(turnos[i]);
     })
     .join("");
@@ -692,25 +776,25 @@ async function paginaDeConversacion(env, id, tienda, { horasDePausa = 1, conAnun
 
   return pagina(
     nombre,
-    `<p><a href="/panel">← Conversaciones</a> · <a href="/panel/clientes">Clientes</a></p>
+    `${cabecera({ volver: { href: "/panel", texto: "Chats" }, sobre: "Conversación", titulo: nombre, texto: contacto.usuario ? `${arroba(contacto.usuario)}${esc(contacto.usuario)}` : "" })}
 ${htmlFichaDeCliente(delCrm, { id })}
 <div data-zona="conversacion">
-<div class="tarjeta"><span class="nombre">${esc(nombre)}</span>${contacto.usuario ? ` <span class="suave">${arroba(contacto.usuario)}${esc(contacto.usuario)}</span>` : ""}
-<div class="suave">Id ${esc(id)} · último mensaje del bot ${esc(cuandoFue(contacto.ultimo_envio))}</div>
-${pub?.deAnuncio ? `<div>📣 Llegó por un anuncio${pub.equipo ? ` del <b>${esc(pub.equipo)}</b>` : ""} · ${esc(cuandoFue(pub.cuando))}</div>` : ""}
+<div class="tarjeta"><div class="contacto-cabeza">${avatar(nombre)}<div><span class="nombre">${esc(nombre)}</span>${contacto.usuario ? ` <span class="suave">${arroba(contacto.usuario)}${esc(contacto.usuario)}</span>` : ""}
+<div class="suave">Id ${esc(id)} · último mensaje del bot ${esc(cuandoFue(contacto.ultimo_envio))}</div></div></div>
+${pub?.deAnuncio ? `<div style="margin-top:10px"><span class="chip marca">${icono("anuncios")}Llegó por un anuncio${pub.equipo ? ` del ${esc(pub.equipo)}` : ""}</span> <span class="suave">${esc(cuandoFue(pub.cuando))}</span></div>` : ""}
 ${contacto.historial ? `<div class="suave">Resumen: ${esc(contacto.historial)}</div>` : ""}
 <div class="acciones">${
       pausado
         ? `<span class="etiqueta pausa">Bot en pausa hasta ${esc(horaExacta(Number(contacto.pausado_hasta)))}</span>
-<form method="post" action="/panel/devolver"><input type="hidden" name="id" value="${esc(id)}"><button class="principal">Devolverle la conversación al bot</button></form>`
-        : `<form method="post" action="/panel/pausar"><input type="hidden" name="id" value="${esc(id)}"><button>Pausar el bot ${esc(horasDePausa)} h (la atiendo yo)</button></form>`
+<form method="post" action="/panel/devolver"><input type="hidden" name="id" value="${esc(id)}"><button class="principal">${icono("reanudar")}Devolverle la conversación al bot</button></form>`
+        : `<form method="post" action="/panel/pausar"><input type="hidden" name="id" value="${esc(id)}"><button>${icono("pausa")}Pausar el bot ${esc(horasDePausa)} h (la atiendo yo)</button></form>`
     }</div></div>
-<div class="chat">${burbujas || '<p class="suave">Todavía no hay mensajes guardados de esta persona.</p>'}</div>
+<div class="chat">${burbujas || vacio({ icono: "chats", titulo: "Sin mensajes guardados", texto: "Todavía no hay mensajes guardados de esta persona." })}</div>
 ${sueltos.length ? `<h3>Más de lo que pensó la IA</h3><div class="chat">${sueltos.map((t) => `${t.cliente ? `<div class="burbuja de-cliente">${esc(t.cliente)}</div>` : ""}<div class="burbuja de-bot">${esc(t.respuesta)}</div>${cajaDePienso(t)}`).join("")}</div>` : ""}
 </div>
 ${formularioDeMensaje("/panel/enviar", id, horasDePausa, aviso)}
 ${formularioBorrarConversacion("/panel/borrar-conversacion", id)}`,
-    { tienda, conAnuncios, enVivo: true }
+    { tienda, conAnuncios, enVivo: true, ruta: "chats" }
   );
 }
 
@@ -790,30 +874,33 @@ async function erroresDeLaIaParaLaTienda(env, params) {
 function vistaDeErroresDelCliente(datos, url) {
   const selector = selectorDePeriodo({ periodo: periodoDeLaUrl(url, 30), rango: datos.rango, primerDato: datos.primerDato, hoy: diaDe(Date.now()) });
   const cuenta = (m) => datos.casos.filter((c) => c.marca === m).length;
-  const kpis = Object.entries(MARCAS)
-    .map(([m, v]) => kpi(cuenta(m), `${v.simbolo} ${v.nombre}`))
+  const tiles = Object.entries(MARCAS)
+    .map(([m, v]) => `<div class="dato"><div class="dato-cima"><span class="dato-nombre">${esc(v.nombre)}</span>${insignia(...(ICONO_DE_MARCA[m] || ["errores", "neutro"]), "chica")}</div><div class="dato-valor">${cuenta(m)}</div></div>`)
     .join("");
   const MAX = 200;
   const volverA = conLaMismaConsulta("/panel/errores", url);
   const tarjetas = datos.casos
     .slice(0, MAX)
     .map(
-      (c) => `<div class="tarjeta" data-k="e${c.id}"><form class="solucionar-uno" method="post" action="/panel/errores/solucionar"><input type="hidden" name="id" value="${c.id}"><input type="hidden" name="volver" value="${esc(volverA)}"><button title="Ya está arreglado: que no salga más en rojo">✅ Solucionado</button></form><b>${c.simbolo} ${esc(c.tipo)}</b> · <span class="suave">${esc(horaExacta(c.cuando))}</span> · <a href="/panel/c/${encodeURIComponent(c.igsid)}">${esc(c.nombre || c.igsid)}</a>
-${c.motivo ? `<div><b>Motivo:</b> ${esc(c.motivo)}</div>` : ""}${c.cliente ? `<div><b>El cliente escribió:</b> ${esc(c.cliente)}</div>` : ""}${c.respuesta ? `<div><b>El bot respondió:</b> ${esc(c.respuesta)}</div>` : ""}${c.pienso ? `<div class="suave"><b>La IA pensó:</b> ${esc(c.pienso)}</div>` : ""}${c.productos.length ? `<div class="suave"><b>Productos:</b> ${esc(c.productos.join(" · "))}</div>` : ""}</div>`
+      (c) => `<div class="tarjeta caso" data-k="e${c.id}"><form class="solucionar-uno" method="post" action="/panel/errores/solucionar"><input type="hidden" name="id" value="${c.id}"><input type="hidden" name="volver" value="${esc(volverA)}"><button title="Ya está arreglado: que no salga más en rojo">${icono("check", { clase: "chico" })}Solucionado</button></form><b>${marcaVisible(c.marca)} ${esc(c.tipo)}</b><div class="suave">${esc(horaExacta(c.cuando))} · <a href="/panel/c/${encodeURIComponent(c.igsid)}">${esc(c.nombre || c.igsid)}</a></div>
+<dl>${c.motivo ? `<dt>Motivo</dt><dd>${esc(c.motivo)}</dd>` : ""}${c.cliente ? `<dt>El cliente</dt><dd>${esc(c.cliente)}</dd>` : ""}${c.respuesta ? `<dt>El bot</dt><dd>${esc(c.respuesta)}</dd>` : ""}${c.pienso ? `<dt>La IA pensó</dt><dd class="suave">${esc(c.pienso)}</dd>` : ""}${c.productos.length ? `<dt>Productos</dt><dd class="suave">${esc(c.productos.join(" · "))}</dd>` : ""}</dl></div>`
     )
     .join("");
-  return `<h2>🧾 Errores de la IA</h2>${selector}
-<p class="suave">Las respuestas del bot que salieron mal en tus conversaciones: 🔴 incoherentes o inventadas (las detecta el revisor), ⚠️ la IA inventó algo y se corrigió sola, 👎 el cliente se quejó, ❌ el bot no pudo responder. Bájalas para revisarlas y arreglarlas.</p>
-<div class="kpis">${kpi(datos.casos.length, "en total")}${kpis}</div>
-<div class="acciones"><a class="boton" href="${esc(conLaMismaConsulta("/panel/errores.csv", url))}">⬇️ Excel</a> <a class="boton" href="${esc(conLaMismaConsulta("/panel/errores.md", url))}">⬇️ Informe en texto</a>${datos.casos.length ? `<form method="post" action="/panel/errores/solucionar" onsubmit="return confirm('¿Marcar TODOS los errores como solucionados? Dejan de salir en rojo (no se borran).')"><input type="hidden" name="volver" value="${esc(volverA)}"><button class="principal">✅ Solucionar todos</button></form>` : ""}</div>
-<p class="suave">✅ Solucionado: ya está arreglado, deja de salir en rojo (no se borra). Lo que salga mal después vuelve a aparecer. Baja el Excel antes si lo quieres guardar.</p>
-${datos.casos.length ? tarjetas : '<div class="tarjeta suave">Sin errores de la IA en este período ✅</div>'}${datos.casos.length > MAX ? `<p class="suave">Se ven los ${MAX} más recientes; el Excel y el texto los traen todos (${datos.casos.length}).</p>` : ""}`;
+  return `${cabecera({
+    sobre: "Ventas con IA",
+    titulo: "Errores de la IA",
+    texto: "Las respuestas del bot que salieron mal en tus conversaciones: incoherentes o inventadas (las detecta el revisor), las que la IA corrigió sola, las quejas y las veces que no pudo responder.",
+    acciones: `<a class="boton suave" href="${esc(conLaMismaConsulta("/panel/errores.csv", url))}">${icono("bajar")}Excel</a><a class="boton suave" href="${esc(conLaMismaConsulta("/panel/errores.md", url))}">${icono("bajar")}Texto</a>`,
+  })}${selector}
+<div class="mosaico"><div class="dato"><div class="dato-cima"><span class="dato-nombre">En total</span>${insignia("errores", "marca", "chica")}</div><div class="dato-valor">${datos.casos.length}</div></div>${tiles}</div>
+${datos.casos.length ? `<div class="acciones"><form method="post" action="/panel/errores/solucionar" onsubmit="return confirm('¿Marcar TODOS los errores como solucionados? Dejan de salir en rojo (no se borran).')"><input type="hidden" name="volver" value="${esc(volverA)}"><button class="principal">${icono("check")}Solucionar todos</button></form><span class="suave">Solucionado: deja de salir en rojo (no se borra). Lo que salga mal después vuelve a aparecer.</span></div>` : ""}
+${datos.casos.length ? tarjetas : vacio({ icono: "escudo", titulo: "Sin errores en este período", texto: "El bot no se equivocó con tus clientes en estas fechas." })}${datos.casos.length > MAX ? `<p class="suave">Se ven los ${MAX} más recientes; el Excel y el texto los traen todos (${datos.casos.length}).</p>` : ""}`;
 }
 
 function csvDeErroresDelCliente(datos) {
   return aCsv(
     ["Cuándo", "Tipo", "Cliente", "Motivo", "Lo que escribió el cliente", "Lo que respondió el bot", "Lo que pensó la IA", "Productos que mostró", "Id del cliente", "Arreglado"],
-    datos.casos.map((c) => [horaExacta(c.cuando), `${c.simbolo} ${c.tipo}`, c.nombre, c.motivo, c.cliente, c.respuesta, c.pienso, c.productos.join(" · "), c.igsid, ""])
+    datos.casos.map((c) => [horaExacta(c.cuando), c.tipo, c.nombre, c.motivo, c.cliente, c.respuesta, c.pienso, c.productos.join(" · "), c.igsid, ""])
   );
 }
 
@@ -860,13 +947,13 @@ function vistaDeMetricasDelCliente(datos, url) {
   const dias = datos.dias || [];
   const conAnuncios = dias.some((d) => d.anuncios > 0);
   const selector = selectorDePeriodo({ periodo: periodoDeLaUrl(url, 14), rango: datos.rango, primerDato: datos.primerDato, hoy: diaDe(Date.now()) });
-  return `<h2>📊 Métricas</h2>${selector}
-<div class="kpis">${kpi(tot.clientes || 0, "clientes")}${kpi(tot.mensajes || 0, "mensajes de clientes")}${kpi(tot.respuestas || 0, "respuestas de la IA")}${kpi(pct(datos.tasas?.conFichas), "respuestas con fichas")}
-${kpi(tot.ventas || 0, "🛒 quieren comprar")}${kpi(pct(datos.tasas?.ventasPorCliente), "clientes que quieren comprar")}${kpi(tot.avisos || 0, "pasados al asesor")}${kpi(tot.voz || 0, "notas de voz")}
-${conAnuncios ? kpi(tot.anuncios || 0, "📣 llegaron por anuncios") : ""}${kpi(tot.quejas || 0, "👎 quejas")}</div>
+  const dato = (valor, nombre, ico, tono = "marca") => `<div class="dato"><div class="dato-cima"><span class="dato-nombre">${esc(nombre)}</span>${insignia(ico, tono, "chica")}</div><div class="dato-valor">${esc(valor)}</div></div>`;
+  return `${cabecera({ sobre: "Ventas con IA", titulo: "Métricas", texto: "Cómo atiende el bot: cuántos clientes escriben, cuántos quieren comprar y cuántos pasan al asesor.", acciones: `<a class="boton suave" href="${esc(conLaMismaConsulta("/panel/metricas.csv", url))}">${icono("bajar")}Excel</a>` })}${selector}
+<div class="mosaico">${dato(tot.clientes || 0, "Clientes", "clientes")}${dato(tot.mensajes || 0, "Mensajes de clientes", "chats")}${dato(tot.respuestas || 0, "Respuestas de la IA", "ia", "ia")}${dato(pct(datos.tasas?.conFichas), "Respuestas con fichas", "foto")}
+${dato(tot.ventas || 0, "Quieren comprar", "carrito", "bien")}${dato(pct(datos.tasas?.ventasPorCliente), "Clientes que quieren comprar", "sube", "bien")}${dato(tot.avisos || 0, "Pasados al asesor", "usuario")}${dato(tot.voz || 0, "Notas de voz", "microfono")}
+${conAnuncios ? dato(tot.anuncios || 0, "Llegaron por anuncios", "anuncios") : ""}${dato(tot.quejas || 0, "Quejas", "queja", "aviso")}</div>
 <div class="rejilla">${barras("Clientes por día", dias, "clientes")}${barras("Mensajes de clientes por día", dias, "mensajes")}
 ${barras("Respuestas de la IA por día", dias, "respuestas")}${barras("Quieren comprar, por día", dias, "ventas")}${conAnuncios ? barras("Llegadas por anuncios, por día", dias, "anuncios") : ""}</div>
-<p><a href="${esc(conLaMismaConsulta("/panel/metricas.csv", url))}">⬇️ Exportar a Excel (día por día)</a></p>
 <details><summary>Ver la tabla día por día</summary><div class="tabla"><table><tr><th>Día</th><th class="num">Clientes</th><th class="num">Mensajes</th><th class="num">Respuestas</th><th class="num">Con fichas</th><th class="num">Quieren comprar</th><th class="num">Asesor</th><th class="num">Voz</th></tr>
 ${dias.map((d) => `<tr><td>${esc(d.dia)}</td>${["clientes", "mensajes", "respuestas", "fichas", "ventas", "avisos", "voz"].map((c) => `<td class="num">${Number(d[c]) || 0}</td>`).join("")}</tr>`).join("")}</table></div></details>`;
 }
@@ -874,30 +961,30 @@ ${dias.map((d) => `<tr><td>${esc(d.dia)}</td>${["clientes", "mensajes", "respues
 function vistaDeGanadoresDelCliente(datos, url) {
   const selector = selectorDePeriodo({ periodo: periodoDeLaUrl(url, 30), rango: datos.rango, primerDato: datos.primerDato, hoy: diaDe(Date.now()) });
   const filas = datos.filas || [];
-  return `<h2>🏆 Productos ganadores</h2>${selector}
+  return `${cabecera({ sobre: "Ventas con IA", titulo: "Productos ganadores", texto: "Los que más ganas de comprar despiertan en el chat.", acciones: filas.length ? `<a class="boton suave" href="${esc(conLaMismaConsulta("/panel/ganadores.csv", url))}">${icono("bajar")}Excel</a>` : "" })}${selector}
 ${
     filas.length
       ? `<p class="suave">Ordenados por <b>quieren comprar</b> (avisos de compra con ese producto delante), después por cuántos clientes distintos lo vieron.</p>
-<div class="tabla"><table><tr><th>Producto</th><th class="num">🛒 Quieren comprar</th><th class="num">Clientes que lo vieron</th><th class="num">Veces mostrado</th><th class="num">Pasados al asesor</th></tr>
-${filas.map((f, i) => `<tr><td>${i < 3 ? ["🥇", "🥈", "🥉"][i] + " " : ""}${esc(f.titulo)}</td><td class="num">${f.ventas}</td><td class="num">${f.clientes}</td><td class="num">${f.mostrado}</td><td class="num">${f.avisos}</td></tr>`).join("")}</table></div>
-<p><a href="${esc(conLaMismaConsulta("/panel/ganadores.csv", url))}">⬇️ Exportar a Excel</a></p>`
-      : '<div class="tarjeta suave">Todavía no hay productos con movimiento en este período.</div>'
+<div class="tabla puestos"><table><tr><th>Producto</th><th class="num">Quieren comprar</th><th class="num">Clientes que lo vieron</th><th class="num">Veces mostrado</th><th class="num">Pasados al asesor</th></tr>
+${filas.map((f, i) => `<tr><td><span class="puesto${i < 3 ? ` p${i + 1}` : ""}">${i + 1}</span>${esc(f.titulo)}</td><td class="num">${f.ventas}</td><td class="num">${f.clientes}</td><td class="num">${f.mostrado}</td><td class="num">${f.avisos}</td></tr>`).join("")}</table></div>
+`
+      : vacio({ icono: "ganadores", titulo: "Todavía no hay ganadores", texto: "No hay productos con movimiento en este período." })
   }`;
 }
 
-// 🗑️ en cada mensaje (solo los que están en la tabla de mensajes).
+// El botón de borrar en cada mensaje (solo los que están en la tabla de mensajes).
 function botonBorrar(igsid, id, accion = "/panel/borrar-mensaje") {
   if (!id) return "";
-  return ` <form method="post" action="${accion}" style="display:inline" onsubmit="return confirm('¿Borrar este mensaje del panel? En Instagram no se borra. Se puede deshacer.')"><input type="hidden" name="igsid" value="${esc(igsid)}"><input type="hidden" name="mensaje" value="${esc(id)}"><button title="Borrar del panel" style="border:0;background:none;cursor:pointer;padding:0 2px;font-size:12px">🗑️</button></form>`;
+  return ` <form method="post" action="${accion}" style="display:inline" onsubmit="return confirm('¿Borrar este mensaje del panel? En Instagram no se borra. Se puede deshacer.')"><input type="hidden" name="igsid" value="${esc(igsid)}"><input type="hidden" name="mensaje" value="${esc(id)}"><button class="borrar-mini" title="Borrar del panel" aria-label="Borrar del panel">${icono("borrar")}</button></form>`;
 }
 
 function formularioBorrarConversacion(accion, id) {
-  return `<details class="tarjeta"><summary>🗑️ Borrar esta conversación del panel</summary>
+  return `<details class="tarjeta"><summary>Borrar esta conversación del panel</summary>
 <form method="post" action="${accion}" onsubmit="return confirm('¿Borrar toda la conversación del panel? En Instagram no se borra. Se puede deshacer desde el historial de cambios.')">
 <input type="hidden" name="id" value="${esc(id)}">
 <p class="suave">Se borran sus mensajes y lo que pensó la IA, solo del panel: al cliente, en Instagram, le siguen apareciendo.</p>
 <label><input type="checkbox" name="olvidar" value="si"> Y que el bot olvide lo hablado (lo atiende como a alguien nuevo)</label>
-<div class="acciones"><button style="color:#b42318;border-color:#b42318">Borrar conversación</button></div></form></details>`;
+<div class="acciones"><button class="peligro">${icono("borrar")}Borrar conversación</button></div></form></details>`;
 }
 
 // El cuadro para escribirle al cliente. "aviso": lo que pasó con el último
@@ -906,12 +993,12 @@ function formularioDeMensaje(accion, id, horasDePausa, aviso = "") {
   const avisoHtml = !aviso
     ? ""
     : aviso === "ok"
-      ? '<div class="tarjeta" style="border-color:#137333">✅ Enviado. El bot quedó en pausa con este cliente: devuélveselo con el botón de arriba cuando termines.</div>'
-      : `<div class="tarjeta" style="border-color:#b42318;color:#b42318">❌ No salió: ${esc(aviso)}</div>`;
-  return `<h3 id="escribir">✍️ Escribirle tú</h3>${avisoHtml}
-<form method="post" action="${accion}" class="tarjeta"><input type="hidden" name="id" value="${esc(id)}">
-<textarea name="texto" rows="3" maxlength="${MAXIMO_DESDE_EL_PANEL}" required placeholder="Escribe tu mensaje…" style="width:100%;font:inherit;padding:8px;border-radius:8px;border:1px solid var(--borde);background:var(--tarjeta);color:var(--texto)"></textarea>
-<div class="acciones"><button class="principal">Enviar</button><span class="suave">Sale por Instagram desde la cuenta de la tienda. El bot se pausa ${esc(horasDePausa)} h con este cliente.</span></div></form>`;
+      ? `<div class="consejo" style="border-color:rgba(61,220,151,.4)">${insignia("check", "bien")}<span>Enviado. El bot quedó en pausa con este cliente: devuélveselo con el botón de arriba cuando termines.</span></div>`
+      : `<div class="consejo" style="border-color:rgba(255,107,107,.45)">${insignia("alerta", "mal")}<span>No salió: ${esc(aviso)}</span></div>`;
+  return `<div class="seccion" id="escribir"><h2>${icono("editar")}Escribirle tú</h2></div>${avisoHtml}
+<form method="post" action="${accion}" class="tarjeta escribir"><input type="hidden" name="id" value="${esc(id)}">
+<textarea name="texto" rows="3" maxlength="${MAXIMO_DESDE_EL_PANEL}" required placeholder="Escribe tu mensaje…"></textarea>
+<div class="acciones" style="margin:0"><button class="principal">${icono("enviar")}Enviar</button><span class="suave">Sale por Instagram desde la cuenta de la tienda. El bot se pausa ${esc(horasDePausa)} h con este cliente.</span></div></form>`;
 }
 
 /* ── La puerta de entrada ────────────────────────────────────────── */
@@ -923,21 +1010,25 @@ function formularioDeMensaje(accion, id, horasDePausa, aviso = "") {
 // en el registro), en vez de la pantalla 1101 de Cloudflare.
 export async function atenderPanel(request, env, opciones = {}) {
   try {
-    return await atenderPanelSinRed(request, env, opciones);
+    return await conSesionRenovada(request, env, await atenderPanelSinRed(request, env, opciones));
   } catch (error) {
     console.error("PANEL falló:", error?.stack || error?.message || error);
     return pagina(
       "Error",
-      `<div class="tarjeta"><p>❌ El panel tuvo un error y no pudo terminar:</p><pre>${esc(String(error?.message || error).slice(0, 500))}</pre>
+      `<div><p class="entrada-error" style="justify-content:flex-start">El panel tuvo un error y no pudo terminar:</p><pre>${esc(String(error?.message || error).slice(0, 500))}</pre>
 <p class="suave">Mándale una captura de esto a quien te ayuda con el bot. Para ver el detalle: <code>npx.cmd wrangler tail</code></p>
-<p><a href="/panel">← Volver al panel</a></p></div>`,
+<p><a class="boton" href="/panel/inicio">Volver al panel</a></p></div>`,
       { tienda: opciones.tienda || "La tienda", conMenu: false }
     );
   }
 }
 
-async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda", horasDePausa = 1, conAnuncios = true } = {}) {
+async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda", horasDePausa = 1, conAnuncios = true, traerCatalogo = null, nombreDelCatalogo = "", version = "", tarifaDeCaja = "", rubro = "", botLeeInventario = false, seSigueSola = false } = {}) {
   const url = new URL(request.url);
+
+  // LA APP INSTALABLE (alpha.js): el manifiesto, el trabajador y el ícono.
+  // Sin sesión, porque el navegador los pide sin cookie.
+  if (rutaDeApp(url.pathname, "/panel")) return atenderApp(url.pathname, { base: "/panel", nombre: tienda, version, inicio: "/panel/inicio" });
 
   // El logo de ALPHA IA (alpha.js): sin sesión, lo usa la pantalla de entrada.
   if (url.pathname === "/panel/logo.png" || url.pathname === "/panel/isotipo.png") {
@@ -947,7 +1038,7 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
   if (!panelActivo(env)) {
     return pagina(
       "Panel apagado",
-      `<div class="tarjeta"><p>El panel está apagado: falta su clave.</p>
+      `<div><h2 style="margin-top:0">El panel está apagado</h2><p>Falta su clave.</p>
 <p>En la carpeta del bot, una vez:</p><pre>npx.cmd wrangler secret put PANEL_CLAVE</pre>
 <p class="suave">Escribe una clave de al menos 6 letras. Después, abre esta página otra vez.</p></div>`,
       { tienda, conMenu: false }
@@ -961,18 +1052,16 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
       console.error("PANEL: alguien probó una clave equivocada");
       return paginaDeEntrada(tienda, "Esa no es la clave.");
     }
-    const expira = Date.now() + SESION_MS;
-    const valor = `${expira}.${await firmar(env, `panel:${expira}`)}`;
-    return redirigir(
-      "/panel",
-      `${COOKIE}=${valor}; Path=/panel; HttpOnly; Secure; SameSite=Strict; Max-Age=${Math.floor(SESION_MS / 1000)}`
-    );
+    // La entrada pregunta "¿dejar la sesión abierta?". Un formulario viejo
+    // (sin la pregunta) la deja abierta, como antes.
+    const abierta = datos?.get("pregunta_sesion") ? datos.get("recordar") === "si" : true;
+    return redirigir("/panel/inicio", await cookieDeSesion(env, abierta));
   }
 
   if (!(await sesionValida(request, env))) return paginaDeEntrada(tienda);
 
   if (url.pathname === "/panel/salir") {
-    return redirigir("/panel", `${COOKIE}=; Path=/panel; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
+    return redirigir("/panel", `${COOKIE}=; Path=/panel; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
   }
 
   if (url.pathname === "/panel/marca") {
@@ -1037,7 +1126,7 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
 
   if (url.pathname === "/panel/anuncios" && conAnuncios) {
     const texto = verTexto ? await verTexto("/anuncios") : "";
-    return pagina("Anuncios", `<div class="tarjeta"><pre>${esc(texto)}</pre></div>`, { tienda, conAnuncios });
+    return pagina("Anuncios", `${cabecera({ sobre: "Ventas con IA", titulo: "Anuncios", texto: "De qué anuncios llegan tus clientes." })}<div class="tarjeta"><pre>${esc(texto)}</pre></div>`, { tienda, conAnuncios, ruta: "anuncios" });
   }
 
   // EL CRM (ver crm.js).
@@ -1058,7 +1147,7 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
       const { encabezados, filas } = filasCsvDeClientes(filtrarClientes(clientes, filtros));
       return respuestaCsv(`clientes-${diaDe(Date.now())}.csv`, aCsv(encabezados, filas));
     }
-    return pagina("Clientes", htmlListaDeClientes(clientes, filtros), { tienda, conAnuncios, enVivo: true });
+    return pagina("Clientes", htmlListaDeClientes(clientes, filtros), { tienda, conAnuncios, enVivo: true, ruta: "clientes" });
   }
   if (url.pathname === "/panel/metricas" || url.pathname === "/panel/metricas.csv") {
     const datos = await metricasCentral(env, url.searchParams);
@@ -1066,7 +1155,7 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
       const campos = [["dia", "Día"], ["clientes", "Clientes"], ["mensajes", "Mensajes de clientes"], ["respuestas", "Respuestas de la IA"], ["fichas", "Respuestas con fichas"], ["ventas", "Quieren comprar"], ["avisos", "Pasados al asesor"], ["voz", "Notas de voz"], ["anuncios", "Llegaron por anuncios"], ["quejas", "Quejas"]];
       return respuestaCsv(`metricas-${datos.rango.desde}-a-${datos.rango.hasta}.csv`, aCsv(campos.map((c) => c[1]), datos.dias.map((d) => campos.map(([c]) => (c === "dia" ? d.dia : Number(d[c]) || 0)))));
     }
-    return pagina("Métricas", vistaDeMetricasDelCliente(datos, url), { tienda, conAnuncios });
+    return pagina("Métricas", vistaDeMetricasDelCliente(datos, url), { tienda, conAnuncios, ruta: "metricas" });
   }
   // ✅ SOLUCIONAR (6-oct-2026): todas, o una (id). Dejan de salir en rojo.
   if (url.pathname === "/panel/errores/solucionar" && request.method === "POST") {
@@ -1087,7 +1176,7 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
         headers: { "content-type": "text/markdown; charset=utf-8", "content-disposition": `attachment; filename="${nombre}.md"`, "cache-control": "no-store" },
       });
     }
-    return pagina("Errores de la IA", vistaDeErroresDelCliente(datos, url), { tienda, conAnuncios });
+    return pagina("Errores de la IA", vistaDeErroresDelCliente(datos, url), { tienda, conAnuncios, ruta: "errores" });
   }
   if (url.pathname === "/panel/ganadores" || url.pathname === "/panel/ganadores.csv") {
     const params = new URLSearchParams(url.searchParams);
@@ -1099,8 +1188,15 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
         aCsv(["Producto", "Quieren comprar", "Clientes que lo vieron", "Veces mostrado", "Pasados al asesor"], datos.filas.map((f) => [f.titulo, f.ventas, f.clientes, f.mostrado, f.avisos]))
       );
     }
-    return pagina("Ganadores", vistaDeGanadoresDelCliente(datos, url), { tienda, conAnuncios });
+    return pagina("Ganadores", vistaDeGanadoresDelCliente(datos, url), { tienda, conAnuncios, ruta: "ganadores" });
   }
+
+  // EL INVENTARIO Y LA CAJA (7-oct-2026, ver inventario-panel.js).
+  const ayudas = { pagina: (titulo, cuerpo, extra = {}) => pagina(titulo, cuerpo, { tienda, conAnuncios, ...extra }), vieneDelPanel, redirigir };
+  if (esRutaDeInventario(url)) return atenderInventario(request, env, url, ayudas, { tienda, traerCatalogo, nombreDelCatalogo, tarifaDeCaja, rubro, botLeeInventario, seSigueSola });
+
+  // EL NEGOCIO: inicio, ventas, gastos, fiados y el asistente (negocio-panel.js).
+  if (esRutaDeNegocio(url)) return atenderNegocio(request, env, url, ayudas, { tienda, tarifaDeCaja, rubro, conAnuncios });
 
   return paginaDeLista(env, url, tienda, conAnuncios);
 }

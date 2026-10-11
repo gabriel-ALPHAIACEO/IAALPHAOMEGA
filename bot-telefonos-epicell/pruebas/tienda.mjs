@@ -58,7 +58,7 @@ comprobar("con la clave equivocada no entra", /Esa no es la clave/.test(r.texto)
 const buena = new FormData(); buena.set("clave", CLAVE);
 r = await pedir("/panel/entrar", { metodo: "POST", cuerpo: buena });
 const cookie = r.cookie.split(";")[0];
-comprobar("con la clave buena entra (cookie firmada, solo para /panel)", /HttpOnly/.test(r.cookie) && /Path=\/panel/.test(r.cookie) && r.donde === "/panel", true);
+comprobar("con la clave buena entra al Inicio (cookie firmada, solo para /panel)", /HttpOnly/.test(r.cookie) && /Path=\/panel/.test(r.cookie) && r.donde === "/panel/inicio", true);
 
 r = await pedir("/panel", { cookie });
 comprobar("la lista enseña la conversación", /Perlita/.test(r.texto) && /Samsung A57/.test(r.texto), true);
@@ -96,7 +96,7 @@ comprobar("sin PANEL_CLAVE el panel está apagado para todos", /El panel está a
 r = await pedir("/panel/estado", { cookie });
 comprobar("el estado técnico ya NO se ve en el panel de la tienda", r.estado === 303 && !/CÓDIGO DESPLEGADO/.test(r.texto), true);
 r = await pedir("/panel/clientes", { cookie });
-comprobar("el CRM: la lista de clientes", r.estado === 200 && /Exportar a Excel/.test(r.texto), true);
+comprobar("el CRM: la lista de clientes, a Excel", r.estado === 200 && /href="\/panel\/clientes\.csv[^"]*"[^>]*>[^]*?Excel<\/a>/.test(r.texto), true);
 r = await pedir("/panel/metricas?dias=7", { cookie });
 comprobar("las métricas con el calendario", /class="periodo/.test(r.texto) && /Últimos 7 días/.test(r.texto), true);
 r = await pedir("/panel/ganadores.csv?dias=30", { cookie });

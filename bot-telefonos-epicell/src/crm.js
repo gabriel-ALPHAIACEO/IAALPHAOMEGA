@@ -24,17 +24,20 @@
 import { esIntencionDeCompra } from "./registro.js";
 
 // El "usuario" de un cliente de WhatsApp es su teléfono ("+58…", ver
-// whatsapp.js): va con 📱 en vez de @.
-const arroba = (u) => (String(u || "").startsWith("+") ? "📱 " : "@");
+// whatsapp.js): sale tal cual, sin la @ de Instagram.
+const arroba = (u) => (String(u || "").startsWith("+") ? "" : "@");
+import { icono } from "./iconos.js";
 
 export const ETAPAS = [
-  ["nuevo", "🆕 Nuevo"],
-  ["interesado", "👀 Interesado"],
-  ["quiere_comprar", "🛒 Quiere comprar"],
-  ["vendido", "✅ Vendido"],
-  ["perdido", "✖️ Perdido"],
+  ["nuevo", "Nuevo"],
+  ["interesado", "Interesado"],
+  ["quiere_comprar", "Quiere comprar"],
+  ["vendido", "Vendido"],
+  ["perdido", "Perdido"],
 ];
 const NOMBRE_DE_ETAPA = Object.fromEntries(ETAPAS);
+// Cada etapa con su ícono (7-oct-2026: sin emojis).
+const ICONO_DE_ETAPA = { nuevo: "usuario", interesado: "ojo", quiere_comprar: "carrito", vendido: "check", perdido: "cerrar" };
 
 function esc(texto) {
   return String(texto ?? "")
@@ -207,7 +210,7 @@ export async function clientesDelCrm(db, { soloId = "" } = {}) {
 /* ── Lo que se ve ────────────────────────────────────────────────── */
 
 export function chipDeEtapa(etapa) {
-  return `<span class="etapa etapa-${esc(etapa)}">${esc(NOMBRE_DE_ETAPA[etapa] || etapa)}</span>`;
+  return `<span class="etapa etapa-${esc(etapa)}">${icono(ICONO_DE_ETAPA[etapa] || "usuario")}${esc(NOMBRE_DE_ETAPA[etapa] || etapa)}</span>`;
 }
 
 // Los filtros de la lista: etapa, etiqueta y búsqueda.
@@ -228,43 +231,51 @@ export function htmlListaDeClientes(clientes, { etapa = "", etiqueta = "", q = "
   const vendidos = cuenta.vendido || 0;
   const conEtapa = (e) => `/panel/clientes?${new URLSearchParams({ ...(e ? { etapa: e } : {}), ...(etiqueta ? { etiqueta } : {}), ...(q ? { q } : {}) })}`;
   const embudo = [
-    `<a class="${!etapa ? "activa" : ""}" href="${esc(conEtapa(""))}"><b>${clientes.length}</b><span>Todos</span></a>`,
-    ...ETAPAS.map(([e, nombre]) => `<a class="${etapa === e ? "activa" : ""}" href="${esc(conEtapa(e))}"><b>${cuenta[e] || 0}</b><span>${esc(nombre)}</span></a>`),
+    `<a class="${!etapa ? "activa" : ""}" href="${esc(conEtapa(""))}"><b>${clientes.length}</b><span>${icono("clientes", { clase: "chico" })}Todos</span></a>`,
+    ...ETAPAS.map(([e, nombre]) => `<a class="${etapa === e ? "activa" : ""}" href="${esc(conEtapa(e))}"><b>${cuenta[e] || 0}</b><span>${icono(ICONO_DE_ETAPA[e], { clase: "chico" })}${esc(nombre)}</span></a>`),
   ].join("");
   const todasLasEtiquetas = [...new Set(clientes.flatMap((c) => c.etiquetas))].sort((a, b) => a.localeCompare(b));
   const lista = filtrarClientes(clientes, { etapa, etiqueta, q });
   const filasHtml = lista
     .slice(0, 300)
-    .map(
-      (c) => `<tr data-k="c${esc(c.id)}">
-<td><a href="/panel/c/${encodeURIComponent(c.id)}"><b>${esc(c.nombre || (c.usuario ? `${arroba(c.usuario)}${c.usuario}` : c.id))}</b></a>${c.usuario && c.nombre ? `<div class="suave">${arroba(c.usuario)}${esc(c.usuario)}</div>` : ""}${c.anuncio ? `<div class="suave">📣 ${esc(String(c.anuncio).slice(0, 40))}</div>` : ""}</td>
-<td>${chipDeEtapa(c.etapa)}${c.etapaPuesta ? "" : '<div class="suave">sugerida</div>'}</td>
-<td>${c.etiquetas.map((e) => `<span class="etiqueta-crm">${esc(e)}</span>`).join("") || '<span class="suave">—</span>'}</td>
-<td class="num">${c.mensajes}</td>
-<td>${c.productos.length ? `${c.productos.length} · <span class="suave">${esc(c.productos.slice(0, 2).join(", "))}${c.productos.length > 2 ? "…" : ""}</span>` : '<span class="suave">—</span>'}</td>
-<td class="num">${c.compras ? `🛒 ${c.compras}` : "—"}</td>
-<td>${esc(fecha(c.primero))}</td>
-<td>${esc(fecha(c.ultimo))}</td>
-</tr>`
-    )
+    .map((c) => {
+      const nombre = c.nombre || (c.usuario ? `${arroba(c.usuario)}${c.usuario}` : c.id);
+      const sub = [
+        c.usuario && c.nombre ? `${arroba(c.usuario)}${esc(c.usuario)}` : "",
+        `${c.mensajes} ${c.mensajes === 1 ? "mensaje" : "mensajes"}`,
+        c.productos.length ? `vio ${c.productos.length} ${c.productos.length === 1 ? "producto" : "productos"}` : "",
+        c.ultimo ? `último ${esc(fecha(c.ultimo))}` : "",
+      ].filter(Boolean).join(" · ");
+      const extras = [
+        c.anuncio ? `<span class="chip marca">${icono("anuncios")}${esc(String(c.anuncio).slice(0, 30))}</span>` : "",
+        ...c.etiquetas.map((e) => `<span class="etiqueta-crm">${esc(e)}</span>`),
+      ].join("");
+      return `<a class="fila" data-k="c${esc(c.id)}" href="/panel/c/${encodeURIComponent(c.id)}">${avatarDe(nombre)}<div class="fila-centro"><div class="fila-titulo">${esc(nombre)}</div><div class="fila-sub">${sub}</div>${extras ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${extras}</div>` : ""}</div>
+<div class="fila-fin">${chipDeEtapa(c.etapa)}${c.etapaPuesta ? "" : '<small>sugerida</small>'}${c.compras ? `<small>${icono("carrito", { clase: "chico" })} quiso comprar ${c.compras}</small>` : ""}</div></a>`;
+    })
     .join("");
   const exportar = `/panel/clientes.csv?${new URLSearchParams({ ...(etapa ? { etapa } : {}), ...(etiqueta ? { etiqueta } : {}), ...(q ? { q } : {}) })}`;
-  return `<h2>👥 Clientes</h2>
-<div class="kpis">
-<div class="kpi"><div class="v">${clientes.length}</div><div class="e">clientes en total</div></div>
-<div class="kpi"><div class="v">${clientes.filter((c) => c.primero > semana).length}</div><div class="e">nuevos esta semana</div></div>
-<div class="kpi"><div class="v">${cuenta.quiere_comprar || 0}</div><div class="e">🛒 quieren comprar</div></div>
-<div class="kpi"><div class="v bien">${vendidos}</div><div class="e">✅ vendidos</div></div>
-<div class="kpi"><div class="v">${clientes.length ? Math.round((vendidos / clientes.length) * 100) : 0}%</div><div class="e">de los clientes compró</div></div>
-</div>
+  const dato = (valor, nombre, ico, clase = "") => `<div class="dato"><div class="dato-cima"><span class="dato-nombre">${esc(nombre)}</span><span class="insignia chica${clase ? ` ${clase}` : ""}">${icono(ico)}</span></div><div class="dato-valor">${esc(valor)}</div></div>`;
+  return `<div class="cabeza"><div class="cabeza-texto"><div class="sobre">Ventas con IA</div><h1>Clientes</h1><p>Todas las personas que le escribieron al bot, en qué etapa están y qué vieron. La etapa "sugerida" la pone el bot; la que marques en la ficha de cada cliente manda.</p></div><div class="cabeza-acciones"><a class="boton suave" href="${esc(exportar)}">${icono("bajar")}Excel</a></div></div>
+<div class="mosaico">${dato(clientes.length, "Clientes en total", "clientes")}${dato(clientes.filter((c) => c.primero > semana).length, "Nuevos esta semana", "usuario")}${dato(cuenta.quiere_comprar || 0, "Quieren comprar", "carrito", "tono-aviso")}${dato(vendidos, "Vendidos", "check", "tono-bien")}${dato(`${clientes.length ? Math.round((vendidos / clientes.length) * 100) : 0}%`, "De los clientes compró", "sube", "tono-bien")}</div>
 <div class="embudo">${embudo}</div>
-<form class="filtros-crm" method="get" action="/panel/clientes">${etapa ? `<input type="hidden" name="etapa" value="${esc(etapa)}">` : ""}
-<input name="q" value="${esc(q)}" placeholder="Buscar por nombre, @usuario, nota, etiqueta o producto">
+<form class="herramientas" method="get" action="/panel/clientes">${etapa ? `<input type="hidden" name="etapa" value="${esc(etapa)}">` : ""}
+<label class="buscador">${icono("buscar")}<input name="q" value="${esc(q)}" placeholder="Buscar por nombre, @usuario, nota, etiqueta o producto"></label>
 <select name="etiqueta"><option value="">Todas las etiquetas</option>${todasLasEtiquetas.map((e) => `<option${e === etiqueta ? " selected" : ""}>${esc(e)}</option>`).join("")}</select>
-<button>Filtrar</button><a class="suave" href="${esc(exportar)}">⬇️ Exportar a Excel</a></form>
-<p class="suave">${lista.length} ${lista.length === 1 ? "cliente" : "clientes"}${lista.length > 300 ? " · se ven los 300 más recientes (el Excel trae todos)" : ""}. La etapa "sugerida" la pone el bot con lo que ve; la que marques en la ficha de cada cliente manda.</p>
-<div class="tabla"><table><thead><tr><th>Cliente</th><th>Etapa</th><th>Etiquetas</th><th class="num">Mensajes</th><th>Productos que vio</th><th class="num">Quiso comprar</th><th>Primer contacto</th><th>Último</th></tr></thead>
-<tbody>${filasHtml || '<tr><td colspan="8" class="suave">No hay clientes con eso.</td></tr>'}</tbody></table></div>`;
+<button>Filtrar</button></form>
+<p class="suave">${lista.length} ${lista.length === 1 ? "cliente" : "clientes"}${lista.length > 300 ? " · se ven los 300 más recientes (el Excel trae todos)" : ""}</p>
+${filasHtml ? `<div class="filas">${filasHtml}</div>` : '<div class="vacio"><h3>No hay clientes con eso</h3><p>Prueba con otra etapa o quita la búsqueda.</p></div>'}`;
+}
+
+// Las iniciales en un círculo con un color propio (igual que marco.js;
+// aquí suelto para no depender del marco).
+function avatarDe(nombre) {
+  const limpio = String(nombre || "?").trim();
+  const partes = limpio.replace(/^@/, "").split(/\s+/).filter(Boolean);
+  const iniciales = ((partes[0]?.[0] || "?") + (partes.length > 1 ? partes.at(-1)[0] : partes[0]?.[1] || "")).toUpperCase();
+  let h = 0;
+  for (const c of limpio) h = (h * 31 + c.codePointAt(0)) % 360;
+  return `<span class="avatar" style="--h:${h}" aria-hidden="true">${esc(iniciales)}</span>`;
 }
 
 // La ficha, dentro de la conversación: datos y lo que edita la tienda.
@@ -274,21 +285,20 @@ export function htmlFichaDeCliente(c, { accion = "/panel/crm", id = "" } = {}) {
     `<option value=""${cliente.etapaPuesta ? "" : " selected"}>Automática (el bot sugiere: ${esc(NOMBRE_DE_ETAPA[cliente.sugerida] || "Nuevo")})</option>`,
     ...ETAPAS.map(([e, nombre]) => `<option value="${esc(e)}"${cliente.etapaPuesta === e ? " selected" : ""}>${esc(nombre)}</option>`),
   ].join("");
-  return `<details class="tarjeta" id="crm" open><summary><b>🗂 Ficha del cliente</b> · ${chipDeEtapa(cliente.etapa)}</summary>
+  return `<details class="tarjeta" id="crm" open><summary><b>Ficha del cliente</b> · ${chipDeEtapa(cliente.etapa)}</summary>
 <div class="ficha-crm">
 <div><b>PRIMER CONTACTO</b>${esc(fecha(cliente.primero) || "—")}</div>
 <div><b>ÚLTIMO MENSAJE</b>${esc(fecha(cliente.ultimo) || "—")}</div>
 <div><b>MENSAJES SUYOS</b>${cliente.mensajes}</div>
-<div><b>QUISO COMPRAR</b>${cliente.compras ? `🛒 ${cliente.compras} ${cliente.compras === 1 ? "vez" : "veces"}` : "todavía no"}</div>
-${cliente.anuncio ? `<div><b>LLEGÓ POR</b>📣 ${esc(cliente.anuncio)}</div>` : ""}
+<div><b>QUISO COMPRAR</b>${cliente.compras ? `${cliente.compras} ${cliente.compras === 1 ? "vez" : "veces"}` : "todavía no"}</div>
+${cliente.anuncio ? `<div><b>LLEGÓ POR</b>${esc(cliente.anuncio)}</div>` : ""}
 </div>
 ${cliente.productos.length ? `<div class="suave"><b>Productos que vio:</b> ${esc(cliente.productos.slice(-12).join(" · "))}</div>` : ""}
 ${cliente.intenciones.length ? `<div class="suave"><b>Cuándo quiso comprar:</b> ${cliente.intenciones.map((i) => `${esc(fecha(i.cuando))}${i.productos.length ? ` (${esc(i.productos.slice(0, 2).join(", "))})` : ""}`).join(" · ")}</div>` : ""}
 <form method="post" action="${esc(accion)}"><input type="hidden" name="id" value="${esc(cliente.id || id)}">
-<div class="acciones"><label class="suave">Etapa <select name="etapa">${opciones}</select></label>
-<label class="suave" style="flex:1;display:flex;gap:6px;align-items:center">Etiquetas <input style="flex:1" name="etiquetas" value="${esc(cliente.etiquetas.join(", "))}" placeholder="VIP, mayorista, Margarita… (separadas por coma)"></label></div>
-<label class="suave" style="display:block;margin-top:8px">Notas</label>
-<textarea name="notas" rows="4" maxlength="2000" style="width:100%;box-sizing:border-box" placeholder="Notas de este cliente (solo las ve la tienda)">${esc(cliente.notas)}</textarea>
+<div class="campos" style="margin-top:14px"><label class="campo">Etapa<select name="etapa">${opciones}</select></label>
+<label class="campo">Etiquetas<input name="etiquetas" value="${esc(cliente.etiquetas.join(", "))}" placeholder="VIP, mayorista, Margarita… (separadas por coma)"></label>
+<label class="campo ancho">Notas<textarea name="notas" rows="4" maxlength="2000" placeholder="Notas de este cliente (solo las ve la tienda)">${esc(cliente.notas)}</textarea></label></div>
 <div class="acciones"><button class="principal">Guardar ficha</button>${cliente.actualizado ? `<span class="suave">Guardada ${esc(fecha(cliente.actualizado))}</span>` : ""}</div></form></details>`;
 }
 
@@ -299,7 +309,7 @@ export function filasCsvDeClientes(clientes) {
       c.nombre,
       c.usuario ? `${arroba(c.usuario)}${c.usuario}` : "",
       c.id,
-      NOMBRE_DE_ETAPA[c.etapa]?.replace(/^\S+\s/, "") || c.etapa,
+      NOMBRE_DE_ETAPA[c.etapa] || c.etapa,
       c.etapaPuesta ? "sí" : "no (sugerida)",
       c.etiquetas.join(", "),
       c.notas,
