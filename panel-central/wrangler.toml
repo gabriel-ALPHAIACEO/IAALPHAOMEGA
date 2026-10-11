@@ -20,7 +20,7 @@ compatibility_date = "2026-09-01"
 # a la derecha de "Workers & Pages"). No es secreto. Con él, wrangler
 # despliega SIEMPRE aquí, aunque tu usuario tenga acceso a varias cuentas:
 # así es imposible subir el panel a la cuenta de Invictus por error.
-account_id = "PEGA_AQUI_EL_ACCOUNT_ID_DE_ALPHA_IA"
+account_id = "9494b3db15f8cd2c4d50d14622ee26e8"
 
 # --- Su propia base (alertas, estado de las tiendas, intentos de entrar) ---
 # Ya está creada (11-oct-2026: este es el id de la que usa el panel en
