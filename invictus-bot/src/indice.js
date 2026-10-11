@@ -508,7 +508,7 @@ const DE_A_LA_VEZ = 4;
 export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) {
   if (!env.DB) return { ok: false, error: "No hay base de datos conectada, y el índice vive ahí." };
 
-  const { productos } = await traerCatalogoCompleto(env, Number(env.COTEJO_MAXIMO) || 600);
+  const { productos } = await traerCatalogoCompleto(env, Number(env.COTEJO_MAXIMO) || 1000);
   if (!productos.length) return { ok: false, error: "Shopify no devolvió productos." };
 
   const indice = await leerIndice(env.DB);

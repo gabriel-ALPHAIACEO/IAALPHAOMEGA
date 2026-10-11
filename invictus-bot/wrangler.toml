@@ -137,7 +137,7 @@ COTEJO_LOTES = "2"
 
 # Cuantos productos se traen de Shopify para ordenarlos y elegir a cuales
 # mirar. Traerlos no gasta modelo, asi que conviene que entren todos.
-COTEJO_MAXIMO = "600"
+COTEJO_MAXIMO = "1000"
 
 # Modelo con el que se INDEXA el catalogo (abrir /indexar-catalogo). Son
 # cientos de fotos, asi que va el mini: tiene un cupo por minuto mucho mas
