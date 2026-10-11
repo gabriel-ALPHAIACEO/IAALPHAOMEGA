@@ -227,6 +227,34 @@ export async function asegurarInventario(db) {
   listo = true;
 }
 
+// 1 UNIDAD A TODO LO QUE NUNCA SE CONTÓ (11-oct-2026, pedido del dueño de
+// Invictus: "que todo diga 1 unidad"). Cada variante activa sin stock en
+// ninguna sede y sin ningún movimiento recibe 1 en la sede principal, con su
+// "Carga inicial". Lo que ya tiene un número (aunque sea 0) no se toca. Dos
+// sentencias en un batch, tenga los modelos que tenga. Solo lo llama la
+// tienda que lo quiere (Invictus, en su index.js).
+export async function darUnoALosSinContar(db, { quien = "Inicio: 1 unidad" } = {}) {
+  await asegurarInventario(db);
+  const sede = (await sedes(db))[0]?.id;
+  if (!sede) return 0;
+  const ahora = Date.now();
+  const sinContar = `SELECT v.id FROM inv_variantes v JOIN inv_productos p ON p.id = v.producto_id
+     WHERE p.activo = 1
+       AND NOT EXISTS (SELECT 1 FROM inv_stock s WHERE s.variante_id = v.id)
+       AND NOT EXISTS (SELECT 1 FROM inv_movimientos m WHERE m.variante_id = v.id)`;
+  const cuantos = Number((await db.prepare(`SELECT COUNT(*) AS n FROM (${sinContar})`).first())?.n) || 0;
+  if (!cuantos) return 0;
+  await db.batch([
+    db
+      .prepare(`INSERT INTO inv_movimientos (variante_id, local_id, tipo, delta, queda, quien, nota, creado) SELECT id, ?, 'carga', 1, 1, ?, '', ? FROM (${sinContar})`)
+      .bind(sede, quien, ahora),
+    db
+      .prepare(`INSERT OR IGNORE INTO inv_stock (variante_id, local_id, cantidad, actualizado) SELECT m.variante_id, ?, 1, ? FROM inv_movimientos m WHERE m.creado = ? AND m.tipo = 'carga' AND m.quien = ? AND NOT EXISTS (SELECT 1 FROM inv_stock s WHERE s.variante_id = m.variante_id)`)
+      .bind(sede, ahora, ahora, quien),
+  ]);
+  return cuantos;
+}
+
 // Solo para las pruebas: cada base de mentira empieza de cero.
 export function olvidarQueEstaListo() {
   listo = false;

@@ -49,4 +49,15 @@ await inv.importarCatalogo(DB, [item]);
 hs = (await inv.listarProductos(DB, { q: "Nocta" }))[0];
 ok(Number(hs.total) === 5, "lo editaron a 5 y volver a traer el catálogo no lo pisa", hs.total);
 
+titulo("todo lo que nunca se contó pasa a 1 (darUnoALosSinContar)");
+const antes = await inv.listarProductos(DB);
+const sinNada = antes.filter((p) => !Number(p.contadas)).length;
+const dados = await inv.darUnoALosSinContar(DB);
+ok(dados === sinNada && dados > 0, `los ${sinNada} sin contar reciben 1`, dados);
+const despues = await inv.listarProductos(DB);
+ok(despues.find((p) => p.titulo === "Adidas Campus nuevo")?.total === 1, "el Campus recién traído queda en 1");
+ok(despues.find((p) => p.titulo === "Adidas Samba contado")?.total === 0, "el contado en 0 sigue en 0");
+ok(despues.find((p) => p.titulo.includes("Nocta"))?.total === 5, "el editado a 5 sigue en 5");
+ok((await inv.darUnoALosSinContar(DB)) === 0, "otra vez no hace nada (no suma dos veces)");
+
 terminar();
