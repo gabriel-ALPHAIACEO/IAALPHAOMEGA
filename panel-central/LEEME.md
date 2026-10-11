@@ -65,7 +65,8 @@ Dentro de la carpeta `panel-central`:
 npx.cmd wrangler d1 create panel-central-db
 ```
 
-Ese comando imprime un `database_id`. Pégalo en `wrangler.toml`, en lugar de `PEGA_AQUI_EL_ID`.
+Ese comando imprime un `database_id` que va en `wrangler.toml`.
+**Ya está hecho** (11-oct-2026): `wrangler.toml` trae el id de la base que el panel usa en Cloudflare (`a6dca4cc-…`). No la vuelvas a crear: una base nueva empieza vacía.
 Las tablas se crean solas: no hay migraciones que correr.
 
 ### 2. Las claves

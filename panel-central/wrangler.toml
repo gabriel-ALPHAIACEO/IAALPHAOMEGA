@@ -23,14 +23,14 @@ compatibility_date = "2026-09-01"
 account_id = "PEGA_AQUI_EL_ACCOUNT_ID_DE_ALPHA_IA"
 
 # --- Su propia base (alertas, estado de las tiendas, intentos de entrar) ---
-# Una vez, antes del primer despliegue:
-#   npx.cmd wrangler d1 create panel-central-db
-#   (imprime un database_id: pégalo abajo, en lugar de PEGA_AQUI_EL_ID)
+# Ya está creada (11-oct-2026: este es el id de la que usa el panel en
+# Cloudflare). No es secreto: sin la sesión de la cuenta no sirve de nada.
+# Si alguna vez hiciera falta otra: npx.cmd wrangler d1 create panel-central-db
 # Las tablas se crean solas: no hay migraciones que correr.
 [[d1_databases]]
 binding = "DB"
 database_name = "panel-central-db"
-database_id = "PEGA_AQUI_EL_ID"
+database_id = "a6dca4cc-2bfa-4cc2-85da-af7561e407ed"
 
 # --- Cada 2 minutos: ¿siguen vivas las tiendas? -------------------------
 # Si una deja de responder, salta una alerta 🚨; cuando vuelve, otra ✅.
