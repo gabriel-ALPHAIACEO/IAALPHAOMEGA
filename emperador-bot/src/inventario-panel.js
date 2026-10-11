@@ -377,7 +377,7 @@ function tarjetaDeProducto(p, n, r) {
   const precio = precioDeLista(p.precio_min ?? p.precio, p.precio_max ?? p.precio);
   const cashea = p.cashea_min !== null && p.cashea_min !== undefined ? precioDeLista(p.cashea_min, p.cashea_max) : "";
   const detalle = [p.marca, p.gama, Number(p.variantes) > 1 ? `${p.variantes} ${r.variantes}` : ""].filter(Boolean).join(" · ");
-  return `<a class="producto" href="/panel/inventario/p/${p.id}" style="--n:${Math.min(n, 30)}"><div class="producto-foto">${fotoDe(p.foto, p.titulo)}${pastillaDeStock(p.total)}</div>
+  return `<a class="producto" href="/panel/inventario/p/${p.id}" style="--n:${Math.min(n, 30)}"><div class="producto-foto">${fotoDe(p.foto, p.titulo)}${pastillaDeStock(p.total, { sinContar: p.contadas !== undefined && !Number(p.contadas) })}</div>
 <div class="producto-pie"><b>${esc(p.titulo)}</b>${detalle ? `<small>${esc(detalle)}</small>` : ""}<span class="producto-precio">${precio ? esc(precio) : '<span class="suave">Sin precio</span>'}</span>${cashea ? `<span class="producto-cashea">Cashea ${esc(cashea)}</span>` : ""}</div></a>`;
 }
 
@@ -451,7 +451,7 @@ ${avisoDeImportaciones(enCurso, opciones)}${
     ? ""
     : `<div class="mosaico">
 ${dato({ nombre: "Productos", valor: cifra(cuenta.modelos, { tipo: "numero" }), icono: "inventario", pie: `${numero(cuenta.variantes)} ${cuenta.variantes === 1 ? r.variante : r.variantes}` })}
-${dato({ nombre: "Unidades", valor: cifra(cuenta.unidades, { tipo: "numero" }), icono: "rejilla", pie: "entre todas las sedes" })}
+${dato({ nombre: "Unidades", valor: cifra(cuenta.unidades, { tipo: "numero" }), icono: "rejilla", pie: cuenta.sinContar ? `${numero(cuenta.sinContar)} sin contar: escribe sus unidades` : "entre todas las sedes" })}
 ${dato({ nombre: "Lo que tienes vale", valor: cifra(cuenta.valor), icono: "efectivo", tono: "bien", pie: cuenta.conCosto ? `te costó ${esc(plata(cuenta.costo, { siempre: true }))}` : "a precio de venta" })}
 ${dato({ nombre: "Por reponer", valor: cifra(cuenta.porReponer, { tipo: "numero" }), icono: "alerta", tono: cuenta.porReponer ? "aviso" : "neutro", pie: cuenta.agotados ? `${cuenta.agotados} ${cuenta.agotados === 1 ? "agotado" : "agotados"}` : "nada agotado", href: "/panel/inventario?f=pocos" })}
 </div>`

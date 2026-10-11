@@ -335,13 +335,16 @@ export async function listarProductos(db, { q = "", limite = 200, soloConStock =
     );
     args.push(`%${texto}%`, `%${texto}%`, texto, texto, texto);
   }
-  const tener = soloConStock ? "HAVING total > 0" : agotados ? "HAVING total = 0" : porReponer ? `HAVING total <= ${UMBRAL_DE_POCOS}` : "";
+  // 11-oct-2026: un modelo recién traído (sin ninguna talla contada) NO es
+  // agotado: está "sin contar" hasta que alguien escribe cuántas hay.
+  const tener = soloConStock ? "HAVING total > 0" : agotados ? "HAVING total = 0 AND contadas > 0" : porReponer ? `HAVING total <= ${UMBRAL_DE_POCOS} AND contadas > 0` : "";
   const porVentas = orden === "ventas";
   const { results } = await db
     .prepare(
       `SELECT p.id, p.titulo, p.marca, p.gama, p.origen, p.origen_id, p.precio, p.precio_cashea, p.costo,
               COUNT(DISTINCT v.id) AS variantes,
               COALESCE(SUM(s.cantidad), 0) AS total,
+              COUNT(s.variante_id) AS contadas,
               MIN(COALESCE(v.precio, p.precio)) AS precio_min, MAX(COALESCE(v.precio, p.precio)) AS precio_max,
               MIN(COALESCE(v.precio_cashea, p.precio_cashea)) AS cashea_min, MAX(COALESCE(v.precio_cashea, p.precio_cashea)) AS cashea_max,
               (SELECT url FROM inv_fotos f WHERE f.producto_id = p.id ORDER BY orden LIMIT 1) AS foto
@@ -367,8 +370,9 @@ export async function contarProductos(db) {
   const fila = await db
     .prepare(
       `SELECT COUNT(*) AS modelos,
-              COUNT(CASE WHEN t.total <= ${UMBRAL_DE_POCOS} THEN 1 END) AS por_reponer,
-              COUNT(CASE WHEN t.total = 0 THEN 1 END) AS agotados,
+              COUNT(CASE WHEN t.total <= ${UMBRAL_DE_POCOS} AND t.contadas > 0 THEN 1 END) AS por_reponer,
+              COUNT(CASE WHEN t.total = 0 AND t.contadas > 0 THEN 1 END) AS agotados,
+              COUNT(CASE WHEN t.contadas = 0 THEN 1 END) AS sin_contar,
               COALESCE(SUM(t.variantes), 0) AS variantes,
               COALESCE(SUM(t.total), 0) AS unidades,
               COALESCE(SUM(t.valor), 0) AS valor,
@@ -377,6 +381,7 @@ export async function contarProductos(db) {
          FROM (SELECT p.id,
                       (SELECT COUNT(*) FROM inv_variantes v0 WHERE v0.producto_id = p.id) AS variantes,
                       COALESCE(SUM(s.cantidad), 0) AS total,
+                      COUNT(s.variante_id) AS contadas,
                       COALESCE(SUM(s.cantidad * COALESCE(v.precio, p.precio, 0)), 0) AS valor,
                       COALESCE(SUM(s.cantidad * p.costo), 0) AS costo,
                       p.costo IS NOT NULL AS con_costo
@@ -388,7 +393,7 @@ export async function contarProductos(db) {
     )
     .first();
   const n = (k) => Number(fila?.[k]) || 0;
-  return { modelos: n("modelos"), variantes: n("variantes"), unidades: n("unidades"), porReponer: n("por_reponer"), agotados: n("agotados"), valor: n("valor"), costo: n("costo"), conCosto: n("con_costo") };
+  return { modelos: n("modelos"), variantes: n("variantes"), unidades: n("unidades"), porReponer: n("por_reponer"), agotados: n("agotados"), sinContar: n("sin_contar"), valor: n("valor"), costo: n("costo"), conCosto: n("con_costo") };
 }
 
 // Cada sede con cuántas unidades tiene.

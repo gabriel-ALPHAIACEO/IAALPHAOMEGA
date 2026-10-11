@@ -159,7 +159,10 @@ export function avatar(nombre, { clase = "" } = {}) {
 }
 
 // Cuánto queda, con su color: verde hay, ámbar poco, rojo agotado.
-export function pastillaDeStock(n, { umbral = 2 } = {}) {
+export function pastillaDeStock(n, { umbral = 2, sinContar = false } = {}) {
+  // Sin contar (recién traído del catálogo): no es agotado, falta que
+  // alguien escriba cuántas unidades hay.
+  if (sinContar) return `<span class="stock poco"><i></i>Sin contar · pon las unidades</span>`;
   const v = Number(n) || 0;
   const clase = v <= 0 ? "cero" : v <= umbral ? "poco" : "hay";
   const texto = v <= 0 ? "Agotado" : v === 1 ? "Queda 1" : v <= umbral ? `Quedan ${v}` : `${numero(v)} en stock`;
