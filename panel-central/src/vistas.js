@@ -64,10 +64,56 @@ form.dentro{margin:10px 0 0}
 .paso{font-size:12px;border:1px solid var(--borde);border-radius:999px;padding:1px 8px;background:rgba(255,255,255,.03);color:var(--texto)}
 form.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
 input{min-width:0;flex:1}textarea{width:100%;min-height:90px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
-.flujo{display:flex;flex-direction:column;align-items:stretch;gap:0;max-width:720px}
-.nodo{background:var(--tarjeta);border:1px solid var(--borde);border-radius:var(--radio);padding:10px 14px}
-.nodo b{display:block}.nodo.decision{border-style:dashed}.nodo.red{border-color:rgba(251,191,36,.5)}
-.flecha{text-align:center;color:var(--marca);font-size:18px;line-height:24px}
+/* LAS MISMAS ANIMACIONES QUE EL PANEL DE LAS TIENDAS (marco.js, 11-oct-2026):
+   al cambiar de página el contenido se desvanece y el nuevo sube por partes;
+   la cabecera se queda quieta. */
+@view-transition{navigation:auto}
+header{view-transition-name:cabecera}
+main#contenido{view-transition-name:contenido}
+main#contenido>*{animation:subir .8s var(--salida) both}
+main#contenido>:nth-child(2){animation-delay:.04s}main#contenido>:nth-child(3){animation-delay:.08s}main#contenido>:nth-child(4){animation-delay:.12s}
+main#contenido>:nth-child(5){animation-delay:.16s}main#contenido>:nth-child(6){animation-delay:.2s}main#contenido>:nth-child(n+7){animation-delay:.24s}
+@keyframes subir{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+::view-transition-old(contenido){animation:.16s ease-in both desvanecer}
+::view-transition-new(contenido){animation:none}
+::view-transition-group(contenido){animation-duration:0s}
+::view-transition-old(cabecera),::view-transition-new(cabecera){animation:none;mix-blend-mode:normal}
+@keyframes desvanecer{to{opacity:0;transform:translateY(-6px)}}
+/* CÓMO FUNCIONA: un mapa mental que se lee como un flujo, de izquierda a
+   derecha (de arriba abajo en el teléfono). Cada etapa es una columna; las
+   líneas animadas son el camino del mensaje. Tocar un paso lo explica. */
+.mf-mapa{display:grid;grid-template-columns:repeat(6,minmax(158px,1fr));gap:26px;overflow-x:auto;padding:18px 4px 26px;margin:6px 0 18px;scrollbar-width:thin}
+.mf-etapa{position:relative;display:flex;flex-direction:column;gap:12px;animation:subir .8s var(--salida) both;animation-delay:calc(var(--n) * 90ms + .1s)}
+.mf-titulo{align-self:flex-start;display:inline-flex;align-items:center;gap:7px;font-size:11.5px;font-weight:750;letter-spacing:.08em;text-transform:uppercase;color:var(--h);padding:5px 11px;border-radius:999px;background:color-mix(in srgb,var(--h) 14%,transparent);border:1px solid color-mix(in srgb,var(--h) 40%,transparent)}
+.mf-titulo i{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:11px;color:#fff;background:var(--h)}
+.mf-etapa:not(:last-child)::after{content:"";position:absolute;top:15px;right:-26px;width:26px;height:2px;background:linear-gradient(90deg,var(--h),var(--h2));-webkit-mask:repeating-linear-gradient(90deg,#000 0 6px,transparent 6px 10px);mask:repeating-linear-gradient(90deg,#000 0 6px,transparent 6px 10px);background-size:200% 100%;animation:fluir 1.4s linear infinite}
+.mf-etapa:not(:last-child)::before{content:"";position:absolute;top:11px;right:-4px;border:5px solid transparent;border-left:7px solid var(--h2);z-index:1}
+@keyframes fluir{from{-webkit-mask-position:0 0;mask-position:0 0}to{-webkit-mask-position:20px 0;mask-position:20px 0}}
+.mf-paso{position:relative;border-radius:16px;border:1px solid color-mix(in srgb,var(--h) 35%,var(--borde));background:linear-gradient(180deg,color-mix(in srgb,var(--h) 10%,transparent),rgba(255,255,255,.02));box-shadow:0 10px 30px -18px color-mix(in srgb,var(--h) 80%,transparent);transition:transform .25s var(--salida),box-shadow .25s}
+.mf-paso:hover{transform:translateY(-2px);box-shadow:0 16px 34px -16px color-mix(in srgb,var(--h) 90%,transparent)}
+.mf-paso+.mf-paso::before{content:"";position:absolute;left:22px;top:-13px;width:2px;height:12px;background:color-mix(in srgb,var(--h) 60%,transparent)}
+.mf-paso summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:9px;padding:11px 13px;font-weight:700;font-size:14px}
+.mf-paso summary::-webkit-details-marker{display:none}
+.mf-paso>summary::before{display:none}
+.mf-paso summary,.mf-paso summary:hover{color:var(--texto)}
+details.mf-paso{margin-top:0}
+.mf-paso summary span{font-size:18px;line-height:1}
+.mf-paso summary::after{content:"+";margin-left:auto;color:var(--suave);font-weight:500;transition:transform .3s var(--salida)}
+.mf-paso[open] summary::after{transform:rotate(45deg)}
+.mf-paso p{margin:0;padding:0 13px 12px;font-size:13px;line-height:1.5;color:var(--suave);animation:subir .4s var(--salida) both}
+.mf-paso.decision{border-style:dashed}
+.mf-paso.red{--h:#f5b73b}
+.mf-hojas{display:flex;flex-wrap:wrap;gap:6px;padding:0 2px}
+.mf-hojas b{font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid var(--borde);background:rgba(255,255,255,.03);color:var(--texto)}
+.mf-rama{font-size:12px;color:var(--suave);padding-left:14px;border-left:2px dashed color-mix(in srgb,var(--h) 50%,transparent);margin-left:20px}
+.mf-rama b{color:var(--h)}
+.mf-pie{font-size:13px}
+@media (max-width:900px){
+  .mf-mapa{grid-template-columns:1fr;gap:38px;overflow:visible}
+  .mf-etapa:not(:last-child)::after{top:auto;bottom:-30px;right:auto;left:22px;width:2px;height:24px;background:linear-gradient(180deg,var(--h),var(--h2));-webkit-mask:repeating-linear-gradient(180deg,#000 0 6px,transparent 6px 10px);mask:repeating-linear-gradient(180deg,#000 0 6px,transparent 6px 10px);animation:fluir-abajo 1.4s linear infinite}
+  .mf-etapa:not(:last-child)::before{top:auto;bottom:-38px;right:auto;left:18px;border:5px solid transparent;border-top:7px solid var(--h2)}
+}
+@keyframes fluir-abajo{from{-webkit-mask-position:0 0;mask-position:0 0}to{-webkit-mask-position:0 20px;mask-position:0 20px}}
 .rama{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
 .vivo-lista{display:flex;flex-direction:column;gap:8px}.vivo-lista a.tarjeta{margin:0;border-left:3px solid var(--borde-fuerte)}
 .vivo-lista .de-bot{border-left-color:var(--marca)}.vivo-lista .de-asesor{border-left-color:var(--cian)}.vivo-lista .de-cliente{border-left-color:var(--plata)}
@@ -587,31 +633,50 @@ ${c.antes ? `<details><summary>Cómo estaba</summary><pre>${esc(c.antes)}</pre><
 ${!c.deshecho && c.accion !== "sql" ? `<form method="post" action="/t/${esc(t.id)}/deshacer" onsubmit="return confirm('¿Deshacer este cambio?')"><input type="hidden" name="id" value="${esc(c.id)}"><button>↩️ Deshacer</button></form>` : ""}</div>`).join("") : '<div class="tarjeta suave">Todavía no se ha cambiado nada desde el panel.</div>'}`;
 }
 
-/* ── Cómo funciona: el diagrama de flujo ─────────────────────────── */
+/* ── Cómo funciona: un mapa mental en forma de flujo (11-oct-2026) ── */
 
-function nodo(icono, titulo, texto, clase = "") {
-  return `<div class="nodo ${clase}"><b>${icono} ${esc(titulo)}</b><span class="suave">${texto}</span></div>`;
+// Un paso del mapa: se ve el título; al tocarlo, la explicación.
+function paso(icono, titulo, texto, clase = "") {
+  return `<details class="mf-paso ${clase}"><summary><span>${icono}</span>${esc(titulo)}</summary><p>${texto}</p></details>`;
 }
-const F = '<div class="flecha">↓</div>';
+
+// Una etapa = una columna del mapa, con su color.
+function etapa(n, titulo, color, siguiente, contenido) {
+  return `<section class="mf-etapa" style="--n:${n};--h:${color};--h2:${siguiente}"><div class="mf-titulo"><i>${n}</i>${esc(titulo)}</div>${contenido}</section>`;
+}
+
+const COLORES = ["#3d86ff", "#8b7cff", "#22c3ee", "#3ddc97", "#f5b73b", "#ff7ab6"];
 
 export function vistaComoFunciona() {
-  return `<h2>Cómo funciona el bot, paso a paso</h2>
-<p class="suave">Esto es lo que hace cada tienda con cada mensaje de Instagram. En cada conversación, debajo de cada respuesta, ves su <b>recorrido</b>: por cuáles de estos pasos pasó de verdad.</p>
-<div class="flujo">
-${nodo("📩", "1. Llega el mensaje", "Instagram avisa al Worker de la tienda: texto, foto, nota de voz, respuesta a una historia, publicación compartida, comentario o alguien que viene de un anuncio. Se le contesta a Meta al instante y el trabajo sigue aparte.")}${F}
-${nodo("❓", "2. ¿Lo escribió un asesor a mano?", "Si el mensaje salió de la cuenta y no fue el bot, es una persona: el bot se pone en pausa con ese cliente para no hablarle encima.", "decision")}${F}
-${nodo("⏸️", "3. ¿El bot está en pausa con este cliente?", "Si un asesor lo está atendiendo, el bot solo le dice que ya lo atienden. Si el asesor lleva rato callado, el bot vuelve solo.", "decision")}${F}
-${nodo("🎤", "4. Nota de voz → texto", "Se baja el audio y OpenAI lo transcribe. Desde aquí se atiende como si lo hubiera escrito. (Invictus puede contestar con voz; EPICCELL siempre por escrito.)")}${F}
-${nodo("⚡", "5. Atajos sin IA", "Lo que tiene una respuesta exacta no pasa por la IA: horario, métodos de pago, ubicación, la lista de una marca, \"muéstrame esos\", divisas, un saludo suelto. Así no se inventa.")}${F}
-${nodo("👁", "6. Foto, publicación o anuncio", "Una IA de visión mira la imagen y dice qué producto es. Si viene de un anuncio, el bot sabe de qué equipo es y lo recuerda 7 días, con sus precios.")}${F}
-${nodo("🧠", "7. La IA piensa", "Lee la conversación entera, el catálogo actual y lo que sabe de la tienda. Escribe lo que piensa (\"pienso\"), decide qué buscar y si responde con texto, con fichas o solo fichas.")}${F}
-${nodo("🔎", "8. Busca en el catálogo", "Shopify (Invictus) o la hoja de Google (EPICCELL). Si no hay justo eso, rescata: la misma familia, otra capacidad, o lo más parecido.")}${F}
-${nodo("🛡️", "9. Las redes de seguridad", "Antes de salir, el código revisa lo que escribió la IA: precios inventados, groserías o regaños, marcas que no hay, porcentajes de Cashea, que niegue el catálogo, \"¿quieres saber el precio?\". Si atrapa algo, lo corrige y la respuesta queda marcada ⚠️.", "red")}${F}
-${nodo("✍️", "10. Redacta viendo los resultados (EPICCELL)", "Con las fichas que de verdad salieron delante, la IA escribe la respuesta final. Las redes vuelven a pasar por encima.")}${F}
-${nodo("📤", "11. Responde", "Texto, fichas con foto y precio, nota de voz o el botón del catálogo. Cada mensaje queda guardado para los paneles.")}${F}
-<div class="rama">${nodo("🧑‍💼", "12a. ¿Hace falta una persona?", "Si va a comprar, pregunta algo que solo sabe una persona (color, garantía) o hubo un fallo: aviso al asesor por Slack. Esos avisos son los que hacen \"ganador\" a un producto.", "decision")}
-${nodo("🧐", "12b. El revisor", "Con todo ya enviado, otra IA lee la respuesta y la marca 🔴 si alucinó, fue incoherente o no contestó lo que le preguntaron.", "red")}</div>${F}
-${nodo("🔔", "13. Panel central, en tiempo real", "Cada error ❌, respuesta indebida 🔴, corrección ⚠️ o queja del cliente 👎 llega aquí en el momento: campana, aviso en pantalla y notificación. Cada 2 minutos, además, se comprueba que cada tienda responda. Y en 🟢 En vivo ves entrar cada mensaje, con lo que pensó la IA.")}
+  const c = (i) => COLORES[i];
+  return `<h2>Cómo funciona el bot</h2>
+<p class="suave">El camino de cada mensaje de Instagram, de izquierda a derecha. <b>Toca un paso</b> para ver qué hace. En cada conversación, debajo de cada respuesta, ves su <b>recorrido</b>: por cuáles de estos pasos pasó de verdad.</p>
+<div class="mf-mapa" role="list">
+${etapa(1, "Llega", c(0), c(1), `
+${paso("📩", "Llega el mensaje", "Instagram avisa al Worker de la tienda. Se le contesta a Meta al instante y el trabajo sigue aparte, así no repite mensajes.")}
+<div class="mf-hojas"><b>texto</b><b>foto</b><b>nota de voz</b><b>historia</b><b>publicación</b><b>comentario</b><b>anuncio</b><b>WhatsApp (EPICCELL)</b></div>`)}
+${etapa(2, "¿Quién atiende?", c(1), c(2), `
+${paso("❓", "¿Lo escribió un asesor?", "Si el mensaje salió de la cuenta y no fue el bot, es una persona: el bot se calla con ese cliente para no hablarle encima.", "decision")}
+<div class="mf-rama"><b>Sí →</b> el bot se pone en pausa</div>
+${paso("⏸️", "¿Está en pausa?", "Si un asesor lo está atendiendo, el bot no contesta. Si el asesor lleva rato callado, el bot vuelve solo.", "decision")}
+<div class="mf-rama"><b>Sí →</b> lo atiende la persona</div>`)}
+${etapa(3, "Entender", c(2), c(3), `
+${paso("🎤", "Nota de voz → texto", "Se baja el audio y se transcribe. Desde aquí se atiende como si lo hubiera escrito. Invictus puede contestar con voz; EPICCELL siempre por escrito.")}
+${paso("⚡", "Atajos sin IA", "Lo que tiene una respuesta exacta no pasa por la IA: horario, envíos, métodos de pago, ubicación, Cashea, la lista de una marca, un saludo suelto. Así no se inventa.")}
+${paso("👁", "Foto, publicación o anuncio", "La IA de imágenes mira la foto y dice qué producto es; el código revisa que los rasgos que vio lo respalden y el cotejo lo compara con las fotos del catálogo. De un anuncio recuerda el producto 7 días.")}`)}
+${etapa(4, "Decidir", c(3), c(4), `
+${paso("🧠", "La IA de texto piensa", "Lee la conversación, el catálogo y lo que sabe de la tienda (y las reglas que aprendió). Escribe lo que piensa, decide qué buscar y si responde con texto, fichas o voz.")}
+${paso("🔎", "Busca en el catálogo", "Shopify (Invictus), Drive (El Emperador) o el inventario / la hoja (EPICCELL). Si no hay justo eso, rescata: la misma familia, otro color, lo más parecido.")}
+${paso("🗂️", "Fichas o catálogo", "Hasta 10 fichas con foto y precio. El botón del catálogo solo si lo pidió, no hubo nada, se acabaron o hay más de 10.")}`)}
+${etapa(5, "Cuidar y responder", c(4), c(5), `
+${paso("🛡️", "Las redes de seguridad", "Antes de salir, el código revisa lo que escribió la IA: precios o porcentajes de Cashea inventados, groserías o regaños, marcas que sí hay negadas, tallas y bolívares sin contestar, catálogo o fotos prometidos que no van. Si atrapa algo, lo corrige y queda marcado ⚠️.", "red")}
+${paso("✍️", "Redacta viendo lo encontrado", "En EPICCELL, con las fichas que de verdad salieron delante, la IA escribe la respuesta final; las redes vuelven a pasar.")}
+${paso("📤", "Responde", "Texto, fichas, nota de voz o el botón del catálogo. Cada mensaje queda guardado para los paneles.")}`)}
+${etapa(6, "Después", c(5), c(5), `
+${paso("🧑‍💼", "¿Hace falta una persona?", "Si va a comprar o pregunta algo que solo sabe una persona: aviso al asesor. Esos avisos hacen \"ganador\" a un producto.", "decision")}
+${paso("🧐", "El revisor", "Otra IA, la que piensa, lee la respuesta ya enviada y la marca 🔴 si alucinó, fue incoherente o no contestó lo que preguntaron.", "red")}
+${paso("🧠", "Aprende sola", "Por cada error, el revisor escribe una regla y la IA de texto o de imágenes la recibe en cada mensaje. Si una regla no basta, llega 🛠️: hay que tocar el código.")}
+${paso("🔔", "Llega a este panel", "Cada ❌ 🔴 ⚠️ 👎 llega aquí al momento: campana, aviso y notificación. Cada 2 minutos se comprueba que cada tienda responda, y en 🟢 En vivo ves entrar cada mensaje.")}`)}
 </div>
 <h3>Los símbolos</h3><div class="leyenda">${Object.values(MARCAS).map((m) => `<span>${m.simbolo} ${esc(m.nombre)}</span>`).join("")}<span>✅ Sin problemas</span></div>`;
 }

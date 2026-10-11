@@ -465,7 +465,8 @@ titulo("métricas, ganadores, errores y gastos");
   ok(/'=HYPERLINK/.test(conFormula) && /\r\n-5\r\n/.test(conFormula), "en el Excel, un texto que empieza por = no se vuelve fórmula (los números sí quedan igual)");
   const gastos = await abrir("/gastos");
   ok(/Gastos de OpenAI/.test(gastos.html) && /Invictus/.test(gastos.html), "gastos de todas");
-  ok(/13\. Panel central/.test((await abrir("/como-funciona")).html), "el diagrama de cómo funciona");
+  const mapa = (await abrir("/como-funciona")).html;
+  ok(/class="mf-mapa"/.test(mapa) && (mapa.match(/class="mf-etapa"/g) || []).length === 6 && /Llega a este panel/.test(mapa), "cómo funciona: el mapa en 6 etapas, hasta este panel");
 }
 
 titulo("🧠 Aprendido: lo que la IA aprendió sola, y el 🛠️ de lo que va al código");
