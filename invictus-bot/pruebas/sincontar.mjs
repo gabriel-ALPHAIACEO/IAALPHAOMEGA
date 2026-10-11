@@ -35,4 +35,18 @@ titulo("la etiqueta de la foto");
 ok(/Sin contar · pon las unidades/.test(pastillaDeStock(0, { sinContar: true })), "sin contar → «Sin contar · pon las unidades»");
 ok(/Agotado/.test(pastillaDeStock(0)), "contado en 0 → «Agotado»");
 
+titulo("cada modelo nuevo de Shopify entra con 1 unidad");
+const { fuente } = await import("./ayuda.mjs");
+ok(/opcion: "única", cantidad: 1/.test(fuente("shopify.js")), "shopify.js manda cantidad 1 en cada modelo");
+const item = { origen: "shopify", origen_id: "77", titulo: "Nike Nocta hot step 2 blanco caballero", precio: 85, variantes: [{ opcion: "única", cantidad: 1 }] };
+await inv.importarCatalogo(DB, [item]);
+let hs = (await inv.listarProductos(DB, { q: "Nocta" }))[0];
+ok(hs && Number(hs.total) === 1, "al traerlo, queda con 1 unidad", hs && hs.total);
+const ficha = await inv.verProducto(DB, hs.id);
+const vid = (ficha.variantes || ficha.producto?.variantes || [])[0]?.id;
+await inv.ajustarStock(DB, { varianteId: vid, sedeId: sede.id, cantidad: 5 });
+await inv.importarCatalogo(DB, [item]);
+hs = (await inv.listarProductos(DB, { q: "Nocta" }))[0];
+ok(Number(hs.total) === 5, "lo editaron a 5 y volver a traer el catálogo no lo pisa", hs.total);
+
 terminar();

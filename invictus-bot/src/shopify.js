@@ -287,6 +287,11 @@ export function urlPequena(url) {
 // PARA EL INVENTARIO (7-oct-2026): los modelos de Shopify como los entiende
 // inventario.js. Invictus no maneja tallas (decisión del dueño): cada modelo
 // es una sola variante "única" y el stock se carga en el panel o con su Excel.
+//
+// 11-oct-2026, pedido del dueño: cada modelo NUEVO entra con 1 unidad y
+// después ellos escriben cuántas hay de verdad. inventario.js solo hace esa
+// carga en una variante sin ningún movimiento: volver a traer el catálogo
+// no pisa lo que ya contaron.
 export async function catalogoParaInventario(env) {
   const { productos } = await traerCatalogoCompleto(env, 2000);
   return productos
@@ -298,6 +303,6 @@ export async function catalogoParaInventario(env) {
       precio: p.precio,
       enlace: p.url,
       fotos: p.imagen ? [p.imagen] : [],
-      variantes: [{ opcion: "única" }],
+      variantes: [{ opcion: "única", cantidad: 1 }],
     }));
 }
