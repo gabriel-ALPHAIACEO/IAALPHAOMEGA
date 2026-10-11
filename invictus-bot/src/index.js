@@ -66,6 +66,7 @@ import {
 import { hayQueRescatar, FRASE_DE_RESCATE, MOTIVO_DE_RESCATE } from "./rescate.js";
 import { revisarTono } from "./tono.js";
 import { revisarPrecio, contestaElPrecio } from "./precio.js";
+import { contestaLaTalla, contestaLosBolivares, prometeElCatalogo, sinFotosQueNoHay, sinNegarLoQueHay } from "./faltas.js";
 import { estadoDeLaClaveApi, esTextoDelBot, pausadoAhora, atenderPanel, anotarTurno, anotarMensaje, atenderApiCentral, estadoCompletoPermitido, estadoPublico, pedidoInterno } from "./panel.js";
 import { vigilarErrores, guardarErrores, vigilarQueja } from "./registro.js";
 import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDelRevisor } from "./revisor.js";
@@ -156,7 +157,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-11 (84) · Nike Nocta Hot Step 2: firma en el prompt de imágenes, rasgo charolLineasRelieve que corrige en código si sale como Nike 270, y el revisor lo marca foto_equivocada · · (83) indexación: hasta 1000 productos de Shopify (antes 600) · · (82) catálogo: los 535 productos del dueño en el prompt (188 nuevos), con prueba que lo asegura · · (81) revisor: tope $2 este mes y respaldo gpt-4o-mini (que el saldo dure hasta el 15) · · (80) Cashea: la red atrapa las tablas y porcentajes inventados (\"Level 1: 20%\", \"promoción vigente\"), el revisor conoce la tabla, lo aprendido de Cashea ya no le llega a la IA · revisor más barato (gpt-5-mini, low, sin revisar saludos ni gracias, tope $5) · · (79) Cashea: a \"¿tienes Cashea?\" la tarjeta del dueño tal cual, con todos los niveles; si dice su nivel, un mensaje para su nivel · · (77) Cashea nuevo: 6 cuotas + 0% de inicial exclusivo del Nivel 6 (desde 100$), Nivel 5 20% · 4 25% · 3 30% · 2 50% · 1 60%, y la tarjeta tal cual la escribió el dueño · · (76) panel listo para clientes de WhatsApp (📱) · revisor: REVISOR_PIENSA para DeepSeek · · (75) terminó la promoción: Cashea con la tabla de EPICCELL (Nivel 1 60 %… Nivel 6 20 %, 3 cuotas sin intereses cada 14 días) · · (74) revisor: lo que está en los datos de la tienda no es invento · · ¿calzados nuevos? → el catálogo completo, sin fichas, con un \"sí, claro\" que cambia · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · informe de errores del 6-oct: el precio se dice cuando lo preguntan, tallas al asesor sin contradecir, colores que sí hay, Cashea de su nivel, mensaje vacío del anuncio, aviso de OpenAI sin saldo · revisor: menos falsas alarmas";
+const VERSION = "2026-10-11 (85) · informe de errores 12-sep→11-oct: la talla y los bolívares siempre contestados, no promete catálogo ni fotos que no manda, no niega marcas que hay, el color se busca dos veces antes de decir que no hay, el revisor sabe lo de calidad 1.1 · · (84) Nike Nocta Hot Step 2: firma en el prompt de imágenes, rasgo charolLineasRelieve que corrige en código si sale como Nike 270, y el revisor lo marca foto_equivocada · · (83) indexación: hasta 1000 productos de Shopify (antes 600) · · (82) catálogo: los 535 productos del dueño en el prompt (188 nuevos), con prueba que lo asegura · · (81) revisor: tope $2 este mes y respaldo gpt-4o-mini (que el saldo dure hasta el 15) · · (80) Cashea: la red atrapa las tablas y porcentajes inventados (\"Level 1: 20%\", \"promoción vigente\"), el revisor conoce la tabla, lo aprendido de Cashea ya no le llega a la IA · revisor más barato (gpt-5-mini, low, sin revisar saludos ni gracias, tope $5) · · (79) Cashea: a \"¿tienes Cashea?\" la tarjeta del dueño tal cual, con todos los niveles; si dice su nivel, un mensaje para su nivel · · (77) Cashea nuevo: 6 cuotas + 0% de inicial exclusivo del Nivel 6 (desde 100$), Nivel 5 20% · 4 25% · 3 30% · 2 50% · 1 60%, y la tarjeta tal cual la escribió el dueño · · (76) panel listo para clientes de WhatsApp (📱) · revisor: REVISOR_PIENSA para DeepSeek · · (75) terminó la promoción: Cashea con la tabla de EPICCELL (Nivel 1 60 %… Nivel 6 20 %, 3 cuotas sin intereses cada 14 días) · · (74) revisor: lo que está en los datos de la tienda no es invento · · ¿calzados nuevos? → el catálogo completo, sin fichas, con un \"sí, claro\" que cambia · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · informe de errores del 6-oct: el precio se dice cuando lo preguntan, tallas al asesor sin contradecir, colores que sí hay, Cashea de su nivel, mensaje vacío del anuncio, aviso de OpenAI sin saldo · revisor: menos falsas alarmas";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -1111,6 +1112,8 @@ function datosParaElRevisor(env) {
     pagos ? `💳 Métodos de pago:\n${pagos}` : "",
     casheaParaElRevisor(),
     "Las tallas que quedan de un modelo concreto las confirma un asesor (el catálogo no las sabe).",
+    "Calidad: todo lo que vende la tienda es calidad 1.1 top quality (la gama más alta). Decirlo, también cuando preguntan si son originales o triple A, NO es inventar.",
+    "\"De ese en <color> no tengo ahora\" lo escribe el código después de buscar ese color en el catálogo: es verdad, no lo marques.",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -2137,6 +2140,25 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     respuestaCliente = limpia || (productos.length ? "¡Claro! Mira 👇" : fraseDeCatalogo(nombre));
     if (!productos.length) mandarCatalogo = true;
   }
+  // LO QUE LA RESPUESTA DEJA SIN HACER (11-oct-2026, ver faltas.js).
+  const sinNegar = sinNegarLoQueHay(respuestaCliente);
+  if (sinNegar.corregido) {
+    console.log(`La IA dijo que no hay "${sinNegar.marca}" y el catálogo sí lo tiene: quito esa frase`);
+    respuestaCliente = sinNegar.respuesta || `Sí manejamos ${sinNegar.marca} 😊 ¿Qué modelo buscas?`;
+  }
+  const sinFotos = sinFotosQueNoHay(respuestaCliente, { hayFichas: fichas.length > 0, yaLasVio: soloTexto || (contacto.mostrados || []).length > 0 });
+  if (sinFotos.corregido) {
+    console.log("La IA nombró fotos que no se mandaron: quito esa frase");
+    respuestaCliente = sinFotos.respuesta || "Eso te lo confirma un asesor en un momento 😊";
+  }
+  const talla = contestaLaTalla(respuestaCliente, mensaje.texto);
+  if (talla.corregido) respuestaCliente = talla.respuesta;
+  const bolivares = contestaLosBolivares(respuestaCliente, mensaje.texto);
+  if (bolivares.corregido) respuestaCliente = bolivares.respuesta;
+  if (!imagenCruda && !productos.length && prometeElCatalogo(respuestaCliente)) {
+    mandarCatalogo = true;
+    console.log("La IA prometió el catálogo: va el botón, que es lo que dijo");
+  }
   if (!imagenCruda && !productos.length && nombraElCatalogo(mensaje.texto)) {
     mandarCatalogo = true;
     console.log("El cliente nombró el catálogo: va el botón debajo de la respuesta");
@@ -2714,6 +2736,20 @@ async function decidir({
       // Nike verdes", "Todos blancos", "en negro con blanco" acababan en
       // "déjame confirmarte con un asesor" + catálogo). Se le dice la
       // verdad —en ese color no— y se le enseñan los colores que sí hay.
+      // ANTES DE DECIR QUE NO HAY, SE PREGUNTA POR EL COLOR (11-oct-2026,
+      // "TN toda blancas" → "en blanco no tengo" y había "Nike Tn plus
+      // blanca"): el grupo grande puede no traerlos todos. Se busca otra vez
+      // con el color dentro de la consulta.
+      if (!productos.length && delModelo.length) {
+        try {
+          const otra = await buscarProductos(env, `${sinColor} ${terminoDeColor(colores)}`, cuantosPedir);
+          const delColor = filtrarPorColor(otra.productos || [], colores);
+          if (delColor.length) {
+            productos = delColor;
+            console.log(`Con el color en la consulta sí aparecen ${delColor.length}`);
+          }
+        } catch {}
+      }
       if (!productos.length && delModelo.length && !foto) {
         productos = delModelo.slice(0, MAXIMO_EN_CARRUSEL);
         hayMasEnCatalogo = delModelo.length > MAXIMO_EN_CARRUSEL;
