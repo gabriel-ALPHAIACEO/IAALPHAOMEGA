@@ -5,7 +5,6 @@
 //   · Preguntó la TALLA y la respuesta ni la nombra ("¿tienes talla 12
 //     americana?" → "Es el primero 👇"). En esta tienda la talla la
 //     confirma un asesor: se le dice.
-//   · Preguntó el precio EN BOLÍVARES y solo se le dieron dólares.
 //   · La respuesta dice "aquí tienes el catálogo / todo lo que manejamos"
 //     y no se le manda nada: se le manda el botón, que es lo que prometió.
 //   · "Los precios están en las fotos que te mandé" sin ninguna foto.
@@ -36,18 +35,6 @@ export function contestaLaTalla(respuesta, texto) {
   const r = String(respuesta || "").trim();
   if (!PREGUNTA_TALLA.test(String(texto || "")) || NOMBRA_TALLA.test(r)) return { respuesta: r, corregido: false };
   return { respuesta: r ? `${r}\n\n${FRASE_TALLA}` : FRASE_TALLA, corregido: true };
-}
-
-/* ── Los bolívares ──────────────────────────────────────────────── */
-const PIDE_BOLIVARES = /\bbol[ií]vares?\b|\bbs\.?\s*[sf]?\b|\bbsv\b|\bbsf\b|\ben\s+bs\b/i;
-const NOMBRA_BOLIVARES = /\bbol[ií]var|\bbs\b|\btasa\b/i;
-
-export const FRASE_BOLIVARES = "El precio en bolívares te lo confirma un asesor con la tasa del día 😊";
-
-export function contestaLosBolivares(respuesta, texto) {
-  const r = String(respuesta || "").trim();
-  if (!PIDE_BOLIVARES.test(String(texto || "")) || NOMBRA_BOLIVARES.test(r)) return { respuesta: r, corregido: false };
-  return { respuesta: r ? `${r}\n\n${FRASE_BOLIVARES}` : FRASE_BOLIVARES, corregido: true };
 }
 
 /* ── Promete algo que no se manda ───────────────────────────────── */
@@ -86,19 +73,22 @@ const NIEGA = /\bno\s+(?:tengo|tenemos|manejo|manejamos|hay|trabajamos(?:\s+con)
 
 // Lo que niega, si el catálogo lo tiene (al menos sus dos primeras palabras
 // están en algún título). "" si no niega nada o si de verdad no está.
-export function niegaLoQueHay(respuesta) {
+// titulos: los del catálogo de la tienda cuando no salen de
+// prompts/catalogo.txt (El Emperador los lee de su Drive).
+export function niegaLoQueHay(respuesta, titulos = null) {
   const m = String(respuesta || "").match(NIEGA);
   if (!m) return "";
   const palabras = despejar(m[1]).split(" ").filter((p) => p.length >= 3 && !/^(ese|esa|eso|ese|modelo|color|talla|stock|ahora|nada|nadie)$/.test(p));
   if (!palabras.length) return "";
   const clave = palabras.slice(0, 2).join(" ");
   if (clave.length < 4) return "";
-  return titulosDespejados().some((t) => t.includes(clave)) ? m[1].trim() : "";
+  const lista = Array.isArray(titulos) && titulos.length ? titulos.map(despejar) : titulosDespejados();
+  return lista.some((t) => t.includes(clave)) ? m[1].trim() : "";
 }
 
-export function sinNegarLoQueHay(respuesta) {
+export function sinNegarLoQueHay(respuesta, { titulos = null } = {}) {
   const r = String(respuesta || "").trim();
-  const marca = niegaLoQueHay(r);
+  const marca = niegaLoQueHay(r, titulos);
   if (!marca) return { respuesta: r, corregido: false, marca: "" };
   const limpia = frases(r)
     .map((f) => (NIEGA.test(f) ? f.replace(NIEGA, "").replace(/^[\s,.:;]*(?:pero\s+)?/i, "") : f))

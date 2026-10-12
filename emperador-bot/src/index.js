@@ -81,8 +81,9 @@ import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDel
 // Los errores que salgan de aquí en adelante quedan guardados para el panel
 // central (ver registro.js).
 vigilarErrores();
+import { contestaLaTalla, prometeElCatalogo, sinFotosQueNoHay, sinNegarLoQueHay } from "./faltas.js";
 import { usaDrive, catalogoDeDrive, idDeCarpeta, leerUnTrozoDeDrive, catalogoParaInventario } from "./drive.js";
-import { avanzarImportacionesSolas } from "./inventario.js";
+import { avanzarImportacionesSolas, darUnoALosSinContar } from "./inventario.js";
 import { avisarAsesor } from "./aviso.js";
 import { anotar, leerRastro, hace } from "./rastro.js";
 import { conPresupuesto, limiteDeSubpeticiones } from "./presupuesto.js";
@@ -133,7 +134,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-11 (70) · inventario: lo recién traído del catálogo sale \"Sin contar · pon las unidades\", no Agotado · · (69) juntas las dos ramas: lo del inventario y lo de la atención · · (68) ✏️ las cantidades se escriben: una casilla por talla al crear un producto y al añadir tallas (con «Igual para todas»), y en la ficha el número de cada talla se cambia escribiéndolo, sin botón (se guarda solo, con Deshacer) · 🗓️ ventas de días anteriores: en la caja «Venta de: Hoy / Ayer / Otro día» y en «Vendí» el día de la venta (cuenta en ese día en Ventas y en el balance; el stock baja al anotarla; si el producto se contó después, avisa) · 🔧 el botón «Mover» de la ficha no abría (chocaba con las flechas del carrusel) · un doble toque ya no repite la carga · · (67) · 📦 «Traer ahora», «Subir un Excel» y el Excel del inventario van por partes (ya no pasan el límite de Cloudflare): barra de progreso, si se cierra la página sigue el cron, y un Excel que termina tarde no deshace las ventas de la caja · 💬 el Asistente en todas las pantallas del panel (con DeepSeek): conoce el panel, la pantalla donde estás y el stock de lo que nombras, con botón «Abrir …» (antes fallaba en cada pregunta) · · (65) ✏️ cada talla se edita en el panel (precio, foto, código de fábrica) · 🔢 lo que nunca se contó dice «sin contar» · y lo de la v62: revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (64) ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 👕 calzado y ropa: tallas · · (63) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍) · · 2026-10-09 (63) · revisor sin revisar saludos ni gracias, tope $5 · lo aprendido de Cashea ya no le llega a la IA · · (62) revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍)";
+const VERSION = "2026-10-12 (71) · lo de Invictus del 11-oct: la talla siempre contestada, no promete catálogo ni fotos que no manda, no niega marcas que hay en Drive, la Nike Nocta Hot Step 2 (prompt, código y revisor), indexación hasta 1000, y lo nunca contado entra con 1 unidad · · (70) inventario: lo recién traído del catálogo sale \"Sin contar · pon las unidades\", no Agotado · · (69) juntas las dos ramas: lo del inventario y lo de la atención · · (68) ✏️ las cantidades se escriben: una casilla por talla al crear un producto y al añadir tallas (con «Igual para todas»), y en la ficha el número de cada talla se cambia escribiéndolo, sin botón (se guarda solo, con Deshacer) · 🗓️ ventas de días anteriores: en la caja «Venta de: Hoy / Ayer / Otro día» y en «Vendí» el día de la venta (cuenta en ese día en Ventas y en el balance; el stock baja al anotarla; si el producto se contó después, avisa) · 🔧 el botón «Mover» de la ficha no abría (chocaba con las flechas del carrusel) · un doble toque ya no repite la carga · · (67) · 📦 «Traer ahora», «Subir un Excel» y el Excel del inventario van por partes (ya no pasan el límite de Cloudflare): barra de progreso, si se cierra la página sigue el cron, y un Excel que termina tarde no deshace las ventas de la caja · 💬 el Asistente en todas las pantallas del panel (con DeepSeek): conoce el panel, la pantalla donde estás y el stock de lo que nombras, con botón «Abrir …» (antes fallaba en cada pregunta) · · (65) ✏️ cada talla se edita en el panel (precio, foto, código de fábrica) · 🔢 lo que nunca se contó dice «sin contar» · y lo de la v62: revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (64) ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 👕 calzado y ropa: tallas · · (63) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍) · · 2026-10-09 (63) · revisor sin revisar saludos ni gracias, tope $5 · lo aprendido de Cashea ya no le llega a la IA · · (62) revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -437,7 +438,7 @@ export default {
     // IMPORTAR POR TANDAS (8-oct-2026): si "Traer ahora" o un Excel quedó a
     // medias (se cerró la página), una tanda en cada pasada del cron. No abre
     // conexiones afuera: solo la base.
-    ctx.waitUntil(avanzarImportacionesSolas(env.DB));
+    ctx.waitUntil(avanzarImportacionesSolas(env.DB).finally(() => darUnoALosSinContar(env.DB).catch(() => 0)));
   },
 };
 
@@ -463,7 +464,19 @@ async function atenderPeticion(request, env, ctx) {
       rubro: "moda",
     };
     if (url.pathname.startsWith("/api/central")) return atenderApiCentral(request, env, datosDelPanel);
-    if (url.pathname === "/panel" || url.pathname.startsWith("/panel/")) return atenderPanel(request, env, datosDelPanel);
+    if (url.pathname === "/panel" || url.pathname.startsWith("/panel/")) {
+      // 11-oct-2026, como en Invictus: lo que nunca se contó entra con 1
+      // unidad (cada talla) y después se escribe lo de verdad.
+      if (url.pathname === "/panel/inventario" && env.DB) {
+        try {
+          const n = await darUnoALosSinContar(env.DB);
+          if (n) console.log(`Inventario: ${n} sin contar pasan a 1 unidad`);
+        } catch (error) {
+          console.log(`Inventario: no se pudo dar 1 unidad: ${error.message}`);
+        }
+      }
+      return atenderPanel(request, env, datosDelPanel);
+    }
 
     // Dispara un aviso de prueba y enseña lo que respondió Slack. Sirve para
     // saber si el problema está en el aviso o en lo que pasa antes.
@@ -2134,6 +2147,31 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     tarjetaDeCashea = "";
   }
 
+  // LO QUE LA RESPUESTA DEJA SIN HACER (11-oct-2026, lo mismo que Invictus;
+  // ver faltas.js): no niega lo que el catálogo sí tiene, no nombra fotos que
+  // no se mandaron, contesta la talla, y si promete el
+  // catálogo, va el botón.
+  let titulosDelCatalogo = null;
+  if (usaDrive(env)) {
+    try {
+      titulosDelCatalogo = ((await catalogoDeDrive(env))?.productos || []).map((p) => p.titulo).filter(Boolean);
+    } catch {}
+  }
+  const sinNegar = sinNegarLoQueHay(respuestaCliente, { titulos: titulosDelCatalogo });
+  if (sinNegar.corregido) {
+    console.log(`La IA dijo que no hay "${sinNegar.marca}" y el catálogo sí lo tiene: quito esa frase`);
+    respuestaCliente = sinNegar.respuesta || `Sí manejamos ${sinNegar.marca} 😊 ¿Qué modelo buscas?`;
+  }
+  const sinFotos = sinFotosQueNoHay(respuestaCliente, { hayFichas: productos.length > 0, yaLasVio: (contacto.mostrados || []).length > 0 });
+  if (sinFotos.corregido) {
+    console.log("La IA nombró fotos que no se mandaron: quito esa frase");
+    respuestaCliente = sinFotos.respuesta || "Eso te lo confirma un asesor en un momento 😊";
+  }
+  const talla = contestaLaTalla(respuestaCliente, mensaje.texto);
+  if (talla.corregido) respuestaCliente = talla.respuesta;
+  const prometioCatalogo = !productos.length && !tarjetaDeCashea && prometeElCatalogo(respuestaCliente);
+  if (prometioCatalogo) console.log("La IA prometió el catálogo: va el botón, que es lo que dijo");
+
   // EL CATÁLOGO NO ES LA RESPUESTA POR DEFECTO (crítico).
   //
   // Antes, TODA respuesta sin productos salía con el botón del catálogo
@@ -2155,7 +2193,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (productos.length) {
     await mandar(() => enviarTexto(env, mensaje.igsid, respuestaCliente), respuestaCliente);
     await mandar(() => enviarFichas(env, mensaje.igsid, productos), `📷 Fichas: ${productos.map((p) => p.titulo).join(" · ")}`, { fichas: productos });
-  } else if (buscoSinExito || seAcabaron || hayMasDelCatalogo) {
+  } else if (buscoSinExito || seAcabaron || hayMasDelCatalogo || prometioCatalogo) {
     // Tres motivos distintos, misma salida: el cliente quería ver algo y no
     // hay nada (más) que enseñarle en una ficha. Ahí el enlace de la tienda
     // sí es una ayuda — incluido cuando SÍ hay más, pero no caben en un
@@ -2182,7 +2220,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       revisionDeCashea.corregido && "Cashea: se corrigió lo que escribió",
       revisionDePagos.corregido && "iba a dar datos de pago: se corrigió",
       tarjetaDeCashea && "fue la tarjeta de Cashea",
-      (buscoSinExito || seAcabaron || hayMasDelCatalogo) && "fue el botón del catálogo",
+      (buscoSinExito || seAcabaron || hayMasDelCatalogo || prometioCatalogo) && "fue el botón del catálogo",
     ],
   };
   // El revisor lo mira cuando todo ya salió (ver atenderConRed y revisor.js).
@@ -3230,6 +3268,7 @@ function datosParaElRevisor(env) {
     pagos ? `💳 Métodos de pago:\n${pagos}` : "",
     `Lo que vende, y cómo van las tallas (que haya una talla concreta lo confirma un asesor; las gorras SÍ se puede decir que son ajustables):\n${categoriasParaElPrompt()}`,
     "Calidad: doble A y triple A según el par; la de un par concreto la confirma un asesor.",
+    "\"De ese en <color> no tengo ahora\" lo escribe el código después de buscar ese color en el catálogo: es verdad, no lo marques.",
   ]
     .filter(Boolean)
     .join("\n\n");

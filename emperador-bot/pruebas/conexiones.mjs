@@ -37,7 +37,7 @@ const SIN_RASGOS = {
   suelaRedondeadaSinAire: false, suelaPlanaPlacaDura: false, muescaLateralArco: false,
   suelaNubesHuecas: false, mallaPlasticaCuadros: false, alasPlasticasCordones: false,
   jumpman: false, swooshGrandeRecto: false, piezaMetalicaOjal: false, tresFranjas: false,
-  punteraGamuzaT: false, punteraGomaConcha: false,
+  punteraGamuzaT: false, punteraGomaConcha: false, charolLineasRelieve: false,
 };
 const IDENTIFICACION = { visto: "zapatilla deportiva", rasgos: SIN_RASGOS, buscar: "Modelo", color: "negro", variosProductos: false, pedirNombreExacto: false };
 

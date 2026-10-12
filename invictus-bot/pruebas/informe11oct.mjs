@@ -14,10 +14,6 @@ ok(F.contestaLaTalla("Échale un ojo al catálogo", "Buen dia estos son tallas d
 ok(!F.contestaLaTalla("Esa talla te la confirma un asesor 😊", "tienes talla 40?").corregido, "si ya habló de la talla, no se repite");
 ok(!F.contestaLaTalla("Mira 👇", "tienes las TN negras?").corregido, "sin talla en la pregunta, nada");
 
-titulo("los bolívares");
-ok(F.contestaLosBolivares("💵 Nike TN: 75 USD", "Las tn toda blancas y todas negras cuanto salen? A bsv").corregido, "\"a bsv\" → el precio en bolívares lo confirma un asesor");
-ok(!F.contestaLosBolivares("💵 75 USD", "cuanto salen?").corregido, "sin bolívares, nada");
-
 titulo("no promete lo que no manda");
 ok(F.prometeElCatalogo("Aquí tienes todo lo que manejamos 👇 Búscalo con calma y me dices cuál es 👟"), "\"todo lo que manejamos\" → va el botón");
 ok(F.prometeElCatalogo("Mientras, aquí tienes el catálogo completo"), "\"catálogo completo\" → va el botón");
@@ -33,8 +29,9 @@ ok(!F.sinNegarLoQueHay("De ese en negro no tengo ahora 😕").corregido, "el avi
 
 titulo("está conectado");
 const idx = fuente("index.js");
-for (const f of ["contestaLaTalla", "contestaLosBolivares", "prometeElCatalogo", "sinFotosQueNoHay", "sinNegarLoQueHay"]) ok(idx.includes(`${f}(`), `index.js usa ${f}`);
+for (const f of ["contestaLaTalla", "prometeElCatalogo", "sinFotosQueNoHay", "sinNegarLoQueHay"]) ok(idx.includes(`${f}(`), `index.js usa ${f}`);
 ok(/Con el color en la consulta/.test(idx), "el color se busca otra vez antes de decir que no hay");
+ok(!/contestaLosBolivares/.test(idx), "lo de los bolívares ya no está (12-oct, pedido del dueño)");
 ok(/calidad 1\.1 top quality/.test(idx), "el revisor sabe que la calidad 1.1 es dato de la tienda");
 
 terminar();

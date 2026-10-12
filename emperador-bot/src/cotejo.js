@@ -109,7 +109,7 @@ const PRESUPUESTO_MS = 15000;
 // Cuántos productos se traen de Shopify para ordenarlos y elegir a quién
 // mirar. Traerlos es barato (no gasta modelo), así que conviene tenerlos
 // todos aunque después solo se miren los primeros.
-const MAXIMO_CATALOGO = 600;
+const MAXIMO_CATALOGO = 1000;
 
 // Cuántos productos del índice se miran. Son los que MÁS se parecen a la
 // foto según sus rasgos guardados, así que con 10 sobra: si no está

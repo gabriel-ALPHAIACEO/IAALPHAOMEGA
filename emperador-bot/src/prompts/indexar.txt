@@ -50,7 +50,7 @@ Devuelves tres cosas:
            con esta. Dos productos descritos igual se confundirán entre
            sí; dos descritos distinto, no.
 
-  rasgos   true/false para cada una de las 15 claves de abajo, mirando
+  rasgos   true/false para cada una de las 16 claves de abajo, mirando
            SOLO la foto. Si no se distingue bien, va false: no adivines
            "true" por si acaso. Un rasgo marcado de más hace que el
            sistema confunda este producto con otro.
@@ -70,6 +70,7 @@ Devuelves tres cosas:
   tresFranjas            tres bandas/franjas paralelas en el lateral
   punteraGamuzaT         puntera de gamuza en forma de T
   punteraGomaConcha      puntera de goma con ranuras, tipo concha
+  charolLineasRelieve    parte de arriba de CHAROL brillante con líneas en relieve por el lateral
 
   color    UNA palabra con el color DEL ZAPATO: "negro", "blanco", "azul",
            "gris", "beige", "marrón", "rojo", "rosado", "verde", "morado",

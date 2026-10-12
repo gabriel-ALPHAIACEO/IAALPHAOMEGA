@@ -551,7 +551,7 @@ export async function indexarTanda(env, { cuantos = 40, rehacer = false } = {}) 
   // decía "600 de 600, LISTO" y lo que pasaba de 600 en la carpeta nunca se
   // indexaba. El índice no cuesta nada por mensaje (se compara en código),
   // así que cuanto más grande, mejor.
-  const tope = usaDrive(env) ? Number(env.INDICE_MAXIMO) || 5000 : Number(env.COTEJO_MAXIMO) || 600;
+  const tope = usaDrive(env) ? Number(env.INDICE_MAXIMO) || 5000 : Number(env.COTEJO_MAXIMO) || 1000;
   const { productos } = await traerCatalogoCompleto(env, tope);
   const drive = usaDrive(env) ? await catalogoDeDrive(env) : null;
   if (!productos.length) return { ok: false, error: "Shopify no devolvió productos." };

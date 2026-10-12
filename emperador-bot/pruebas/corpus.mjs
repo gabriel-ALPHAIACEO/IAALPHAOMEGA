@@ -89,6 +89,8 @@ const { revisarDatoDeLaTienda } = await src.cargar("datos.js");
 
 const { revisarTono } = await src.cargar("tono.js");
 
+const F = await src.cargar("faltas.js");
+
 const GUARDIANES = [
   ["pagos.js", revisarPagos],
   // La red del 2-oct: ni groserías, ni insultos, ni regaños del bot.
@@ -96,6 +98,9 @@ const GUARDIANES = [
   ["datos.js (envíos, delivery, horario, empleo)", (t) => revisarDatoDeLaTienda(t)],
   ["cashea.js (promoción en fecha)", (t) => revisarCashea(t, EN_FECHA)],
   ["cashea.js (promoción fuera de fecha)", (t) => revisarCashea(t, FUERA_DE_FECHA)],
+  // Las redes del 11-oct (faltas.js, igual que Invictus) que QUITAN frases.
+  ["faltas.js (no niega marcas que hay)", (t) => F.sinNegarLoQueHay(t, { titulos: ["NIKE AIR FORCE ONE", "ADIDAS SAMBA", "NEW BALANCE 9060"] })],
+  ["faltas.js (fotos que no se mandaron, ya las vio)", (t) => F.sinFotosQueNoHay(t, { yaLasVio: true })],
 ];
 
 titulo("hay corpus de dónde sacar");

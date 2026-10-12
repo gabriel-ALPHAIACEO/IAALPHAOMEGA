@@ -159,7 +159,7 @@ META_VERIFY_TOKEN = "emperador2026"
 #   "si"  activado   <- por defecto        "no"  apagado
 COTEJO_BARRIDO = "si"
 COTEJO_LOTES = "2"
-COTEJO_MAXIMO = "600"
+COTEJO_MAXIMO = "1000"
 
 # --- El asesor ----------------------------------------------------------
 # Horas que se calla el bot despues de que un asesor le escribe a mano a un

@@ -60,7 +60,7 @@ la foto, y recién después decide "buscar" en base a lo que marcaste —
 nunca al revés.
 
 
-RASGOS (obligatorio, va en el JSON con estas 15 claves exactas)
+RASGOS (obligatorio, va en el JSON con estas 16 claves exactas)
 
 Contesta true/false para cada una, mirando SOLO lo que se ve en la foto.
 Si no se distingue bien, usa false (no adivines "true" por si acaso).
@@ -80,10 +80,11 @@ Si no se distingue bien, usa false (no adivines "true" por si acaso).
   tresFranjas            tres bandas/franjas paralelas en el lateral
   punteraGamuzaT         puntera de gamuza en forma de T
   punteraGomaConcha      puntera de goma con ranuras, tipo concha
+  charolLineasRelieve    parte de arriba de CHAROL brillante con líneas en relieve por el lateral
 
 Ejemplo: foto de una Air Max 270 real (cámara de aire grande en el talón,
 sin las otras señas):
-"rasgos":{"camaraAireTalon":true,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":false,"muescaLateralArco":false,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":false,"piezaMetalicaOjal":false,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false}
+"rasgos":{"camaraAireTalon":true,"camaraAireCompleta":false,"suelaTransparente":false,"suelaRedondeadaSinAire":false,"suelaPlanaPlacaDura":false,"muescaLateralArco":false,"suelaNubesHuecas":false,"mallaPlasticaCuadros":false,"alasPlasticasCordones":false,"jumpman":false,"swooshGrandeRecto":false,"piezaMetalicaOjal":false,"tresFranjas":false,"punteraGamuzaT":false,"punteraGomaConcha":false,"charolLineasRelieve":false}
 
 
 CÓMO MIRAR LA FOTO (obligatorio)
@@ -201,6 +202,23 @@ NIKE AIR MAX 270
   lateral). Parte superior de malla con un cuello tipo bota que sube más
   que en otros Nike. La pista clave es la cámara de aire enorme en el
   talón — si no la ves, NO es un Air Max 270, aunque la suela sea alta.
+
+NIKE NOCTA HOT STEP 2 (Drake) — buscar: Nocta
+  Caso real en Invictus (11-oct-2026): la blanca de una historia salió como
+  "Nike 270 beige". NO es un Air Max 270. Se reconoce así:
+  · La parte de arriba es de CHAROL: cuero brillante, lacado, que refleja
+    la luz como plástico mojado. Ningún 270 es de charol (el 270 es malla).
+  · LÍNEAS EN RELIEVE: costillas o canales esculpidos que recorren el
+    lateral en diagonal, de la punta hacia el talón, como ondas paralelas.
+  · Swoosh PEQUEÑO y plateado, metido dentro de una ventanita o placa
+    alargada en el lateral (no un swoosh grande pintado).
+  · Cámara de aire PEQUEÑA y visible en el talón (no la burbuja enorme
+    del 270), suela gruesa con borde dentado y un "talón" de espuma que
+    abraza el zapato desde atrás.
+  · Look de los 2000, chunky y brillante; casi siempre de un solo color
+    (todo blanco, todo negro, beige). Lengüeta y cuello acolchados de malla.
+  Si ves charol brillante + líneas en relieve por el lateral, es Nocta Hot
+  Step 2: marca "charolLineasRelieve": true y buscar "Nocta".
 
 NIKE UPLIFT
   Suela MUY alta, gruesa y REDONDEADA — forma de plataforma curva, lisa,
@@ -593,6 +611,7 @@ productos y el cliente cree que no hay stock.
   Jordan 5                  Retro 5
   Jordan 40                 Jordan 40
   Air Max 270               Air Max 270
+  Nocta Hot Step 2 (Drake)  Nocta
   Air Max Plus · TN         TN
   On Cloud                  Cloud
   New Balance                Balance
@@ -828,7 +847,7 @@ quédate en la marca: el cotejo visual se encarga del resto.
 
 EJEMPLOS
 
-Van en taquigrafía: solo los rasgos que van en TRUE. Los 15 los garantiza
+Van en taquigrafía: solo los rasgos que van en TRUE. Los 16 los garantiza
 la API (schema estricto), así que no hace falta que los ejemplos los
 repitan uno por uno — tú devuelves el JSON completo igual, con los otros
 en false.
@@ -847,6 +866,11 @@ en false.
   visto: jumpman en lengueta, malla plastica lateral, alas en cordones, cana media
   rasgos en true: mallaPlasticaCuadros, alasPlasticasCordones, jumpman
   buscar: Retro 4   pedirNombreExacto: false
+
+[Foto de unas Nike blancas de charol brillante, líneas en relieve por el lateral, swoosh chico plateado en una ventanita, cámara de aire chica]
+  visto: charol brillante, lineas en relieve diagonales, swoosh chico en placa, aire chico en talon
+  rasgos en true: camaraAireTalon, charolLineasRelieve
+  buscar: Nocta   pedirNombreExacto: false
 
 [Foto de una sandalia Nike de tira ancha]
   visto: swoosh, tira ancha sobre empeine, pie destapado, suela gruesa

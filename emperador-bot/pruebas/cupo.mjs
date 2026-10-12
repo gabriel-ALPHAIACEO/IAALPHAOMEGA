@@ -22,7 +22,7 @@ const SIN = {
   suelaRedondeadaSinAire: false, suelaPlanaPlacaDura: false, muescaLateralArco: false,
   suelaNubesHuecas: false, mallaPlasticaCuadros: false, alasPlasticasCordones: false,
   jumpman: false, swooshGrandeRecto: false, piezaMetalicaOjal: false, tresFranjas: false,
-  punteraGamuzaT: false, punteraGomaConcha: false,
+  punteraGamuzaT: false, punteraGomaConcha: false, charolLineasRelieve: false,
 };
 
 // 250 productos: por encima de INDICE_SUFICIENTE (200), como en producción,
