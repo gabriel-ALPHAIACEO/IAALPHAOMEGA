@@ -23,6 +23,7 @@ const SUITES = [
   ["hotstep.mjs", "la Nike Nocta Hot Step 2: prompt, corrección en código y revisor"],
   ["informe11oct.mjs", "informe 12-sep→11-oct: talla, catálogo y fotos prometidos, marcas negadas"],
   ["sincontar.mjs", "inventario: lo recién traído sale «Sin contar», no Agotado"],
+  ["catalogo-web.mjs", "la tienda web: el inventario como catálogo público, sin costos y sin descontar stock"],
   ["prompt.mjs", "que los prompts se armen y las reglas sigan escritas"],
   ["corpus.mjs", "que los guardianes no alteren respuestas buenas"],
   ["cotejo.mjs", "que llegue al modelo el zapato del color correcto"],
