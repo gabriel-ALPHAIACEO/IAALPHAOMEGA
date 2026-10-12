@@ -143,7 +143,8 @@ async function conversar(texto, { respuestaModelo, ahora, productos = [], sesion
 
 const HOY = Date.parse("2026-09-30T19:00:00-04:00");
 const EN_FECHA = Date.parse("2026-10-03T12:00:00-04:00");
-const PASADA = Date.parse("2026-10-08T12:00:00-04:00");
+const PASADA = Date.parse("2027-01-08T12:00:00-04:00"); // terminó la campaña (Días del Club, hasta el 31-dic)
+const ENTRE = Date.parse("2026-10-12T12:00:00-04:00"); // entre el 1-6 y el 15-20
 
 titulo('"Tienes cashea?" HOY 30-sep (antes de que empiece)');
 {
@@ -169,7 +170,15 @@ titulo('"soy nivel 3" en fecha');
   ok(/Nivel 3/.test(r.todo) && /30% de inicial/.test(r.todo), "le dice su porcentaje", r.todo.slice(0, 160));
 }
 
-titulo("después del 6 de octubre");
+titulo("el 12 de octubre, entre dos Días del Club");
+{
+  const r = await conversar("Tienes cashea?", { ahora: ENTRE });
+  ok(/Casheálo con menos/.test(r.todo) && /Arranca el 15 de octubre/.test(r.todo) && /Bajada de inicial/.test(r.todo),
+     "anuncia la próxima (15 al 20, Casheálo con menos) con la tabla", r.todo.slice(0, 160));
+  ok(/inicial normal de tu nivel/.test(r.todo), "y dice que hoy Cashea va con la inicial normal");
+}
+
+titulo("después de la campaña (pasado el 31 de diciembre)");
 {
   const r = await conversar("Tienes cashea?", { ahora: PASADA });
   ok(/confirma un asesor/.test(r.todo) && !/Bajada de inicial/.test(r.todo), "ahí sí, al asesor (promoción vencida)");

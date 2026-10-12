@@ -134,7 +134,7 @@ function bytesDeBase64(b64) {
 
 function respuestaLogo(cual) {
   const b64 = LOGO[cual];
-  if (!b64 || !["oscuro", "claro", "casco"].includes(cual)) return new Response("No hay logo", { status: 404 });
+  if (!b64 || !["oscuro", "claro", "casco", "icono"].includes(cual)) return new Response("No hay logo", { status: 404 });
   return new Response(bytesDeBase64(b64), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400, s-maxage=86400" } });
 }
 
@@ -156,7 +156,7 @@ ${descripcion ? `<meta name="description" content="${esc(descripcion)}">` : ""}
 ${descripcion ? `<meta property="og:description" content="${esc(descripcion)}">` : ""}
 ${imagen ? `<meta property="og:image" content="${esc(imagen)}">` : ""}
 <meta name="theme-color" content="#05070d">
-${LOGO.casco ? `<link rel="icon" type="image/png" href="${base}/logo/casco.png">` : ""}
+${LOGO.icono ? `<link rel="icon" type="image/png" sizes="192x192" href="${base}/logo/icono.png"><link rel="apple-touch-icon" href="${base}/logo/icono.png">` : LOGO.casco ? `<link rel="icon" type="image/png" href="${base}/logo/casco.png">` : ""}
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&display=swap">
 <style>${ESTILO(color)}</style>${SCRIPT_TEMA}</head>
 <body data-base="${esc(base)}" data-wa="${esc(numeroDeWhatsApp(env))}" data-tienda="${esc(tienda)}">
@@ -223,9 +223,7 @@ const SQL_TARJETA = `
     COALESCE((SELECT MIN(COALESCE(v.precio, p.precio)) FROM inv_variantes v WHERE v.producto_id = p.id AND v.oculta = 0), p.precio) AS pmin,
     (SELECT COUNT(*) FROM inv_variantes v WHERE v.producto_id = p.id AND v.oculta = 0
        AND (NOT EXISTS (SELECT 1 FROM inv_stock s WHERE s.variante_id = v.id)
-            OR (SELECT SUM(s2.cantidad) FROM inv_stock s2 WHERE s2.variante_id = v.id) > 0)) AS disp,
-    (SELECT COUNT(*) FROM inv_variantes v WHERE v.producto_id = p.id AND v.oculta = 0 AND NOT EXISTS (SELECT 1 FROM inv_stock s WHERE s.variante_id = v.id)) AS sin_contar,
-    (SELECT COALESCE(SUM(s3.cantidad), 0) FROM inv_stock s3 JOIN inv_variantes v3 ON v3.id = s3.variante_id WHERE v3.producto_id = p.id AND v3.oculta = 0) AS restan
+            OR (SELECT SUM(s2.cantidad) FROM inv_stock s2 WHERE s2.variante_id = v.id) > 0)) AS disp
   FROM inv_productos p`;
 
 // Las colecciones: la categoría de cada producto (El Emperador la trae de su
@@ -273,10 +271,9 @@ async function chipsDeBusqueda(db, rubro) {
 
 function tarjeta(p, base, n = 0) {
   const agotado = !Number(p.disp);
-  const pocas = !agotado && !Number(p.sin_contar) && Number(p.restan) > 0 && Number(p.restan) <= 2;
   const precio = rangoDePrecio(p.pmin_v ?? p.precio_base, p.pmax_v ?? p.precio_base) || "Consultar";
   return `<a class="tarj rev${agotado ? " agotada" : ""}" style="--n:${Math.min(n, 12)}" href="${base}/p/${p.id}">
-<div class="tarj-foto">${p.foto ? `<img class="f1" src="${esc(p.foto)}" alt="${esc(p.titulo)}" loading="lazy" onerror="this.remove()">` : `<span class="sin-foto">${icono("foto", { clase: "grande" })}</span>`}${p.foto2 ? `<img class="f2" src="${esc(p.foto2)}" alt="" loading="lazy" onerror="this.remove()">` : ""}${agotado ? '<span class="insignia">Agotado</span>' : pocas ? '<span class="insignia aviso">Últimas unidades</span>' : ""}</div>
+<div class="tarj-foto">${p.foto ? `<img class="f1" src="${esc(p.foto)}" alt="${esc(p.titulo)}" loading="lazy" onerror="this.remove()">` : `<span class="sin-foto">${icono("foto", { clase: "grande" })}</span>`}${p.foto2 ? `<img class="f2" src="${esc(p.foto2)}" alt="" loading="lazy" onerror="this.remove()">` : ""}${agotado ? '<span class="insignia">Agotado</span>' : ""}</div>
 <div class="tarj-pie"><span class="tarj-nombre">${esc(p.titulo)}</span><span class="tarj-precio">${esc(precio)}</span></div></a>`;
 }
 
@@ -551,13 +548,13 @@ export async function atenderCatalogoWeb(request, env, { tienda = "Tienda", rubr
   const esDelPrefijo = ruta === PREFIJO || ruta.startsWith(PREFIJO + "/");
   if (!esDelPrefijo) {
     // Con un dominio propio, la tienda también vive en la raíz.
-    if (!raiz || !(ruta === "/" || ruta === "/carrito" || ruta === "/sitemap.xml" || /^\/p\/\d+\/?$/.test(ruta) || ruta === "/api/carrito" || /^\/logo\/(oscuro|claro|casco)\.png$/.test(ruta))) return null;
+    if (!raiz || !(ruta === "/" || ruta === "/carrito" || ruta === "/sitemap.xml" || /^\/p\/\d+\/?$/.test(ruta) || ruta === "/api/carrito" || /^\/logo\/(oscuro|claro|casco|icono)\.png$/.test(ruta))) return null;
   } else {
     ruta = ruta.slice(PREFIJO.length) || "/";
   }
   const enRaiz = raiz && !esDelPrefijo;
 
-  const logo = /^\/logo\/(oscuro|claro|casco)\.png$/.exec(ruta);
+  const logo = /^\/logo\/(oscuro|claro|casco|icono)\.png$/.exec(ruta);
   if (logo) return respuestaLogo(logo[1]);
   if (!env?.DB) return respuestaHtml(`<p>La tienda no está lista todavía.</p>`, { estado: 503, cache: "no-store" });
 
@@ -677,7 +674,7 @@ h1{font-size:30px;line-height:1.12;font-weight:800;letter-spacing:-.03em;margin:
 .cab::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,var(--marca),var(--cian),transparent);background-size:200% 100%;opacity:.55;animation:barrido 9s linear infinite}
 @keyframes barrido{from{background-position:200% 0}to{background-position:-200% 0}}
 .cab-in{max-width:1240px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:18px}
-.marca{display:flex;align-items:center;gap:11px;min-width:0}.lg-casco{height:36px;width:auto;transition:transform .6s var(--resorte);filter:drop-shadow(0 0 14px color-mix(in srgb,${color} 55%,transparent))}.marca:hover .lg-casco{transform:translateY(-1px) scale(1.07)}
+.marca{display:flex;align-items:center;gap:11px;min-width:0}.lg-casco{height:36px;width:auto;flex:none;object-fit:contain;aspect-ratio:auto;transition:transform .6s var(--resorte);filter:drop-shadow(0 0 14px color-mix(in srgb,${color} 55%,transparent))}.marca:hover .lg-casco{transform:translateY(-1px) scale(1.07)}
 .marca-n{font-weight:800;letter-spacing:.2em;font-size:13.5px;text-transform:uppercase;white-space:nowrap}
 .monograma{display:inline-grid;place-items:center;width:36px;height:36px;border-radius:11px;background:var(--grad);color:#fff;font-weight:800;box-shadow:0 8px 20px -10px ${color}}.monograma.grande{width:120px;height:120px;font-size:56px;border-radius:32px}
 .nav{display:flex;gap:2px;margin-left:8px}.nav a{color:var(--suave);font-size:14px;font-weight:650;padding:7px 13px;border-radius:999px;transition:color .25s,background .25s}.nav a:hover{color:var(--texto);background:rgba(148,163,194,.12)}.nav a.on{color:var(--texto);background:rgba(148,163,194,.14)}

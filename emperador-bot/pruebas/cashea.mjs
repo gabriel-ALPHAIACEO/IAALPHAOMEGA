@@ -61,9 +61,43 @@ const EN = hora("2026-10-03T12:00:00-04:00");
 ok(C.momentoDeLaPromocion(hora("2026-09-30T23:59:00-04:00")) === "antes", "el 30 de septiembre a las 23:59: todavía no empezó");
 ok(C.momentoDeLaPromocion(hora("2026-10-01T00:00:00-04:00")) === "vigente", "el 1 de octubre a las 00:00: en fecha");
 ok(C.momentoDeLaPromocion(hora("2026-10-06T23:59:00-04:00")) === "vigente", "el 6 de octubre a las 23:59: todavía en fecha");
-ok(C.momentoDeLaPromocion(hora("2026-10-07T00:00:01-04:00")) === "despues", "el 7 de octubre: ya terminó");
+ok(C.momentoDeLaPromocion(hora("2026-10-07T00:00:01-04:00")) === "antes", "el 7 de octubre: terminó la del 1 al 6 y se anuncia la del 15 al 20");
+ok(C.momentoDeLaPromocion(hora("2026-12-21T00:00:01-04:00")) === "despues", "el 21 de diciembre: terminó la campaña");
 ok(C.casheaVigente(HOY), "HOY (antes de empezar) el bot SÍ contesta Cashea (pedido del dueño)");
-ok(!C.casheaVigente(hora("2026-10-07T00:00:01-04:00")), "después del 6, al asesor");
+ok(!C.casheaVigente(hora("2026-12-21T00:00:01-04:00")), "después de la campaña, al asesor");
+
+// ───────────────────────────────────────────────────────────────────────
+titulo("Días del Club Cashea (12-oct-2026): 1 al 6 y 15 al 20 de cada mes, hasta fin de año");
+{
+  const D = (iso) => C.tarjetaCashea({ ahora: hora(iso) });
+  ok(C.momentoDeLaPromocion(hora("2026-10-14T23:59:00-04:00")) === "antes" && C.momentoDeLaPromocion(hora("2026-10-15T00:00:00-04:00")) === "vigente",
+     "el 15 a las 00:00 (hora de Venezuela) empieza Casheálo con menos");
+  ok(C.momentoDeLaPromocion(hora("2026-10-20T23:59:00-04:00")) === "vigente" && C.momentoDeLaPromocion(hora("2026-10-21T00:00:01-04:00")) === "antes",
+     "el 20 a las 23:59 todavía; el 21 se anuncia la del 1 de noviembre");
+  ok(C.nombreDeLasCuotas(hora("2026-10-16T12:00:00-04:00")) === "hasta 3 cuotas" && C.textoDelMinimo(hora("2026-10-16T12:00:00-04:00")) === "",
+     "del 15 al 20: hasta 3 cuotas y sin mínimo");
+  ok(C.nombreDeLasCuotas(hora("2026-11-03T12:00:00-04:00")) === "6 cuotas" && C.textoDelMinimo(hora("2026-11-03T12:00:00-04:00")) === "compras desde 100$",
+     "del 1 al 6 de noviembre: 6 cuotas desde 100$ (se repite cada mes)");
+  ok(C.fechasDeLaPromocion(hora("2026-12-17T12:00:00-04:00")) === "del 15 al 20 de diciembre", "en diciembre también");
+  ok(C.momentoDeLaPromocion(hora("2027-01-02T12:00:00-04:00")) === "despues", "en enero ya no (la campaña es hasta fin de año)");
+  for (const n of [1, 2, 3, 4, 5, 6]) {
+    ok(C.inicialDelNivel(n, hora("2026-10-16T12:00:00-04:00")) === [50, 40, 30, 20, 10, 0][n - 1], `del 15 al 20, Nivel ${n} → ${[50, 40, 30, 20, 10, 0][n - 1]}%`);
+  }
+  const entre = D("2026-10-12T12:00:00-04:00");
+  ok(/Casheálo con menos/.test(entre) && /¡Arranca el 15 de octubre!/.test(entre) && /hasta 3 cuotas/.test(entre), "el 12: anuncia la del 15 al 20", entre.split("\n").slice(0, 2).join(" | "));
+  ok(/Hoy también puedes comprar con Cashea, con la inicial normal de tu nivel/.test(entre), "y que hoy Cashea va con la inicial normal");
+  const entreN3 = C.tarjetaCashea({ nivel: 3, productos: [{ titulo: "Jordan 4 Retro", precio: "120 USD" }], ahora: hora("2026-10-12T12:00:00-04:00") });
+  ok(/^💜 Del 15 al 20 de octubre, con tu Nivel 3/.test(entreN3), "con nivel, entre promociones: dice DESDE CUÁNDO es su 30%", entreN3.split("\n")[0]);
+  const dentro = D("2026-10-16T12:00:00-04:00");
+  ok(/Promoción por tiempo limitado del 15 al 20 de octubre/.test(dentro) && !/inicial normal/.test(dentro) && !/100\$/.test(dentro),
+     "el 16: en fecha, hasta 3 cuotas, sin el mínimo de las 6");
+  const noviembre = D("2026-11-02T12:00:00-04:00");
+  ok(/los primeros 6 son en 6 cuotas/.test(noviembre) && /del 1 al 6 de noviembre/.test(noviembre) && /100\$ en adelante/.test(noviembre),
+     "el 2 de noviembre: los primeros 6 en 6 cuotas, desde 100$");
+  ok(!/5\s*%|comisi/i.test(entre + dentro + noviembre), "la comisión del 5% es del comercio: al cliente no se le dice");
+  ok(!C.revisarCashea("Con Nivel 3 pagas el 30% de inicial", hora("2026-10-12T12:00:00-04:00")).corregido,
+     "entre promociones, el porcentaje correcto de la próxima no se toca");
+}
 
 // ───────────────────────────────────────────────────────────────────────
 titulo("las cuentas");
@@ -82,7 +116,7 @@ ok(Math.round((c4.inicialCifra + c4.restoCifra) * 100) === 9999,
    "la inicial y el resto suman EXACTAMENTE el precio, sin perder un céntimo", `${c4.inicial} + ${c4.resto}`);
 
 ok(C.cuentaCashea("120 USD", 0).inicial === "0 USD", "Nivel 6 con 120 USD: 0 de inicial");
-const cero90 = C.cuentaCashea("90 USD", 0);
+const cero90 = C.cuentaCashea("90 USD", 0, EN);
 ok(cero90.inicial === "0 USD" && cero90.cuotas === null,
    "Nivel 6 con 90 USD: 0% de inicial sí, pero sin las 6 cuotas (son desde 100$)");
 ok(C.cuentaCashea("", 30) === null && C.cuentaCashea("consultar", 30) === null,
@@ -91,23 +125,23 @@ ok(C.cuentaCashea("", 30) === null && C.cuentaCashea("consultar", 30) === null,
 // ───────────────────────────────────────────────────────────────────────
 titulo("las 6 cuotas sin interés, desde 100$");
 
-ok(C.nombreDeLasCuotas() === "6 cuotas sin interés", "pagos.txt dice 6 cuotas sin interés", C.nombreDeLasCuotas());
-ok(C.textoDelMinimo() === "compras desde 100$", "y el mínimo de 100$", C.textoDelMinimo());
+ok(C.nombreDeLasCuotas(EN) === "6 cuotas", "del 1 al 6: pagos.txt dice 6 cuotas", C.nombreDeLasCuotas(EN));
+ok(C.textoDelMinimo(EN) === "compras desde 100$", "y el mínimo de 100$", C.textoDelMinimo(EN));
 
-const q1 = C.cuentaCashea("120 USD", 30).cuotas;
+const q1 = C.cuentaCashea("120 USD", 30, EN).cuotas;
 ok(q1.cuantas === 6 && q1.cada === "14 USD" && q1.iguales, "120 USD al 30% → 84 en 6 cuotas de 14 USD justas", q1.cada);
 
-const q2 = C.cuentaCashea("135.50 USD", 30).cuotas;
+const q2 = C.cuentaCashea("135.50 USD", 30, EN).cuotas;
 ok(!q2.iguales && q2.cada === "15.81 USD" && q2.ultima === "15.80 USD",
    "94.85 en 6 → 5 de 15.81 y la última de 15.80 (no se inventan céntimos)", `${q2.cada} / ${q2.ultima}`);
 ok(Math.round((q2.cadaCifra * 5 + q2.ultimaCifra) * 100) === 9485, "las 6 suman EXACTAMENTE el resto");
 
-const q3 = C.cuentaCashea("120 USD", 0).cuotas;
+const q3 = C.cuentaCashea("120 USD", 0, EN).cuotas;
 ok(q3.cada === "20 USD", "Nivel 6 (0%): los 120 USD en 6 cuotas de 20 USD", q3.cada);
 
-const barato = C.cuentaCashea("90 USD", 30);
+const barato = C.cuentaCashea("90 USD", 30, EN);
 ok(barato.cuotas === null && barato.alcanzaMinimo === false, "90 USD no llega a 100$: NO se reparte en 6 cuotas");
-ok(C.cuentaCashea("100 USD", 30).alcanzaMinimo, "100 USD justos sí");
+ok(C.cuentaCashea("100 USD", 30, EN).alcanzaMinimo, "100 USD justos sí");
 
 // ───────────────────────────────────────────────────────────────────────
 titulo("la tarjeta, personalizada");
@@ -116,12 +150,12 @@ const jordan = { titulo: "Jordan 4 Retro", precio: "120 USD" };
 const samba = { titulo: "Adidas Samba", precio: "75 USD" };
 
 const hoy = C.tarjetaCashea({ ahora: HOY });
-ok(/6 cuotas \+ 0% de inicial en Cashea/.test(hoy), "arriba, el titular de la promoción");
+ok(/Días del Club Cashea: los primeros 6 son en 6 cuotas/.test(hoy), "arriba, el titular de la promoción");
 ok(/¡Arranca el 1 de octubre!/.test(hoy), "HOY la anuncia: arranca el 1 de octubre");
 ok(/Bajada de inicial/.test(hoy) && /Nivel 6 → 0% de inicial/.test(hoy) && /Nivel 1 → 50% de inicial/.test(hoy),
    "la bajada de inicial, los 6 niveles");
 ok(hoy.indexOf("Nivel 6") < hoy.indexOf("Nivel 1"), "del 6 al 1: el 0% primero");
-ok(/Para optar por las 6 cuotas sin interés la compra debe ser de 100\$ en adelante/.test(hoy),
+ok(/Para optar por las 6 cuotas la compra debe ser de 100\$ en adelante/.test(hoy),
    "dice, con las palabras del dueño, que las 6 cuotas son desde 100$");
 ok(/Nivel 6 → 0% de inicial 🎉\n/.test(hoy) && !/0% de inicial y las 6/.test(hoy),
    "y el 0% del Nivel 6 NO lleva mínimo");
@@ -143,7 +177,7 @@ const n3 = C.tarjetaCashea({ nivel: 3, productos: [jordan], ahora: EN });
 ok(/Nivel 3/.test(n3) && /30% de inicial/.test(n3) && /Jordan 4 Retro/.test(n3), "con Nivel 3: su porcentaje, y de qué producto habla", n3.split("\n")[0]);
 ok(!SIN_DINERO.test(n3), "SIN montos de dinero (ni inicial ni cuotas)", n3.replace(/\n/g, " | "));
 ok(/montos exactos de la inicial y de cada cuota te los confirma un asesor en un momento/.test(n3), "los montos, un asesor (y 'en un momento' avisa)");
-ok(/6 cuotas sin interés/.test(n3) && /debe ser de 100\$ en adelante/.test(n3), "sí dice las 6 cuotas y la condición de la promoción (desde 100$)");
+ok(/6 cuotas/.test(n3) && /debe ser de 100\$ en adelante/.test(n3), "sí dice las 6 cuotas y la condición de la promoción (desde 100$)");
 
 const n6 = C.tarjetaCashea({ nivel: 6, productos: [jordan], ahora: EN });
 ok(/0% de inicial!/.test(n6) && !SIN_DINERO.test(n6) && !/!:/.test(n6), "Nivel 6: 0% de inicial, sin montos", n6.split("\n")[0]);
@@ -197,7 +231,7 @@ ok(mal.corregido && /Nivel 1 → 50%/.test(mal.respuesta), "Nivel 3 con 20% (es 
 const inventada = C.revisarCashea("Con Cashea das solo 15% de inicial", EN_FECHA);
 ok(inventada.corregido, "una inicial de 15% que no está en la tabla: se corrige");
 
-const vencida = C.revisarCashea("Con Nivel 3 pagas el 30% de inicial", Date.parse("2026-10-08T10:00:00-04:00"));
+const vencida = C.revisarCashea("Con Nivel 3 pagas el 30% de inicial", Date.parse("2027-01-08T10:00:00-04:00"));
 ok(vencida.corregido && vencida.respuesta === C.CASHEA_FUERA_DE_FECHA,
    "fuera de fecha, hasta el porcentaje correcto se pasa al asesor");
 

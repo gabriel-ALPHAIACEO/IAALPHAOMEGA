@@ -31,23 +31,22 @@
 
 import listaPagos from "./prompts/pagos.txt";
 
-let leido = null;
+let crudo = null;
 
-function leer() {
-  if (!leido) {
-    leido = {
-      titular: "",
-      niveles: new Map(),
-      desde: 0,
-      hasta: 0,
-      fechas: "",
-      empieza: "",
-      cuotas: 0,
-      detalleCuotas: "",
-      minimo: 0,
-      minimoAlCero: false,
-      acepta: false,
-    };
+// Una promoción puede ser de UN rango de fechas ("Vigencia: 2026-10-01 al
+// 2026-10-06") o REPETIRSE CADA MES (Días del Club de Cashea, 12-oct-2026:
+// "días 1 al 6, 6 cuotas" y "días 15 al 20, Casheálo con menos", de octubre
+// a diciembre). Para lo segundo, cada bloque empieza con "Días: 1 al 6" y
+// trae su titular, sus cuotas, su mínimo y su tabla; la "Vigencia" de arriba
+// es la de toda la campaña. Lo de antes del primer "Días:" vale como
+// promoción de siempre (y su tabla la heredan los bloques que no traen una).
+function tramoVacio(dias = null) {
+  return { dias, titular: "", niveles: new Map(), cuotas: 0, hastaCuotas: false, detalleCuotas: "", minimo: 0, minimoAlCero: false };
+}
+
+function leerCrudo() {
+  if (!crudo) {
+    crudo = { acepta: false, desde: 0, hasta: 0, desdeDia: "", hastaDia: "", tramos: [tramoVacio()] };
     let seccion = "";
 
     for (const cruda of String(listaPagos || "").split("\n")) {
@@ -60,17 +59,26 @@ function leer() {
         continue;
       }
       if (seccion !== "CASHEA") continue;
-      leido.acepta = true;
+      crudo.acepta = true;
+      const tramo = crudo.tramos[crudo.tramos.length - 1];
 
       // "Vigencia: 2026-10-01 al 2026-10-06"
       const vigencia = linea.match(/^vigencia\s*:\s*(\d{4}-\d{2}-\d{2})\s*(?:al|a|hasta|-|–)\s*(\d{4}-\d{2}-\d{2})/i);
       if (vigencia) {
         // Hora de Venezuela (UTC-4, sin horario de verano): el día empieza a
         // las 00:00 de allá y termina a las 23:59:59 de allá.
-        leido.desde = Date.parse(`${vigencia[1]}T00:00:00-04:00`);
-        leido.hasta = Date.parse(`${vigencia[2]}T23:59:59-04:00`);
-        leido.fechas = rangoLegible(vigencia[1], vigencia[2]);
-        leido.empieza = diaLegible(vigencia[1]);
+        crudo.desde = Date.parse(`${vigencia[1]}T00:00:00-04:00`);
+        crudo.hasta = Date.parse(`${vigencia[2]}T23:59:59-04:00`);
+        crudo.desdeDia = vigencia[1];
+        crudo.hastaDia = vigencia[2];
+        continue;
+      }
+
+      // "Días: 1 al 6" — un bloque nuevo que se repite cada mes.
+      const dias = sinTildes(linea).match(/^dias\s*:?\s*(?:del\s+)?(\d{1,2})\s*(?:al|a|hasta|-|–)\s*(\d{1,2})\b/i);
+      if (dias) {
+        const de = Number(dias[1]), a = Number(dias[2]);
+        if (de >= 1 && a >= de && a <= 31) crudo.tramos.push(tramoVacio([de, a]));
         continue;
       }
 
@@ -78,43 +86,128 @@ function leer() {
       // cuotas (en la moneda de los precios de la tienda).
       const minimo = linea.match(/^(m[ií]nimo[^:]*):\s*\$?\s*(\d+(?:[.,]\d+)?)/i);
       if (minimo) {
-        leido.minimo = Number(minimo[2].replace(",", "."));
+        tramo.minimo = Number(minimo[2].replace(",", "."));
         // Si la línea nombra el 0% ("Mínimo para el 0% y las 6 cuotas"), el
         // mínimo vale también para el 0% de inicial. Si no, solo para las
         // cuotas —que es lo que decidió el dueño el 30-sep—.
-        leido.minimoAlCero = /0\s*%|cero/i.test(minimo[1]);
+        tramo.minimoAlCero = /0\s*%|cero/i.test(minimo[1]);
         continue;
       }
 
-      // "Cuotas: 6" (o "Cuotas: 6 sin interés": lo de después sale tal cual)
-      const cuotas = linea.match(/^cuotas\s*:\s*(\d+)\s*(.*)$/i);
+      // "Cuotas: 6", "Cuotas: hasta 3" (o "Cuotas: 6 sin interés": lo de
+      // después sale tal cual junto a "cuotas")
+      const cuotas = linea.match(/^cuotas\s*:\s*(hasta\s+)?(\d+)\s*(.*)$/i);
       if (cuotas) {
-        leido.cuotas = Number(cuotas[1]);
-        leido.detalleCuotas = cuotas[2].trim();
+        tramo.hastaCuotas = !!cuotas[1];
+        tramo.cuotas = Number(cuotas[2]);
+        tramo.detalleCuotas = cuotas[3].trim();
         continue;
       }
 
       // "Nivel 3: 30%"
       const nivel = linea.match(/^nivel\s*(\d+)\s*[:=\-–—]?\s*(\d+(?:[.,]\d+)?)\s*%/i);
       if (nivel) {
-        leido.niveles.set(Number(nivel[1]), Number(nivel[2].replace(",", ".")));
-      } else if (!leido.titular) {
-        leido.titular = linea;
+        tramo.niveles.set(Number(nivel[1]), Number(nivel[2].replace(",", ".")));
+      } else if (!tramo.titular) {
+        tramo.titular = linea;
       }
     }
   }
-  return leido;
+  return crudo;
+}
+
+// El momento con el que se mira la promoción. tarjetaCashea y revisarCashea
+// lo fijan mientras arman su mensaje, para que todo lo que llaman vea la
+// MISMA promoción (a las 23:59:59 del día 6 no puede salir medio mensaje de
+// una y medio de otra).
+let fijado = null;
+
+const DOS = (n) => String(n).padStart(2, "0");
+const diasDelMes = (anio, mes) => new Date(Date.UTC(anio, mes, 0)).getUTCDate();
+
+// Las ventanas concretas de los bloques que se repiten: una por bloque y por
+// mes, recortadas a la vigencia de la campaña, en orden.
+function ventanas(c, ahora) {
+  const repetidos = c.tramos.filter((t) => t.dias);
+  const lista = [];
+  let anio, mes, finAnio, finMes;
+  if (c.desde && c.hasta) {
+    [anio, mes] = c.desdeDia.split("-").map(Number);
+    [finAnio, finMes] = c.hastaDia.split("-").map(Number);
+  } else {
+    // Sin vigencia, se repite siempre: basta mirar alrededor de hoy.
+    const hoy = new Date(ahora - 4 * 3600 * 1000);
+    anio = hoy.getUTCFullYear();
+    mes = hoy.getUTCMonth(); // el mes anterior (getUTCMonth es 0-based)
+    if (mes === 0) { anio -= 1; mes = 12; }
+    finAnio = anio + 1;
+    finMes = mes;
+  }
+  for (let vueltas = 0; vueltas < 60 && (anio < finAnio || (anio === finAnio && mes <= finMes)); vueltas++) {
+    for (const t of repetidos) {
+      const tope = diasDelMes(anio, mes);
+      if (t.dias[0] > tope) continue;
+      const deDia = `${anio}-${DOS(mes)}-${DOS(t.dias[0])}`;
+      const aDia = `${anio}-${DOS(mes)}-${DOS(Math.min(t.dias[1], tope))}`;
+      let desde = Date.parse(`${deDia}T00:00:00-04:00`);
+      let hasta = Date.parse(`${aDia}T23:59:59-04:00`);
+      let d1 = deDia, d2 = aDia;
+      if (c.desde && desde < c.desde) { desde = c.desde; d1 = c.desdeDia; }
+      if (c.hasta && hasta > c.hasta) { hasta = c.hasta; d2 = c.hastaDia; }
+      if (desde > hasta) continue;
+      lista.push({ tramo: t, desde, hasta, d1, d2 });
+    }
+    mes += 1;
+    if (mes > 12) { mes = 1; anio += 1; }
+  }
+  return lista.sort((x, y) => x.desde - y.desde);
+}
+
+// La promoción tal como está EN ESTE MOMENTO: la de hoy, o la próxima (que
+// se anuncia), o la última si ya terminó todo.
+function leer(ahora) {
+  const c = leerCrudo();
+  const t = ahora ?? fijado ?? Date.now();
+  const base = c.tramos[0];
+  const repetida = c.tramos.length > 1;
+  let tramo = base, desde = c.desde, hasta = c.hasta, d1 = c.desdeDia, d2 = c.hastaDia;
+
+  if (repetida) {
+    const lista = ventanas(c, t);
+    const elegida =
+      lista.find((v) => v.desde <= t && t <= v.hasta) ||
+      lista.find((v) => v.desde > t) ||
+      lista[lista.length - 1];
+    if (elegida) ({ tramo, desde, hasta, d1, d2 } = elegida);
+  }
+
+  const niveles = tramo.niveles.size ? tramo.niveles : base.niveles;
+  return {
+    acepta: c.acepta,
+    repetida,
+    titular: tramo.titular || (tramo === base ? "" : base.titular),
+    niveles,
+    cuotas: tramo.cuotas,
+    hastaCuotas: tramo.hastaCuotas,
+    detalleCuotas: tramo.detalleCuotas,
+    minimo: tramo.minimo,
+    minimoAlCero: tramo.minimoAlCero,
+    desde,
+    hasta,
+    fechas: d1 && d2 ? rangoLegible(d1, d2) : "",
+    empieza: d1 ? diaLegible(d1) : "",
+  };
 }
 
 // ¿La tienda acepta Cashea? (Aunque esté fuera de fecha, y aunque no tenga
 // la tabla de niveles cargada.)
 export function hayCashea() {
-  return leer().acepta;
+  return leerCrudo().acepta;
 }
 
 // ¿Tiene la tabla de niveles? Sin ella no se hace ninguna cuenta.
-export function hayTablaCashea() {
-  return leer().niveles.size > 0;
+export function hayTablaCashea(ahora) {
+  return leer(ahora).niveles.size > 0;
 }
 
 // ¿En qué momento de la promoción estamos? "antes" (todavía no empezó),
@@ -122,8 +215,8 @@ export function hayTablaCashea() {
 // pregunta en cada mensaje —no al arrancar— porque un Worker puede seguir
 // vivo de un día para otro, y la promoción tiene que cambiar sola a la
 // medianoche.
-export function momentoDeLaPromocion(ahora = Date.now()) {
-  const { desde, hasta } = leer();
+export function momentoDeLaPromocion(ahora = fijado ?? Date.now()) {
+  const { desde, hasta } = leer(ahora);
   if (!desde || !hasta) return "siempre";
   if (ahora < desde) return "antes";
   if (ahora > hasta) return "despues";
@@ -135,8 +228,8 @@ export function momentoDeLaPromocion(ahora = Date.now()) {
 // responda la IA, no que como no está activa no responda"): antes, se
 // anuncia —"arranca el 1 de octubre"— con sus cuentas. Solo cuando YA
 // TERMINÓ pasa al asesor, que no se promete una promoción vencida.
-export function casheaVigente(ahora = Date.now()) {
-  if (!leer().acepta) return false;
+export function casheaVigente(ahora = fijado ?? Date.now()) {
+  if (!hayCashea()) return false;
   return momentoDeLaPromocion(ahora) !== "despues";
 }
 
@@ -146,8 +239,8 @@ export function casheaVigente(ahora = Date.now()) {
 export const CASHEA_FUERA_DE_FECHA = "Lo de Cashea te lo confirma un asesor en un momento 😊";
 
 // Las fechas de la promoción en palabras ("del 1 al 6 de octubre"), o "".
-export function fechasDeLaPromocion() {
-  return leer().fechas;
+export function fechasDeLaPromocion(ahora) {
+  return leer(ahora).fechas;
 }
 
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
@@ -169,8 +262,8 @@ function rangoLegible(a, b) {
 }
 
 // El porcentaje de inicial de un nivel, o null si ese nivel no existe.
-export function inicialDelNivel(nivel) {
-  const pct = leer().niveles.get(Number(nivel));
+export function inicialDelNivel(nivel, ahora) {
+  const pct = leer(ahora).niveles.get(Number(nivel));
   return pct === undefined ? null : pct;
 }
 
@@ -241,14 +334,14 @@ export function leerPrecio(precio) {
 // La inicial y el resto de un precio, con un porcentaje. Todo redondeado a
 // céntimos, y el resto es precio - inicial: así las dos partes suman
 // EXACTAMENTE el precio, sin un céntimo perdido por el redondeo.
-export function cuentaCashea(precio, porcentaje) {
+export function cuentaCashea(precio, porcentaje, ahora) {
   const leido = leerPrecio(precio);
   if (!leido || porcentaje === null || porcentaje === undefined) return null;
 
   // EL 0% DE INICIAL TAMBIÉN TIENE MÍNIMO (dueño, 30-sep-2026: "a partir de
   // 100$ es que se admite el 0% de inicial"). Por debajo no se hace la
   // cuenta con 0%: se avisa, y la inicial de ese par la confirma un asesor.
-  const { minimo: minimoCero, minimoAlCero } = leer();
+  const { minimo: minimoCero, minimoAlCero } = leer(ahora);
   if (porcentaje === 0 && minimoAlCero && minimoCero && leido.cifra < minimoCero) {
     return {
       precio: leido.escribir(leido.cifra),
@@ -266,7 +359,7 @@ export function cuentaCashea(precio, porcentaje) {
   // existen. Así que se dicen como son: cinco de 9,98 y la última de 9,95.
   // EL MODO DE CUOTAS TIENE UN MÍNIMO ("la compra debe ser 100$ en
   // adelante"). Por debajo no se le reparte en cuotas: se le dice.
-  const { cuotas: n, minimo } = leer();
+  const { cuotas: n, minimo } = leer(ahora);
   const alcanzaMinimo = !minimo || leido.cifra >= minimo;
   let cuotas = null;
   if (n > 0 && resto > 0 && alcanzaMinimo) {
@@ -294,26 +387,26 @@ export function cuentaCashea(precio, porcentaje) {
 }
 
 // "compras desde 100$", o "" si no hay mínimo.
-export function textoDelMinimo() {
-  const { minimo } = leer();
+export function textoDelMinimo(ahora) {
+  const { minimo } = leer(ahora);
   return minimo ? `compras desde ${minimo}$` : "";
 }
 
 // La condición, con las palabras del dueño: "para optar por las 6 cuotas la
 // compra debe ser de 100$ en adelante".
-export function fraseDelMinimo() {
-  const { minimo, minimoAlCero } = leer();
+export function fraseDelMinimo(ahora) {
+  const { minimo, minimoAlCero } = leer(ahora);
   if (!minimo) return "";
-  const cuotas = "las " + (nombreDeLasCuotas() || "cuotas");
+  const cuotas = "las " + (nombreDeLasCuotas(ahora) || "cuotas");
   const que = minimoAlCero ? "el cero por ciento de inicial y " + cuotas : cuotas;
   return "para optar por " + que + " la compra debe ser de " + minimo + "$ en adelante";
 }
 
 // "6 cuotas", o "6 cuotas sin interés" si pagos.txt lo dice. "" sin dato.
-export function nombreDeLasCuotas() {
-  const { cuotas, detalleCuotas } = leer();
+export function nombreDeLasCuotas(ahora) {
+  const { cuotas, hastaCuotas, detalleCuotas } = leer(ahora);
   if (!cuotas) return "";
-  return `${cuotas} cuotas${detalleCuotas ? ` ${detalleCuotas}` : ""}`;
+  return `${hastaCuotas ? "hasta " : ""}${cuotas} cuotas${detalleCuotas ? ` ${detalleCuotas}` : ""}`;
 }
 
 // "en 6 cuotas de 10.50 USD", o "en 6 cuotas: 5 de 9.98 USD y la última de
@@ -345,12 +438,27 @@ const MAXIMO_EN_LA_CUENTA = 3;
 //
 // Devuelve "" si Cashea no está cargado.
 export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now() } = {}) {
+  const antes = fijado;
+  fijado = ahora;
+  try {
+    return armarTarjeta({ nivel, productos, ahora });
+  } finally {
+    fijado = antes;
+  }
+}
+
+function armarTarjeta({ nivel, productos, ahora }) {
   if (!hayCashea()) return "";
   if (!hayTablaCashea()) return tarjetaSinTabla(nivel);
 
-  const { titular, niveles, fechas, empieza } = leer();
+  const { titular, niveles, fechas, empieza, repetida } = leer();
   const pct = nivel ? inicialDelNivel(nivel) : null;
   const momento = momentoDeLaPromocion(ahora);
+  // ENTRE DOS PROMOCIONES DEL MES (Días del Club, 12-oct-2026): hoy Cashea
+  // funciona igual, pero sin la promoción. Se anuncia la próxima sin hacerle
+  // creer que hoy ya tiene esa inicial.
+  const entrePromociones = repetida && momento === "antes";
+  const hoyNormal = entrePromociones ? "💜 Hoy también puedes comprar con Cashea, con la inicial normal de tu nivel." : "";
 
   // La línea de las fechas: la urgencia de verdad. Antes de empezar, se
   // anuncia ("¡Arranca el 1 de octubre!"); en fecha, cuándo termina.
@@ -397,6 +505,8 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
       "",
       lineaCuotas,
       lineaCuotas ? "" : null,
+      hoyNormal || null,
+      hoyNormal ? "" : null,
       aviso + cierre,
     ]
       .filter((l) => l !== null && l !== undefined)
@@ -421,8 +531,11 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
       ? nombres[0]
       : nombreComun(nombres) || "";
   const conProducto = delProducto ? ", " + nombreCorto(delProducto) : "";
-  const encabezadoConProducto =
-    pct === 0
+  const encabezadoConProducto = entrePromociones
+    ? pct === 0
+      ? `🎉 ¡${mayuscula(fechas)}, con tu Nivel ${nivel} en Cashea${conProducto} te lo llevas con 0% de inicial${condicionDelCero}!`
+      : `💜 ${mayuscula(fechas)}, con tu Nivel ${nivel} en Cashea${conProducto} es con el ${formatoPct(pct)} de inicial`
+    : pct === 0
       ? `🎉 ¡Con tu Nivel ${nivel} en Cashea${conProducto} te lo llevas con 0% de inicial${condicionDelCero}!`
       : `💜 Con tu Nivel ${nivel} en Cashea${conProducto} es con el ${formatoPct(pct)} de inicial`;
 
@@ -431,6 +544,7 @@ export function tarjetaCashea({ nivel = null, productos = [], ahora = Date.now()
     lasCuotas ? `🗓️ El resto, en ${lasCuotas}.` : "",
     minimo ? `💲 ${mayuscula(fraseDelMinimo())}.` : "",
     cuando,
+    hoyNormal,
     "",
     `💬 ${mayuscula(ASESOR_CONFIRMA_MONTOS)}`,
   ]
@@ -500,6 +614,16 @@ const MONTO_DE_CASHEA =
   /\b(?:inicial|cuotas?)\b[^.!?\n]{0,30}?(?:\$\s*\d|\d+(?:[.,]\d+)?\s*(?:\$|usd|d[oó]lares?|bs\.?|bol[ií]vares))|(?:\$\s*\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:\$|usd|d[oó]lares?))[^.!?\n]{0,25}?\b(?:de\s+inicial|por\s+cuota|cada\s+cuota|en\s+cuotas|mensual|quincenal)/i;
 
 export function revisarCashea(respuesta, ahora = Date.now()) {
+  const antes = fijado;
+  fijado = ahora;
+  try {
+    return revisar(respuesta, ahora);
+  } finally {
+    fijado = antes;
+  }
+}
+
+function revisar(respuesta, ahora) {
   const texto = String(respuesta || "");
   // La condición de la promoción ("la compra debe ser de 100$ en adelante")
   // no es un monto que se le promete: se quita antes de mirar.

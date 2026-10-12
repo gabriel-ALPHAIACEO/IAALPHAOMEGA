@@ -132,6 +132,7 @@ titulo("el diseño de la familia ALPHA IA");
 c = await pedir("/tienda");
 ok(/Manrope/.test(c.html) && /data-tema-boton/.test(c.html) && /id="carro-n"/.test(c.html), "letra Manrope, interruptor ☀️/🌙 y el contador del carrito");
 ok(/class="heroe/.test(c.html) && /Catálogo en línea/.test(c.html), "la portada con el nombre de la tienda");
+ok(!/Últimas unidades/.test(c.html), "las tarjetas no dicen «Últimas unidades» (pedido del dueño)");
 ok(!/class="heroe-cta"[^>]*>(?:(?!<\/div>).)*Ver el catálogo/s.test(c.html), "la portada no repite un botón «Ver el catálogo» (el catálogo ya está debajo)");
 c = await pedir("/tienda?q=samba");
 ok(!/class="heroe/.test(c.html), "la portada solo sale en la página principal");
@@ -139,13 +140,14 @@ ok(!/class="heroe/.test(c.html), "la portada solo sale en la página principal")
 // la cabecera y el héroe; sin logo, un monograma con la inicial.
 const { LOGO } = await src.cargar("logo-tienda.js");
 if (LOGO.oscuro) {
-  for (const cual of ["oscuro", "claro", "casco"]) {
+  for (const cual of ["oscuro", "claro", "casco", "icono"]) {
     const l = await pedir(`/tienda/logo/${cual}.png`);
     ok(l?.estado === 200 && /image\/png/.test(l.tipo), `el logo ${cual} se sirve como imagen PNG`);
   }
   c = await pedir("/tienda");
   ok(/class="lg lg-oscuro"/.test(c.html) && /class="lg lg-claro"/.test(c.html) && /class="lg-casco"/.test(c.html), "la cabecera y el héroe llevan el logo de la tienda (uno por tema)");
-  ok(/rel="icon" type="image\/png"/.test(c.html), "y el casco es el ícono de la pestaña");
+  ok(/rel="icon" type="image\/png" sizes="192x192" href="\/tienda\/logo\/icono\.png"/.test(c.html), "la pestaña usa el ícono CUADRADO (el casco alto se veía estirado)");
+  ok(Math.abs(LOGO.proporcion.icono - 1) < 0.01, "y el ícono es cuadrado de verdad");
   ok(!/class="monograma/.test(c.html), "con logo no sale el monograma");
 } else {
   ok((await pedir("/tienda/logo/oscuro.png"))?.estado === 404, "sin logo cargado, /tienda/logo da 404 (la web usa un monograma)");

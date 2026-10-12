@@ -57,15 +57,24 @@
 # a pasar Cashea a un asesor. Si dejas SOLO el titular, sin niveles, el bot
 # dice que se acepta Cashea y la inicial la confirma un asesor.
 #
-# EL EMPERADOR (dueño, 1-oct-2026): la misma promoción de Cashea que
-# Invictus — 6 cuotas sin interés + 0% de inicial, del 1 al 6 de octubre,
-# las 6 cuotas desde 100$.
+# EL EMPERADOR — DÍAS DEL CLUB CASHEA (aviso de Cashea al dueño, 12-oct-2026):
+# del 1 de octubre a fin de año, cada mes tiene dos promociones fijas:
+#   · días 1 al 6 — "los primeros 6 son en 6 cuotas": todos los niveles a 6
+#     cuotas en compras desde 100$, con la inicial de 50% a 0% según el nivel;
+#   · días 15 al 20 — "Casheálo con menos": la misma bajada de inicial (50% a
+#     0%) en compras de hasta 3 cuotas.
+# Fuera de esos días el bot anuncia la próxima y dice que hoy Cashea va con
+# la inicial normal de su nivel. (La comisión del 5% es del comercio: el bot
+# no la dice nunca.)
 #
 # VIGENCIA: del día que empieza al día que termina, ambos incluidos, en hora
-# de Venezuela, con el formato AAAA-MM-DD. Antes y después de esas fechas el
-# bot NO ofrece estos porcentajes: pasa Cashea a un asesor, que es mejor que
-# prometer una promoción vencida. Para una promoción nueva, cambia las fechas
-# y los niveles. Sin línea de vigencia, la tabla vale siempre.
+# de Venezuela, con el formato AAAA-MM-DD. Después de esa fecha el bot NO
+# ofrece estos porcentajes: pasa Cashea a un asesor, que es mejor que
+# prometer una promoción vencida. Sin línea de vigencia, la tabla vale siempre.
+#
+# DÍAS: "Días: 1 al 6" abre un bloque que se REPITE CADA MES (dentro de la
+# vigencia), con su titular, sus cuotas, su mínimo y su tabla. Sin ninguna
+# línea "Días:", la promoción es una sola, de la vigencia entera.
 
 # CUOTAS: en cuántas cuotas se paga lo que queda después de la inicial. Si
 # escribes algo después del número ("Cuotas: 6 sin interés"), sale tal cual
@@ -81,10 +90,22 @@
 # ("¡Arranca el 1 de octubre!") con la tabla y las cuentas. DESPUÉS de la
 # fecha final, pasa Cashea a un asesor.
 
-Vigencia: 2026-10-01 al 2026-10-06
-Cuotas: 6 sin interés
+Vigencia: 2026-10-01 al 2026-12-31
+
+Días: 1 al 6
+Días del Club Cashea: los primeros 6 son en 6 cuotas 🔥
+Cuotas: 6
 Mínimo para las 6 cuotas: 100
-6 cuotas + 0% de inicial en Cashea 🔥
+Nivel 6: 0%
+Nivel 5: 10%
+Nivel 4: 20%
+Nivel 3: 30%
+Nivel 2: 40%
+Nivel 1: 50%
+
+Días: 15 al 20
+Días del Club Cashea: Casheálo con menos 🔥
+Cuotas: hasta 3
 Nivel 6: 0%
 Nivel 5: 10%
 Nivel 4: 20%
