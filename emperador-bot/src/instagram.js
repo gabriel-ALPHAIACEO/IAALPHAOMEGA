@@ -114,7 +114,7 @@ export function suscripcionDeLaCuenta(env) {
   return preguntar(env, "/me/subscribed_apps");
 }
 
-export const CAMPOS_DEL_WEBHOOK = "messages,messaging_postbacks";
+export const CAMPOS_DEL_WEBHOOK = "messages,messaging_postbacks,comments";
 
 export function suscribirLaCuenta(env) {
   return preguntar(env, `/me/subscribed_apps?subscribed_fields=${CAMPOS_DEL_WEBHOOK}`, "POST");
@@ -474,4 +474,92 @@ function leerHistoria(mensaje, adjuntos) {
 function urlBuena(valor) {
   const texto = String(valor || "").trim();
   return /^https?:\/\//i.test(texto) ? texto : "";
+}
+
+/* ── Los comentarios (12-oct-2026, ver comentarios.js) ─────────────── */
+
+// Quiénes somos: se pregunta una vez por arranque, no cambia nunca.
+let yo = null;
+
+export async function quienSoy(env) {
+  if (yo) return yo;
+  try {
+    const respuesta = await fetch(`${GRAFO}/me?fields=id,username&access_token=${env.IG_TOKEN}`, { signal: AbortSignal.timeout(8000) });
+    if (!respuesta.ok) {
+      console.error("No pude leer quién soy:", respuesta.status, (await respuesta.text()).slice(0, 200));
+      return { id: "", usuario: "" };
+    }
+    const datos = await respuesta.json();
+    yo = { id: String(datos.id || ""), usuario: String(datos.username || "") };
+    return yo;
+  } catch (error) {
+    console.error("No pude leer quién soy:", error?.message || error);
+    return { id: "", usuario: "" };
+  }
+}
+
+// Lo que dice la publicación donde comentaron (su pie), para que la IA sepa
+// de qué producto hablan. Si no se puede leer, "": se contesta igual.
+export async function publicacionPorId(env, mediaId) {
+  if (!mediaId) return null;
+  try {
+    const respuesta = await fetch(`${GRAFO}/${mediaId}?fields=caption,permalink&access_token=${env.IG_TOKEN}`, { signal: AbortSignal.timeout(8000) });
+    if (!respuesta.ok) return null;
+    const datos = await respuesta.json();
+    return { titulo: String(datos.caption || "").trim(), enlace: String(datos.permalink || "") };
+  } catch {
+    return null;
+  }
+}
+
+// La respuesta PÚBLICA, colgada del comentario del cliente. Devuelve el id
+// de la respuesta (para reconocerla si vuelve como comentario nuestro).
+export async function responderComentario(env, comentarioId, texto) {
+  try {
+    const respuesta = await fetch(`${GRAFO}/${comentarioId}/replies`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: recortar(texto, 300), access_token: env.IG_TOKEN }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!respuesta.ok) {
+      const detalle = (await respuesta.text()).slice(0, 300);
+      console.error(
+        `No pude responder el comentario ${comentarioId}: ${respuesta.status} ${detalle}` +
+          (respuesta.status === 403 || /permission/i.test(detalle)
+            ? " · CAUSA PROBABLE: al IG_TOKEN le falta el permiso de gestionar comentarios (instagram_business_manage_comments)."
+            : "")
+      );
+      return "";
+    }
+    return String((await respuesta.json()).id || "") || "sin-id";
+  } catch (error) {
+    console.error("No pude responder el comentario:", error?.message || error);
+    return "";
+  }
+}
+
+// EL MENSAJE PRIVADO QUE ABRE LA CONVERSACIÓN. Meta deja mandar UN mensaje
+// directo por comentario, aunque esa persona nunca haya escrito: se manda al
+// "comment_id" en vez de a un usuario. Devuelve el igsid del cliente.
+export async function privadoPorComentario(env, comentarioId, texto) {
+  let respuesta;
+  try {
+    respuesta = await fetch(`${GRAFO}/me/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${env.IG_TOKEN}` },
+      body: JSON.stringify({ recipient: { comment_id: comentarioId }, message: { text: recortar(texto, 1000) } }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (error) {
+    console.error("No pude abrir el privado desde el comentario:", error?.message || error);
+    return { igsid: "", mid: "" };
+  }
+  if (!respuesta.ok) {
+    const detalle = (await respuesta.text()).slice(0, 300);
+    console.error(`No pude abrir el privado del comentario ${comentarioId}: ${respuesta.status} ${detalle}`);
+    return { igsid: "", mid: "" };
+  }
+  const datos = await respuesta.json();
+  return { igsid: String(datos.recipient_id || ""), mid: String(datos.message_id || "") };
 }

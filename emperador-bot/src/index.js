@@ -28,7 +28,7 @@
 // vivía en KV. Si ves un memoria.js o un nombre.js sueltos, son de esa otra
 // versión y NO van con este código — mezclarlos rompe el arranque.
 
-import { responderTexto, identificarEnImagen, quienAtiende, claveDe } from "./ia.js";
+import { responderAComentario, responderTexto, identificarEnImagen, quienAtiende, claveDe } from "./ia.js";
 import {
   revisarPagos,
   metodosDePago,
@@ -81,6 +81,7 @@ import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDel
 // Los errores que salgan de aquí en adelante quedan guardados para el panel
 // central (ver registro.js).
 vigilarErrores();
+import { leerComentarios, esNuestro, modoComentarios, saludoPrivado, conLosPrecios } from "./comentarios.js";
 import { esAvisoDeWhatsApp, leerWhatsApp, marcarLeido, fotoComoDataUri, whatsappConectado } from "./whatsapp.js";
 import { contestaLaTalla, prometeElCatalogo, sinFotosQueNoHay, sinNegarLoQueHay } from "./faltas.js";
 import { usaDrive, catalogoDeDrive, idDeCarpeta, leerUnTrozoDeDrive, catalogoParaInventario } from "./drive.js";
@@ -123,6 +124,10 @@ import {
   enviarBotonCatalogo,
   enviarBotonEnlace,
   enviarTarjeta,
+  quienSoy,
+  publicacionPorId,
+  responderComentario,
+  privadoPorComentario,
   revisarImagen,
   obtenerPerfil,
   fotogramaDeHistoria,
@@ -136,7 +141,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-12 (72) · 💬 WhatsApp: el mismo bot contesta por WhatsApp (whatsapp.js; se enciende con WA_PHONE_ID y WA_TOKEN, ver WHATSAPP.md) · · (71) lo de Invictus del 11-oct: la talla siempre contestada, no promete catálogo ni fotos que no manda, no niega marcas que hay en Drive, la Nike Nocta Hot Step 2 (prompt, código y revisor), indexación hasta 1000, y lo nunca contado entra con 1 unidad · · (70) inventario: lo recién traído del catálogo sale \"Sin contar · pon las unidades\", no Agotado · · (69) juntas las dos ramas: lo del inventario y lo de la atención · · (68) ✏️ las cantidades se escriben: una casilla por talla al crear un producto y al añadir tallas (con «Igual para todas»), y en la ficha el número de cada talla se cambia escribiéndolo, sin botón (se guarda solo, con Deshacer) · 🗓️ ventas de días anteriores: en la caja «Venta de: Hoy / Ayer / Otro día» y en «Vendí» el día de la venta (cuenta en ese día en Ventas y en el balance; el stock baja al anotarla; si el producto se contó después, avisa) · 🔧 el botón «Mover» de la ficha no abría (chocaba con las flechas del carrusel) · un doble toque ya no repite la carga · · (67) · 📦 «Traer ahora», «Subir un Excel» y el Excel del inventario van por partes (ya no pasan el límite de Cloudflare): barra de progreso, si se cierra la página sigue el cron, y un Excel que termina tarde no deshace las ventas de la caja · 💬 el Asistente en todas las pantallas del panel (con DeepSeek): conoce el panel, la pantalla donde estás y el stock de lo que nombras, con botón «Abrir …» (antes fallaba en cada pregunta) · · (65) ✏️ cada talla se edita en el panel (precio, foto, código de fábrica) · 🔢 lo que nunca se contó dice «sin contar» · y lo de la v62: revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (64) ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 👕 calzado y ropa: tallas · · (63) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍) · · 2026-10-09 (63) · revisor sin revisar saludos ni gracias, tope $5 · lo aprendido de Cashea ya no le llega a la IA · · (62) revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍)";
+const VERSION = "2026-10-12 (73) · 💬 la IA responde TODOS los comentarios de Instagram: en público una línea escrita por ella (menos spam e insultos) y, si hay interés de compra, el privado con los productos y su precio (COMENTARIOS en wrangler.toml) · · (72) 💬 WhatsApp: el mismo bot contesta por WhatsApp (whatsapp.js; se enciende con WA_PHONE_ID y WA_TOKEN, ver WHATSAPP.md) · · (71) lo de Invictus del 11-oct: la talla siempre contestada, no promete catálogo ni fotos que no manda, no niega marcas que hay en Drive, la Nike Nocta Hot Step 2 (prompt, código y revisor), indexación hasta 1000, y lo nunca contado entra con 1 unidad · · (70) inventario: lo recién traído del catálogo sale \"Sin contar · pon las unidades\", no Agotado · · (69) juntas las dos ramas: lo del inventario y lo de la atención · · (68) ✏️ las cantidades se escriben: una casilla por talla al crear un producto y al añadir tallas (con «Igual para todas»), y en la ficha el número de cada talla se cambia escribiéndolo, sin botón (se guarda solo, con Deshacer) · 🗓️ ventas de días anteriores: en la caja «Venta de: Hoy / Ayer / Otro día» y en «Vendí» el día de la venta (cuenta en ese día en Ventas y en el balance; el stock baja al anotarla; si el producto se contó después, avisa) · 🔧 el botón «Mover» de la ficha no abría (chocaba con las flechas del carrusel) · un doble toque ya no repite la carga · · (67) · 📦 «Traer ahora», «Subir un Excel» y el Excel del inventario van por partes (ya no pasan el límite de Cloudflare): barra de progreso, si se cierra la página sigue el cron, y un Excel que termina tarde no deshace las ventas de la caja · 💬 el Asistente en todas las pantallas del panel (con DeepSeek): conoce el panel, la pantalla donde estás y el stock de lo que nombras, con botón «Abrir …» (antes fallaba en cada pregunta) · · (65) ✏️ cada talla se edita en el panel (precio, foto, código de fábrica) · 🔢 lo que nunca se contó dice «sin contar» · y lo de la v62: revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (64) ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 👕 calzado y ropa: tallas · · (63) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍) · · 2026-10-09 (63) · revisor sin revisar saludos ni gracias, tope $5 · lo aprendido de Cashea ya no le llega a la IA · · (62) revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -592,7 +597,7 @@ async function atenderPeticion(request, env, ctx) {
       const aAtender = (Array.isArray(salida) ? salida : salida ? [salida] : []).filter(Boolean);
       ctx.waitUntil(
         aAtender.length
-          ? anotar(env, "atendido", `${aAtender[0].tipo} de ${aAtender[0].igsid}${aAtender.length > 1 ? ` (+${aAtender.length - 1} más)` : ""} (firma: ${cualFuncionó})`)
+          ? anotar(env, "atendido", `${aAtender[0].tipo} de ${aAtender[0].igsid || aAtender[0].usuario || aAtender[0].de}${aAtender.length > 1 ? ` (+${aAtender.length - 1} más)` : ""} (firma: ${cualFuncionó})`)
           : anotar(env, "descartado", `${queTraia(crudo)} (META_MODO: ${env.META_MODO || "todo"})`)
       );
 
@@ -1376,6 +1381,17 @@ function queAtender(env, crudo) {
     return leerWhatsApp(env, cuerpo);
   }
 
+  // UN COMENTARIO EN UNA PUBLICACIÓN (12-oct-2026, ver comentarios.js). Llega
+  // por otro camino que los mensajes ("changes" en vez de "messaging").
+  const comentarios = leerComentarios(cuerpo);
+  if (comentarios.length) {
+    if (modoComentarios(env) === "off") {
+      console.log("Llegó un comentario pero COMENTARIOS está en off: lo ignoro");
+      return null;
+    }
+    return comentarios;
+  }
+
   return leerMensaje(cuerpo);
 }
 
@@ -1431,6 +1447,12 @@ async function atenderConRed(env, mensaje) {
       }
     }
 
+    if (mensaje.tipo === "comentario") {
+      await atenderComentario(env, mensaje, rastro);
+      await guardarErrores(env.DB, env);
+      return;
+    }
+
     await atenderMeta(env, mensaje, rastro);
     // ¿Contestó bien? Con todo ya enviado: el cliente no espera esto.
     if (rastro.turno?.id) await revisarTurno(env, rastro.turno);
@@ -1443,7 +1465,8 @@ async function atenderConRed(env, mensaje) {
     // nada y no está esperando respuesta. Si falla el manejo del eco, lo
     // último que hay que hacer es escribirle "se me trabó el sistema" de la
     // nada, cuando él no ha dicho ni hola.
-    if (!rastro.respondio && mensaje.tipo !== "eco") {
+    // Ni a un eco ni a un comentario se les escribe "se me trabó el sistema".
+    if (!rastro.respondio && mensaje.tipo !== "eco" && mensaje.tipo !== "comentario") {
       try {
         await enviarTexto(env, mensaje.igsid, FALLO_TECNICO);
       } catch (otro) {
@@ -1453,7 +1476,7 @@ async function atenderConRed(env, mensaje) {
 
     // ❌ en el panel: el turno que se cayó. DESPUÉS de escribirle al cliente:
     // avisar al panel central puede tardar y el cliente no espera eso.
-    if (mensaje.tipo !== "eco") {
+    if (mensaje.tipo !== "eco" && mensaje.tipo !== "comentario") {
       await anotarTurno(
         env.DB,
         { igsid: mensaje.igsid, cliente: mensaje.texto || "", respuesta: rastro.respondio ? "(se le respondió, pero algo falló después)" : "(EL BOT NO PUDO RESPONDER)", marca: "error", motivo: String(error?.message || error).slice(0, 200) },
@@ -1463,6 +1486,7 @@ async function atenderConRed(env, mensaje) {
 
     // El nombre, si ya lo teníamos. Si la base es justo lo que falló, el
     // aviso sale igual, solo que con el ID.
+    if (mensaje.tipo === "comentario") return;
     const cliente = await cargarContacto(env.DB, mensaje.igsid)
       .then(paraElAviso)
       .catch(() => ({}));
@@ -1496,6 +1520,164 @@ async function llegoTextoAlLado(db, igsid) {
     return Number(fila?.n) > 0;
   } catch {
     return false;
+  }
+}
+
+/* ── UN COMENTARIO EN UNA PUBLICACIÓN (12-oct-2026, ver comentarios.js) ──
+   Dos respuestas, y cada una hace algo distinto:
+
+     · EN PÚBLICO, una línea escrita por la IA a lo que dijo esa persona.
+       Todos los comentarios se responden (menos el spam y los insultos).
+
+     · POR PRIVADO, solo si hay interés de compra. Meta deja abrir UN chat
+       por comentario aunque esa persona nunca haya escrito: ahí van el
+       saludo y los productos con su precio, que salen del catálogo (la IA
+       no escribe precios). De ahí en adelante la conversación sigue como
+       cualquier otra.
+   ───────────────────────────────────────────────────────────────── */
+async function atenderComentario(env, comentario, rastro = {}) {
+  await prepararBase(env);
+
+  // Sin base no hay forma de saber qué comentarios ya se contestaron, y Meta
+  // reintenta cada webhook: contestar sería soltar la misma respuesta
+  // pública tres o cuatro veces, a la vista de todos.
+  if (!env.DB) {
+    console.error("COMENTARIO SIN ATENDER: no hay base D1 (revisa database_id en wrangler.toml).");
+    return;
+  }
+
+  if (!(await comentarioNuevo(env.DB, `c:${comentario.id}`))) {
+    console.log(`El comentario ${comentario.id} ya estaba contestado: no repito`);
+    return;
+  }
+
+  // Y sin esto el bot se responde a sí mismo: su respuesta pública genera
+  // otro comentario, que genera otro webhook, que genera otra respuesta.
+  if (esNuestro(comentario, await quienSoy(env))) {
+    console.log("El comentario es nuestro: no me respondo a mí mismo");
+    return;
+  }
+  if (!comentario.texto) {
+    console.log("Comentario sin texto (una foto o un sticker): no respondo");
+    return;
+  }
+
+  console.log(`Comentario de @${comentario.usuario || "?"}: ${JSON.stringify(comentario.texto.slice(0, 60))} (publicación ${comentario.media})`);
+  const modo = modoComentarios(env);
+
+  // 1. La IA lee el comentario y el pie de la publicación.
+  const publicacion = comentario.media ? await publicacionPorId(env, comentario.media) : null;
+  const decision = await responderAComentario(env, {
+    texto: comentario.texto,
+    usuario: comentario.usuario,
+    publicacion: publicacion?.titulo || "",
+  });
+  if (!decision) {
+    console.error("COMENTARIO: la IA no respondió; lo suelto para que Meta reintente");
+    await env.DB.prepare("DELETE FROM comentarios WHERE id = ?").bind(`c:${comentario.id}`).run().catch(() => {});
+    return;
+  }
+
+  // 2. Si hay interés de compra: el privado, con los productos del catálogo.
+  let igsid = "";
+  let productos = [];
+  const yaAtendido = comentario.de ? estaPausado(await cargarContacto(env.DB, comentario.de)) : false;
+  if (yaAtendido) {
+    console.log(`A @${comentario.usuario || comentario.de} lo está atendiendo un asesor por privado: no le escribo por encima`);
+  }
+
+  if (decision.interes && !yaAtendido && (modo === "todo" || modo === "privado")) {
+    const termino = decision.buscar && decision.buscar.toUpperCase() !== "NADA" ? decision.buscar : "";
+    if (termino) {
+      try {
+        productos = (await buscarProductos(env, termino, 5)).productos || [];
+      } catch (error) {
+        console.error(`COMENTARIO: la búsqueda de "${termino}" falló: ${error?.message || error}`);
+      }
+    }
+    const saludo = decision.privado || saludoPrivado(comentario.usuario, productos.length > 0);
+    const mensajePrivado = productos.length ? conLosPrecios(saludo, productos) : saludo;
+
+    const abierto = await privadoPorComentario(env, comentario.id, mensajePrivado);
+    igsid = abierto.igsid;
+
+    if (igsid) {
+      rastro.respondio = true;
+      const contacto = await cargarContacto(env.DB, igsid);
+      let mids = agregarMid(contacto.mids_enviados, abierto.mid);
+      let enviadoEn = Date.now();
+      await marcarEnvio(env.DB, igsid, mids, enviadoEn);
+
+      // Las fichas se intentan igual: si esa persona ya venía escribiendo, la
+      // ventana está abierta. Si no, Meta solo deja UN mensaje por comentario
+      // y el precio ya va escrito arriba.
+      let fotosEnviadas = false;
+      if (productos.length) {
+        const mid = await enviarFichas(env, igsid, productos);
+        if (mid) {
+          fotosEnviadas = true;
+          mids = agregarMid(mids, mid);
+          enviadoEn = Date.now();
+          await marcarEnvio(env.DB, igsid, mids, enviadoEn);
+        }
+      }
+      await guardarContacto(env.DB, {
+        ...contacto,
+        historial: conNota(
+          contacto.historial,
+          `Ya di la bienvenida. Vino de un comentario en una publicación${decision.buscar && decision.buscar !== "NADA" ? ` (${decision.buscar})` : ""}. ` +
+            (productos.length ? (fotosEnviadas ? "Le mandé las fichas." : "Le pasé los precios por escrito; si pide fotos, mándaselas.") : "Le pregunté qué producto le interesa.")
+        ),
+        mids_enviados: mids,
+        ultimo_envio: enviadoEn,
+      });
+    }
+  }
+
+  // 3. La respuesta en público. Lo que se dice tiene que ser verdad: solo
+  // se habla del privado si salió de verdad.
+  let enPublicoPuesto = false;
+  if ((modo === "todo" || modo === "publico" || (!igsid && modo === "privado")) && decision.publico) {
+    let enPublico = decision.publico;
+    const hablaDelPrivado = /priv|\bdm\b|bandeja|inbox/i.test(enPublico);
+    if (yaAtendido) {
+      enPublico = "¡Ya te estamos atendiendo por privado! 📩";
+    } else if (decision.interes) {
+      if (igsid && !hablaDelPrivado) enPublico = `${enPublico} Te escribimos por DM 📩`;
+      // Si el privado NO salió, no se promete: se le pide que escriba él.
+      if (!igsid) enPublico = hablaDelPrivado ? "¡Hola! 😊 Escríbenos por privado y te pasamos toda la info 📩" : `${enPublico} Escríbenos por privado 📩`;
+    }
+    const idRespuesta = await responderComentario(env, comentario.id, enPublico);
+    if (idRespuesta) {
+      rastro.respondio = true;
+      enPublicoPuesto = true;
+      // Su eco, si vuelve como comentario, no se contesta.
+      await comentarioNuevo(env.DB, `c:${idRespuesta}`).catch(() => {});
+    }
+  }
+
+  // No se pudo decir nada, ni en público ni en privado: se suelta la marca
+  // para que el reintento de Meta valga.
+  if (!igsid && !enPublicoPuesto && decision.publico) {
+    await env.DB.prepare("DELETE FROM comentarios WHERE id = ?").bind(`c:${comentario.id}`).run().catch(() => {});
+  }
+
+  // 4. Y al asesor, porque un comentario con interés es alguien mirando el
+  // producto ahora mismo.
+  if (decision.interes && (productos.length || igsid)) {
+    await avisarAsesor(env, {
+      nombre: comentario.usuario ? `@${comentario.usuario}` : "",
+      igsid,
+      mensaje: `(comentario) ${comentario.texto}`,
+      respuesta: yaAtendido
+        ? "Comentó en una publicación mientras un asesor lo atiende por privado: NO le escribí nada."
+        : igsid
+          ? `Le abrí el privado${productos.length ? ` con ${productos.length} producto(s)` : ""}.`
+          : "No pude abrirle el privado: le contesté en público que escriba.",
+      motivo: "COMENTÓ EN UNA PUBLICACIÓN",
+      historial: publicacion?.titulo ? `Publicación: ${publicacion.titulo.slice(0, 120)}` : "",
+      productos,
+    });
   }
 }
 

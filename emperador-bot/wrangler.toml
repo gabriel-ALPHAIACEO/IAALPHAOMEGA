@@ -151,6 +151,20 @@ META_MODO = "todo"
 # el webhook.
 META_VERIFY_TOKEN = "emperador2026"
 
+# --- LOS COMENTARIOS DE LAS PUBLICACIONES (12-oct-2026) -----------------
+# La IA responde TODOS los comentarios: en publico, una linea escrita por
+# ella (menos el spam y los insultos) y, si la persona quiere comprar, el
+# privado con los productos y su precio. Cambia lo que hace asi:
+#   "todo"     publico + privado cuando hay interes  <- por defecto
+#   "privado"  solo el privado
+#   "publico"  solo la respuesta publica
+#   "off"      no toca los comentarios
+# Para que lleguen hacen falta DOS cosas fuera del codigo:
+#   1. Meta -> tu app -> Instagram -> Webhooks: suscribir el campo
+#      "comments" (ademas de "messages").
+#   2. Que el IG_TOKEN tenga el permiso instagram_business_manage_comments.
+COMENTARIOS = "todo"
+
 # --- WHATSAPP (12-oct-2026, ver src/whatsapp.js y WHATSAPP.md) ------------
 # El mismo bot contesta también por WhatsApp, con el número de la tienda.
 # El id del número (NO es secreto): Meta → WhatsApp → Configuración de la

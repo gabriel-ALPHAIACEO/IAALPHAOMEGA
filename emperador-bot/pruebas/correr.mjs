@@ -22,6 +22,7 @@ const SUITES = [
   ["gasto.mjs", "la medición del gasto de OpenAI"],
   ["hotstep.mjs", "lo de Invictus del 11-oct: Nocta Hot Step 2 y las redes de faltas.js"],
   ["whatsapp.mjs", "WhatsApp: lo que llega, lo que sale por su canal y que un aviso repetido no se conteste dos veces"],
+  ["comentarios.mjs", "la IA responde todos los comentarios de Instagram: público, privado con precios, sin spam, sin repetir"],
   ["prompt.mjs", "que los prompts se armen y las reglas sigan escritas"],
   ["corpus.mjs", "que los guardianes no alteren respuestas buenas"],
   ["deepseek.mjs", "DeepSeek: dos modelos (texto e imágenes), sin pensar de más, JSON, fotos, errores y /estado"],

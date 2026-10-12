@@ -17,6 +17,7 @@
 // IA se concentre en lo suyo: una en mirar bien, la otra en vender bien.
 
 import promptTexto from "./prompts/texto.txt";
+import promptComentarios from "./prompts/comentarios.txt";
 import promptVision from "./prompts/vision.txt";
 import promptCotejo from "./prompts/cotejo.txt";
 import listaCatalogo from "./prompts/catalogo.txt";
@@ -684,6 +685,32 @@ export async function responderTexto(env, entrada) {
     { schema: ESQUEMA_RESPUESTA }
   );
   return normalizar(salida);
+}
+
+// UN COMENTARIO EN UNA PUBLICACIÓN (12-oct-2026, ver comentarios.js). La IA
+// escribe la respuesta pública y decide si hay interés de compra (y por
+// qué producto). Devuelve { publico, interes, buscar, privado } o null si la
+// IA no respondió: quien llama usa una respuesta por defecto, no se queda
+// callado.
+export async function responderAComentario(env, { texto, usuario = "", publicacion = "" }) {
+  const sistema = `${promptComentarios}\n\nDATOS DE LA TIENDA\n${datosParaElPrompt()}`;
+  const contenido = [
+    {
+      type: "text",
+      text:
+        `Comentario${usuario ? ` de @${usuario}` : ""}: ${JSON.stringify(String(texto || "").slice(0, 500))}\n` +
+        `Pie de la publicación: ${publicacion ? JSON.stringify(String(publicacion).slice(0, 500)) : "(no se pudo leer)"}`,
+    },
+  ];
+  const salida = await llamar(env, sistema, contenido, { maxTokens: 300, json: true });
+  const datos = extraerJson(salida);
+  if (!datos || typeof datos !== "object") return null;
+  return {
+    publico: String(datos.publico ?? "").trim(),
+    interes: datos.interes === true,
+    buscar: String(datos.buscar || "NADA").trim(),
+    privado: String(datos.privado || "").trim(),
+  };
 }
 
 // SOLO identifica: no redacta nada para el cliente. Devuelve
