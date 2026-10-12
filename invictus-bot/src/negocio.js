@@ -22,7 +22,7 @@
 // ESTE ARCHIVO ES IGUAL EN LAS TRES TIENDAS. Las ventas son las de la caja
 // (inv_ventas en inventario.js); aquí se suman, no se duplican.
 
-import { asegurarInventario, sedes, listarProductos, verProducto } from "./inventario.js";
+import { asegurarInventario, sedes, listarProductos, verProductos } from "./inventario.js";
 import { guiaDelPanel, nombreDePantalla, pantallaValida } from "./asistente.js";
 import { rubroDe } from "./marco.js";
 import { anotarGasto } from "./gasto.js";
@@ -75,7 +75,8 @@ let listo = false;
 export async function asegurarNegocio(db) {
   await asegurarInventario(db);
   if (listo) return;
-  for (const sentencia of TABLAS_NEGOCIO) await db.prepare(sentencia).run();
+  // Todas juntas, en una sola ida a la base (12-oct-2026).
+  await db.batch(TABLAS_NEGOCIO.map((sentencia) => db.prepare(sentencia)));
   listo = true;
 }
 
@@ -354,75 +355,81 @@ export async function abonar(db, { clave, monto, metodo = "", quien = "", nota =
 
 export async function resumen(db, { desde, hasta }) {
   await asegurarNegocio(db);
-  const ventas = await db
-    .prepare(
-      `SELECT COUNT(*) AS cantidad, COALESCE(SUM(total), 0) AS total, SUM(CASE WHEN total IS NULL THEN 1 ELSE 0 END) AS sin_precio,
+  // Las nueve preguntas no dependen una de otra: van juntas (una vuelta a la base en vez de nueve).
+  const [ventas, margen, libres, abonos, gastosCat, metodos, vendidos, ventasDelPeriodo, gastosDelPeriodo] = await Promise.all([
+    db
+      .prepare(
+        `SELECT COUNT(*) AS cantidad, COALESCE(SUM(total), 0) AS total, SUM(CASE WHEN total IS NULL THEN 1 ELSE 0 END) AS sin_precio,
               COALESCE(SUM(CASE WHEN fiado = 0 THEN total ELSE 0 END), 0) AS contado,
               COALESCE(SUM(CASE WHEN fiado = 1 THEN total ELSE 0 END), 0) AS fiado
          FROM inv_ventas WHERE anulada = 0 AND creado >= ? AND creado < ?`
-    )
-    .bind(desde, hasta)
-    .first();
-  // La ganancia de lo vendido: precio − costo de cada producto que tiene
-  // costo cargado. Lo que no lo tiene se dice aparte, para no inventar.
-  const margen = await db
-    .prepare(
-      `SELECT COALESCE(SUM(CASE WHEN m.costo IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - m.costo) ELSE 0 END), 0) AS ganancia,
+      )
+      .bind(desde, hasta)
+      .first(),
+    // La ganancia de lo vendido: precio − costo de cada producto que tiene
+    // costo cargado. Lo que no lo tiene se dice aparte, para no inventar.
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(CASE WHEN m.costo IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - m.costo) ELSE 0 END), 0) AS ganancia,
               COALESCE(SUM(CASE WHEN m.costo IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido_con_costo,
               COALESCE(SUM(CASE WHEN m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido,
               COALESCE(SUM(-m.delta), 0) AS unidades
          FROM inv_movimientos m JOIN inv_ventas ve ON ve.id = m.venta_id
         WHERE m.tipo = 'venta' AND ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?`
-    )
-    .bind(desde, hasta)
-    .first();
-  const libres = await db
-    .prepare(
-      `SELECT COALESCE(SUM(x.cantidad), 0) AS unidades FROM inv_venta_libre x JOIN inv_ventas ve ON ve.id = x.venta_id
+      )
+      .bind(desde, hasta)
+      .first(),
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(x.cantidad), 0) AS unidades FROM inv_venta_libre x JOIN inv_ventas ve ON ve.id = x.venta_id
         WHERE ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?`
-    )
-    .bind(desde, hasta)
-    .first();
-  const abonos = await db
-    .prepare("SELECT COALESCE(SUM(a.monto), 0) AS total FROM neg_abonos a JOIN inv_ventas ve ON ve.id = a.venta_id WHERE ve.anulada = 0 AND a.creado >= ? AND a.creado < ?")
-    .bind(desde, hasta)
-    .first();
-  const { results: gastosPorCategoria } = await db
-    .prepare("SELECT categoria, SUM(monto) AS total, COUNT(*) AS cantidad FROM neg_gastos WHERE borrado = 0 AND fecha >= ? AND fecha < ? GROUP BY categoria ORDER BY total DESC")
-    .bind(desde, hasta)
-    .all();
-  const { results: porMetodo } = await db
-    .prepare(
-      `SELECT CASE WHEN metodo_pago = '' THEN 'Sin decir' ELSE metodo_pago END AS metodo, COUNT(*) AS cantidad, COALESCE(SUM(total), 0) AS total
+      )
+      .bind(desde, hasta)
+      .first(),
+    db
+      .prepare("SELECT COALESCE(SUM(a.monto), 0) AS total FROM neg_abonos a JOIN inv_ventas ve ON ve.id = a.venta_id WHERE ve.anulada = 0 AND a.creado >= ? AND a.creado < ?")
+      .bind(desde, hasta)
+      .first(),
+    db
+      .prepare("SELECT categoria, SUM(monto) AS total, COUNT(*) AS cantidad FROM neg_gastos WHERE borrado = 0 AND fecha >= ? AND fecha < ? GROUP BY categoria ORDER BY total DESC")
+      .bind(desde, hasta)
+      .all(),
+    db
+      .prepare(
+        `SELECT CASE WHEN metodo_pago = '' THEN 'Sin decir' ELSE metodo_pago END AS metodo, COUNT(*) AS cantidad, COALESCE(SUM(total), 0) AS total
          FROM inv_ventas WHERE anulada = 0 AND creado >= ? AND creado < ? GROUP BY 1 ORDER BY total DESC`
-    )
-    .bind(desde, hasta)
-    .all();
-  const { results: masVendidos } = await db
-    .prepare(
-      `SELECT p.id, p.titulo, SUM(-m.delta) AS unidades, COALESCE(SUM(-m.delta * m.precio), 0) AS monto
+      )
+      .bind(desde, hasta)
+      .all(),
+    db
+      .prepare(
+        `SELECT p.id, p.titulo, SUM(-m.delta) AS unidades, COALESCE(SUM(-m.delta * m.precio), 0) AS monto
          FROM inv_movimientos m JOIN inv_ventas ve ON ve.id = m.venta_id
          JOIN inv_variantes v ON v.id = m.variante_id JOIN inv_productos p ON p.id = v.producto_id
         WHERE m.tipo = 'venta' AND ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?
         GROUP BY p.id ORDER BY unidades DESC, monto DESC LIMIT 10`
-    )
-    .bind(desde, hasta)
-    .all();
+      )
+      .bind(desde, hasta)
+      .all(),
+    db.prepare("SELECT creado, total FROM inv_ventas WHERE anulada = 0 AND creado >= ? AND creado < ?").bind(desde, hasta).all(),
+    db.prepare("SELECT fecha, monto FROM neg_gastos WHERE borrado = 0 AND fecha >= ? AND fecha < ?").bind(desde, hasta).all(),
+  ]);
+  const gastosPorCategoria = gastosCat.results;
+  const porMetodo = metodos.results;
+  const masVendidos = vendidos.results;
 
   // Por día, para el gráfico.
   const dias = [];
   for (let t = desde; t < hasta; t += DIA_MS) dias.push({ dia: diaDe(t + 12 * 3600 * 1000), ventas: 0, gastos: 0, cantidad: 0 });
   const indice = new Map(dias.map((d, i) => [d.dia, i]));
-  const { results: ventasDia } = await db.prepare("SELECT creado, total FROM inv_ventas WHERE anulada = 0 AND creado >= ? AND creado < ?").bind(desde, hasta).all();
-  for (const v of ventasDia || []) {
+  for (const v of ventasDelPeriodo.results || []) {
     const i = indice.get(diaDe(v.creado));
     if (i !== undefined) {
       dias[i].ventas += Number(v.total) || 0;
       dias[i].cantidad++;
     }
   }
-  const { results: gastosDia } = await db.prepare("SELECT fecha, monto FROM neg_gastos WHERE borrado = 0 AND fecha >= ? AND fecha < ?").bind(desde, hasta).all();
-  for (const g of gastosDia || []) {
+  for (const g of gastosDelPeriodo.results || []) {
     const i = indice.get(diaDe(g.fecha));
     if (i !== undefined) dias[i].gastos += Number(g.monto) || 0;
   }
@@ -580,19 +587,19 @@ export async function productosQueNombra(db, pregunta) {
   )].slice(0, 4);
   if (!palabras.length) return [];
   const puntos = new Map();
-  for (const palabra of palabras) {
-    for (const p of await listarProductos(db, { q: palabra, limite: 12 })) {
+  // Una búsqueda por palabra, todas a la vez; se cuentan en el orden de las palabras.
+  for (const encontrados of await Promise.all(palabras.map((palabra) => listarProductos(db, { q: palabra, limite: 12 })))) {
+    for (const p of encontrados) {
       const ya = puntos.get(p.id) || { p, n: 0 };
       ya.n++;
       puntos.set(p.id, ya);
     }
   }
   const mejores = [...puntos.values()].sort((a, b) => b.n - a.n).slice(0, 6);
-  const nombresDeSede = new Map((await sedes(db)).map((s) => [s.id, s.nombre]));
+  const [todasLasSedes, completos] = await Promise.all([sedes(db), verProductos(db, mejores.map(({ p }) => p.id))]);
+  const nombresDeSede = new Map(todasLasSedes.map((s) => [s.id, s.nombre]));
   const salida = [];
-  for (const { p } of mejores) {
-    const completo = await verProducto(db, p.id);
-    if (!completo) continue;
+  for (const completo of completos) {
     salida.push({
       titulo: completo.titulo,
       marca: completo.marca || undefined,

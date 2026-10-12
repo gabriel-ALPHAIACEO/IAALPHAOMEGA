@@ -60,15 +60,30 @@ const CREAR_ERRORES = `
   )
 `;
 
+// ¿Le falta esa columna a la tabla? Una lectura; si no se puede mirar, se dice que sí falta
+// (añadirla si ya estaba falla sin daño, y es lo que se hacía siempre).
+async function faltaColumna(db, tabla, columna) {
+  try {
+    const { results } = await db.prepare(`SELECT name FROM pragma_table_info('${tabla}')`).all();
+    return !(results || []).some((c) => c.name === columna);
+  } catch {
+    return true;
+  }
+}
+
 // La tabla de antes no tenía "resuelto": se añade sola (6-oct-2026).
 let erroresListos = false;
 export async function asegurarErrores(db) {
   if (erroresListos || !db) return;
   await db.prepare(CREAR_ERRORES).run();
-  try {
-    await db.prepare("ALTER TABLE errores ADD COLUMN resuelto INTEGER NOT NULL DEFAULT 0").run();
-  } catch {
-    // Ya estaba.
+  // Antes se intentaba añadir la columna SIEMPRE y fallaba (y se perdía una ida a la base) en
+  // cada arranque; ahora se mira primero (12-oct-2026).
+  if (await faltaColumna(db, "errores", "resuelto")) {
+    try {
+      await db.prepare("ALTER TABLE errores ADD COLUMN resuelto INTEGER NOT NULL DEFAULT 0").run();
+    } catch {
+      // Ya estaba (dos a la vez).
+    }
   }
   erroresListos = true;
 }
@@ -200,24 +215,27 @@ let turnosListos = false;
 // añaden solas (como todo lo de la base, sin migraciones a mano).
 export async function asegurarTurnos(db) {
   if (turnosListos) return;
-  await db.prepare(CREAR_TURNOS).run();
-  for (const columna of ["marca", "motivo"]) {
+  // La tabla y sus dos índices (para abrir un chat y contar el día sin leer la
+  // tabla entera), en una sola ida a la base (12-oct-2026).
+  await db.batch([
+    db.prepare(CREAR_TURNOS),
+    db.prepare("CREATE INDEX IF NOT EXISTS turnos_igsid ON turnos (igsid, cuando)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS turnos_cuando ON turnos (cuando)"),
+  ]);
+  // Antes se intentaba añadir cada columna SIEMPRE y fallaban (tres idas perdidas en cada
+  // arranque); ahora se mira primero qué falta. "resuelto" es de "Solucionado" (6-oct-2026): la
+  // marca se queda (es la historia), pero deja de salir en rojo en los paneles.
+  const columnas = [["marca", "TEXT NOT NULL DEFAULT ''"], ["motivo", "TEXT NOT NULL DEFAULT ''"], ["resuelto", "INTEGER NOT NULL DEFAULT 0"]];
+  const { results: hay } = await db.prepare("SELECT name FROM pragma_table_info('turnos')").all();
+  const tiene = new Set((hay || []).map((c) => c.name));
+  for (const [columna, tipo] of columnas) {
+    if (tiene.has(columna)) continue;
     try {
-      await db.prepare(`ALTER TABLE turnos ADD COLUMN ${columna} TEXT NOT NULL DEFAULT ''`).run();
+      await db.prepare(`ALTER TABLE turnos ADD COLUMN ${columna} ${tipo}`).run();
     } catch {
-      // Ya estaba.
+      // Ya estaba (dos a la vez).
     }
   }
-  // "Solucionado" (6-oct-2026): la marca se queda (es la historia), pero
-  // deja de salir en rojo en los paneles.
-  try {
-    await db.prepare("ALTER TABLE turnos ADD COLUMN resuelto INTEGER NOT NULL DEFAULT 0").run();
-  } catch {
-    // Ya estaba.
-  }
-  // Para abrir un chat y contar el día sin leer la tabla entera.
-  await db.prepare("CREATE INDEX IF NOT EXISTS turnos_igsid ON turnos (igsid, cuando)").run();
-  await db.prepare("CREATE INDEX IF NOT EXISTS turnos_cuando ON turnos (cuando)").run();
   turnosListos = true;
 }
 

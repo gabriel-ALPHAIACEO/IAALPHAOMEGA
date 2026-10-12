@@ -538,8 +538,10 @@ background:linear-gradient(135deg,hsl(var(--h) 85% 64%),hsl(calc(var(--h) + 50) 
 .stock{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;padding:4px 10px;border-radius:999px;white-space:nowrap}
 .stock i{width:7px;height:7px;border-radius:50%;background:currentColor}
 .stock.hay{color:var(--bien);background:var(--bien-fondo)}.stock.poco{color:var(--aviso);background:var(--aviso-fondo)}.stock.cero{color:var(--mal);background:var(--mal-fondo)}
-.stock.poco i{animation:latido-aviso 2s infinite}
-@keyframes latido-aviso{0%{box-shadow:0 0 0 0 rgba(255,191,71,.6)}70%{box-shadow:0 0 0 6px rgba(255,191,71,0)}100%{box-shadow:0 0 0 0 rgba(255,191,71,0)}}
+.stock.poco i{position:relative;background:none}
+.stock.poco i::before,.stock.poco i::after{content:"";position:absolute;inset:0;border-radius:50%;background:currentColor}
+.stock.poco i::before{background:rgb(255,191,71);animation:latido-aviso 2s infinite}
+@keyframes latido-aviso{0%{transform:scale(1);opacity:.6}70%{transform:scale(2.7143);opacity:0}100%{transform:scale(2.7143);opacity:0}}
 /* Vacío */
 .vacio{display:flex;flex-direction:column;align-items:center;text-align:center;padding:42px 20px 38px;border-radius:26px;border:1px dashed var(--borde-fuerte);background:rgba(255,255,255,.015)}
 .vacio-dibujo{position:relative;display:grid;place-items:center;width:96px;height:96px;margin-bottom:16px;color:var(--cian)}

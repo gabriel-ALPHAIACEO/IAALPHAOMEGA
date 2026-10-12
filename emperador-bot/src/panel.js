@@ -162,15 +162,18 @@ const CREAR_MENSAJES = `
 let mensajesListos = false;
 async function asegurarMensajes(db) {
   if (mensajesListos) return;
-  await db.prepare(CREAR_MENSAJES).run();
+  // La tabla y sus dos índices, en una sola ida a la base (12-oct-2026).
+  await db.batch([
+    db.prepare(CREAR_MENSAJES),
+    db.prepare("CREATE INDEX IF NOT EXISTS mensajes_igsid ON mensajes (igsid, cuando)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS mensajes_cuando ON mensajes (cuando)"),
+  ]);
   // Las fotos y las fichas (5-oct-2026, ver alpha.js): las tablas de antes
   // no tienen la columna. Si dos a la vez la añaden, la segunda falla: da igual.
   const { results: columnas } = await db.prepare("PRAGMA table_info(mensajes)").all();
   if (!(columnas || []).some((c) => c.name === "adjuntos")) {
     await db.prepare("ALTER TABLE mensajes ADD COLUMN adjuntos TEXT NOT NULL DEFAULT ''").run().catch(() => {});
   }
-  await db.prepare("CREATE INDEX IF NOT EXISTS mensajes_igsid ON mensajes (igsid, cuando)").run();
-  await db.prepare("CREATE INDEX IF NOT EXISTS mensajes_cuando ON mensajes (cuando)").run();
   mensajesListos = true;
 }
 
@@ -511,9 +514,16 @@ export async function mandarDesdeElPanel(env, igsid, texto, horasDePausa = 1) {
 export async function marcaDeNovedades(db) {
   try {
     await asegurarMensajes(db);
-    const m = await db.prepare("SELECT MAX(id) AS n FROM mensajes").first();
-    const t = await db.prepare("SELECT MAX(id) AS n FROM turnos").first().catch(() => null);
-    return `${Number(m?.n) || 0}-${Number(t?.n) || 0}`;
+    // UNA sola ida a la base (antes eran dos, una tras otra, cada 3 segundos).
+    try {
+      const f = await db.prepare("SELECT (SELECT MAX(id) FROM mensajes) AS m, (SELECT MAX(id) FROM turnos) AS t").first();
+      return `${Number(f?.m) || 0}-${Number(f?.t) || 0}`;
+    } catch {
+      // Todavía sin la tabla de turnos: se pregunta aparte, como antes.
+      const m = await db.prepare("SELECT MAX(id) AS n FROM mensajes").first();
+      const t = await db.prepare("SELECT MAX(id) AS n FROM turnos").first().catch(() => null);
+      return `${Number(m?.n) || 0}-${Number(t?.n) || 0}`;
+    }
   } catch {
     return "";
   }
@@ -599,43 +609,62 @@ async function deshacerConversacion(db, antes) {
 
 async function contactosParaLista(db, { q = "", filtro = "" } = {}) {
   await asegurarColumnas(db);
-  // Cada tienda tiene sus columnas: se pide solo lo que existe.
-  const { results: columnas } = await db.prepare("PRAGMA table_info(contactos)").all();
-  const hay = new Set((columnas || []).map((c) => String(c.name)));
-  const pedir = ["id", "nombre", "nombre_completo", "usuario", "ultimo_envio", "pausado_hasta", "conversacion", "publicacion"].filter((c) => hay.has(c));
-  const r = await db.prepare(`SELECT ${pedir.join(", ")} FROM contactos ORDER BY ultimo_envio DESC LIMIT 300`).all();
-
-  // El último mensaje de cada uno, de la tabla de mensajes.
-  const ultimos = new Map();
-  let conLaPalabra = null;
-  try {
-    await asegurarMensajes(db);
-    const u = await db.prepare("SELECT igsid, de, texto, MAX(cuando) AS cuando FROM mensajes GROUP BY igsid").all();
-    for (const m of u?.results || []) ultimos.set(String(m.igsid), { de: m.de, texto: m.texto, cuando: Number(m.cuando) || 0 });
-    if (String(q || "").trim()) {
-      const b = await db
-        // instr() y no LIKE: D1 no acepta patrones de LIKE de más de 50 bytes.
-        .prepare("SELECT DISTINCT igsid FROM mensajes WHERE instr(lower(texto), ?) > 0")
-        .bind(String(q).toLowerCase().trim())
-        .all();
-      conLaPalabra = new Set((b?.results || []).map((m) => String(m.igsid)));
-    }
-  } catch {}
-
-  // Los problemas de la última semana, por cliente: salen como símbolos en
-  // la lista para ver de un vistazo dónde mirar.
-  const problemas = new Map();
-  try {
-    await asegurarTurnos(db);
-    const m = await db
-      .prepare("SELECT igsid, marca, COUNT(*) AS n FROM turnos WHERE marca != '' AND resuelto = 0 AND cuando > ? GROUP BY igsid, marca")
-      .bind(Date.now() - 7 * 86400000)
-      .all();
-    for (const f of m?.results || []) {
-      if (!problemas.has(String(f.igsid))) problemas.set(String(f.igsid), {});
-      problemas.get(String(f.igsid))[f.marca] = Number(f.n) || 0;
-    }
-  } catch {}
+  // Tres lecturas que no dependen una de otra: van juntas (12-oct-2026).
+  const [r, { ultimos, conLaPalabra }, problemas] = await Promise.all([
+    (async () => {
+      // Cada tienda tiene sus columnas: se pide solo lo que existe.
+      const { results: columnas } = await db.prepare("PRAGMA table_info(contactos)").all();
+      const hay = new Set((columnas || []).map((c) => String(c.name)));
+      const pedir = ["id", "nombre", "nombre_completo", "usuario", "ultimo_envio", "pausado_hasta", "conversacion", "publicacion"].filter((c) => hay.has(c));
+      return db.prepare(`SELECT ${pedir.join(", ")} FROM contactos ORDER BY ultimo_envio DESC LIMIT 300`).all();
+    })(),
+    (async () => {
+      // El último mensaje de cada uno, de la tabla de mensajes. Solo de los
+      // que salen en la lista (antes se recorría la tabla entera, que crece
+      // sin parar): con el índice (igsid, cuando) es mirar uno por contacto.
+      const ultimos = new Map();
+      let conLaPalabra = null;
+      try {
+        await asegurarMensajes(db);
+        const [u, b] = await Promise.all([
+          db
+            .prepare(
+              `SELECT m.igsid, m.de, m.texto, m.cuando
+                 FROM (SELECT id FROM contactos ORDER BY ultimo_envio DESC LIMIT 300) c
+                 JOIN mensajes m ON m.id = (SELECT m2.id FROM mensajes m2 WHERE m2.igsid = c.id ORDER BY m2.cuando DESC, m2.id DESC LIMIT 1)`
+            )
+            .all(),
+          String(q || "").trim()
+            ? db
+                // instr() y no LIKE: D1 no acepta patrones de LIKE de más de 50 bytes.
+                .prepare("SELECT DISTINCT igsid FROM mensajes WHERE instr(lower(texto), ?) > 0")
+                .bind(String(q).toLowerCase().trim())
+                .all()
+            : null,
+        ]);
+        for (const m of u?.results || []) ultimos.set(String(m.igsid), { de: m.de, texto: m.texto, cuando: Number(m.cuando) || 0 });
+        if (b) conLaPalabra = new Set((b?.results || []).map((m) => String(m.igsid)));
+      } catch {}
+      return { ultimos, conLaPalabra };
+    })(),
+    (async () => {
+      // Los problemas de la última semana, por cliente: salen como símbolos en
+      // la lista para ver de un vistazo dónde mirar.
+      const problemas = new Map();
+      try {
+        await asegurarTurnos(db);
+        const m = await db
+          .prepare("SELECT igsid, marca, COUNT(*) AS n FROM turnos WHERE marca != '' AND resuelto = 0 AND cuando > ? GROUP BY igsid, marca")
+          .bind(Date.now() - 7 * 86400000)
+          .all();
+        for (const f of m?.results || []) {
+          if (!problemas.has(String(f.igsid))) problemas.set(String(f.igsid), {});
+          problemas.get(String(f.igsid))[f.marca] = Number(f.n) || 0;
+        }
+      } catch {}
+      return problemas;
+    })(),
+  ]);
 
   const busca = String(q || "").toLowerCase().trim();
   return (r?.results || [])
@@ -734,12 +763,16 @@ function cajaDePienso(t) {
 }
 
 async function paginaDeConversacion(env, id, tienda, { horasDePausa = 1, conAnuncios = true, aviso = "" } = {}) {
-  const contacto = await cargarContacto(env.DB, id);
-  // La ficha del CRM (ver crm.js): etapa, notas y etiquetas.
-  const [delCrm] = await clientesDelCrm(env.DB, { soloId: id }).catch(() => []);
-  const guardados = await mensajesDe(env.DB, id);
+  // Las cuatro lecturas no dependen una de otra: van juntas.
+  const [contacto, delCrmLista, guardados, turnos] = await Promise.all([
+    cargarContacto(env.DB, id),
+    // La ficha del CRM (ver crm.js): etapa, notas y etiquetas.
+    clientesDelCrm(env.DB, { soloId: id }).catch(() => []),
+    mensajesDe(env.DB, id),
+    turnosDe(env.DB, id),
+  ]);
+  const [delCrm] = delCrmLista;
   const charla = guardados.length ? guardados : contacto.conversacion || [];
-  const turnos = await turnosDe(env.DB, id);
   const usados = new Set();
 
   // Cada respuesta del bot se empareja con el turno que la produjo (por

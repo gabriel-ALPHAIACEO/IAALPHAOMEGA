@@ -206,10 +206,34 @@ export const TIPOS_DE_MOVIMIENTO = {
 };
 
 let listo = false;
+let preparando = null;
 
+// ARRANQUE RÁPIDO (12-oct-2026). Antes: unas 27 idas a la base, una tras otra, cada vez que
+// el Worker despertaba (la primera página tardaba un segundo largo solo en esto). Ahora: UNA
+// con las tablas, los índices y la sede principal (un batch es una transacción), y otra para
+// mirar las columnas. Si dos pedidos llegan a la vez, el segundo espera al primero.
 export async function asegurarInventario(db) {
   if (listo) return;
-  for (const sentencia of TABLAS_INVENTARIO) await db.prepare(sentencia).run();
+  if (!preparando) {
+    preparando = prepararInventario(db).then(
+      () => {
+        listo = true;
+      },
+      (error) => {
+        preparando = null;
+        throw error;
+      }
+    );
+  }
+  await preparando;
+}
+
+async function prepararInventario(db) {
+  // Toda tienda tiene al menos una sede. Las demás se añaden en el panel.
+  await db.batch([
+    ...TABLAS_INVENTARIO.map((sentencia) => db.prepare(sentencia)),
+    db.prepare("INSERT OR IGNORE INTO inv_locales (nombre, creado) SELECT 'Principal', ? WHERE NOT EXISTS (SELECT 1 FROM inv_locales)").bind(Date.now()),
+  ]);
   const { results: hay } = await db
     .prepare(
       "SELECT 'inv_productos' AS t, name FROM pragma_table_info('inv_productos') UNION ALL SELECT 'inv_ventas', name FROM pragma_table_info('inv_ventas') UNION ALL SELECT 'inv_movimientos', name FROM pragma_table_info('inv_movimientos') UNION ALL SELECT 'inv_variantes', name FROM pragma_table_info('inv_variantes')"
@@ -219,12 +243,6 @@ export async function asegurarInventario(db) {
   for (const [tabla, columna, tipo] of COLUMNAS_NUEVAS) {
     if (!tiene.has(`${tabla}.${columna}`)) await db.prepare(`ALTER TABLE ${tabla} ADD COLUMN ${columna} ${tipo}`).run();
   }
-  // Toda tienda tiene al menos una sede. Las demás se añaden en el panel.
-  await db
-    .prepare("INSERT OR IGNORE INTO inv_locales (nombre, creado) SELECT 'Principal', ? WHERE NOT EXISTS (SELECT 1 FROM inv_locales)")
-    .bind(Date.now())
-    .run();
-  listo = true;
 }
 
 // 1 UNIDAD A TODO LO QUE NUNCA SE CONTÓ (11-oct-2026, pedido del dueño de
@@ -258,6 +276,7 @@ export async function darUnoALosSinContar(db, { quien = "Inicio: 1 unidad" } = {
 // Solo para las pruebas: cada base de mentira empieza de cero.
 export function olvidarQueEstaListo() {
   listo = false;
+  preparando = null;
 }
 
 /* ── Los códigos de barras ───────────────────────────────────────────── */
@@ -456,25 +475,9 @@ function preciosDeLaVariante(v, p) {
   };
 }
 
-export async function verProducto(db, id) {
-  await asegurarInventario(db);
-  const producto = await db.prepare("SELECT * FROM inv_productos WHERE id = ?").bind(Number(id) || 0).first();
-  if (!producto) return null;
-  const { results: variantes } = await db
-    .prepare("SELECT * FROM inv_variantes WHERE producto_id = ? ORDER BY CAST(opcion AS REAL), opcion, color")
-    .bind(producto.id)
-    .all();
-  const { results: stock } = await db
-    .prepare(
-      `SELECT s.variante_id, s.local_id, s.cantidad FROM inv_stock s
-         JOIN inv_variantes v ON v.id = s.variante_id WHERE v.producto_id = ?`
-    )
-    .bind(producto.id)
-    .all();
-  const { results: fotos } = await db
-    .prepare("SELECT id, url FROM inv_fotos WHERE producto_id = ? ORDER BY orden, id")
-    .bind(producto.id)
-    .all();
+// Arma el modelo con lo que dieron las cuatro preguntas (el modelo, sus
+// variantes, el stock de cada una y sus fotos).
+function armarProducto(producto, variantes, stock, fotos) {
   const porVariante = new Map();
   for (const s of stock || []) {
     if (!porVariante.has(s.variante_id)) porVariante.set(s.variante_id, {});
@@ -497,6 +500,63 @@ export async function verProducto(db, id) {
       };
     }),
   };
+}
+
+// Las cuatro preguntas no dependen una de otra (todas usan el id): van juntas.
+export async function verProducto(db, id) {
+  await asegurarInventario(db);
+  const pid = Number(id) || 0;
+  const [producto, variantes, stock, fotos] = await Promise.all([
+    db.prepare("SELECT * FROM inv_productos WHERE id = ?").bind(pid).first(),
+    db.prepare("SELECT * FROM inv_variantes WHERE producto_id = ? ORDER BY CAST(opcion AS REAL), opcion, color").bind(pid).all(),
+    db
+      .prepare(
+        `SELECT s.variante_id, s.local_id, s.cantidad FROM inv_stock s
+         JOIN inv_variantes v ON v.id = s.variante_id WHERE v.producto_id = ?`
+      )
+      .bind(pid)
+      .all(),
+    db.prepare("SELECT id, url FROM inv_fotos WHERE producto_id = ? ORDER BY orden, id").bind(pid).all(),
+  ]);
+  if (!producto) return null;
+  return armarProducto(producto, variantes.results, stock.results, fotos.results);
+}
+
+// Varios modelos a la vez (la búsqueda de la caja enseña hasta 8): las mismas
+// cuatro preguntas, UNA vez para todos, en vez de cuatro por modelo. Salen en
+// el orden pedido; el que no existe no sale.
+export async function verProductos(db, ids) {
+  await asegurarInventario(db);
+  const lista = [...new Set((ids || []).map((i) => Number(i) || 0).filter(Boolean))].slice(0, 40);
+  if (!lista.length) return [];
+  const marcas = lista.map(() => "?").join(", ");
+  const [productos, variantes, stock, fotos] = await Promise.all([
+    db.prepare(`SELECT * FROM inv_productos WHERE id IN (${marcas})`).bind(...lista).all(),
+    db.prepare(`SELECT * FROM inv_variantes WHERE producto_id IN (${marcas}) ORDER BY CAST(opcion AS REAL), opcion, color`).bind(...lista).all(),
+    db
+      .prepare(
+        `SELECT s.variante_id, s.local_id, s.cantidad, v.producto_id FROM inv_stock s
+         JOIN inv_variantes v ON v.id = s.variante_id WHERE v.producto_id IN (${marcas})`
+      )
+      .bind(...lista)
+      .all(),
+    db.prepare(`SELECT id, url, producto_id FROM inv_fotos WHERE producto_id IN (${marcas}) ORDER BY orden, id`).bind(...lista).all(),
+  ]);
+  const por = (filas) => {
+    const m = new Map();
+    for (const f of filas.results || []) {
+      if (!m.has(f.producto_id)) m.set(f.producto_id, []);
+      m.get(f.producto_id).push(f);
+    }
+    return m;
+  };
+  const variantesDe = por(variantes);
+  const stockDe = por(stock);
+  const fotosDe = por(fotos);
+  const modelos = new Map((productos.results || []).map((p) => [p.id, p]));
+  return lista
+    .filter((id) => modelos.has(id))
+    .map((id) => armarProducto(modelos.get(id), variantesDe.get(id), stockDe.get(id), (fotosDe.get(id) || []).map(({ id: fid, url }) => ({ id: fid, url }))));
 }
 
 // Lo que lee la caja: por el código interno o por el de fábrica.

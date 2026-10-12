@@ -228,7 +228,7 @@ titulo("borrar mensajes y conversaciones del panel (y deshacer)");
 titulo("en tiempo real: la página se pone al día sola");
 {
   const conv = await pedir("/panel/c/123", { cookie });
-  ok(/data-marca="\/panel\/marca"/.test(conv.texto) && /data-zona="conversacion"/.test(conv.texto) && /setInterval\(revisar,3000\)/.test(conv.texto), "la conversación pregunta cada 3 s si hay algo nuevo");
+  ok(/data-marca="\/panel\/marca"/.test(conv.texto) && /data-zona="conversacion"/.test(conv.texto) && /setTimeout\(turno,3000\)/.test(conv.texto), "la conversación pregunta cada 3 s si hay algo nuevo (más despacio si nadie la toca)");
   ok(conv.texto.indexOf('data-zona="conversacion"') < conv.texto.indexOf("Escribirle tú") && conv.texto.indexOf("Escribirle tú") > conv.texto.indexOf("</div>\n<h3 id=\"escribir\"") - 1, "el cuadro para escribir queda FUERA de lo que se actualiza (no se borra lo que escribes)");
   const lista = await pedir("/panel", { cookie });
   ok(/data-marca="\/panel\/marca"/.test(lista.texto) && /data-zona="lista"/.test(lista.texto), "la lista de chats también");

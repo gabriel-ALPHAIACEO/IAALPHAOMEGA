@@ -334,6 +334,16 @@ img{max-width:100%}
 header{position:sticky;top:0;z-index:5;background:rgba(5,7,13,.72);-webkit-backdrop-filter:saturate(170%) blur(18px);backdrop-filter:saturate(170%) blur(18px);border-bottom:1px solid var(--borde)}
 header::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,var(--marca),var(--cian),transparent);background-size:200% 100%;opacity:.55;animation:barrido 9s linear infinite}
 @keyframes barrido{from{background-position:200% 0}to{background-position:-200% 0}}
+/* OPTIMIZADO (12-oct-2026): la misma línea, pero movida con transform. Animar background-position
+   obliga a la página a repintar la barra 60 veces por segundo mientras esté abierta (en un teléfono
+   eran 8-20 % del procesador SIN TOCAR NADA). Con transform lo hace la tarjeta gráfica y la página
+   no trabaja. El dibujo es el mismo: un azulejo de 2 anchos de barra que avanza un azulejo cada 4,5 s
+   (antes: dos azulejos cada 9 s). Los navegadores sin overflow:clip siguen con la versión de arriba. */
+@supports (overflow:clip){
+header{overflow-x:clip}
+header::after{left:-200%;right:auto;width:300%;background-size:66.6667% 100%;animation:barrido-gpu 4.5s linear infinite;will-change:transform}
+@keyframes barrido-gpu{from{transform:translateX(0)}to{transform:translateX(66.6667%)}}
+}
 header .fila{display:flex;gap:6px 14px;align-items:center;flex-wrap:wrap;max-width:1180px;margin:0 auto;padding:10px 18px}
 .alpha{display:flex;align-items:center;gap:10px;margin-right:auto;color:var(--plata);min-width:0}
 .alpha:hover{color:#fff}
@@ -346,8 +356,10 @@ header .fila{display:flex;gap:6px 14px;align-items:center;flex-wrap:wrap;max-wid
 .menu a{color:var(--suave);font-size:14px;font-weight:600;padding:7px 13px;border-radius:999px;transition:color .25s,background .25s}
 .menu a:hover{color:var(--texto);background:rgba(255,255,255,.06)}
 .en-vivo{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.02em;color:var(--bien);padding:5px 12px;border-radius:999px;border:1px solid rgba(61,220,151,.25);background:rgba(61,220,151,.07);white-space:nowrap}
-.en-vivo i{width:7px;height:7px;border-radius:50%;background:var(--bien);animation:latido 2.2s var(--salida) infinite}
-@keyframes latido{0%{box-shadow:0 0 0 0 rgba(61,220,151,.55)}70%{box-shadow:0 0 0 9px rgba(61,220,151,0)}100%{box-shadow:0 0 0 0 rgba(61,220,151,0)}}
+.en-vivo i{position:relative;width:7px;height:7px;border-radius:50%}
+.en-vivo i::before,.en-vivo i::after{content:"";position:absolute;inset:0;border-radius:50%;background:var(--bien)}
+.en-vivo i::before{background:rgb(61,220,151);animation:latido 2.2s var(--salida) infinite}
+@keyframes latido{0%{transform:scale(1);opacity:.55}70%{transform:scale(3.5714);opacity:0}100%{transform:scale(3.5714);opacity:0}}
 main{max-width:1180px;margin:0 auto;padding:22px 18px 64px}
 h1{font-size:28px;line-height:1.15;font-weight:800;letter-spacing:-.025em;margin:6px 0 4px}
 h2{font-size:20px;line-height:1.25;font-weight:750;letter-spacing:-.015em;margin:26px 0 12px}
@@ -630,13 +642,22 @@ export const SCRIPT_ALPHA = `<script>
     mirando=true;
     fetch(urlMarca,{credentials:"same-origin"}).then(function(r){return r.ok?r.json():null}).then(function(d){
       mirando=false;if(!d||d.marca==null)return;
-      if(marca!==null&&d.marca!==marca)ponerAlDia();
+      if(marca!==null&&d.marca!==marca){cambio=Date.now();ponerAlDia()}
       marca=d.marca;
     }).catch(function(){mirando=false});
   }
   if(urlMarca){
-    revisar();setInterval(revisar,3000);
-    document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")revisar()});
+    // VIGILANCIA QUE SE RELAJA (12-oct-2026). Antes: una pregunta cada 3 s, sin parar, en cada pestaña
+    // abierta (28.800 al día cada una). Ahora: cada 3 s mientras la persona usa la página o acaba de
+    // llegar algo; a los 2 minutos quieta, cada 8 s; a los 10, cada 15 s. Tocar la página, volver a la
+    // pestaña o recibir un mensaje la devuelve a los 3 s.
+    var movimiento=Date.now(),cambio=Date.now();
+    function despertar(){movimiento=Date.now()}
+    ["pointerdown","keydown","touchstart","wheel","scroll"].forEach(function(e){addEventListener(e,despertar,{passive:true,capture:true})});
+    function espera(){var quieto=Date.now()-Math.max(movimiento,cambio);return quieto<120000?3000:quieto<600000?8000:15000}
+    function turno(){revisar();setTimeout(turno,espera())}
+    revisar();setTimeout(turno,3000);
+    document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible"){despertar();revisar()}});
   }
   var cada=Number(b.getAttribute("data-vivo"))||(urlMarca?60000:0);
   if(cada)setInterval(function(){if(document.visibilityState==="visible")ponerAlDia()},cada);

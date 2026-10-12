@@ -40,6 +40,7 @@ import {
   listarProductos,
   contarProductos,
   verProducto,
+  verProductos,
   verVariante,
   buscarPorCodigo,
   movimientosRecientes,
@@ -1467,9 +1468,9 @@ async function buscarParaCaja(env, texto, productoId) {
   if (/^\d{6,}$/.test(q)) return { variante: null, opciones: [] };
   const modelos = await listarProductos(env.DB, { q, limite: 8 });
   const opciones = [];
-  for (const m of modelos) {
-    const p = await verProducto(env.DB, m.id);
-    for (const v of p?.variantes || []) {
+  // Los modelos de la búsqueda se piden juntos (antes: cuatro preguntas a la base por cada uno).
+  for (const p of await verProductos(env.DB, modelos.map((m) => m.id))) {
+    for (const v of p.variantes) {
       opciones.push(paraCaja({ ...v, titulo: p.titulo, precioFinal: v.precio ?? p.precio }));
       if (opciones.length >= 24) break;
     }
