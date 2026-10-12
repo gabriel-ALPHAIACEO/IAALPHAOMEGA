@@ -132,6 +132,7 @@ titulo("el diseño de la familia ALPHA IA");
 c = await pedir("/tienda");
 ok(/Manrope/.test(c.html) && /data-tema-boton/.test(c.html) && /id="carro-n"/.test(c.html), "letra Manrope, interruptor ☀️/🌙 y el contador del carrito");
 ok(/class="heroe/.test(c.html) && /Catálogo en línea/.test(c.html), "la portada con el nombre de la tienda");
+ok(!/class="heroe-cta"[^>]*>(?:(?!<\/div>).)*Ver el catálogo/s.test(c.html), "la portada no repite un botón «Ver el catálogo» (el catálogo ya está debajo)");
 c = await pedir("/tienda?q=samba");
 ok(!/class="heroe/.test(c.html), "la portada solo sale en la página principal");
 // El logo es de cada tienda (logo-tienda.js): con logo se sirve y se pone en

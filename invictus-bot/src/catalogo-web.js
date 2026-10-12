@@ -332,7 +332,7 @@ async function paginaCatalogo(request, env, { tienda, rubro, raiz }) {
   const heroe = portada
     ? `<section class="heroe rev" style="--n:0"><div class="heroe-aurora" aria-hidden="true"><i></i><i></i></div>
 <div class="heroe-texto"><p class="sobre">${icono("etiqueta", { clase: "chico" })} Catálogo en línea</p><h1>${esc(tienda)}</h1><p class="lema">${esc(lema)}</p>
-<div class="heroe-cta"><a class="boton principal grande" href="#catalogo">${icono("rejilla")} Ver el catálogo</a>${wa ? `<a class="boton grande" href="${esc(wa)}" target="_blank" rel="noopener">${icono("chats")} Escríbenos</a>` : ""}</div>
+${wa ? `<div class="heroe-cta"><a class="boton principal grande" href="${esc(wa)}" target="_blank" rel="noopener">${icono("chats")} Escríbenos</a></div>` : ""}
 <div class="heroe-datos"><span><b>${total}</b> productos</span><span><b>${enStock}</b> disponibles</span></div></div>
 <div class="heroe-logo">${marcaCompleta(tienda, base)}</div></section>`
     : "";
