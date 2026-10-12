@@ -81,6 +81,7 @@ import { revisarTurno, revisorActivo, topeDelRevisor, gastoDelRevisor, modeloDel
 // Los errores que salgan de aquí en adelante quedan guardados para el panel
 // central (ver registro.js).
 vigilarErrores();
+import { esAvisoDeWhatsApp, leerWhatsApp, marcarLeido, fotoComoDataUri, whatsappConectado } from "./whatsapp.js";
 import { contestaLaTalla, prometeElCatalogo, sinFotosQueNoHay, sinNegarLoQueHay } from "./faltas.js";
 import { usaDrive, catalogoDeDrive, idDeCarpeta, leerUnTrozoDeDrive, catalogoParaInventario } from "./drive.js";
 import { avanzarImportacionesSolas, darUnoALosSinContar } from "./inventario.js";
@@ -112,6 +113,7 @@ import {
   asegurarColumnas,
   guardarPerfil,
   comoSeLlama,
+  comentarioNuevo,
 } from "./estado.js";
 import {
   firmaValida,
@@ -134,7 +136,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-12 (71) · lo de Invictus del 11-oct: la talla siempre contestada, no promete catálogo ni fotos que no manda, no niega marcas que hay en Drive, la Nike Nocta Hot Step 2 (prompt, código y revisor), indexación hasta 1000, y lo nunca contado entra con 1 unidad · · (70) inventario: lo recién traído del catálogo sale \"Sin contar · pon las unidades\", no Agotado · · (69) juntas las dos ramas: lo del inventario y lo de la atención · · (68) ✏️ las cantidades se escriben: una casilla por talla al crear un producto y al añadir tallas (con «Igual para todas»), y en la ficha el número de cada talla se cambia escribiéndolo, sin botón (se guarda solo, con Deshacer) · 🗓️ ventas de días anteriores: en la caja «Venta de: Hoy / Ayer / Otro día» y en «Vendí» el día de la venta (cuenta en ese día en Ventas y en el balance; el stock baja al anotarla; si el producto se contó después, avisa) · 🔧 el botón «Mover» de la ficha no abría (chocaba con las flechas del carrusel) · un doble toque ya no repite la carga · · (67) · 📦 «Traer ahora», «Subir un Excel» y el Excel del inventario van por partes (ya no pasan el límite de Cloudflare): barra de progreso, si se cierra la página sigue el cron, y un Excel que termina tarde no deshace las ventas de la caja · 💬 el Asistente en todas las pantallas del panel (con DeepSeek): conoce el panel, la pantalla donde estás y el stock de lo que nombras, con botón «Abrir …» (antes fallaba en cada pregunta) · · (65) ✏️ cada talla se edita en el panel (precio, foto, código de fábrica) · 🔢 lo que nunca se contó dice «sin contar» · y lo de la v62: revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (64) ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 👕 calzado y ropa: tallas · · (63) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍) · · 2026-10-09 (63) · revisor sin revisar saludos ni gracias, tope $5 · lo aprendido de Cashea ya no le llega a la IA · · (62) revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍)";
+const VERSION = "2026-10-12 (72) · 💬 WhatsApp: el mismo bot contesta por WhatsApp (whatsapp.js; se enciende con WA_PHONE_ID y WA_TOKEN, ver WHATSAPP.md) · · (71) lo de Invictus del 11-oct: la talla siempre contestada, no promete catálogo ni fotos que no manda, no niega marcas que hay en Drive, la Nike Nocta Hot Step 2 (prompt, código y revisor), indexación hasta 1000, y lo nunca contado entra con 1 unidad · · (70) inventario: lo recién traído del catálogo sale \"Sin contar · pon las unidades\", no Agotado · · (69) juntas las dos ramas: lo del inventario y lo de la atención · · (68) ✏️ las cantidades se escriben: una casilla por talla al crear un producto y al añadir tallas (con «Igual para todas»), y en la ficha el número de cada talla se cambia escribiéndolo, sin botón (se guarda solo, con Deshacer) · 🗓️ ventas de días anteriores: en la caja «Venta de: Hoy / Ayer / Otro día» y en «Vendí» el día de la venta (cuenta en ese día en Ventas y en el balance; el stock baja al anotarla; si el producto se contó después, avisa) · 🔧 el botón «Mover» de la ficha no abría (chocaba con las flechas del carrusel) · un doble toque ya no repite la carga · · (67) · 📦 «Traer ahora», «Subir un Excel» y el Excel del inventario van por partes (ya no pasan el límite de Cloudflare): barra de progreso, si se cierra la página sigue el cron, y un Excel que termina tarde no deshace las ventas de la caja · 💬 el Asistente en todas las pantallas del panel (con DeepSeek): conoce el panel, la pantalla donde estás y el stock de lo que nombras, con botón «Abrir …» (antes fallaba en cada pregunta) · · (65) ✏️ cada talla se edita en el panel (precio, foto, código de fábrica) · 🔢 lo que nunca se contó dice «sin contar» · y lo de la v62: revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (64) ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 👕 calzado y ropa: tallas · · (63) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍) · · 2026-10-09 (63) · revisor sin revisar saludos ni gracias, tope $5 · lo aprendido de Cashea ya no le llega a la IA · · (62) revisor que piensa (REVISOR_PIENSA) y aprende (APRENDER), y lo aprendido ya le llega a la IA · panel listo para clientes de WhatsApp · · (61) revisor: lo que está en los datos de la tienda no es invento · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · revisor compartido: menos falsas alarmas (talla y datos al asesor, precio en la ficha, catálogo enviado, mensaje vacío, ok/👍)";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -539,6 +541,8 @@ async function atenderPeticion(request, env, ctx) {
       const claves = [
         ["META_APP_SECRET", env.META_APP_SECRET],
         ["META_APP_SECRET_IG", env.META_APP_SECRET_IG],
+        // WhatsApp (ver whatsapp.js): solo si su app de Meta es otra.
+        ["WA_APP_SECRET", env.WA_APP_SECRET],
       ].filter(([, valor]) => valor);
 
       let cualFuncionó = "";
@@ -583,10 +587,12 @@ async function atenderPeticion(request, env, ctx) {
       // El descarte va AQUÍ, antes de nada. Meta manda cientos de avisos al
       // día que no necesitan respuesta, y esto hace que cada uno cueste
       // exactamente cero: ni OpenAI, ni Shopify, ni un envío.
-      const mensaje = queAtender(env, crudo);
+      const salida = queAtender(env, crudo);
+      // Instagram trae un mensaje; WhatsApp puede traer varios juntos.
+      const aAtender = (Array.isArray(salida) ? salida : salida ? [salida] : []).filter(Boolean);
       ctx.waitUntil(
-        mensaje
-          ? anotar(env, "atendido", `${mensaje.tipo} de ${mensaje.igsid} (firma: ${cualFuncionó})`)
+        aAtender.length
+          ? anotar(env, "atendido", `${aAtender[0].tipo} de ${aAtender[0].igsid}${aAtender.length > 1 ? ` (+${aAtender.length - 1} más)` : ""} (firma: ${cualFuncionó})`)
           : anotar(env, "descartado", `${queTraia(crudo)} (META_MODO: ${env.META_MODO || "todo"})`)
       );
 
@@ -597,7 +603,7 @@ async function atenderPeticion(request, env, ctx) {
       // La hora de llegada viaja con el mensaje: Cloudflare da 30 segundos
       // de trabajo desde esta respuesta, y el cotejo la usa para saber si
       // le da el tiempo de esperar el cupo de OpenAI (ver cotejo.js).
-      if (mensaje) {
+      for (const mensaje of aAtender) {
         mensaje.recibidoEn = Date.now();
         ctx.waitUntil(atenderConRed(env, mensaje));
       }
@@ -660,6 +666,8 @@ async function atenderPeticion(request, env, ctx) {
           `  SLACK_WEBHOOK       ${secreto("SLACK_WEBHOOK")}`,
           `  META_APP_SECRET     ${secreto("META_APP_SECRET")}   (la de Facebook)`,
           `  META_APP_SECRET_IG  ${secreto("META_APP_SECRET_IG")}   (la de Instagram ← es esta)`,
+          `  WA_TOKEN            ${secreto("WA_TOKEN")}   (WhatsApp: el token permanente del usuario del sistema)`,
+          `  WHATSAPP (bot)      ${whatsappConectado(env) ? `conectado (número ${env.WA_PHONE_ID})` : env.WA_PHONE_ID ? "FALTA el secreto WA_TOKEN" : "sin conectar (solo Instagram; ver WHATSAPP.md)"}`,
           `  IG_TOKEN            ${secreto("IG_TOKEN")}`,
           `  PANEL_CLAVE         ${secreto("PANEL_CLAVE")}   (la clave del panel de la tienda: /panel)`,
           `  PANEL_API_CLAVE     ${estadoDeLaClaveApi(env)}   (la del panel central: la misma va en el panel como CLAVE_EMPERADOR)`,
@@ -1357,6 +1365,17 @@ function queAtender(env, crudo) {
     return null;
   }
 
+  // WHATSAPP (12-oct-2026, ver whatsapp.js). Llega al MISMO /webhook con
+  // "object": "whatsapp_business_account" y sale convertido en los mismos
+  // mensajes que los de Instagram (el cliente es "wa:" + su número).
+  if (esAvisoDeWhatsApp(cuerpo)) {
+    if (!env.WA_PHONE_ID) {
+      console.log("Llegó un aviso de WhatsApp pero WA_PHONE_ID no está puesto en wrangler.toml: lo ignoro");
+      return null;
+    }
+    return leerWhatsApp(env, cuerpo);
+  }
+
   return leerMensaje(cuerpo);
 }
 
@@ -1378,6 +1397,40 @@ async function atenderConRed(env, mensaje) {
   const rastro = { respondio: false };
 
   try {
+    // POR WHATSAPP (ver whatsapp.js): Meta a veces repite el aviso, así que
+    // cada mensaje se atiende una sola vez; en cuanto llega se marca "visto"
+    // con el "escribiendo…"; y la foto se baja con el token (no trae enlace
+    // público).
+    if (mensaje.canal === "whatsapp" && mensaje.tipo !== "eco") {
+      await prepararBase(env);
+      // Si la base falla al marcarlo, se contesta igual: mejor un posible
+      // doble que un cliente sin respuesta.
+      const nuevo = env.DB && mensaje.mid ? await comentarioNuevo(env.DB, `wa:${mensaje.mid}`).catch(() => true) : true;
+      if (!nuevo) {
+        console.log(`WhatsApp → el mensaje ${mensaje.mid} ya se atendió: no contesto dos veces`);
+        return;
+      }
+      marcarLeido(env, mensaje.mid).catch(() => {});
+      // El Emperador todavía no escucha notas de voz: se le pide por escrito
+      // en vez de dejarlo sin respuesta.
+      if (mensaje.tipo === "audio") {
+        if (!(await pausadoAhora(env.DB, mensaje.igsid).catch(() => false))) {
+          await enviarTexto(env, mensaje.igsid, "¡Hola! 😊 Por aquí todavía no puedo escuchar notas de voz. ¿Me escribes lo que buscas?");
+        }
+        return;
+      }
+      if (/^wamedia:/.test(mensaje.foto || "")) {
+        try {
+          mensaje.foto = await fotoComoDataUri(env, mensaje.foto);
+        } catch (error) {
+          console.error(`WhatsApp: no pude bajar la foto de ${mensaje.igsid}: ${error?.message || error}`);
+          mensaje.foto = "";
+          mensaje.tipo = "texto";
+          mensaje.texto = mensaje.texto || "(mandó una foto que no pude abrir)";
+        }
+      }
+    }
+
     await atenderMeta(env, mensaje, rastro);
     // ¿Contestó bien? Con todo ya enviado: el cliente no espera esto.
     if (rastro.turno?.id) await revisarTurno(env, rastro.turno);
@@ -1940,7 +1993,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     nombre,
     historialPrevio,
     textoCliente,
-    [marca, notaUbicacion, datoDeLaTienda ? notaDeDatoDeLaTienda(datoDeLaTienda) : ""].filter(Boolean).join("\n"),
+    [marca, notaUbicacion, datoDeLaTienda ? notaDeDatoDeLaTienda(datoDeLaTienda) : "", mensaje.canal === "whatsapp" ? NOTA_WHATSAPP : ""].filter(Boolean).join("\n"),
     esHistoria,
     minutosCallado
   );
@@ -2404,8 +2457,10 @@ function paraElAviso(contacto = {}) {
   };
 }
 
+// Por WhatsApp las fichas son varias fotos, y llegan sus ids juntos
+// ("wamid.A,wamid.B"): se guardan todos para reconocer su eco.
 function agregarMid(lista, mid) {
-  return mid ? [...lista, mid] : lista;
+  return mid ? [...lista, ...String(mid).split(",").filter(Boolean)] : lista;
 }
 
 function texto200(cuerpo) {
@@ -2509,6 +2564,12 @@ function marcarIdentificacion(buscar, pedirNombreExacto, esHistoria, confirmar =
     "cliente lo hubiera escrito él mismo.]"
   );
 }
+
+// POR WHATSAPP (ver whatsapp.js): el cliente ya está en WhatsApp, así que
+// mandarlo "a escribirnos por WhatsApp" no tiene sentido.
+const NOTA_WHATSAPP =
+  "[CANAL: WhatsApp. El cliente te escribe por WhatsApp: NO le digas que nos escriba por WhatsApp ni que toque un botón \"Comprar\". " +
+  "Las fichas le llegan como fotos, cada una con su nombre y precio.]";
 
 // Lo que ve el modelo antes del mensaje del cliente. La construcción vive en
 // historial.js, que es donde está la regla de separar pasado y presente.

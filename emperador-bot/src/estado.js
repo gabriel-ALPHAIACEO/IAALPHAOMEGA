@@ -517,3 +517,43 @@ function leerLista(valor) {
     return [];
   }
 }
+
+/* ── Los avisos ya atendidos (WhatsApp) ──────────────────────────── */
+
+// POR QUÉ HACE FALTA. Meta reintenta los webhooks: el mismo aviso de
+// WhatsApp puede llegar dos y tres veces, y el cliente recibiría la misma
+// respuesta repetida (12-oct-2026, igual que en EPICCELL). Se guarda solo
+// el id y la fecha; la tabla se crea sola la primera vez.
+const CREAR_COMENTARIOS = `
+  CREATE TABLE IF NOT EXISTS comentarios (
+    id     TEXT PRIMARY KEY,
+    cuando INTEGER NOT NULL DEFAULT 0
+  )
+`;
+
+// true si es la PRIMERA vez que vemos este id. La escritura y la
+// comprobación van juntas: dos webhooks en paralelo no pueden pasar los dos.
+export async function comentarioNuevo(db, id) {
+  if (!db || !id) return false;
+
+  const guardar = () => db.prepare("INSERT INTO comentarios (id, cuando) VALUES (?, ?)").bind(id, Date.now()).run();
+
+  try {
+    await guardar();
+    return true;
+  } catch (error) {
+    const mensaje = String(error?.message || "");
+    if (/UNIQUE|PRIMARY KEY|constraint/i.test(mensaje)) return false;
+    if (/no such table/i.test(mensaje)) {
+      await db.prepare(CREAR_COMENTARIOS).run();
+      try {
+        await guardar();
+        return true;
+      } catch (otro) {
+        if (/UNIQUE|PRIMARY KEY|constraint/i.test(String(otro?.message || ""))) return false;
+        throw otro;
+      }
+    }
+    throw error;
+  }
+}

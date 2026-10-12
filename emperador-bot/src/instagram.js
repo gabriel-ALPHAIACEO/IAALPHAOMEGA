@@ -5,6 +5,11 @@
 
 import { anotar } from "./rastro.js";
 
+// WHATSAPP (12-oct-2026, ver whatsapp.js): un cliente cuyo id empieza por
+// "wa:" se atiende por WhatsApp. Cada envío de abajo mira el id y, si es de
+// WhatsApp, lo manda por allá. index.js no se entera del canal.
+import * as wa from "./whatsapp.js";
+
 const GRAFO = "https://graph.instagram.com/v23.0";
 
 /* ── Firma ───────────────────────────────────────────────────────── */
@@ -116,12 +121,14 @@ export function suscribirLaCuenta(env) {
 }
 
 export function enviarTexto(env, igsid, texto) {
+  if (wa.esDeWhatsApp(igsid)) return wa.enviarTexto(env, igsid, texto);
   return enviar(env, igsid, { text: recortar(texto, 1000) });
 }
 
 // Las fichas con foto son lo que en Make mandaba el módulo de plantilla
 // genérica. Instagram admite 10 como máximo.
 export function enviarFichas(env, igsid, productos) {
+  if (wa.esDeWhatsApp(igsid)) return wa.enviarFichas(env, igsid, productos);
   const elementos = productos.slice(0, 10).map((p) => {
     const ficha = {
       title: recortar(p.titulo, 80),
@@ -154,6 +161,8 @@ export function enviarFichas(env, igsid, productos) {
 }
 
 export function enviarBotonCatalogo(env, igsid, texto) {
+  if (wa.esDeWhatsApp(igsid) && /^https?:\/\//i.test(String(env.URL_CATALOGO || ""))) return wa.enviarConBoton(env, igsid, texto, { titulo: "Ver catálogo", url: env.URL_CATALOGO });
+  if (wa.esDeWhatsApp(igsid)) return wa.enviarTexto(env, igsid, texto);
   return enviar(env, igsid, {
     attachment: {
       type: "template",
@@ -170,6 +179,7 @@ export function enviarBotonCatalogo(env, igsid, texto) {
 // ubicación cuando hay foto del local: la foto, "📍 ..." y "MAPS/GOOGLE".
 // Sin enlace válido sale el texto solo; sin foto, texto y botón.
 export function enviarTarjeta(env, igsid, { titulo, texto, resumen, imagen, boton }) {
+  if (wa.esDeWhatsApp(igsid)) return wa.enviarLocal(env, igsid, { texto, foto: imagen, mapa: boton?.url, boton: boton?.title });
   const enlace = String(boton?.url || "").trim();
   const tieneEnlace = /^https?:\/\//i.test(enlace);
   const tieneImagen = /^https?:\/\//i.test(String(imagen || "").trim());
@@ -237,6 +247,7 @@ export async function revisarImagen(url) {
 // la dirección y, debajo, "MAPS/GOOGLE". Sin enlace válido, sale el texto
 // solo — un botón a un enlace roto es peor que ninguno.
 export function enviarBotonEnlace(env, igsid, texto, titulo, url) {
+  if (wa.esDeWhatsApp(igsid)) return wa.enviarConBoton(env, igsid, texto, { titulo, url });
   if (!/^https?:\/\//i.test(String(url || ""))) return enviarTexto(env, igsid, texto);
 
   return enviar(env, igsid, {
@@ -314,6 +325,8 @@ export async function fotogramaDeHistoria(env, idHistoria) {
 // vacío: se volvía a pedir en cada mensaje y en Slack salía "sin nombre".
 // Ahora el @ se guarda siempre, aunque no sirva para saludar.
 export async function obtenerPerfil(env, igsid) {
+  // WhatsApp no tiene API de perfil: el nombre viene en el propio aviso.
+  if (wa.esDeWhatsApp(igsid)) return wa.perfilDeWhatsApp(igsid);
   try {
     const respuesta = await fetch(
       `${GRAFO}/${igsid}?fields=name,username&access_token=${env.IG_TOKEN}`
