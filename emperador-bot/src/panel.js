@@ -31,6 +31,7 @@
 
 import { atenderInventario, esRutaDeInventario } from "./inventario-panel.js";
 import { atenderNegocio, esRutaDeNegocio } from "./negocio-panel.js";
+import { atenderPedidos, esRutaDePedidos, ESTILO_PEDIDOS } from "./pedidos-panel.js";
 import { documento, cabecera, vacio, avatar, icono, insignia, segmento } from "./marco.js";
 import { cargarContacto, pausar, despausar, asegurarColumnas } from "./estado.js";
 import { gastoDelMes } from "./gasto.js";
@@ -384,7 +385,7 @@ textarea{width:100%}
 .puestos td:first-child{display:flex;align-items:center;gap:10px}
 </style>`;
 
-function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnuncios = true, enVivo = false, entrada = false, ruta = "chats" } = {}) {
+function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnuncios = true, enVivo = false, entrada = false, ruta = "chats", estiloExtra = "" } = {}) {
   const html = documento({
     titulo,
     cuerpo: conMenu || entrada ? cuerpo : `<div class="entrada"><div class="entrada-caja" style="text-align:left">${cuerpo}</div></div>`,
@@ -393,7 +394,7 @@ function pagina(titulo, cuerpo, { tienda = "La tienda", conMenu = true, conAnunc
     conAnuncios,
     enVivo,
     entrada: entrada || !conMenu,
-    extraCabeza: ESTILO,
+    extraCabeza: ESTILO + (estiloExtra ? `<style>${estiloExtra}</style>` : ""),
   });
   return new Response(html, {
     status: 200,
@@ -1197,6 +1198,12 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
 
   // EL NEGOCIO: inicio, ventas, gastos, fiados y el asistente (negocio-panel.js).
   if (esRutaDeNegocio(url)) return atenderNegocio(request, env, url, ayudas, { tienda, tarifaDeCaja, rubro, conAnuncios });
+
+  // LOS PEDIDOS DE LA TIENDA WEB, pagados con comprobante (pedidos-panel.js).
+  if (esRutaDePedidos(url)) {
+    const conEstilo = { ...ayudas, pagina: (titulo, cuerpo, extra = {}) => pagina(titulo, cuerpo, { tienda, conAnuncios, estiloExtra: ESTILO_PEDIDOS, ...extra }) };
+    return atenderPedidos(request, env, url, conEstilo, { tienda });
+  }
 
   return paginaDeLista(env, url, tienda, conAnuncios);
 }

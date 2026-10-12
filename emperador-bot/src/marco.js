@@ -200,6 +200,7 @@ const NEGOCIO = [
   ["inicio", "/panel/inicio", "Inicio", "inicio"],
   ["caja", "/panel/caja", "Caja", "caja"],
   ["ventas", "/panel/ventas", "Ventas", "ventas"],
+  ["pedidos", "/panel/pedidos", "Pedidos web", "carrito"],
   ["inventario", "/panel/inventario", "Inventario", "inventario"],
   ["gastos", "/panel/gastos", "Gastos", "gastos"],
   ["fiados", "/panel/fiados", "Fiados", "fiados"],
@@ -261,7 +262,7 @@ function pestanas({ ruta, conAnuncios }) {
 
 const FUENTES = '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&display=swap">';
 
-// ruta: qué sección está activa (inicio, caja, ventas, inventario, gastos,
+// ruta: qué sección está activa (inicio, caja, ventas, pedidos, inventario, gastos,
 // fiados, chats, clientes, metricas, ganadores, errores, anuncios).
 export function documento({ titulo, cuerpo, tienda = "La tienda", ruta = "", conAnuncios = true, enVivo = false, entrada = false, extraCabeza = "" }) {
   const vivo = enVivo ? '<span class="en-vivo" title="Se pone al día sola en cuanto llega un mensaje"><i></i>en vivo</span>' : "";

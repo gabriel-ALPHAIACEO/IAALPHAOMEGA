@@ -62,7 +62,7 @@ import {
   vistaAprendido,
 } from "./vistas.js";
 
-const VERSION = "2026-10-11 (23) · el mismo marco que el panel de las tiendas (barra lateral con íconos y cada tienda, pestañas abajo en el teléfono, letra Manrope) · las líneas del mapa pegadas a cada etapa · · (22) las animaciones de las tiendas (el contenido sube por partes al cambiar de página) · Cómo funciona es un mapa en flujo de 6 etapas · · (21) wrangler.toml con el id real de su base (panel-central-db): desplegar ya no pide pisar la configuración · · (20) 🔐 al entrar pregunta si dejar la sesión abierta (90 días, se renueva sola) · alpha.js e iconos.js nuevos · · (19) alpha.js con el ícono y la app instalable de las tiendas (el central no cambia de cara)";
+const VERSION = "2026-10-12 (24) · marco.js y asistente.js al día con las tiendas (Pedidos web en el menú de las tiendas) · · 2026-10-11 (23) · el mismo marco que el panel de las tiendas (barra lateral con íconos y cada tienda, pestañas abajo en el teléfono, letra Manrope) · las líneas del mapa pegadas a cada etapa · · (22) las animaciones de las tiendas (el contenido sube por partes al cambiar de página) · Cómo funciona es un mapa en flujo de 6 etapas · · (21) wrangler.toml con el id real de su base (panel-central-db): desplegar ya no pide pisar la configuración · · (20) 🔐 al entrar pregunta si dejar la sesión abierta (90 días, se renueva sola) · alpha.js e iconos.js nuevos · · (19) alpha.js con el ícono y la app instalable de las tiendas (el central no cambia de cara)";
 
 function nombreDelPanel(env) {
   return String(env.PANEL_NOMBRE || "ALPHA IA");

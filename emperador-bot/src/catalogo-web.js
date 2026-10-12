@@ -10,13 +10,20 @@
 //   /tienda/p/<id>          un producto: fotos, opciones (talla), precio
 //   /tienda/carrito         el carrito (vive en el navegador de quien compra)
 //   /tienda/api/carrito     los datos del carrito (precio y stock de verdad)
+//   /tienda/pagar           pagar en la página: datos, método y comprobante
+//   /tienda/api/pedido      (POST) guarda el pedido con su comprobante
+//   /tienda/pedido/<código>?t=<clave>   cómo va el pedido (para el cliente)
 //   /tienda/sitemap.xml     para Google
 //
-// CÓMO SE COMPRA. No hay pasarela de pago: el carrito arma el pedido y lo
-// manda por WhatsApp, como ya se vende hoy. Un asesor confirma la
-// disponibilidad y el pago, y es QUIEN DESCUENTA EL STOCK (regla del dueño:
-// el stock solo baja cuando una persona confirma que el cliente se lo
-// llevó). La web nunca descuenta ni aparta nada.
+// CÓMO SE COMPRA. Dos caminos (12-oct-2026):
+//   · PAGAR AQUÍ: el cliente elige cómo paga (Pago Móvil, Transferencia,
+//     Zelle, Zinli… lo que la tienda cargó en el panel), ve los datos, paga
+//     y SUBE EL COMPROBANTE. Queda "por revisar" en el panel (Pedidos web);
+//     al aprobarlo se anota la venta. Ver pedidos-web.js.
+//   · POR WHATSAPP: el carrito arma el pedido y lo manda por WhatsApp, como
+//     siempre. Si la tienda no cargó ningún método con datos, es el único.
+// En los dos, una persona confirma el pago y es QUIEN DESCUENTA EL STOCK
+// (regla del dueño). La web nunca descuenta ni aparta nada.
 //
 // EL DISEÑO es el mismo de los paneles de ALPHA IA (fondo oscuro con brillos,
 // vidrio, letra Manrope, íconos propios, animaciones y el interruptor ☀️/🌙
@@ -43,6 +50,8 @@ import { asegurarInventario } from "./inventario.js";
 import { SPRITE_ICONOS, icono } from "./iconos.js";
 import { botonDeTema, SCRIPT_TEMA } from "./alpha.js";
 import { LOGO } from "./logo-tienda.js";
+import { pagosParaLaWeb, metodosVisibles, crearPedido, pedidoPublico, PedidoInvalido, MAXIMO_COMPROBANTE, bolivares } from "./pedidos-web.js";
+import { alertarCentral } from "./registro.js";
 
 const PREFIJO = "/tienda";
 const POR_PAGINA = 24;
@@ -184,7 +193,8 @@ function CARRO_HTML(base, cajon = false) {
   return `<div class="lineas" data-lineas><p class="suave">Cargando…</p></div>
 <div class="resumen" data-resumen hidden>
 <div class="total"><span>Total</span><b data-total>$0</b></div>
-<p class="suave">El pedido va por WhatsApp: un asesor te confirma disponibilidad, pago y envío.</p>
+<p class="suave" data-nota-pedido>El pedido va por WhatsApp: un asesor te confirma disponibilidad, pago y envío.</p>
+<a class="boton principal grande" data-pagar href="${base}/pagar" hidden>${icono("tarjeta")} Pagar aquí</a>
 <a class="boton principal grande" data-pedir href="#" target="_blank" rel="noopener">${icono("chats")} Pedir por WhatsApp</a>
 ${cajon ? `<a class="boton" href="${base}/carrito">Ver el carrito completo</a>` : ""}
 </div>
@@ -512,7 +522,11 @@ async function apiCarrito(request, env) {
       n: t.n,
     });
   }
-  return new Response(JSON.stringify({ items }), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
+  let pago = false;
+  try {
+    pago = metodosVisibles(await pagosParaLaWeb(env.DB)).length > 0;
+  } catch {}
+  return new Response(JSON.stringify({ items, pago }), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 }
 
 function paginaCarrito(env, { tienda, raiz }) {
@@ -534,13 +548,175 @@ async function sitemap(request, env, { raiz }) {
   });
 }
 
+/* ── Pagar en la página, con comprobante (12-oct-2026) ───────────── */
+
+// La página de pago: datos del cliente, cómo paga (con los datos para
+// pagar) y el comprobante. El resumen del pedido lo pinta el navegador con
+// el carrito; el total que vale es el que calcula el servidor al recibirlo.
+async function paginaPagar(env, { tienda, raiz }) {
+  const base = raiz ? "" : PREFIJO;
+  const pagos = await pagosParaLaWeb(env.DB);
+  const metodos = metodosVisibles(pagos);
+  const wa = enlaceWhatsApp(env, `Hola ${tienda} 👋 Quiero hacer un pedido`);
+  if (!metodos.length) {
+    const cuerpo = `<section class="vacio"><h1>Los pedidos van por WhatsApp</h1><p class="suave">Arma tu carrito y envíanos el pedido: un asesor te dice cómo pagar.</p><a class="boton principal" href="${base}/carrito">${icono("carrito")} Ir al carrito</a>${wa ? `<a class="boton" href="${esc(wa)}" target="_blank" rel="noopener">${icono("chats")} Escribir por WhatsApp</a>` : ""}</section>`;
+    return respuestaHtml(pagina({ env, tienda, raiz, titulo: `Pagar · ${tienda}`, cuerpo }), { cache: "no-store" });
+  }
+  const tasa = pagos.tasa;
+  const listaMetodos = metodos
+    .map(
+      (m, i) =>
+        `<label class="metodo"><input type="radio" name="metodo" value="${esc(m.nombre)}" data-moneda="${m.moneda}" data-i="${i}" required><span class="metodo-c">${icono(m.moneda === "bs" ? "banco" : "tarjeta")}<b>${esc(m.nombre)}</b><small>${m.moneda === "bs" ? "Bolívares" : "Dólares"}</small></span></label>`
+    )
+    .join("");
+  const datosMetodos = metodos
+    .map(
+      (m, i) =>
+        `<div class="datos-pago" data-de="${i}" hidden><div class="datos-cab"><b>${icono("recibo", { clase: "chico" })} Datos para pagar con ${esc(m.nombre)}</b><button type="button" class="copiar" data-copiar>${icono("copia", { clase: "chico" })}<span>Copiar</span></button></div><pre>${esc(m.datos)}</pre><p class="monto" data-monto></p></div>`
+    )
+    .join("");
+  const cuerpo = `<section class="pagar" data-tasa="${tasa ?? ""}">
+<a class="volver" href="${base}/carrito">${icono("atras", { clase: "chico" })} Volver al carrito</a>
+<h1>Pagar tu pedido</h1>
+<p class="suave pagar-intro">Pagas por el método que prefieras, subes el comprobante y un asesor lo confirma. Te escribimos por WhatsApp.</p>
+<div class="pagar-grid">
+<form class="pagar-form" id="pagar" novalidate>
+<div class="paso" role="group" aria-labelledby="paso1"><h2 class="paso-t" id="paso1"><span class="num">1</span> Tus datos</h2>
+<label class="campo"><span class="campo-t">Nombre y apellido</span><input name="cliente" maxlength="80" autocomplete="name" required></label>
+<div class="dos-c"><label class="campo"><span class="campo-t">Teléfono o WhatsApp</span><input name="telefono" inputmode="tel" autocomplete="tel" maxlength="20" placeholder="0414 123 4567" required></label>
+<label class="campo"><span class="campo-t">Cédula <small>(opcional)</small></span><input name="cedula" maxlength="20" placeholder="V-12.345.678"></label></div>
+<div class="campo"><span class="campo-t">¿Cómo lo recibes?</span><div class="elegir"><label><input type="radio" name="entrega" value="retiro" checked><span>${icono("sede", { clase: "chico" })} Retiro en la tienda</span></label><label><input type="radio" name="entrega" value="envio"><span>${icono("camion", { clase: "chico" })} Envío</span></label></div></div>
+<label class="campo" data-direccion hidden><span class="campo-t">Dirección para el envío</span><textarea name="direccion" rows="2" maxlength="300" placeholder="Ciudad, zona, calle y una referencia"></textarea></label>
+</div>
+<div class="paso" role="group" aria-labelledby="paso2"><h2 class="paso-t" id="paso2"><span class="num">2</span> Cómo pagas</h2>
+<div class="metodos">${listaMetodos}</div>${datosMetodos}
+${pagos.aviso ? `<p class="suave chico">${esc(pagos.aviso)}</p>` : ""}
+</div>
+<div class="paso" role="group" aria-labelledby="paso3"><h2 class="paso-t" id="paso3"><span class="num">3</span> Tu comprobante</h2>
+<label class="subir" data-subir><input type="file" name="comprobante" accept="image/*,application/pdf" required><span class="subir-txt">${icono("subir", { clase: "grande" })}<b>Sube la captura o el PDF del pago</b><small>Foto JPG o PNG, o PDF</small></span><img data-vista alt="" hidden><span class="subir-nombre" data-nombre hidden></span></label>
+<label class="campo"><span class="campo-t">Número de referencia <small>(opcional)</small></span><input name="referencia" maxlength="60" placeholder="Los últimos dígitos de la operación"></label>
+<label class="campo"><span class="campo-t">Nota <small>(opcional)</small></span><textarea name="nota" rows="2" maxlength="300" placeholder="Algo que debamos saber"></textarea></label>
+</div>
+<p class="error-pago" data-error role="alert" hidden></p>
+<button class="boton principal grande enviar" type="submit" data-enviar>${icono("check")} <span>Enviar comprobante</span></button>
+<p class="suave chico">Tu pedido no se aparta hasta que confirmamos el pago. Si algo no cuadra, te escribimos.</p>
+</form>
+<aside class="pagar-resumen"><h2>Tu pedido</h2><div class="res-lineas" data-res-lineas><p class="suave">Cargando…</p></div>
+<div class="total"><span>Total</span><b data-res-total>$0</b></div><p class="suave chico" data-res-bs></p></aside>
+</div></section>
+<script>${SCRIPT_PAGAR}</script>`;
+  return respuestaHtml(pagina({ env, tienda, raiz, titulo: `Pagar · ${tienda}`, cuerpo }), { cache: "no-store" });
+}
+
+function json(datos, estado = 200) {
+  return new Response(JSON.stringify(datos), { status: estado, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
+}
+
+// POST /tienda/api/pedido (multipart): crea el pedido "por revisar".
+async function apiPedido(request, env, { tienda, raiz }) {
+  const base = raiz ? "" : PREFIJO;
+  const largo = Number(request.headers.get("content-length") || 0);
+  if (largo > MAXIMO_COMPROBANTE + 200_000) return json({ ok: false, error: "El comprobante pesa demasiado. Manda una captura de pantalla o un PDF más liviano." }, 413);
+  let form;
+  try {
+    form = await request.formData();
+  } catch {
+    return json({ ok: false, error: "No pude leer el formulario. Intenta de nuevo." }, 400);
+  }
+  const archivo = form.get("comprobante");
+  let bytes = null;
+  if (archivo && typeof archivo === "object" && typeof archivo.arrayBuffer === "function") {
+    if (archivo.size > MAXIMO_COMPROBANTE) return json({ ok: false, error: "El comprobante pesa demasiado. Manda una captura de pantalla o un PDF más liviano." }, 413);
+    bytes = new Uint8Array(await archivo.arrayBuffer());
+  }
+  const campo = (k) => String(form.get(k) ?? "");
+  try {
+    const p = await crearPedido(env.DB, {
+      carrito: campo("carrito"),
+      cliente: campo("cliente"),
+      telefono: campo("telefono"),
+      cedula: campo("cedula"),
+      entrega: campo("entrega"),
+      direccion: campo("direccion"),
+      nota: campo("nota"),
+      metodo: campo("metodo"),
+      referencia: campo("referencia"),
+      archivo: bytes ? { bytes, nombre: String(archivo.name || "") } : null,
+      ip: request.headers.get("cf-connecting-ip") || "",
+    });
+    await avisarDelPedido(env, request, { tienda, pedido: p, cliente: campo("cliente"), telefono: campo("telefono") });
+    return json({ ok: true, codigo: p.codigo, url: `${base}/pedido/${p.codigo}?t=${p.token}` });
+  } catch (error) {
+    if (error instanceof PedidoInvalido || error?.name === "PedidoInvalido") return json({ ok: false, error: error.message }, error.estado || 400);
+    console.error("TIENDA WEB: no se pudo guardar el pedido:", error?.stack || error?.message || error);
+    return json({ ok: false, error: "No pudimos guardar tu pedido. Intenta de nuevo en un momento." }, 500);
+  }
+}
+
+// Al asesor (Slack, si está) y al panel central: hay un pago por revisar.
+// Nunca hace fallar el pedido: ya está guardado.
+async function avisarDelPedido(env, request, { tienda, pedido, cliente, telefono }) {
+  const origen = new URL(request.url).origin;
+  const texto = `🛍️ Pedido web ${pedido.codigo} · ${dinero(pedido.total)}${pedido.totalBs ? ` (${bolivares(pedido.totalBs)})` : ""} · ${pedido.metodo} · ${String(cliente).trim().slice(0, 60)} ${String(telefono).trim().slice(0, 20)}`;
+  const tareas = [alertarCentral(env, [{ tipo: "pedido", texto }])];
+  if (env?.SLACK_WEBHOOK) {
+    const lineas = [`*${texto}*`, ...pedido.lineas.map((l) => `• ${l.n}× ${l.titulo}${l.etiqueta ? ` (${l.etiqueta})` : ""} — ${dinero(l.precio * l.n)}`), `Revisa el comprobante y apruébalo: ${origen}/panel/pedidos`];
+    tareas.push(
+      fetch(env.SLACK_WEBHOOK, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: lineas.join("\n") }), signal: AbortSignal.timeout(4000) }).catch((e) => console.error("Slack (pedido web):", e?.message || e))
+    );
+  }
+  await Promise.allSettled(tareas);
+}
+
+const ESTADO_PARA_EL_CLIENTE = {
+  revisar: { titulo: "Recibimos tu pago", texto: "Estamos revisando tu comprobante. Te escribimos por WhatsApp en cuanto lo confirmemos.", ico: "reloj", tono: "espera" },
+  aprobando: { titulo: "Recibimos tu pago", texto: "Estamos revisando tu comprobante. Te escribimos por WhatsApp en cuanto lo confirmemos.", ico: "reloj", tono: "espera" },
+  aprobado: { titulo: "¡Pago confirmado!", texto: "Tu pedido está confirmado. Te escribimos por WhatsApp para la entrega.", ico: "check", tono: "bien" },
+  rechazado: { titulo: "No pudimos confirmar tu pago", texto: "Escríbenos por WhatsApp y lo resolvemos.", ico: "alerta", tono: "mal" },
+};
+
+// "Envío · <dirección>" o "Retiro en la tienda".
+function entregaDelPedido(p) {
+  if (p.entrega !== ENVIO) return "Retiro en la tienda";
+  return p.direccion ? "Envío · " + p.direccion : "Envío";
+}
+const ENVIO = "envio";
+
+async function paginaPedido(env, codigo, clave, { tienda, raiz }) {
+  const base = raiz ? "" : PREFIJO;
+  const p = await pedidoPublico(env.DB, codigo, clave);
+  if (!p) return noEncontrado(env, tienda, raiz);
+  const e = ESTADO_PARA_EL_CLIENTE[p.estado] || ESTADO_PARA_EL_CLIENTE.revisar;
+  const wa = enlaceWhatsApp(env, `Hola ${tienda} 👋 Te escribo por mi pedido ${p.codigo}`);
+  const fecha = new Date(p.creado - 4 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 16);
+  const cuerpo = `<section class="estado-pedido ${e.tono}">
+<div class="estado-ico">${icono(e.ico, { clase: "enorme" })}</div>
+<h1>${esc(e.titulo)}</h1>
+<p class="suave">Pedido <b class="codigo">${esc(p.codigo)}</b> · ${esc(fecha)}</p>
+<p>${esc(e.texto)}</p>
+${p.estado === "rechazado" && p.motivo ? `<p class="motivo">${icono("info", { clase: "chico" })} ${esc(p.motivo)}</p>` : ""}
+<div class="estado-caja">
+${p.items.map((l) => `<div class="estado-linea"><span>${l.n}× ${esc(l.titulo)}${l.etiqueta ? ` <small>(${esc(l.etiqueta)})</small>` : ""}</span><b>${esc(dinero(l.precio * l.n))}</b></div>`).join("")}
+<div class="estado-linea total-l"><span>Total</span><b>${esc(dinero(p.total))}</b></div>
+${p.total_bs ? `<div class="estado-linea"><span>En bolívares (tasa ${esc(String(p.tasa).replace(".", ","))})</span><b>${esc(bolivares(p.total_bs))}</b></div>` : ""}
+<div class="estado-linea"><span>Pagado con</span><b>${esc(p.metodo)}${p.referencia ? ` · ref. ${esc(p.referencia)}` : ""}</b></div>
+<div class="estado-linea"><span>Entrega</span><b>${esc(entregaDelPedido(p))}</b></div>
+</div>
+<div class="estado-acciones">${wa ? `<a class="boton principal grande" href="${esc(wa)}" target="_blank" rel="noopener">${icono("chats")} Escribir por WhatsApp</a>` : ""}<a class="boton grande" href="${base || "/"}">Seguir comprando</a></div>
+<p class="suave chico">Guarda este enlace: aquí ves cómo va tu pedido.</p>
+</section>`;
+  const html = pagina({ env, tienda, raiz, titulo: `Pedido ${p.codigo} · ${tienda}`, cuerpo }).replace("<head>", '<head><meta name="robots" content="noindex">');
+  return respuestaHtml(html, { cache: "no-store" });
+}
+
 /* ── La puerta de entrada ────────────────────────────────────────── */
 
 // Devuelve la respuesta, o null si esta dirección no es de la tienda web
 // (para que index.js siga con lo suyo).
 export async function atenderCatalogoWeb(request, env, { tienda = "Tienda", rubro = "calzado" } = {}) {
   if (String(env?.TIENDA_WEB || "").trim().toLowerCase() === "no") return null;
-  if (request.method !== "GET" && request.method !== "HEAD") return null;
+  const esPost = request.method === "POST";
+  if (request.method !== "GET" && request.method !== "HEAD" && !esPost) return null;
 
   const url = new URL(request.url);
   const raiz = String(env?.TIENDA_RAIZ || "").trim().toLowerCase() === "si";
@@ -548,10 +724,12 @@ export async function atenderCatalogoWeb(request, env, { tienda = "Tienda", rubr
   const esDelPrefijo = ruta === PREFIJO || ruta.startsWith(PREFIJO + "/");
   if (!esDelPrefijo) {
     // Con un dominio propio, la tienda también vive en la raíz.
-    if (!raiz || !(ruta === "/" || ruta === "/carrito" || ruta === "/sitemap.xml" || /^\/p\/\d+\/?$/.test(ruta) || ruta === "/api/carrito" || /^\/logo\/(oscuro|claro|casco|icono)\.png$/.test(ruta))) return null;
+    if (!raiz || !(ruta === "/" || ruta === "/carrito" || ruta === "/pagar" || ruta === "/api/pedido" || /^\/pedido\/[A-Z0-9-]+$/i.test(ruta) || ruta === "/sitemap.xml" || /^\/p\/\d+\/?$/.test(ruta) || ruta === "/api/carrito" || /^\/logo\/(oscuro|claro|casco|icono)\.png$/.test(ruta))) return null;
   } else {
     ruta = ruta.slice(PREFIJO.length) || "/";
   }
+  // Lo único que se manda con POST es el pedido con su comprobante.
+  if (esPost && ruta !== "/api/pedido") return null;
   const enRaiz = raiz && !esDelPrefijo;
 
   const logo = /^\/logo\/(oscuro|claro|casco|icono)\.png$/.exec(ruta);
@@ -559,7 +737,11 @@ export async function atenderCatalogoWeb(request, env, { tienda = "Tienda", rubr
   if (!env?.DB) return respuestaHtml(`<p>La tienda no está lista todavía.</p>`, { estado: 503, cache: "no-store" });
 
   try {
+    if (ruta === "/api/pedido") return esPost ? await apiPedido(request, env, { tienda, raiz: enRaiz }) : json({ ok: false, error: "Usa el formulario de pago." }, 405);
     if (ruta === "/" || ruta === "") return await paginaCatalogo(request, env, { tienda, rubro, raiz: enRaiz });
+    if (ruta === "/pagar") return await paginaPagar(env, { tienda, raiz: enRaiz });
+    const pedido = /^\/pedido\/([A-Z0-9-]{4,12})$/i.exec(ruta);
+    if (pedido) return await paginaPedido(env, pedido[1], url.searchParams.get("t") || "", { tienda, raiz: enRaiz });
     const prod = /^\/p\/(\d+)\/?$/.exec(ruta);
     if (prod) return await paginaProducto(env, parseInt(prod[1], 10), { tienda, rubro, raiz: enRaiz });
     if (ruta === "/carrito") return paginaCarrito(env, { tienda, raiz: enRaiz });
@@ -578,7 +760,7 @@ export async function atenderCatalogoWeb(request, env, { tienda = "Tienda", rubr
 // El precio y el stock NO se guardan aquí: se piden al servidor cada vez.
 const SCRIPT_COMUN = `(function(){
 var K="cw_carrito",B=document.body,base=B.getAttribute("data-base")||"",wa=B.getAttribute("data-wa")||"",tienda=B.getAttribute("data-tienda")||"";
-var datos=[];
+var datos=[],pago=false;
 function leer(){try{var c=JSON.parse(localStorage.getItem(K)||"[]");return Array.isArray(c)?c:[]}catch(e){return[]}}
 function poner(c){try{localStorage.setItem(K,JSON.stringify(c))}catch(e){}badge()}
 function badge(){var n=leer().reduce(function(a,x){return a+(x.n||0)},0),el=document.getElementById("carro-n");if(el){el.textContent=n;el.hidden=!n}}
@@ -586,7 +768,7 @@ function dinero(n){n=Number(n);if(!isFinite(n))return"";var e=Math.abs(n-Math.ro
 function esc(t){var d=document.createElement("div");d.textContent=t==null?"":t;return d.innerHTML}
 function cargar(cb){var c=leer();if(!c.length){datos=[];return cb()}
  fetch(base+"/api/carrito?v="+c.map(function(x){return x.v+"x"+x.n}).join(",")).then(function(r){return r.json()}).then(function(j){
-  datos=j.items||[];var vivos=datos.map(function(d){return d.v});
+  datos=j.items||[];pago=!!j.pago;var vivos=datos.map(function(d){return d.v});
   var nuevo=c.filter(function(x){return vivos.indexOf(x.v)>-1});if(nuevo.length!==c.length)poner(nuevo);cb()}).catch(function(){cb(true)})}
 function pintar(raiz,fallo){
  var lineas=raiz.querySelector("[data-lineas]"),resumen=raiz.querySelector("[data-resumen]"),vacio=raiz.querySelector("[data-vacio]"),total=raiz.querySelector("[data-total]"),pedir=raiz.querySelector("[data-pedir]");
@@ -605,7 +787,9 @@ function pintar(raiz,fallo){
    poner(cc);datos=datos.filter(function(x){return cc.some(function(y){return y.v===x.v})});todos()}});
   lineas.appendChild(f)});
  total.textContent=dinero(suma);texto+="Total: "+dinero(suma);
- if(pedir){pedir.href=wa?"https://wa.me/"+wa+"?text="+encodeURIComponent(texto):"#";pedir.hidden=!wa}}
+ if(pedir){pedir.href=wa?"https://wa.me/"+wa+"?text="+encodeURIComponent(texto):"#";pedir.hidden=!wa;pedir.classList.toggle("principal",!pago)}
+ var pagar=raiz.querySelector("[data-pagar]"),nota=raiz.querySelector("[data-nota-pedido]");if(pagar)pagar.hidden=!pago;
+ if(nota)nota.textContent=pago?"Paga aquí y sube tu comprobante, o pide por WhatsApp. Un asesor confirma tu pago.":"El pedido va por WhatsApp: un asesor te confirma disponibilidad, pago y envío."}
 function todos(fallo){document.querySelectorAll(".cw-carro").forEach(function(r){pintar(r,fallo)})}
 function refrescar(){cargar(function(fallo){todos(fallo)})}
 var cajon=document.getElementById("cajon");
@@ -639,6 +823,69 @@ function agregar(){var s=sel(),v=s?Number(s.value):Number(a.getAttribute("data-v
 ["agregar","agregar-m"].forEach(function(id){var b=document.getElementById(id);if(b)b.onclick=agregar});
 document.querySelectorAll(".mini").forEach(function(b){b.onclick=function(){var g=document.getElementById("foto-grande");if(g)g.src=b.getAttribute("data-foto");document.querySelectorAll(".mini").forEach(function(x){x.classList.toggle("on",x===b)})}});
 refrescar()})();`;
+
+// La página de pago, en el navegador: el resumen con el carrito, los datos
+// del método elegido (con su monto, en Bs si hay tasa), el comprobante
+// achicado y el envío. El servidor vuelve a calcular todo al recibirlo.
+const SCRIPT_PAGAR = `(function(){
+var f=document.getElementById("pagar");if(!f)return;
+var B=document.body,base=B.getAttribute("data-base")||"",sec=document.querySelector(".pagar"),tasa=Number(sec.getAttribute("data-tasa"))||0;
+var total=0,listo=false,archivo=null,nombreArchivo="";
+function dinero(n){n=Number(n);if(!isFinite(n))return"";var e=Math.abs(n-Math.round(n))<.005;return"$"+n.toLocaleString("en-US",{minimumFractionDigits:e?0:2,maximumFractionDigits:e?0:2})}
+function bs(n){var p=(Math.round(n*100)/100).toFixed(2).split(".");return"Bs "+p[0].replace(/\\B(?=(\\d{3})+(?!\\d))/g,".")+","+p[1]}
+function esc(t){var d=document.createElement("div");d.textContent=t==null?"":t;return d.innerHTML}
+function leer(){try{var c=JSON.parse(localStorage.getItem("cw_carrito")||"[]");return Array.isArray(c)?c:[]}catch(e){return[]}}
+var resL=document.querySelector("[data-res-lineas]"),resT=document.querySelector("[data-res-total]"),resB=document.querySelector("[data-res-bs]"),err=f.querySelector("[data-error]"),btn=f.querySelector("[data-enviar]");
+function error(t){err.textContent=t||"";err.hidden=!t;if(t&&err.scrollIntoView)err.scrollIntoView({behavior:"smooth",block:"center"})}
+var c=leer();
+if(!c.length){resL.innerHTML='<p class="suave">Tu carrito está vacío.</p><a class="boton" href="'+(base||"/")+'">Ver el catálogo</a>';btn.disabled=true}
+else fetch(base+"/api/carrito?v="+c.map(function(x){return x.v+"x"+x.n}).join(",")).then(function(r){return r.json()}).then(function(j){
+ var it=j.items||[],h="";total=0;
+ it.forEach(function(d){var g=c.filter(function(x){return x.v===d.v})[0];if(!g)return;var q=Math.min(g.n,d.max||0);if(!q)return;
+  var sub=d.precio!=null?d.precio*q:0;total+=sub;
+  h+='<div class="res-linea"><span class="res-foto">'+(d.foto?'<img src="'+esc(d.foto)+'" alt="">':"")+'<i>'+q+'</i></span><span class="res-n"><b>'+esc(d.titulo)+'</b>'+(d.etiqueta?'<small>'+esc(d.etiqueta)+'</small>':"")+'</span><b>'+dinero(sub)+'</b></div>'});
+ if(!h){resL.innerHTML='<p class="suave">Lo de tu carrito ya no está disponible.</p>';btn.disabled=true;return}
+ resL.innerHTML=h;resT.textContent=dinero(total);listo=true;montos()}).catch(function(){resL.innerHTML='<p class="suave">No pude cargar el carrito. Recarga la página.</p>'});
+function elegido(){return f.querySelector('input[name="metodo"]:checked')}
+function tasaTxt(){return String(tasa).replace(".",",")}
+function montos(){var m=elegido();
+ document.querySelectorAll(".datos-pago").forEach(function(d){d.hidden=!m||d.getAttribute("data-de")!==m.getAttribute("data-i")});
+ resB.textContent=tasa&&total?"En bolívares: "+bs(total*tasa)+" (tasa "+tasaTxt()+" Bs/$)":"";
+ if(!m)return;var caja=document.querySelector('.datos-pago[data-de="'+m.getAttribute("data-i")+'"] [data-monto]');if(!caja)return;
+ if(m.getAttribute("data-moneda")==="bs")caja.innerHTML=tasa?"Monto a pagar: <b>"+bs(total*tasa)+"</b> <small>(tasa "+tasaTxt()+" Bs por dólar)</small>":"Monto a pagar: el equivalente de <b>"+dinero(total)+"</b> en bolívares a la tasa del día.";
+ else caja.innerHTML="Monto a pagar: <b>"+dinero(total)+"</b>"}
+f.addEventListener("change",function(e){var n=e.target.name;if(n==="metodo")montos();if(n==="entrega"){f.querySelector("[data-direccion]").hidden=e.target.value!=="envio"}});
+document.querySelectorAll("[data-copiar]").forEach(function(b){b.onclick=function(){var t=b.closest(".datos-pago").querySelector("pre").textContent,s=b.querySelector("span");
+ function hecho(){s.textContent="Copiado";b.classList.add("ok");setTimeout(function(){s.textContent="Copiar";b.classList.remove("ok")},1800)}
+ if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t).then(hecho,function(){});else{var a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();try{document.execCommand("copy");hecho()}catch(e){}a.remove()}}});
+// El comprobante: la foto se achica aquí (sube rápido y cabe en la base).
+var input=f.querySelector('input[name="comprobante"]'),vista=f.querySelector("[data-vista]"),nom=f.querySelector("[data-nombre]"),zona=f.querySelector("[data-subir]");
+input.addEventListener("change",function(){var a=input.files&&input.files[0];archivo=null;vista.hidden=true;nom.hidden=true;zona.classList.remove("con");if(!a)return;
+ nombreArchivo=a.name||"comprobante";zona.classList.add("con");
+ if(/pdf$/i.test(a.type)||/\\.pdf$/i.test(a.name)){archivo=a;nom.textContent=a.name;nom.hidden=false;return}
+ achicar(a,function(b){archivo=b||a;try{vista.src=URL.createObjectURL(archivo);vista.hidden=false}catch(e){nom.textContent=a.name;nom.hidden=false}})});
+function achicar(a,cb){try{var url=URL.createObjectURL(a),img=new Image();img.onload=function(){var m=1600,w=img.naturalWidth,h=img.naturalHeight,k=Math.min(1,m/Math.max(w,h));
+ var cv=document.createElement("canvas");cv.width=Math.round(w*k);cv.height=Math.round(h*k);var x=cv.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,cv.width,cv.height);x.drawImage(img,0,0,cv.width,cv.height);
+ URL.revokeObjectURL(url);cv.toBlob(function(b){cb(b&&(b.size<a.size||a.size>1100000)?b:a)},"image/jpeg",.82)};img.onerror=function(){cb(null)};img.src=url}catch(e){cb(null)}}
+f.addEventListener("submit",function(e){e.preventDefault();error("");
+ function v(n){var el=f.elements[n];return el?String(el.value||"").trim():""}
+ if(!listo)return error("Tu carrito está vacío.");
+ if(v("cliente").length<3)return error("Escribe tu nombre y apellido.");
+ if(v("telefono").replace(/\\D/g,"").length<7)return error("Escribe tu teléfono o WhatsApp.");
+ var ent=f.querySelector('input[name="entrega"]:checked');if(ent&&ent.value==="envio"&&v("direccion").length<6)return error("Escribe la dirección para el envío.");
+ if(!elegido())return error("Elige cómo vas a pagar.");
+ if(!archivo)return error("Sube la captura o el PDF del comprobante.");
+ if(archivo.size>1200000)return error("El comprobante pesa demasiado. Manda una captura de pantalla o un PDF más liviano.");
+ var d=new FormData();["cliente","telefono","cedula","direccion","referencia","nota"].forEach(function(n){d.append(n,v(n))});
+ d.append("entrega",ent?ent.value:"retiro");d.append("metodo",elegido().value);
+ d.append("carrito",leer().map(function(x){return x.v+"x"+x.n}).join(","));
+ d.append("comprobante",archivo,archivo.type==="application/pdf"?nombreArchivo:"comprobante.jpg");
+ btn.disabled=true;btn.classList.add("cargando");btn.querySelector("span").textContent="Enviando…";
+ fetch(base+"/api/pedido",{method:"POST",body:d}).then(function(r){return r.json()}).then(function(j){
+  if(!j.ok)throw new Error(j.error||"No pudimos enviar tu pedido.");
+  try{localStorage.removeItem("cw_carrito")}catch(e){}location.href=j.url})
+ .catch(function(x){error(x&&x.message?x.message:"No pudimos enviar tu pedido. Revisa tu conexión e intenta de nuevo.");btn.disabled=false;btn.classList.remove("cargando");btn.querySelector("span").textContent="Enviar comprobante"})});
+})();`;
 
 /* ── El estilo: el de los paneles de ALPHA IA, en forma de tienda ── */
 
@@ -766,14 +1013,60 @@ main{max-width:1240px;margin:0 auto;padding:20px 20px 40px}
 .linea-info{display:flex;flex-direction:column;gap:1px;min-width:0}.linea-info b{font-size:14.5px}.linea-precio{font-weight:800;color:var(--cian)}.quitar{border:0;background:transparent;cursor:pointer;color:var(--suave);font-size:15px;padding:6px}.quitar:hover{color:var(--mal)}
 .resumen{margin-top:18px;display:grid;gap:12px}.total{display:flex;justify-content:space-between;align-items:baseline;font-size:20px}.total b{font-size:26px;letter-spacing:-.02em}
 .vacio-c,.vacio{text-align:center;padding:44px 16px;color:var(--suave);display:grid;gap:12px;justify-items:center}.vacio{padding:70px 16px}.vacio-c .ico{color:var(--tenue)}
+/* Pagar en la página */
+.pagar{max-width:1100px;margin:0 auto}.volver{display:inline-flex;gap:6px;align-items:center;color:var(--suave);font-size:14px;font-weight:650;margin-bottom:12px}.volver:hover{color:var(--cian)}
+.pagar-intro{margin:8px 0 22px;max-width:640px}
+.pagar-grid{display:grid;grid-template-columns:1.35fr .9fr;gap:28px;align-items:start}
+.paso{border:1px solid var(--borde);border-radius:24px;padding:22px;margin:0 0 16px;background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));box-shadow:var(--sombra);display:grid;gap:14px;min-width:0}
+:root[data-tema="claro"] .paso,:root[data-tema="claro"] .pagar-resumen{background:#fff}
+.paso-t{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:800}
+.num{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--grad);color:#fff;font-size:13.5px;box-shadow:0 6px 14px -6px ${color}}
+.campo{display:grid;gap:6px;font-size:13.5px;font-weight:700;color:var(--suave)}.campo small{font-weight:600;color:var(--tenue)}.campo-t{display:block}
+.campo input:not([type=radio]):not([type=checkbox]),.campo textarea,.campo select{width:100%;border:1px solid var(--borde-f);border-radius:13px;padding:12px 14px;font:inherit;font-weight:500;color:var(--texto);background:var(--tarjeta-s);outline:none;transition:border-color .3s,box-shadow .3s;resize:vertical}
+.campo input:focus,.campo textarea:focus{border-color:var(--marca);box-shadow:0 0 0 4px color-mix(in srgb,${color} 18%,transparent)}
+.dos-c{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.elegir{display:flex;gap:10px;flex-wrap:wrap}.elegir label{cursor:pointer;position:relative}.elegir input{position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;margin:0}
+.elegir span{display:inline-flex;gap:8px;align-items:center;padding:10px 15px;border:1px solid var(--borde-f);border-radius:13px;font-weight:700;color:var(--texto);background:var(--tarjeta);transition:all .35s var(--salida)}
+.elegir input:checked+span{background:var(--grad);color:#fff;border-color:transparent;box-shadow:0 10px 22px -10px ${color}}.elegir input:focus-visible+span{outline:2px solid var(--cian);outline-offset:2px}
+.metodos{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}.metodo{cursor:pointer;position:relative}.metodo input{position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;margin:0}
+.metodo-c{display:grid;gap:3px;padding:14px;border:1px solid var(--borde-f);border-radius:16px;background:var(--tarjeta);transition:all .35s var(--salida);height:100%}.metodo-c .ico{color:var(--cian)}.metodo-c b{font-size:15px}.metodo-c small{color:var(--suave);font-size:12.5px}
+.metodo:hover .metodo-c{border-color:var(--marca);transform:translateY(-1px)}
+.metodo input:checked+.metodo-c{border-color:var(--marca);background:color-mix(in srgb,${color} 14%,var(--tarjeta-s));box-shadow:0 0 0 1px var(--marca),0 14px 30px -18px ${color}}.metodo input:focus-visible+.metodo-c{outline:2px solid var(--cian);outline-offset:2px}
+.datos-pago{border:1px dashed color-mix(in srgb,${color} 55%,transparent);border-radius:16px;padding:14px 16px;background:color-mix(in srgb,${color} 7%,transparent);animation:entra .5s var(--salida)}
+@keyframes entra{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.datos-cab{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:14px}
+.datos-pago pre{margin:10px 0 6px;white-space:pre-wrap;word-break:break-word;font:600 15px/1.6 var(--fuente);color:var(--texto)}
+.copiar{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--borde-f);background:var(--tarjeta);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:700;cursor:pointer;transition:all .3s var(--salida)}.copiar:hover{border-color:var(--marca)}.copiar.ok{background:var(--grad);color:#fff;border-color:transparent}
+.monto{margin:4px 0 0;font-size:14.5px}.monto b{font-size:17px}
+.subir{position:relative;display:grid;place-items:center;gap:8px;min-height:150px;padding:18px;border:1.5px dashed var(--borde-f);border-radius:18px;text-align:center;cursor:pointer;background:var(--tarjeta);transition:border-color .3s,background .3s}
+.subir:hover,.subir.con{border-color:var(--marca)}.subir input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.subir-txt{display:grid;gap:4px;justify-items:center;color:var(--suave)}.subir-txt b{color:var(--texto)}.subir-txt .ico{color:var(--cian)}
+.subir img{max-height:220px;width:auto;border-radius:12px;border:1px solid var(--borde)}.subir.con .subir-txt small{display:none}.subir-nombre{font-weight:700;color:var(--cian)}
+.error-pago{margin:0 0 12px;padding:12px 14px;border-radius:13px;border:1px solid color-mix(in srgb,var(--mal) 50%,transparent);background:color-mix(in srgb,var(--mal) 12%,transparent);color:var(--mal);font-weight:700}
+.enviar{width:100%}.enviar.cargando{opacity:.8;cursor:progress}.boton[disabled]{opacity:.55;cursor:not-allowed;transform:none}
+.chico{font-size:13px}
+.pagar-resumen{position:sticky;top:90px;border:1px solid var(--borde);border-radius:24px;padding:22px;background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));box-shadow:var(--sombra);display:grid;gap:12px}
+.res-lineas{display:grid;gap:12px}.res-linea{display:grid;grid-template-columns:56px 1fr auto;gap:12px;align-items:center;font-size:14px}
+.res-foto{position:relative;width:56px;height:56px;border-radius:12px;background:var(--tarjeta-s);border:1px solid var(--borde)}.res-foto img{width:100%;height:100%;object-fit:cover;border-radius:inherit}
+.res-foto i{position:absolute;top:-7px;right:-7px;min-width:20px;height:20px;border-radius:999px;background:var(--grad);color:#fff;font:800 11px/20px var(--fuente);text-align:center;padding:0 5px;font-style:normal}
+.res-n{display:grid;min-width:0}.res-n small{color:var(--suave)}
+/* Cómo va el pedido */
+.estado-pedido{max-width:620px;margin:20px auto;text-align:center;display:grid;gap:12px;justify-items:center}
+.estado-ico{width:84px;height:84px;border-radius:50%;display:grid;place-items:center;background:var(--grad);color:#fff;box-shadow:0 20px 50px -18px ${color};animation:latido 2.4s ease-in-out infinite}
+.estado-pedido.bien .estado-ico{background:linear-gradient(135deg,#5ef0b0,#16a36a);box-shadow:0 20px 50px -18px #16a36a}.estado-pedido.mal .estado-ico{background:linear-gradient(135deg,#ff8f8f,#d92d2d);box-shadow:0 20px 50px -18px #d92d2d;animation:none}
+@keyframes latido{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+.codigo{letter-spacing:.08em}.motivo{padding:10px 14px;border-radius:13px;background:color-mix(in srgb,var(--mal) 12%,transparent);color:var(--mal);font-weight:700}
+.estado-caja{width:100%;text-align:left;border:1px solid var(--borde);border-radius:20px;padding:6px 18px;background:var(--tarjeta);box-shadow:var(--sombra)}
+.estado-linea{display:flex;justify-content:space-between;gap:14px;padding:11px 0;border-bottom:1px solid var(--borde);font-size:14.5px}.estado-linea:last-child{border-bottom:0}.estado-linea span{color:var(--suave)}.estado-linea b{text-align:right}.total-l b{font-size:18px}
+.estado-acciones{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:6px}
 /* El pie */
 .pie{margin-top:40px;border-top:1px solid var(--borde);background:linear-gradient(180deg,transparent,rgba(148,163,194,.05))}
 .pie-in{max-width:1240px;margin:0 auto;padding:34px 20px 40px;display:flex;justify-content:space-between;gap:30px;flex-wrap:wrap;align-items:flex-start}
 .pie-marca{display:grid;gap:12px;max-width:420px}.pie-marca .lg{width:200px;height:auto}.pie-marca p{margin:0;color:var(--suave);font-size:14px}.pie-marca .monograma.grande{width:64px;height:64px;font-size:30px;border-radius:18px}
 .pie-links{display:grid;gap:10px;font-size:14px}.pie-links b{letter-spacing:.14em;text-transform:uppercase;font-size:12.5px;color:var(--suave)}.pie-links a{display:inline-flex;gap:8px;align-items:center;font-weight:650}.pie-links a:hover{color:var(--cian)}
-@media(max-width:1000px){.rejilla{grid-template-columns:repeat(3,1fr)}.prod{grid-template-columns:1fr;gap:24px}.galeria{position:static}.heroe{grid-template-columns:1fr;padding:34px 26px}.heroe-logo{order:-1}.heroe-logo .lg{width:260px}.heroe h1{font-size:36px}.nav{display:none}}
+@media(max-width:1000px){.pagar-grid{grid-template-columns:1fr}.pagar-resumen{position:static;order:-1}.rejilla{grid-template-columns:repeat(3,1fr)}.prod{grid-template-columns:1fr;gap:24px}.galeria{position:static}.heroe{grid-template-columns:1fr;padding:34px 26px}.heroe-logo{order:-1}.heroe-logo .lg{width:260px}.heroe h1{font-size:36px}.nav{display:none}}
 @media(max-width:620px){.rejilla{grid-template-columns:repeat(2,1fr);gap:20px 12px}.col-rejilla{grid-template-columns:1fr 1fr}.cab-in{flex-wrap:wrap;gap:10px;padding:10px 14px}.buscar{order:3;flex:1 1 100%;max-width:none;margin:0}.marca{margin-right:auto}.marca-n{font-size:12px}
- main{padding:14px 14px 90px}.cat-cab h2{font-size:22px}.heroe h1{font-size:30px}.info-caja{padding:20px}.info h1{font-size:23px}
+ main{padding:14px 14px 90px}.dos-c{grid-template-columns:1fr}.paso{padding:18px}.metodos{grid-template-columns:1fr 1fr}.cat-cab h2{font-size:22px}.heroe h1{font-size:30px}.info-caja{padding:20px}.info h1{font-size:23px}
  .linea{grid-template-columns:64px 1fr auto}.linea .mas-menos{grid-column:2}.linea-foto{width:64px;height:64px}
  .compra-movil{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:25;justify-content:space-between;align-items:center;gap:14px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:rgba(5,7,13,.86);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border-top:1px solid var(--borde-f)}
  :root[data-tema="claro"] .compra-movil{background:rgba(255,255,255,.9)}.compra-movil b{font-size:22px}.compra-movil .boton{flex:1;max-width:220px}}

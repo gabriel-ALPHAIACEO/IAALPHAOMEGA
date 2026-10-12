@@ -46,6 +46,8 @@ export const PANTALLAS = {
   inicio: ["/panel/inicio", "Inicio"],
   caja: ["/panel/caja", "Caja"],
   ventas: ["/panel/ventas", "Ventas"],
+  pedidos: ["/panel/pedidos", "Pedidos web"],
+  pagos: ["/panel/pedidos/pagos", "Métodos de pago"],
   inventario: ["/panel/inventario", "Inventario"],
   importar: ["/panel/inventario/importar", "Importar productos"],
   nuevo: ["/panel/inventario/nuevo", "Nuevo producto"],
@@ -148,6 +150,17 @@ TU NEGOCIO
   - Movimientos (/panel/inventario/movimientos): todo lo que entró y salió,
     quién y cuándo.
   - El inventario completo se baja a Excel.
+· Pedidos web (/panel/pedidos): los pagos que los clientes hicieron en la
+  tienda web (/tienda) con su comprobante (foto o PDF). «Aprobar y anotar la
+  venta» anota la venta con su método y baja el stock (si no alcanza, avisa:
+  se corrige el stock o se aprueba sin anotar la venta y se cobra en la
+  caja). «Rechazar» pide el motivo, que el cliente ve en el enlace de su
+  pedido. Por revisar · Aprobados · Rechazados. Le llega aviso al asesor.
+  - Métodos de pago (/panel/pedidos/pagos): Pago Móvil, Transferencia,
+    Zelle, Zinli, Binance y los que se añadan, con sus datos (lo que ve el
+    cliente) y si se pagan en dólares o bolívares; la tasa del día (Bs por
+    dólar) es opcional. Un método sin datos no sale en la web; sin ninguno,
+    la web solo pide por WhatsApp.
 · Gastos (/panel/gastos): anotar lo que sale (monto, categoría, método,
   fecha). Se puede borrar uno mal puesto. Suma en el balance.
 · Fiados (/panel/fiados): quién debe y cuánto. Se registran abonos (no más
@@ -200,6 +213,7 @@ const SUGERENCIAS = {
   ventas: ["¿Cuánto vendí hoy?", "¿Cómo anulo una venta?", "¿Cómo mando el recibo por WhatsApp?"],
   inventario: ["¿Cómo cargo mi inventario de Excel?", "¿Cómo imprimo las etiquetas?", "¿Qué se está acabando?"],
   gastos: ["¿En qué gasté más este mes?", "Gasté 20 en transporte", "¿Cuál es mi balance?"],
+  pedidos: ["¿Cómo apruebo un pago de la web?", "¿Dónde pongo mis datos de Pago Móvil?", "¿Qué pasa si rechazo un pedido?"],
   fiados: ["¿Quién me debe más?", "¿Cómo registro un abono?", "¿Cuánto me deben en total?"],
   chats: ["¿Cómo pauso el bot con un cliente?", "¿Cómo le escribo a un cliente?"],
   clientes: ["¿Cómo marco un cliente como vendido?", "¿Cómo bajo los clientes a Excel?"],
