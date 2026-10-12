@@ -106,7 +106,9 @@ ok(j.items[0].precio === 85 && j.items[0].titulo.includes("Air Force") && j.item
 ok(j.items[1].max === 0, "una talla agotada llega con tope 0");
 ok(!JSON.stringify(j).includes("41.37"), "sin el costo");
 c = await pedir("/tienda/carrito");
-ok(c?.estado === 200 && /Tu carrito/.test(c.html) && /pedir-todo/.test(c.html), "la página del carrito");
+ok(c?.estado === 200 && /Tu carrito/.test(c.html) && /data-pedir/.test(c.html) && /carro-pagina/.test(c.html), "la página del carrito");
+c = await pedir("/tienda");
+ok(/id="cajon"/.test(c.html) && /data-abrir/.test(c.html), "y el carrito lateral está en todas las páginas");
 
 titulo("la web NO descuenta stock");
 const antes = JSON.stringify((await DB.prepare("SELECT variante_id, cantidad FROM inv_stock ORDER BY variante_id").all()).results);
@@ -125,6 +127,30 @@ c = await pedir("/tienda/sitemap.xml");
 ok(/<urlset/.test(c.html) && new RegExp(`/tienda/p/${af1.id}<`).test(c.html) && !new RegExp(`/tienda/p/${quitado.id}<`).test(c.html), "el sitemap lista los productos activos");
 ok((await pedir("/tienda", env, "POST")) === null, "solo responde a GET");
 ok(!/SELECT[\s\S]{0,80}costo/i.test(fuente("catalogo-web.js").replace(/\/\/.*$/gm, "")), "el código de la web nunca consulta el costo");
+
+titulo("el diseño de la familia ALPHA IA");
+c = await pedir("/tienda");
+ok(/Manrope/.test(c.html) && /data-tema-boton/.test(c.html) && /id="carro-n"/.test(c.html), "letra Manrope, interruptor ☀️/🌙 y el contador del carrito");
+ok(/class="heroe/.test(c.html) && /Catálogo en línea/.test(c.html), "la portada con el nombre de la tienda");
+c = await pedir("/tienda?q=samba");
+ok(!/class="heroe/.test(c.html), "la portada solo sale en la página principal");
+// El logo es de cada tienda (logo-tienda.js): con logo se sirve y se pone en
+// la cabecera y el héroe; sin logo, un monograma con la inicial.
+const { LOGO } = await src.cargar("logo-tienda.js");
+if (LOGO.oscuro) {
+  for (const cual of ["oscuro", "claro", "casco"]) {
+    const l = await pedir(`/tienda/logo/${cual}.png`);
+    ok(l?.estado === 200 && /image\/png/.test(l.tipo), `el logo ${cual} se sirve como imagen PNG`);
+  }
+  c = await pedir("/tienda");
+  ok(/class="lg lg-oscuro"/.test(c.html) && /class="lg lg-claro"/.test(c.html) && /class="lg-casco"/.test(c.html), "la cabecera y el héroe llevan el logo de la tienda (uno por tema)");
+  ok(/rel="icon" type="image\/png"/.test(c.html), "y el casco es el ícono de la pestaña");
+  ok(!/class="monograma/.test(c.html), "con logo no sale el monograma");
+} else {
+  ok((await pedir("/tienda/logo/oscuro.png"))?.estado === 404, "sin logo cargado, /tienda/logo da 404 (la web usa un monograma)");
+  c = await pedir("/tienda");
+  ok(/class="monograma/.test(c.html), "sin logo, un monograma con la inicial");
+}
 
 titulo("está conectado en index.js");
 ok(/atenderCatalogoWeb\(request, env,/.test(fuente("index.js")) && /from "\.\/catalogo-web\.js"/.test(fuente("index.js")), "index.js le da las direcciones /tienda");
