@@ -146,14 +146,51 @@ for (const [tipo, palabras] of TIPOS) {
   for (const palabra of palabras) DE_PALABRA.set(palabra, tipo);
 }
 
+// Los nombres de dos palabras que son UN tipo (13-oct-2026, informe de
+// errores: "Aorax Power Bank" no contaba como power bank por ir separado).
+const COMPUESTOS = [
+  [/\bpower\s+banks?\b/g, "powerbank"],
+  [/\bbancos?\s+de\s+(?:energia|poder|carga)\b/g, "powerbank"],
+  [/\bbaterias?\s+(?:portatil|portatiles|externas?)\b/g, "powerbank"],
+  [/\bcargador(?:es)?\s+portatil(?:es)?\b/g, "powerbank"],
+  [/\bsmart\s+watch(?:es)?\b/g, "smartwatch"],
+  [/\bsmart\s+bands?\b/g, "smartband"],
+];
+
 function palabras(texto) {
-  return String(texto || "")
+  let t = String(texto || "")
     .toLowerCase()
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
+    .replace(/[^a-z0-9\s]/g, " ");
+  for (const [patron, junto] of COMPUESTOS) t = t.replace(patron, junto);
+  return t.split(/\s+/).filter(Boolean);
+}
+
+// ¿El mensaje es SOLO un tipo de accesorio? ("Powerbanks", "¿tienen
+// power banks?", "más relojes", "otros cargadores"). Devuelve el tipo, o "".
+// Sirve para buscar TODOS los de ese tipo y no el modelo que se venía
+// mirando (13-oct-2026: pidió "Powerbanks" y le salió solo el que ya vio).
+const RELLENO_DEL_TIPO = new Set(
+  ("tienen tienes tiene hay de del los las el la un una unos unas me nos muestras muestra muestrame ensename quiero ver busco buscando " +
+    "algun alguna algunos algunas que y o para por favor porfa mas otro otra otros otras opciones modelos tipos cuales venden vendes " +
+    "hola buenas disponible disponibles todos todas tu ustedes")
+    .split(" ")
+);
+
+export function soloNombraUnTipo(texto) {
+  if (/\d/.test(String(texto || ""))) return "";
+  const resto = palabras(texto).filter((p) => !RELLENO_DEL_TIPO.has(p));
+  if (!resto.length || resto.length > 2) return "";
+  const tipos = new Set(resto.map((p) => DE_PALABRA.get(p)));
+  if (tipos.size !== 1) return "";
+  const [tipo] = tipos;
+  return tipo && tipo !== "telefono" ? tipo : "";
+}
+
+// "más opciones", "¿qué más tienen?", "otros modelos", "¿no hay otros?"
+export function pideMasOpciones(texto) {
+  return /\b(?:m[aá]s|otr[oa]s?)\s+(?:opciones|modelos|marcas|tipos)\b|\bqu[eé]\s+m[aá]s\s+(?:tienen|hay|tienes)\b|\bno\s+(?:tienen|hay|tienes)\s+otr[oa]s?\b/i.test(String(texto || ""));
 }
 
 // QUÉ TIPO PIDIÓ EL CLIENTE. "" si no nombró ninguno —que es lo normal

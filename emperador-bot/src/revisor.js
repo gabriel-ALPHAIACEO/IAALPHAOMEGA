@@ -124,6 +124,9 @@ ESTO ESTÁ BIEN (no lo marques nunca):
   · Un dato que la tienda NO tiene y manda al asesor (precio en bolívares,
     tasa del día, garantía): "te lo confirma un asesor" ES la respuesta. No
     es "no_responde".
+  · "Por ahora es el único que tenemos" (o "son los únicos") cuando LO QUE
+    HIZO EL CÓDIGO dice que es TODO lo que hay de eso en la tienda: es la
+    verdad y contesta lo que pidió. No es "no_responde".
 
 CONFIANZA:
   · "alta": lo puedes señalar con el dedo (citas la frase y sabes por qué
@@ -162,6 +165,10 @@ asistente DEBIÓ responder: una respuesta corta, en español neutro, lista
 para mandarla al cliente, que use SOLO datos de las fichas, la conversación
 o los datos de la tienda. Si el dato no está en ningún lado, la corrección
 es pasárselo a un asesor ("Eso te lo confirma un asesor en un momento 😊").
+NUNCA corrijas con "aquí tienes más opciones", "otros modelos" o productos
+que no están en las fichas: si no hay más, lo correcto es decir que no hay
+más (13-oct-2026: un "Debió decir: aquí tienes más opciones de power banks"
+cuando la tienda tenía uno solo habría sido un invento).
 Si está bien, "correccion" va vacío.
 
 Responde SOLO con este JSON:

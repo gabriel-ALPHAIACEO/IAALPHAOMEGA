@@ -75,6 +75,8 @@ import {
   usoQuePide,
   sirveParaElUso,
   esDeOtroNegocio,
+  soloNombraUnTipo,
+  pideMasOpciones,
   comoSeLlama as nombreDelTipo,
 } from "./tipos.js";
 import {
@@ -93,7 +95,7 @@ import {
   marcaEnTexto,
   mensajesDeLista,
 } from "./lista.js";
-import { pideVerLoRecomendado, productosRecomendados } from "./recomendados.js";
+import { pideVerLoRecomendado, productosRecomendados, pideLoMismoOtraVez, conLoUnicoQueHay } from "./recomendados.js";
 import { separarColor } from "./color.js";
 import {
   separarCapacidad,
@@ -168,7 +170,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-13 (68) · 🏷️ VENTAS POR CATEGORÍA en Inicio y Ventas (cuánto vende cada sección, sin anuladas; el asistente también lo sabe) · atajos por categoría en el Inventario (y «Sin categoría») · · (67) · 📷 FOTOS DE LOS PRODUCTOS desde el panel: se suben al crear el producto y en su ficha (se achican solas, hasta 10, «Hacer principal» y quitar) y se ven en la tienda web · «Condición» (nuevo/usado) fuera: ahora «Categoría» (la sección de la tienda web) · precio Cashea OBLIGATORIO al crear y al editar · · 2026-10-12 (66) · 💳 PAGAR EN LA TIENDA WEB: el cliente elige el método (Pago Móvil, Transferencia, Zelle, Zinli, Binance y los que añadas), ve los datos con «Copiar» y el monto (en Bs con la tasa del día), y SUBE EL COMPROBANTE; en el panel, «Pedidos web» para aprobarlo (anota la venta y baja el stock) o rechazarlo con motivo, y «Métodos de pago» para escribir los datos; el cliente ve cómo va su pedido en su enlace · · (65) · 🛍️ tienda web: el logo ya no se corta, ícono cuadrado en la pestaña, el casco de arriba no se aplasta y las tarjetas ya no dicen «Últimas unidades» · · (64) · 🛍️ la portada de la tienda sin el botón «Ver el catálogo» (repetía lo de abajo) · · (63) · 🛍️ la tienda web con el diseño de ALPHA IA (oscuro/claro, carrito lateral, héroe con colecciones) y, en El Emperador, con su logo · · (62) · 🛍️ la TIENDA WEB: el inventario como un catálogo público estilo Shopify en /tienda (buscador, filtros, producto con tallas, carrito que pide por WhatsApp; no descuenta stock) · · (61) inventario: lo recién traído del catálogo sale \"Sin contar · pon las unidades\", no Agotado · · (60) juntas las dos ramas: lo del inventario y lo de la atención · · (59) ✏️ las cantidades se escriben: una casilla por talla al crear un producto y al añadir tallas (con «Igual para todas»), y en la ficha el número de cada talla se cambia escribiéndolo, sin botón (se guarda solo, con Deshacer) · 🗓️ ventas de días anteriores: en la caja «Venta de: Hoy / Ayer / Otro día» y en «Vendí» el día de la venta (cuenta en ese día en Ventas y en el balance; el stock baja al anotarla; si el producto se contó después, avisa) · 🔧 el botón «Mover» de la ficha no abría (chocaba con las flechas del carrusel) · un doble toque ya no repite la carga · · (58) · 📦 «Traer ahora», «Subir un Excel» y el Excel del inventario van por partes (ya no pasan el límite de Cloudflare), con barra de progreso; un Excel que termina tarde no deshace las ventas de la caja · 💬 el Asistente en todas las pantallas del panel: conoce el panel, la pantalla donde estás y el stock de lo que nombras, con botón «Abrir …» (antes fallaba en cada pregunta) · · (56) 📦 el bot ofrece lo del INVENTARIO (traída la hoja; en Importar se vuelve a ella): lo vendido en la caja deja de ofrecerse solo · cada capacidad con su precio, Cashea, Bs, foto y columnas, y si el bot la ofrece · y lo de la v54: WhatsApp: el mismo bot contesta por WhatsApp (whatsapp.js; se enciende con WA_PHONE_ID y WA_TOKEN) · revisor fuerte (gpt-5) que aprende (APRENDER), y lo aprendido ya le llega a la IA · · (55) ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 📱 teléfonos: capacidades e IMEI en el recibo · la caja cobra el precio Cashea (en divisas en efectivo, el de dólares) · las filas repetidas de la hoja se suman · · (54) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (53) memoria: analiza el chat antes de responder (\"Charla / Pide\"), sigue el tema de lo último que hablaron, recuerda qué fichas vio y 20 mensajes · · (52) a los \"gracias\" contesta con lo que hablaban, sin fichas ni tablas · nivel 6 = Cashea (Krece va por color) · informe del 7-oct: Krece (tabla y monto al asesor, nunca un $ de Krece), las cuotas solo si pregunta, ¿está disponible?, pro+ = pro plus, 15 C = 15C, comparar dos equipos, Xbyte a secas, accesorios que contaban como teléfonos · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max · · 2026-10-09 (55) · revisor más barato (gpt-5-mini, low, sin revisar saludos ni gracias, tope $5) · lo aprendido de Cashea ya no le llega a la IA · · (54) WhatsApp: el mismo bot contesta por WhatsApp (whatsapp.js; se enciende con WA_PHONE_ID y WA_TOKEN) · revisor fuerte (gpt-5) que aprende (APRENDER), y lo aprendido ya le llega a la IA · · (53) memoria: analiza el chat antes de responder (\"Charla / Pide\"), sigue el tema de lo último que hablaron, recuerda qué fichas vio y 20 mensajes · · (52) a los \"gracias\" contesta con lo que hablaban, sin fichas ni tablas · nivel 6 = Cashea (Krece va por color) · informe del 7-oct: Krece (tabla y monto al asesor, nunca un $ de Krece), las cuotas solo si pregunta, ¿está disponible?, pro+ = pro plus, 15 C = 15C, comparar dos equipos, Xbyte a secas, accesorios que contaban como teléfonos · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max";
+const VERSION = "2026-10-13 (69) · 🔋 informe de errores del 13-oct: pedir el TIPO («Powerbanks», «relojes») enseña TODOS los de ese tipo y no solo el modelo que venía mirando (primero los que no vio); «Power Bank» separado, «batería portátil» y «banco de energía» son power banks; si de verdad hay uno solo y ya lo vio, se dice claro que es el único; la lista que lee la IA va una línea por modelo (ya no se corta); el revisor no pide inventar «más opciones» · · (68) · 🏷️ VENTAS POR CATEGORÍA en Inicio y Ventas (cuánto vende cada sección, sin anuladas; el asistente también lo sabe) · atajos por categoría en el Inventario (y «Sin categoría») · · (67) · 📷 FOTOS DE LOS PRODUCTOS desde el panel: se suben al crear el producto y en su ficha (se achican solas, hasta 10, «Hacer principal» y quitar) y se ven en la tienda web · «Condición» (nuevo/usado) fuera: ahora «Categoría» (la sección de la tienda web) · precio Cashea OBLIGATORIO al crear y al editar · · 2026-10-12 (66) · 💳 PAGAR EN LA TIENDA WEB: el cliente elige el método (Pago Móvil, Transferencia, Zelle, Zinli, Binance y los que añadas), ve los datos con «Copiar» y el monto (en Bs con la tasa del día), y SUBE EL COMPROBANTE; en el panel, «Pedidos web» para aprobarlo (anota la venta y baja el stock) o rechazarlo con motivo, y «Métodos de pago» para escribir los datos; el cliente ve cómo va su pedido en su enlace · · (65) · 🛍️ tienda web: el logo ya no se corta, ícono cuadrado en la pestaña, el casco de arriba no se aplasta y las tarjetas ya no dicen «Últimas unidades» · · (64) · 🛍️ la portada de la tienda sin el botón «Ver el catálogo» (repetía lo de abajo) · · (63) · 🛍️ la tienda web con el diseño de ALPHA IA (oscuro/claro, carrito lateral, héroe con colecciones) y, en El Emperador, con su logo · · (62) · 🛍️ la TIENDA WEB: el inventario como un catálogo público estilo Shopify en /tienda (buscador, filtros, producto con tallas, carrito que pide por WhatsApp; no descuenta stock) · · (61) inventario: lo recién traído del catálogo sale \"Sin contar · pon las unidades\", no Agotado · · (60) juntas las dos ramas: lo del inventario y lo de la atención · · (59) ✏️ las cantidades se escriben: una casilla por talla al crear un producto y al añadir tallas (con «Igual para todas»), y en la ficha el número de cada talla se cambia escribiéndolo, sin botón (se guarda solo, con Deshacer) · 🗓️ ventas de días anteriores: en la caja «Venta de: Hoy / Ayer / Otro día» y en «Vendí» el día de la venta (cuenta en ese día en Ventas y en el balance; el stock baja al anotarla; si el producto se contó después, avisa) · 🔧 el botón «Mover» de la ficha no abría (chocaba con las flechas del carrusel) · un doble toque ya no repite la carga · · (58) · 📦 «Traer ahora», «Subir un Excel» y el Excel del inventario van por partes (ya no pasan el límite de Cloudflare), con barra de progreso; un Excel que termina tarde no deshace las ventas de la caja · 💬 el Asistente en todas las pantallas del panel: conoce el panel, la pantalla donde estás y el stock de lo que nombras, con botón «Abrir …» (antes fallaba en cada pregunta) · · (56) 📦 el bot ofrece lo del INVENTARIO (traída la hoja; en Importar se vuelve a ella): lo vendido en la caja deja de ofrecerse solo · cada capacidad con su precio, Cashea, Bs, foto y columnas, y si el bot la ofrece · y lo de la v54: WhatsApp: el mismo bot contesta por WhatsApp (whatsapp.js; se enciende con WA_PHONE_ID y WA_TOKEN) · revisor fuerte (gpt-5) que aprende (APRENDER), y lo aprendido ya le llega a la IA · · (55) ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 📱 teléfonos: capacidades e IMEI en el recibo · la caja cobra el precio Cashea (en divisas en efectivo, el de dólares) · las filas repetidas de la hoja se suman · · (54) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (53) memoria: analiza el chat antes de responder (\"Charla / Pide\"), sigue el tema de lo último que hablaron, recuerda qué fichas vio y 20 mensajes · · (52) a los \"gracias\" contesta con lo que hablaban, sin fichas ni tablas · nivel 6 = Cashea (Krece va por color) · informe del 7-oct: Krece (tabla y monto al asesor, nunca un $ de Krece), las cuotas solo si pregunta, ¿está disponible?, pro+ = pro plus, 15 C = 15C, comparar dos equipos, Xbyte a secas, accesorios que contaban como teléfonos · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max · · 2026-10-09 (55) · revisor más barato (gpt-5-mini, low, sin revisar saludos ni gracias, tope $5) · lo aprendido de Cashea ya no le llega a la IA · · (54) WhatsApp: el mismo bot contesta por WhatsApp (whatsapp.js; se enciende con WA_PHONE_ID y WA_TOKEN) · revisor fuerte (gpt-5) que aprende (APRENDER), y lo aprendido ya le llega a la IA · · (53) memoria: analiza el chat antes de responder (\"Charla / Pide\"), sigue el tema de lo último que hablaron, recuerda qué fichas vio y 20 mensajes · · (52) a los \"gracias\" contesta con lo que hablaban, sin fichas ni tablas · nivel 6 = Cashea (Krece va por color) · informe del 7-oct: Krece (tabla y monto al asesor, nunca un $ de Krece), las cuotas solo si pregunta, ¿está disponible?, pro+ = pro plus, 15 C = 15C, comparar dos equipos, Xbyte a secas, accesorios que contaban como teléfonos · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -3337,6 +3339,19 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   if (soloTexto) {
     console.log(`La IA eligió responder SOLO TEXTO: no le repito las ${productos.length} ficha(s) que ya vio`);
   }
+
+  // ES TODO LO QUE HAY Y YA LO VIO (13-oct-2026, informe de errores): pidió
+  // otra vez lo mismo ("Powerbanks") o "más opciones", la búsqueda trajo lo
+  // que ya había visto y no hay más. Se le dice claro que es lo único, sin
+  // inventar "más opciones" (ver conLoUnicoQueHay en recomendados.js).
+  const deQuePideOtraVez =
+    termino && productos.length > 0 && productos.length <= 5 && !hayMas && !buscoSinExito && yaLosVio && !publicacion && !imagenCruda
+      ? pideLoMismoOtraVez(mensaje.texto, termino)
+      : "";
+  if (deQuePideOtraVez) {
+    respuestaCliente = conLoUnicoQueHay(respuestaCliente, { cuantos: productos.length, deQue: deQuePideOtraVez });
+    console.log(`Pidió otra vez "${deQuePideOtraVez}" y ya vio todo lo que hay (${productos.length}): se le dice que es lo único`);
+  }
   if (modo === "imagenes" && productos.length && respuestaCliente.length > 120) {
     // Las fichas hablan: el texto va corto, la primera frase.
     respuestaCliente = respuestaCliente.split(/(?<=[.!?👇😊🙌])\s+/)[0];
@@ -3472,7 +3487,14 @@ async function atenderMeta(env, mensaje, rastro = {}) {
         productos: productos.filter((p) => paraMostrar.some((f) => f.titulo === p.titulo)),
         anuncio: [notaDelAnuncio, notaTecnica(fichasTecnicasFinal)].filter(Boolean).join("\n"),
         queMostrar: soloTexto ? "texto" : modo,
-        paso: cambioElCodigo ? respuestaCliente : "",
+        paso: [
+          cambioElCodigo ? respuestaCliente : "",
+          deQuePideOtraVez
+            ? `DE LO QUE PIDE («${deQuePideOtraVez}») ESTO ES TODO LO QUE HAY EN LA TIENDA (${productos.length}) Y YA LO HABÍA VISTO: dile claro y con buena cara que por ahora ${productos.length === 1 ? "es el único que tenemos" : "son los únicos que tenemos"}. NO digas "más opciones", "otros modelos" ni "aquí tienes más". Puedes preguntarle si busca algo en particular (otra capacidad, otra marca).`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
         borrador: salida.respuesta,
         yaSeConocen: Boolean(historialPrevio),
       }),
@@ -3503,7 +3525,8 @@ async function atenderMeta(env, mensaje, rastro = {}) {
         console.log(`La redacción contradecía la búsqueda (${JSON.stringify(revisada.slice(0, 100))}): va la de siempre`);
       } else if (revisada) {
         console.log(`La IA redactó viendo los resultados: ${JSON.stringify(revisada.slice(0, 160))}`);
-        respuestaCliente = revisada;
+        // Si la redacción se olvidó de decir que es lo único, se dice igual.
+        respuestaCliente = deQuePideOtraVez ? conLoUnicoQueHay(revisada, { cuantos: productos.length, deQue: deQuePideOtraVez }) : revisada;
       }
     } else {
       console.log("La redacción con resultados no salió: va la respuesta de siempre");
@@ -3598,6 +3621,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
         `su borrador era: "${String(salida.respuesta || "").slice(0, 140)}"`,
       preguntarMarca && "prometió fotos sin buscar: se le preguntó la marca",
       soloTexto && `respondió solo texto: ya había visto esas ${productos.length} ficha(s)`,
+      deQuePideOtraVez && `de lo que pidió («${deQuePideOtraVez}») la tienda tiene SOLO ${productos.length} y ya lo había visto: es TODO lo que hay, por eso se le dice que es el único`,
       sinSaberQueEs && "no se supo de qué equipo era la publicación",
       cuentaDeCuotas && `la cuenta de cuotas la hizo el código: ${cuentaDeCuotas.motivo}`,
       cuentaDeCuotas?.asesor && "se avisó al asesor para el monto",
@@ -5154,7 +5178,34 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
 
   let productos = [];
   let hayMas = false;
-  if (termino) {
+
+  // PIDE EL TIPO, NO EL MODELO (13-oct-2026, informe de errores: venía
+  // mirando el Powerbank 20.000mAh, escribió "Powerbanks" y la IA volvió a
+  // buscar ESE modelo: le salió uno solo, y en la tienda había más). Si el
+  // mensaje es solo un tipo de accesorio ("Powerbanks", "más relojes"), o
+  // pide "más opciones" de lo que venía mirando, van TODOS los de ese tipo,
+  // primero los que todavía no vio.
+  const tipoEntero = soloNombraUnTipo(texto) || (pideMasOpciones(texto) && !tipoQuePide(texto) ? tipoDeLaCharla : "");
+  // Solo si la IA lo ANGOSTÓ (buscó un modelo con palabras que el cliente no
+  // dijo: "Powerbank 20.000mAh GAr 158" para "Powerbanks") o no buscó nada.
+  // Si buscó lo mismo que él escribió ("smartband"), su búsqueda vale.
+  const delCliente = new Set(palabrasDe(texto));
+  const laIaLoAngosto = !termino || palabrasDe(termino).some((p) => !delCliente.has(p) && !tipoQuePide(p));
+  if (tipoEntero && laIaLoAngosto && !esAgradecimiento(texto)) {
+    const delTipo = (await catalogoCompleto(env)).filter((p) => tipoDelProducto(p.titulo) === tipoEntero);
+    if (delTipo.length) {
+      const vistos = (recientes || []).map((p) => p.titulo);
+      const nuevos = delTipo.filter((p) => !yaLoVio(vistos, p.titulo));
+      productos = [...nuevos, ...delTipo.filter((p) => yaLoVio(vistos, p.titulo))].slice(0, 10);
+      hayMas = delTipo.length > 10;
+      if (termino && despejar(termino) !== despejar(nombreDelTipo(tipoEntero))) {
+        console.log(`Pidió ${nombreDelTipo(tipoEntero)} y la IA iba a buscar "${termino}": le enseño todos los de ese tipo (${delTipo.length})`);
+      }
+      termino = nombreDelTipo(tipoEntero);
+    }
+  }
+
+  if (termino && !productos.length) {
     // "¿Tienen relojes xiaomi?" y la IA busca "xiaomi": salían teléfonos.
     // Si el término es solo una marca y el cliente dijo QUÉ es (reloj,
     // cargador…), se buscan solo cosas de ese tipo (6-oct-2026).

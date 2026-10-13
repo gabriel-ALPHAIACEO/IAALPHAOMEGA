@@ -609,10 +609,23 @@ export async function listaDeTitulos(env, limite = MAXIMO_CARACTERES_CATALOGO) {
   let usados = 0;
   let cuantos = 0;
 
+  // UNA LÍNEA POR MODELO, con sus capacidades juntas (13-oct-2026). Con el
+  // inventario cada capacidad es una fila, y repetir el nombre en cada una
+  // llenaba el tope: los accesorios del final (los power banks) no llegaban
+  // a la IA, y decía "no hay más en la lista" habiendo más.
+  const modelos = new Map();
   for (const p of productos) {
+    const clave = String(p.titulo || "").trim().toLowerCase();
+    if (!clave) continue;
+    const m = modelos.get(clave) || { titulo: String(p.titulo).trim(), capacidades: [] };
+    const cap = String(p.capacidad || "").trim();
+    if (cap && !m.capacidades.includes(cap)) m.capacidades.push(cap);
+    modelos.set(clave, m);
+  }
+  for (const m of modelos.values()) {
     // Con la capacidad pegada al título, el modelo la ve al elegir el
     // término de búsqueda y no tiene que suponerla.
-    const linea = p.capacidad ? `${p.titulo} — ${p.capacidad}` : p.titulo;
+    const linea = m.capacidades.length ? `${m.titulo} — ${m.capacidades.join(", ")}` : m.titulo;
     // +1 por el salto de línea que separa cada título.
     if (usados + linea.length + 1 > limite) break;
     lineas.push(linea);
@@ -620,8 +633,8 @@ export async function listaDeTitulos(env, limite = MAXIMO_CARACTERES_CATALOGO) {
     cuantos++;
   }
 
-  if (cuantos < productos.length) {
-    lineas.push(`… y ${productos.length - cuantos} equipos más en el catálogo.`);
+  if (cuantos < modelos.size) {
+    lineas.push(`… y ${modelos.size - cuantos} modelos más en el catálogo.`);
   }
 
   return lineas.join("\n");
