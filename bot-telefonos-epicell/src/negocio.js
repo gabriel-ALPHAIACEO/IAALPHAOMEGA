@@ -352,6 +352,9 @@ export async function abonar(db, { clave, monto, metodo = "", quien = "", nota =
 
 /* ── El balance ──────────────────────────────────────────────────────── */
 
+export const SIN_CATEGORIA = "Sin categoría";
+export const COBROS_SIN_INVENTARIO = "Cobros sin inventario";
+
 export async function resumen(db, { desde, hasta }) {
   await asegurarNegocio(db);
   const ventas = await db
@@ -398,6 +401,50 @@ export async function resumen(db, { desde, hasta }) {
     )
     .bind(desde, hasta)
     .all();
+  // VENTAS POR CATEGORÍA (13-oct-2026, pedido del dueño): lo vendido de cada
+  // sección (extras.categoria del producto), sin las anuladas. Lo que no
+  // tiene categoría va junto, y lo cobrado sin inventario (un servicio) aparte.
+  const { results: porCategoriaFilas } = await db
+    .prepare(
+      `SELECT cat AS categoria, SUM(unidades) AS unidades, SUM(monto) AS monto, GROUP_CONCAT(DISTINCT venta) AS ventas
+         FROM (SELECT NULLIF(TRIM(CASE WHEN json_valid(p.extras) THEN json_extract(p.extras, '$.categoria') END), '') AS cat, -m.delta AS unidades, COALESCE(-m.delta * m.precio, 0) AS monto, ve.id AS venta
+                 FROM inv_movimientos m JOIN inv_ventas ve ON ve.id = m.venta_id
+                 JOIN inv_variantes v ON v.id = m.variante_id JOIN inv_productos p ON p.id = v.producto_id
+                WHERE m.tipo = 'venta' AND ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?)
+        GROUP BY cat`
+    )
+    .bind(desde, hasta)
+    .all();
+  const libresMonto = await db
+    .prepare(
+      `SELECT COALESCE(SUM(x.cantidad), 0) AS unidades, COALESCE(SUM(x.cantidad * x.precio), 0) AS monto, COUNT(DISTINCT ve.id) AS ventas
+         FROM inv_venta_libre x JOIN inv_ventas ve ON ve.id = x.venta_id WHERE ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?`
+    )
+    .bind(desde, hasta)
+    .first();
+  // "Relojes" y "relojes" son la misma: se juntan, con el nombre escrito
+  // como en la mayoría de lo vendido.
+  const juntas = new Map();
+  for (const c of porCategoriaFilas || []) {
+    const clave = String(c.categoria || "").toLowerCase();
+    const g = juntas.get(clave) || { nombres: [], unidades: 0, monto: 0, ventas: new Set() };
+    g.nombres.push({ nombre: c.categoria, unidades: Number(c.unidades) || 0 });
+    g.unidades += Number(c.unidades) || 0;
+    g.monto += Number(c.monto) || 0;
+    for (const v of String(c.ventas || "").split(",")) if (v) g.ventas.add(v);
+    juntas.set(clave, g);
+  }
+  const porCategoria = [...juntas.values()]
+    .map((g) => {
+      const nombre = g.nombres.sort((a, b) => b.unidades - a.unidades || (/^[A-ZÁÉÍÓÚÑ]/.test(b.nombre || "") ? 1 : 0) - (/^[A-ZÁÉÍÓÚÑ]/.test(a.nombre || "") ? 1 : 0))[0].nombre;
+      return { categoria: nombre || SIN_CATEGORIA, sinCategoria: !nombre, unidades: g.unidades, monto: redondo(g.monto), ventas: g.ventas.size };
+    })
+    .sort((a, b) => b.monto - a.monto || b.unidades - a.unidades);
+  if (Number(libresMonto?.unidades) > 0) {
+    porCategoria.push({ categoria: COBROS_SIN_INVENTARIO, sinCategoria: true, libre: true, unidades: Number(libresMonto.unidades), monto: redondo(libresMonto.monto), ventas: Number(libresMonto.ventas) || 0 });
+    porCategoria.sort((a, b) => b.monto - a.monto || b.unidades - a.unidades);
+  }
+
   const { results: masVendidos } = await db
     .prepare(
       `SELECT p.id, p.titulo, SUM(-m.delta) AS unidades, COALESCE(SUM(-m.delta * m.precio), 0) AS monto
@@ -450,6 +497,7 @@ export async function resumen(db, { desde, hasta }) {
     },
     porMetodo: (porMetodo || []).map((m) => ({ ...m, total: redondo(m.total) })),
     masVendidos: (masVendidos || []).map((m) => ({ ...m, monto: redondo(m.monto) })),
+    porCategoria,
     dias: dias.map((d) => ({ ...d, ventas: redondo(d.ventas), gastos: redondo(d.gastos) })),
   };
 }
@@ -658,6 +706,7 @@ export async function datosParaElAsistente(db, ahora = Date.now()) {
       ganancia: r.ganancia,
       porMetodo: r.porMetodo,
       masVendidos: r.masVendidos.slice(0, 5).map((m) => ({ titulo: m.titulo, unidades: m.unidades, monto: m.monto })),
+      ventasPorCategoria: r.porCategoria.map((c) => ({ categoria: c.categoria, unidades: c.unidades, monto: c.monto, ventas: c.ventas })),
     };
   }
   const fiados = (await listarFiados(db)).slice(0, 30).map((f) => ({ clave: f.clave, cliente: f.cliente, saldo: f.saldo, debeDesde: f.desde ? diaDe(f.desde) : null }));

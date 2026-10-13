@@ -100,7 +100,8 @@ abajo hay Inicio, Caja, Inventario, Chats y "Más" con el resto.
 TU NEGOCIO
 · Inicio (/panel/inicio): cómo va el negocio hoy o en el período que se
   elija arriba (hoy, 7 días, 30 días, el mes, fechas a medida): vendido,
-  cobrado, gastos, balance y ganancia; lo más vendido, lo que se está
+  cobrado, gastos, balance y ganancia; lo más vendido, las VENTAS POR
+  CATEGORÍA (cuánto vendió cada sección: Relojes, Calzados…), lo que se está
   acabando, cómo te pagaron, consejos de ALPHA IA y este asistente.
 · Caja (/panel/caja): cobrar. Se agrega cada producto escaneando su código
   de barras con un lector (USB o Bluetooth), con la cámara del teléfono, o
@@ -116,12 +117,14 @@ TU NEGOCIO
   producto también se puede poner el día.)${tarifaDeCaja === "cashea" ? `
   En esta tienda la caja cobra el PRECIO CASHEA; el precio en dólares solo
   si el cliente paga con "Divisas (efectivo)".` : ""}
-· Ventas (/panel/ventas): todo lo cobrado, por día. Cada venta abre su
+· Ventas (/panel/ventas): todo lo cobrado, por día, con las ventas por
+  categoría del período arriba. Cada venta abre su
   recibo: imprimir, mandarlo por WhatsApp o ANULAR (si se cobró mal: el
   stock vuelve y la venta queda marcada como anulada, no se borra). Se baja
   a Excel.
 · Inventario (/panel/inventario): los productos con cuántos quedan. Buscador
-  y filtros (con stock, por reponer, agotados). Al abrir un producto se ven sus ${vs}, el
+  y filtros (con stock, por reponer, agotados) y, debajo, atajos por
+  categoría (y «Sin categoría» para ver a cuáles les falta). Al abrir un producto se ven sus ${vs}, el
   stock por sede, su código de barras, y se edita nombre, marca, ${gama ? `${gama.toLowerCase()}, ` : ""}categoría,
   precio, precio Cashea (obligatorio) y costo. Las FOTOS se suben ahí mismo
   (desde el teléfono o la computadora, hasta 10): «Principal» elige la que

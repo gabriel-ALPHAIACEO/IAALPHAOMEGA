@@ -352,11 +352,18 @@ export async function crearSede(db, nombre) {
 // tener precio propio (EPICCELL), y la lista dice "desde".
 export const UMBRAL_DE_POCOS = 2;
 
-export async function listarProductos(db, { q = "", limite = 200, soloConStock = false, agotados = false, porReponer = false, orden = "nombre" } = {}) {
+export async function listarProductos(db, { q = "", limite = 200, soloConStock = false, agotados = false, porReponer = false, orden = "nombre", categoria = "" } = {}) {
   await asegurarInventario(db);
   const texto = String(q || "").trim().slice(0, 40);
   const donde = ["p.activo = 1"];
   const args = [];
+  // Por categoría (13-oct-2026). SIN_CATEGORIA_FILTRO: los que no tienen.
+  const cat = String(categoria || "").trim().slice(0, 40);
+  if (cat === SIN_CATEGORIA_FILTRO) donde.push(`${CATEGORIA_SQL} IS NULL`);
+  else if (cat) {
+    donde.push(`LOWER(${CATEGORIA_SQL}) = LOWER(?)`);
+    args.push(cat);
+  }
   if (texto) {
     donde.push(
       "(p.titulo LIKE ? OR p.marca LIKE ? OR p.origen_id = ? OR EXISTS (SELECT 1 FROM inv_variantes v2 WHERE v2.producto_id = p.id AND (v2.codigo_barras = ? OR v2.codigo_fabricante = ?)))"
@@ -369,7 +376,7 @@ export async function listarProductos(db, { q = "", limite = 200, soloConStock =
   const porVentas = orden === "ventas";
   const { results } = await db
     .prepare(
-      `SELECT p.id, p.titulo, p.marca, p.gama, p.origen, p.origen_id, p.precio, p.precio_cashea, p.costo,
+      `SELECT p.id, p.titulo, p.marca, p.gama, p.origen, p.origen_id, p.precio, p.precio_cashea, p.costo, ${CATEGORIA_SQL} AS categoria,
               COUNT(DISTINCT v.id) AS variantes,
               COALESCE(SUM(s.cantidad), 0) AS total,
               COUNT(s.variante_id) AS contadas,
@@ -674,6 +681,43 @@ export async function ponerCategoria(db, id, categoria) {
     )
     .bind(cat, cat, Date.now(), Number(id) || 0)
     .run();
+}
+
+// La categoría de un producto en SQL (NULL si no tiene), y el valor del
+// filtro para "los que no tienen".
+export const CATEGORIA_SQL = "NULLIF(TRIM(CASE WHEN json_valid(p.extras) THEN json_extract(p.extras, '$.categoria') END), '')";
+export const SIN_CATEGORIA_FILTRO = "-";
+
+// Cuántos productos activos hay en cada categoría (para los atajos del
+// inventario). → { categorias: [{ categoria, n }], sinCategoria }
+export async function cuentaPorCategoria(db) {
+  try {
+    const { results } = await db.prepare(`SELECT ${CATEGORIA_SQL} AS cat, COUNT(*) AS n FROM inv_productos p WHERE p.activo = 1 GROUP BY cat`).all();
+    // "Relojes" y "relojes" son la misma: se juntan con el nombre más usado.
+    const juntas = new Map();
+    let sinCategoria = 0;
+    for (const f of results || []) {
+      if (!f.cat) {
+        sinCategoria += Number(f.n) || 0;
+        continue;
+      }
+      const clave = String(f.cat).toLowerCase();
+      const g = juntas.get(clave) || { nombre: String(f.cat), mas: 0, n: 0 };
+      const n = Number(f.n) || 0;
+      if (n > g.mas || (n === g.mas && /^[A-ZÁÉÍÓÚÑ]/.test(f.cat) && !/^[A-ZÁÉÍÓÚÑ]/.test(g.nombre))) {
+        g.nombre = String(f.cat);
+        g.mas = n;
+      }
+      g.n += n;
+      juntas.set(clave, g);
+    }
+    return {
+      categorias: [...juntas.values()].map((g) => ({ categoria: g.nombre, n: g.n })).sort((a, b) => b.n - a.n || a.categoria.localeCompare(b.categoria)),
+      sinCategoria,
+    };
+  } catch {
+    return { categorias: [], sinCategoria: 0 };
+  }
 }
 
 // Las categorías que ya existen, para sugerirlas al escribir.

@@ -183,6 +183,21 @@ function columnas(dias, hoy) {
   return `<div class="columnas" style="--hueco:${hueco}px" role="img" aria-label="Ventas por día">${cuerpo}</div><div class="columnas-ejes"><span>${esc(diaBonito(dias[0]?.dia, hoy))}</span><span>${esc(diaBonito(dias.at(-1)?.dia, hoy))}</span></div>`;
 }
 
+// VENTAS POR CATEGORÍA (13-oct-2026): cuánto vendió cada sección del
+// inventario en el período. Sale cuando al menos un producto vendido tiene
+// categoría; si no, en Ventas se explica cómo tenerla.
+function tarjetaDeCategorias(porCategoria, { conPista = false } = {}) {
+  const conCategoria = (porCategoria || []).some((c) => !c.sinCategoria);
+  if (!conCategoria) {
+    return conPista && (porCategoria || []).length
+      ? `<section class="panel-tarjeta" style="margin:18px 0"><h2>${insignia("etiqueta", "neutro", "chica")}Ventas por categoría</h2><p class="suave" style="margin:0">Ponle categoría a tus productos (Relojes, Calzados…) en Inventario › Editar y aquí verás cuánto vende cada sección.</p></section>`
+      : "";
+  }
+  const nombre = (c) => `${c.categoria} · ${numero(c.unidades)} ${c.unidades === 1 ? "unidad" : "unidades"}`;
+  const ico = (c) => (c.libre ? "libre" : c.sinCategoria ? "puntos" : "etiqueta");
+  return `<section class="panel-tarjeta categorias-tarjeta"><div class="seccion"><h2>${insignia("etiqueta", "marca", "chica")}Ventas por categoría</h2><a href="/panel/inventario">Inventario${icono("adelante", { clase: "chico" })}</a></div>${reparto(porCategoria.slice(0, 8), { nombre, valor: (c) => c.monto, ico })}</section>`;
+}
+
 function reparto(filas, { nombre, valor, ico, max = null }) {
   const tope = max ?? Math.max(1, ...filas.map(valor));
   return `<div class="reparto">${filas
@@ -318,7 +333,7 @@ ${
 ${heroe}
 ${datos}
 ${rapidos}
-<div class="dos" style="margin-top:22px"><div>${bienvenida}${asistente}${recomendaciones}</div><div>${masVendidos}${seAcaba}${metodos}</div></div>`;
+<div class="dos" style="margin-top:22px"><div>${bienvenida}${asistente}${recomendaciones}</div><div>${masVendidos}${tarjetaDeCategorias(actual.porCategoria)}${seAcaba}${metodos}</div></div>`;
 }
 
 // EL ASISTENTE en la página: la charla y su script viven en asistente.js
@@ -378,6 +393,7 @@ async function paginaDeVentas(env, url) {
   })}
 <div class="herramientas">${selectorDePeriodo("/panel/ventas", periodo, extra)}</div>
 <div class="mosaico">${dato("Vendido", cifra(r.ventas.total), "ventas", "marca", `${numero(r.ventas.cantidad)} ${r.ventas.cantidad === 1 ? "venta" : "ventas"}`)}${dato("Cobrado", cifra(r.cobrado), "efectivo", "bien", r.abonos ? `incluye ${esc(plata(r.abonos))} de abonos` : "de contado")}${dato("Ticket promedio", cifra(r.ventas.ticketPromedio), "recibo")}${dato("Fiado", cifra(r.ventas.fiado), "fiados", "aviso", "vendido a crédito")}</div>
+${q ? "" : tarjetaDeCategorias(r.porCategoria, { conPista: true })}
 <form class="herramientas" method="get" action="/panel/ventas"><input type="hidden" name="p" value="${esc(periodo.clave === "a-medida" ? "hoy" : periodo.clave)}">${periodo.clave === "a-medida" ? `<input type="hidden" name="desde" value="${esc(periodo.desdeDia)}"><input type="hidden" name="hasta" value="${esc(periodo.hastaDia)}">` : ""}<label class="buscador">${icono("buscar")}<input name="q" value="${esc(q)}" placeholder="Cliente, teléfono o número de venta"></label><button>Buscar</button></form>
 ${lista}`;
 }

@@ -68,6 +68,8 @@ import {
   filasParaExportar,
   parteDelInventario,
   contarModelosActivos,
+  cuentaPorCategoria,
+  SIN_CATEGORIA_FILTRO,
   ponerCategoria,
   categoriasUsadas,
   leerNumero,
@@ -373,6 +375,12 @@ const ESTILO = `<style>
 .aviso-importando{margin-bottom:18px}
 .tostada.quieta{animation:tostada-entra .7s var(--resorte) both}
 @media (prefers-reduced-motion:reduce){.avance i{transition:none}.avance i::after{animation:none}}
+/* Los atajos por categoría (13-oct-2026) */
+.inv-cats{display:flex;gap:8px;flex-wrap:wrap;margin:-4px 0 18px}
+.inv-cats a{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:999px;background:var(--velo);border:1px solid var(--borde);color:var(--suave);font-size:13.5px;font-weight:700;transition:all .35s var(--salida)}
+.inv-cats a small{font-size:11.5px;color:var(--tenue);font-weight:800}
+.inv-cats a:hover{color:var(--texto);border-color:var(--borde-fuerte);transform:translateY(-1px)}
+.inv-cats a.on{color:#fff;background:linear-gradient(135deg,var(--marca),var(--cian));border-color:transparent}.inv-cats a.on small{color:rgba(255,255,255,.8)}
 /* Las fotos (13-oct-2026): subir, elegir la principal, quitar */
 .fotos-tarjeta{margin:18px 0}.fotos-tarjeta h2{display:flex;align-items:center;gap:10px}
 .subir-fotos{display:grid;gap:10px}.subir-fotos>span small{color:var(--tenue);font-weight:600}
@@ -396,7 +404,7 @@ const ESTILO = `<style>
 function tarjetaDeProducto(p, n, r) {
   const precio = precioDeLista(p.precio_min ?? p.precio, p.precio_max ?? p.precio);
   const cashea = p.cashea_min !== null && p.cashea_min !== undefined ? precioDeLista(p.cashea_min, p.cashea_max) : "";
-  const detalle = [p.marca, p.gama, Number(p.variantes) > 1 ? `${p.variantes} ${r.variantes}` : ""].filter(Boolean).join(" · ");
+  const detalle = [p.categoria, p.marca, p.gama, Number(p.variantes) > 1 ? `${p.variantes} ${r.variantes}` : ""].filter(Boolean).join(" · ");
   return `<a class="producto" href="/panel/inventario/p/${p.id}" style="--n:${Math.min(n, 30)}"><div class="producto-foto">${fotoDe(p.foto, p.titulo)}${pastillaDeStock(p.total, { sinContar: p.contadas !== undefined && !Number(p.contadas) })}</div>
 <div class="producto-pie"><b>${esc(p.titulo)}</b>${detalle ? `<small>${esc(detalle)}</small>` : ""}<span class="producto-precio">${precio ? esc(precio) : '<span class="suave">Sin precio</span>'}</span>${cashea ? `<span class="producto-cashea">Cashea ${esc(cashea)}</span>` : ""}</div></a>`;
 }
@@ -440,15 +448,23 @@ const volverAlInventario = { href: "/panel/inventario", texto: "Inventario" };
 async function paginaDeLista(env, url, r, opciones = {}) {
   const q = String(url.searchParams.get("q") || "").slice(0, 40);
   const filtro = ["con-stock", "pocos", "agotados"].includes(url.searchParams.get("f")) ? url.searchParams.get("f") : "";
-  const [productos, cuenta, enCurso] = await Promise.all([
-    listarProductos(env.DB, { q, agotados: filtro === "agotados", soloConStock: filtro === "con-stock", porReponer: filtro === "pocos" }),
+  const cat = String(url.searchParams.get("cat") || "").trim().slice(0, 40);
+  const [productos, cuenta, enCurso, categorias] = await Promise.all([
+    listarProductos(env.DB, { q, agotados: filtro === "agotados", soloConStock: filtro === "con-stock", porReponer: filtro === "pocos", categoria: cat }),
     contarProductos(env.DB),
     importacionesEnCurso(env.DB),
+    cuentaPorCategoria(env.DB),
   ]);
-  const enlace = (f) => {
-    const p = new URLSearchParams({ ...(f ? { f } : {}), ...(q ? { q } : {}) }).toString();
+  const enlace = (f, c = cat) => {
+    const p = new URLSearchParams({ ...(f ? { f } : {}), ...(q ? { q } : {}), ...(c ? { cat: c } : {}) }).toString();
     return `/panel/inventario${p ? `?${p}` : ""}`;
   };
+  // Los atajos por categoría (13-oct-2026): solo si hay alguna puesta.
+  const atajosDeCategoria = categorias.categorias.length
+    ? `<nav class="inv-cats" aria-label="Por categoría"><a href="${esc(enlace(filtro, ""))}"${cat ? "" : ' class="on" aria-current="true"'}>Todas</a>${categorias.categorias
+        .map((c) => `<a href="${esc(enlace(filtro, c.categoria))}"${cat.toLowerCase() === c.categoria.toLowerCase() ? ' class="on" aria-current="true"' : ""}>${esc(c.categoria)} <small>${numero(c.n)}</small></a>`)
+        .join("")}${categorias.sinCategoria ? `<a href="${esc(enlace(filtro, SIN_CATEGORIA_FILTRO))}"${cat === SIN_CATEGORIA_FILTRO ? ' class="on" aria-current="true"' : ""}>Sin categoría <small>${numero(categorias.sinCategoria)}</small></a>` : ""}</nav>`
+    : "";
   const filtros = segmento(
     [
       ["", "Todos", enlace("")],
@@ -485,7 +501,8 @@ ${
         texto: `Trae los productos del catálogo de la tienda o de un Excel, o crea el primero a mano. Cada ${r.variante} recibe su código de barras sola.`,
         acciones: `<a class="boton principal" href="/panel/inventario/importar">${icono("subir")}Importar</a><a class="boton suave" href="/panel/inventario/nuevo">${icono("mas")}Crear uno a mano</a>`,
       })
-    : `<div class="herramientas"><form class="buscador" method="get" action="/panel/inventario" role="search">${filtro ? `<input type="hidden" name="f" value="${esc(filtro)}">` : ""}${icono("buscar")}<input name="q" value="${esc(q)}" placeholder="Nombre, marca o código de barras" aria-label="Buscar en el inventario"></form>${filtros}</div>
+    : `<div class="herramientas"><form class="buscador" method="get" action="/panel/inventario" role="search">${filtro ? `<input type="hidden" name="f" value="${esc(filtro)}">` : ""}${cat ? `<input type="hidden" name="cat" value="${esc(cat)}">` : ""}${icono("buscar")}<input name="q" value="${esc(q)}" placeholder="Nombre, marca o código de barras" aria-label="Buscar en el inventario"></form>${filtros}</div>
+${atajosDeCategoria}
 ${
   productos.length
     ? `<div class="productos">${productos.map((p, n) => tarjetaDeProducto(p, n, r)).join("")}</div>`
