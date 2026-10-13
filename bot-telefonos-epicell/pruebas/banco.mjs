@@ -277,8 +277,11 @@ export async function turno({ texto = "", opcion = "", fila = {}, respuestaDelMo
     return { ok: false, status: 404, text: async () => "", json: async () => ({}) };
   };
 
+  // USAR_HOJA: el banco lee la hoja de mentira de arriba. Desde el 13-oct-2026
+  // la tienda la tiene desconectada y el bot lee el inventario (ver
+  // pruebas/desconectada.mjs); la búsqueda y las redes son las mismas.
   const env = {
-    DB, SHEET_ID: hoja === HOJA ? "abc" : `hoja${++hojasAparte}`, SHEET_NOMBRE: "Hoja 1", IG_TOKEN: "t",
+    DB, USAR_HOJA: "si", SHEET_ID: hoja === HOJA ? "abc" : `hoja${++hojasAparte}`, SHEET_NOMBRE: "Hoja 1", IG_TOKEN: "t",
     OPENAI_API_KEY: "k", URL_CATALOGO: "https://CAMBIA-ESTO.com", WHATSAPP: "584121234567",
     ...envExtra,
   };

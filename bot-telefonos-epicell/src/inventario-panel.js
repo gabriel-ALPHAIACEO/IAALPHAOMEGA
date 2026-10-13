@@ -927,9 +927,15 @@ ${campoDeFotos()}
 async function paginaDeImportar(env, url, opciones = {}) {
   const { traerCatalogo, nombreDelCatalogo } = opciones;
   const [listaDeSedes, enCurso] = await Promise.all([sedes(env.DB), importacionesEnCurso(env.DB)]);
-  const fuente = opciones.botLeeInventario ? ((await leerAjuste(env.DB, "catalogo_del_bot")) === "inventario" ? "inventario" : "hoja") : "";
+  // "siempre": la tienda desconectó su hoja (EPICCELL, 13-oct-2026) y el
+  // bot ofrece SOLO lo del inventario; no hay nada que elegir.
+  const fija = opciones.botLeeInventario === "siempre";
+  const fuente = fija ? "inventario" : opciones.botLeeInventario ? ((await leerAjuste(env.DB, "catalogo_del_bot")) === "inventario" ? "inventario" : "hoja") : "";
   const nombreCorto = String(nombreDelCatalogo || "la hoja").split(" (")[0];
-  const tarjetaDelBot = fuente
+  const tarjetaDelBot = fija
+    ? `<section class="panel-tarjeta fuente-del-bot"><h2>${insignia("chats", "marca", "chica")}Lo que ofrece el bot</h2>
+<p>Lo del <b>inventario</b>: lo que tiene stock (o sin contar), con los precios, las fotos y la categoría de aquí. La hoja de Google está desconectada.</p></section>`
+    : fuente
     ? `<section class="panel-tarjeta fuente-del-bot"><h2>${insignia("chats", "marca", "chica")}Lo que ofrece el bot</h2>
 <p>${fuente === "inventario" ? `Lo del <b>inventario</b>: lo que tiene stock, con los precios y las fotos de aquí. ${esc(mayuscula(nombreCorto))} ya no se lee.` : `Todavía lee ${esc(nombreCorto)}. Al traer el catálogo aquí abajo, pasa a ofrecer lo del inventario.`}</p>
 <form method="post" action="/panel/inventario/fuente-del-bot" class="opciones">
@@ -1845,6 +1851,7 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
   }
   if (ruta === "/panel/inventario/fuente-del-bot") {
     const fuente = datos.get("fuente") === "hoja" ? "hoja" : "inventario";
+    if (opciones.botLeeInventario === "siempre") return redirigir(conAviso("/panel/inventario/importar", { ok: "El bot ofrece lo del inventario (la hoja está desconectada)." }));
     if (opciones.botLeeInventario) {
       await guardarAjuste(env.DB, "catalogo_del_bot", fuente);
       console.log(`INVENTARIO: el bot ofrece desde ahora lo de ${fuente === "hoja" ? "la hoja" : "el inventario"}`);

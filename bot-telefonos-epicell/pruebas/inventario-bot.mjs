@@ -61,7 +61,7 @@ const log = console.log;
 const callado = async (fn) => { console.log = () => {}; try { return await fn(); } finally { console.log = log; } };
 
 const DB = d1();
-const env = { SHEET_ID: "epiccell", SHEET_NOMBRE: "Hoja 1", URL_CATALOGO: "https://epiccell.test", DB };
+const env = { USAR_HOJA: "si", SHEET_ID: "epiccell", SHEET_NOMBRE: "Hoja 1", URL_CATALOGO: "https://epiccell.test", DB };
 const forma = (p) => ({ titulo: p.titulo, marca: p.marca, capacidad: p.capacidad, precio: p.precio, precioCashea: p.precioCashea, imagen: p.imagen, url: p.url, extras: p.extras });
 
 // 1. Hoy: el bot lee la hoja.

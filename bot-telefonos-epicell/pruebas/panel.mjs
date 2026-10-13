@@ -38,7 +38,7 @@ async function panel(env = {}, opciones = {}) {
   const log = console.log, err = console.error;
   console.log = console.error = () => {};
   try {
-    const r = await worker.fetch(new Request("https://bot/anuncios"), { DB: baseFalsa(), SHEET_ID: `panel${Math.random()}`, ADS_TOKEN: "t", ...env }, { waitUntil() {} });
+    const r = await worker.fetch(new Request("https://bot/anuncios"), { DB: baseFalsa(), USAR_HOJA: "si", SHEET_ID: `panel${Math.random()}`, ADS_TOKEN: "t", ...env }, { waitUntil() {} });
     return await r.text();
   } finally {
     console.log = log; console.error = err;

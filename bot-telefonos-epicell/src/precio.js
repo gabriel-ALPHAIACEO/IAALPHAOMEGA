@@ -41,23 +41,32 @@ export function revisarPrecio(respuesta, { hayFichas = false, yaLasVio = false }
   if (!texto.trim() || (!hayFichas && !yaLasVio)) return { corregido: false, respuesta: texto };
 
   const motivos = [];
-  const quedan = frases(texto).filter((frase) => {
-    if (preguntaPorElPrecio(frase)) {
-      motivos.push(`preguntó por el precio ("${frase.slice(0, 50)}")`);
-      return false;
-    }
-    return true;
-  });
+  // RENGLÓN POR RENGLÓN (13-oct-2026). Las líneas de una ficha técnica
+  // ("🔹 RAM: 8 GB") no terminan en punto: partiendo solo por frases, la
+  // ficha entera y el "¿quieres saber el precio?" de debajo eran UNA frase,
+  // y se iban juntas. Ahora se quita solo la pregunta y los saltos de línea
+  // se quedan como estaban.
+  const renglones = texto.split("\n").map((renglon) =>
+    frases(renglon)
+      .filter((frase) => {
+        if (preguntaPorElPrecio(frase)) {
+          motivos.push(`preguntó por el precio ("${frase.slice(0, 50)}")`);
+          return false;
+        }
+        return true;
+      })
+      .join(" ")
+  );
   if (!motivos.length) return { corregido: false, respuesta: texto };
 
   let explicacion = hayFichas ? PRECIOS_EN_LAS_FOTOS : PRECIOS_EN_LAS_FOTOS_YA_ENVIADAS;
-  let limpia = quedan.join(" ").trim();
+  let limpia = renglones.join("\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   // Una sola flecha por mensaje: "Mira estas 👇 Los precios están en cada
   // foto 👇" se ve torpe.
   if (hayFichas && limpia.includes("👇")) explicacion = explicacion.replace("👇", "😊");
   // Si lo que queda ya dice dónde están los precios, no se repite.
   if (!/precios?\s+(?:est[aá]n|van|salen|aparecen)|con\s+sus?\s+precios?/i.test(limpia)) {
-    limpia = limpia ? `${limpia} ${explicacion}` : explicacion;
+    limpia = limpia ? `${limpia}${limpia.includes("\n") ? "\n" : " "}${explicacion}` : explicacion;
   }
 
   console.log(`PRECIO: la IA ${motivos.join(" y ")} con las fichas a la vista. Lo cambio por "${explicacion}".`);

@@ -86,6 +86,7 @@ import {
   diagnosticoHoja,
   listaDeTitulos,
   catalogoParaInventario,
+  hojaConectada,
 } from "./sheets.js";
 import { avisarAsesor } from "./aviso.js";
 import { esSoloSaludo, saludoDeVuelta } from "./saludo.js";
@@ -171,7 +172,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-13 (70) · 📨 Meta repite un mensaje: se contesta UNA vez (antes salían dos respuestas y se pagaba dos veces la IA) · 💬 mensajes seguidos («hola» / «tienes» / «la camisa roja?») se contestan JUNTOS en una sola respuesta, y una foto se lleva la pregunta escrita justo antes; se apaga con JUNTAR_MENSAJES = \"no\" · /estado cuenta repetidos y juntados · · (69) · 🔋 informe de errores del 13-oct: pedir el TIPO («Powerbanks», «relojes») enseña TODOS los de ese tipo y no solo el modelo que venía mirando (primero los que no vio); «Power Bank» separado, «batería portátil» y «banco de energía» son power banks; si de verdad hay uno solo y ya lo vio, se dice claro que es el único; la lista que lee la IA va una línea por modelo (ya no se corta); el revisor no pide inventar «más opciones» · · (68) · 🏷️ VENTAS POR CATEGORÍA en Inicio y Ventas (cuánto vende cada sección, sin anuladas; el asistente también lo sabe) · atajos por categoría en el Inventario (y «Sin categoría») · · (67) · 📷 FOTOS DE LOS PRODUCTOS desde el panel: se suben al crear el producto y en su ficha (se achican solas, hasta 10, «Hacer principal» y quitar) y se ven en la tienda web · «Condición» (nuevo/usado) fuera: ahora «Categoría» (la sección de la tienda web) · precio Cashea OBLIGATORIO al crear y al editar · · 2026-10-12 (66) · 💳 PAGAR EN LA TIENDA WEB: el cliente elige el método (Pago Móvil, Transferencia, Zelle, Zinli, Binance y los que añadas), ve los datos con «Copiar» y el monto (en Bs con la tasa del día), y SUBE EL COMPROBANTE; en el panel, «Pedidos web» para aprobarlo (anota la venta y baja el stock) o rechazarlo con motivo, y «Métodos de pago» para escribir los datos; el cliente ve cómo va su pedido en su enlace · · (65) · 🛍️ tienda web: el logo ya no se corta, ícono cuadrado en la pestaña, el casco de arriba no se aplasta y las tarjetas ya no dicen «Últimas unidades» · · (64) · 🛍️ la portada de la tienda sin el botón «Ver el catálogo» (repetía lo de abajo) · · (63) · 🛍️ la tienda web con el diseño de ALPHA IA (oscuro/claro, carrito lateral, héroe con colecciones) y, en El Emperador, con su logo · · (62) · 🛍️ la TIENDA WEB: el inventario como un catálogo público estilo Shopify en /tienda (buscador, filtros, producto con tallas, carrito que pide por WhatsApp; no descuenta stock) · · (61) inventario: lo recién traído del catálogo sale \"Sin contar · pon las unidades\", no Agotado · · (60) juntas las dos ramas: lo del inventario y lo de la atención · · (59) ✏️ las cantidades se escriben: una casilla por talla al crear un producto y al añadir tallas (con «Igual para todas»), y en la ficha el número de cada talla se cambia escribiéndolo, sin botón (se guarda solo, con Deshacer) · 🗓️ ventas de días anteriores: en la caja «Venta de: Hoy / Ayer / Otro día» y en «Vendí» el día de la venta (cuenta en ese día en Ventas y en el balance; el stock baja al anotarla; si el producto se contó después, avisa) · 🔧 el botón «Mover» de la ficha no abría (chocaba con las flechas del carrusel) · un doble toque ya no repite la carga · · (58) · 📦 «Traer ahora», «Subir un Excel» y el Excel del inventario van por partes (ya no pasan el límite de Cloudflare), con barra de progreso; un Excel que termina tarde no deshace las ventas de la caja · 💬 el Asistente en todas las pantallas del panel: conoce el panel, la pantalla donde estás y el stock de lo que nombras, con botón «Abrir …» (antes fallaba en cada pregunta) · · (56) 📦 el bot ofrece lo del INVENTARIO (traída la hoja; en Importar se vuelve a ella): lo vendido en la caja deja de ofrecerse solo · cada capacidad con su precio, Cashea, Bs, foto y columnas, y si el bot la ofrece · y lo de la v54: WhatsApp: el mismo bot contesta por WhatsApp (whatsapp.js; se enciende con WA_PHONE_ID y WA_TOKEN) · revisor fuerte (gpt-5) que aprende (APRENDER), y lo aprendido ya le llega a la IA · · (55) ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 📱 teléfonos: capacidades e IMEI en el recibo · la caja cobra el precio Cashea (en divisas en efectivo, el de dólares) · las filas repetidas de la hoja se suman · · (54) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (53) memoria: analiza el chat antes de responder (\"Charla / Pide\"), sigue el tema de lo último que hablaron, recuerda qué fichas vio y 20 mensajes · · (52) a los \"gracias\" contesta con lo que hablaban, sin fichas ni tablas · nivel 6 = Cashea (Krece va por color) · informe del 7-oct: Krece (tabla y monto al asesor, nunca un $ de Krece), las cuotas solo si pregunta, ¿está disponible?, pro+ = pro plus, 15 C = 15C, comparar dos equipos, Xbyte a secas, accesorios que contaban como teléfonos · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max · · 2026-10-09 (55) · revisor más barato (gpt-5-mini, low, sin revisar saludos ni gracias, tope $5) · lo aprendido de Cashea ya no le llega a la IA · · (54) WhatsApp: el mismo bot contesta por WhatsApp (whatsapp.js; se enciende con WA_PHONE_ID y WA_TOKEN) · revisor fuerte (gpt-5) que aprende (APRENDER), y lo aprendido ya le llega a la IA · · (53) memoria: analiza el chat antes de responder (\"Charla / Pide\"), sigue el tema de lo último que hablaron, recuerda qué fichas vio y 20 mensajes · · (52) a los \"gracias\" contesta con lo que hablaban, sin fichas ni tablas · nivel 6 = Cashea (Krece va por color) · informe del 7-oct: Krece (tabla y monto al asesor, nunca un $ de Krece), las cuotas solo si pregunta, ¿está disponible?, pro+ = pro plus, 15 C = 15C, comparar dos equipos, Xbyte a secas, accesorios que contaban como teléfonos · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max";
+const VERSION = "2026-10-13 (71) · 🔌 HOJA DE GOOGLE DESCONECTADA: el bot ofrece SOLO lo del inventario del panel (sin «Traer ahora» desde la hoja; USAR_HOJA = \"si\" la vuelve a conectar) · la CATEGORÍA dice qué es (un «Xiaomi 20000mAh» en Powerbanks sale al pedir power banks) · «es el único» ya no sale dos veces · la ficha técnica escrita (🔹 Pantalla, RAM…) ya no se borra al ir las fotos · a «Redmi 17» ya no le pregunta «¿de cuál equipo?» · si ya hablaron no se vuelve a presentar · · (70) · 📨 Meta repite un mensaje: se contesta UNA vez (antes salían dos respuestas y se pagaba dos veces la IA) · 💬 mensajes seguidos («hola» / «tienes» / «la camisa roja?») se contestan JUNTOS en una sola respuesta, y una foto se lleva la pregunta escrita justo antes; se apaga con JUNTAR_MENSAJES = \"no\" · /estado cuenta repetidos y juntados · · (69) · 🔋 informe de errores del 13-oct: pedir el TIPO («Powerbanks», «relojes») enseña TODOS los de ese tipo y no solo el modelo que venía mirando (primero los que no vio); «Power Bank» separado, «batería portátil» y «banco de energía» son power banks; si de verdad hay uno solo y ya lo vio, se dice claro que es el único; la lista que lee la IA va una línea por modelo (ya no se corta); el revisor no pide inventar «más opciones» · · (68) · 🏷️ VENTAS POR CATEGORÍA en Inicio y Ventas (cuánto vende cada sección, sin anuladas; el asistente también lo sabe) · atajos por categoría en el Inventario (y «Sin categoría») · · (67) · 📷 FOTOS DE LOS PRODUCTOS desde el panel: se suben al crear el producto y en su ficha (se achican solas, hasta 10, «Hacer principal» y quitar) y se ven en la tienda web · «Condición» (nuevo/usado) fuera: ahora «Categoría» (la sección de la tienda web) · precio Cashea OBLIGATORIO al crear y al editar · · 2026-10-12 (66) · 💳 PAGAR EN LA TIENDA WEB: el cliente elige el método (Pago Móvil, Transferencia, Zelle, Zinli, Binance y los que añadas), ve los datos con «Copiar» y el monto (en Bs con la tasa del día), y SUBE EL COMPROBANTE; en el panel, «Pedidos web» para aprobarlo (anota la venta y baja el stock) o rechazarlo con motivo, y «Métodos de pago» para escribir los datos; el cliente ve cómo va su pedido en su enlace · · (65) · 🛍️ tienda web: el logo ya no se corta, ícono cuadrado en la pestaña, el casco de arriba no se aplasta y las tarjetas ya no dicen «Últimas unidades» · · (64) · 🛍️ la portada de la tienda sin el botón «Ver el catálogo» (repetía lo de abajo) · · (63) · 🛍️ la tienda web con el diseño de ALPHA IA (oscuro/claro, carrito lateral, héroe con colecciones) y, en El Emperador, con su logo · · (62) · 🛍️ la TIENDA WEB: el inventario como un catálogo público estilo Shopify en /tienda (buscador, filtros, producto con tallas, carrito que pide por WhatsApp; no descuenta stock) · · (61) inventario: lo recién traído del catálogo sale \"Sin contar · pon las unidades\", no Agotado · · (60) juntas las dos ramas: lo del inventario y lo de la atención · · (59) ✏️ las cantidades se escriben: una casilla por talla al crear un producto y al añadir tallas (con «Igual para todas»), y en la ficha el número de cada talla se cambia escribiéndolo, sin botón (se guarda solo, con Deshacer) · 🗓️ ventas de días anteriores: en la caja «Venta de: Hoy / Ayer / Otro día» y en «Vendí» el día de la venta (cuenta en ese día en Ventas y en el balance; el stock baja al anotarla; si el producto se contó después, avisa) · 🔧 el botón «Mover» de la ficha no abría (chocaba con las flechas del carrusel) · un doble toque ya no repite la carga · · (58) · 📦 «Traer ahora», «Subir un Excel» y el Excel del inventario van por partes (ya no pasan el límite de Cloudflare), con barra de progreso; un Excel que termina tarde no deshace las ventas de la caja · 💬 el Asistente en todas las pantallas del panel: conoce el panel, la pantalla donde estás y el stock de lo que nombras, con botón «Abrir …» (antes fallaba en cada pregunta) · · (56) 📦 el bot ofrece lo del INVENTARIO (traída la hoja; en Importar se vuelve a ella): lo vendido en la caja deja de ofrecerse solo · cada capacidad con su precio, Cashea, Bs, foto y columnas, y si el bot la ofrece · y lo de la v54: WhatsApp: el mismo bot contesta por WhatsApp (whatsapp.js; se enciende con WA_PHONE_ID y WA_TOKEN) · revisor fuerte (gpt-5) que aprende (APRENDER), y lo aprendido ya le llega a la IA · · (55) ✨ el panel con diseño propio de ALPHA IA (íconos propios, animaciones, tema claro y oscuro) · 💼 Inicio con el balance, Ventas, Gastos, Fiados y el asistente · 🔐 al entrar pregunta si dejar la sesión abierta · 📱 teléfonos: capacidades e IMEI en el recibo · la caja cobra el precio Cashea (en divisas en efectivo, el de dólares) · las filas repetidas de la hoja se suman · · (54) 📲 el panel se instala como programa (Windows, Android, iPhone) · 📦 Inventario y 🧾 Caja en el panel: stock por sede y talla, códigos de barras automáticos, etiquetas, importar del catálogo o del Excel viejo · · (53) memoria: analiza el chat antes de responder (\"Charla / Pide\"), sigue el tema de lo último que hablaron, recuerda qué fichas vio y 20 mensajes · · (52) a los \"gracias\" contesta con lo que hablaban, sin fichas ni tablas · nivel 6 = Cashea (Krece va por color) · informe del 7-oct: Krece (tabla y monto al asesor, nunca un $ de Krece), las cuotas solo si pregunta, ¿está disponible?, pro+ = pro plus, 15 C = 15C, comparar dos equipos, Xbyte a secas, accesorios que contaban como teléfonos · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max · · 2026-10-09 (55) · revisor más barato (gpt-5-mini, low, sin revisar saludos ni gracias, tope $5) · lo aprendido de Cashea ya no le llega a la IA · · (54) WhatsApp: el mismo bot contesta por WhatsApp (whatsapp.js; se enciende con WA_PHONE_ID y WA_TOKEN) · revisor fuerte (gpt-5) que aprende (APRENDER), y lo aprendido ya le llega a la IA · · (53) memoria: analiza el chat antes de responder (\"Charla / Pide\"), sigue el tema de lo último que hablaron, recuerda qué fichas vio y 20 mensajes · · (52) a los \"gracias\" contesta con lo que hablaban, sin fichas ni tablas · nivel 6 = Cashea (Krece va por color) · informe del 7-oct: Krece (tabla y monto al asesor, nunca un $ de Krece), las cuotas solo si pregunta, ¿está disponible?, pro+ = pro plus, 15 C = 15C, comparar dos equipos, Xbyte a secas, accesorios que contaban como teléfonos · · ✅ Solucionar errores en los paneles (dejan de salir en rojo, no se borran) · · botón ☀️ Claro · 🌙 Oscuro en el panel (cada navegador recuerda el suyo) · · sigue el tema: viendo relojes (o cargadores, soportes…), \"¿y los redmi?\" busca relojes de esa marca, y si no hay lo dice y enseña los que hay · relojes Mi Band · Existencia en mayúscula o minúscula · fichas, Redmi 17 Pro Max";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA
@@ -1089,7 +1090,9 @@ const trabajador = {
         tienda: String(env.TIENDA_NOMBRE || "EPICCELL"),
         horasDePausa: Number(env.PAUSA_HORAS) || PAUSA_HORAS_POR_DEFECTO,
         verTexto: async (ruta) => (await trabajador.fetch(pedidoInterno(ruta, url, env), env, ctx)).text(),
-        traerCatalogo: () => catalogoParaInventario(env),
+        // Con la hoja desconectada (ver hojaConectada en sheets.js) no hay
+        // «Traer ahora»: pondría al día el inventario con una hoja vieja.
+        traerCatalogo: hojaConectada(env) ? () => catalogoParaInventario(env) : null,
         nombreDelCatalogo: "la hoja de Google (todo: precios en divisas, Bs y Cashea, fotos, capacidad, las demás columnas y la cantidad)",
         // Tienda de teléfonos: el inventario habla de capacidades y de
         // condición, y la caja pide el IMEI para la garantía (marco.js, RUBROS).
@@ -1097,9 +1100,10 @@ const trabajador = {
         // La caja muestra y cobra el precio Cashea; solo si el cliente paga
         // en divisas en efectivo va el precio en dólares (Gabriel, 7-oct-2026).
         tarifaDeCaja: "cashea",
-        // Traída la hoja al inventario, el bot ofrece lo del inventario (ver
-        // leerDelInventario en sheets.js). En Importar se puede volver a la hoja.
-        botLeeInventario: true,
+        // El bot ofrece lo del inventario (ver leerDelInventario en sheets.js).
+        // Con la hoja desconectada, siempre; con USAR_HOJA = "si", en
+        // Importar se puede volver a la hoja.
+        botLeeInventario: hojaConectada(env) ? true : "siempre",
         version: VERSION,
       });
     }
@@ -1234,7 +1238,9 @@ const trabajador = {
           `  REVISOR_IA          ${revisorActivo(env) ? `si, con ${modeloDelRevisor(env)} · confianza ${env.REVISOR_CONFIANZA || "alta"} · este mes $${delRevisor.toFixed(2)} de un tope de ${topeDelRevisor(env) === Infinity ? "sin tope" : `$${topeDelRevisor(env)}`}` : "no (apagado)"}   (revisa cada respuesta ya enviada: 🔴 en el panel si alucinó)`,
           `  META_VERIFY_TOKEN   ${env.META_VERIFY_TOKEN ? "puesto" : "FALTA"}`,
           `  WHATSAPP (bot)      ${whatsappConectado(env) ? `conectado (número ${env.WA_PHONE_ID})` : env.WA_PHONE_ID ? "FALTA el secreto WA_TOKEN" : "sin conectar (solo Instagram; ver WHATSAPP.md)"}`,
-          `  SHEET_ID            ${env.SHEET_ID && !/PEGA_AQUI/i.test(env.SHEET_ID) ? "puesto" : "FALTA"}`,
+          hojaConectada(env)
+            ? `  SHEET_ID            ${env.SHEET_ID && !/PEGA_AQUI/i.test(env.SHEET_ID) ? "puesto" : "FALTA"}   (USAR_HOJA = "si": la hoja de Google está conectada)`
+            : "  HOJA DE GOOGLE      desconectada: el bot ofrece SOLO lo del inventario del panel (USAR_HOJA = \"si\" la vuelve a conectar)",
           `  SHEET_NOMBRE        ${env.SHEET_NOMBRE || "FALTA"}`,
           `  URL_CATALOGO        ${env.URL_CATALOGO && !/CAMBIA-ESTO/i.test(env.URL_CATALOGO) ? env.URL_CATALOGO : "FALTA"}`,
           `  WHATSAPP            ${String(env.WHATSAPP || "").replace(/\D/g, "") ? "puesto" : "sin poner (no sale el botón Comprar)"}`,
@@ -2531,6 +2537,11 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // "¡Hola, jonathanrodric982101!".
   const nombre = contacto.nombre;
   const historialPrevio = contacto.historial;
+  // ¿YA SE CONOCEN? (13-oct-2026, panel: "venimos hablando del Powerbank" y
+  // aun así "¡Hola Alberto! Soy la asistente virtual de EPICCELL 👋"). El
+  // resumen (historial) puede venir vacío aunque el bot ya le haya escrito;
+  // la charla guardada también cuenta.
+  const yaSeConocen = Boolean(historialPrevio) || (conversacion || []).slice(0, -1).some((linea) => linea?.de === "bot");
   const textoCliente =
     mensaje.texto ||
     (publicacion
@@ -3261,6 +3272,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     salida,
     texto: mensaje.texto,
     historialPrevio,
+    yaSeConocen,
     senalado: equipoSenalado,
     productoAnuncio: productoDelAnuncio,
     recientes: await ultimosQueVio(env, contacto),
@@ -3434,7 +3446,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
           equipo: equipoDeLaCuenta({ productos, productoAnuncio: productoDelAnuncio, recientes: await ultimosQueVio(env, contacto) }),
         });
   // El saludo del modelo se queda si es el primer mensaje.
-  const saludoDelModelo = historialPrevio ? "" : (String(salida.respuesta || "").match(SU_BIENVENIDA)?.[0] || "").trim();
+  const saludoDelModelo = yaSeConocen ? "" : (String(salida.respuesta || "").match(SU_BIENVENIDA)?.[0] || "").trim();
   if (cuentaDeCuotas) {
     respuestaCliente = [saludoDelModelo, cuentaDeCuotas.respuesta].filter(Boolean).join(" ");
     console.log(`CUOTAS: ${cuentaDeCuotas.motivo}${segundoMensaje ? " (en vez de la tabla general)" : ""}`);
@@ -3507,7 +3519,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
           .filter(Boolean)
           .join(" "),
         borrador: salida.respuesta,
-        yaSeConocen: Boolean(historialPrevio),
+        yaSeConocen,
       }),
       // La segunda pasada es un pulido: nunca a costa de las fichas. Tope de
       // 7 s; si no le alcanza, sale la respuesta de la primera pasada.
@@ -3522,7 +3534,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
       const conPrecioDeVerdad = productoDelAnuncio ? [...productos, productoDelAnuncio] : productos;
       revisada = sinCerrarLaPuerta(sinPreciosInventados(revisada, conPrecioDeVerdad, { divisas: PREGUNTA_DIVISAS.test(mensaje.texto), tambien: await ultimosQueVio(env, contacto) }), paraMostrar);
       revisada = revisarPrecio(revisada, { hayFichas: paraMostrar.length > 0, yaLasVio: soloTexto }).respuesta;
-      if (historialPrevio) revisada = sinBienvenida(revisada);
+      if (yaSeConocen) revisada = sinBienvenida(revisada);
       // Sin fichas debajo, una flecha que apunta a nada no puede salir.
       if (!paraMostrar.length) revisada = revisada.replace(/\s*👇/g, "").trim();
 
@@ -4267,16 +4279,26 @@ function prometeFotos(respuesta, textoDelCliente) {
 
 const LINEA_DE_LISTA = /^\s*(?:[🔹🔸🔵⚪🟡💎▪️▫️•·]|[-*]\s|\d+[.)])\s*/u;
 
+// UNA FICHA TÉCNICA NO ES UNA LISTA PEGADA (13-oct-2026, panel: "Aquí tienes
+// el Redmi 17 que pediste 👇 🔹 Pantalla: 6,9" IPS LCD… 🔹 Procesador:…"
+// salió sin la ficha, y el revisor: "no incluye detalles técnicos ni el
+// precio"). Lo que se quita es la lista de PRODUCTOS que repite el carrusel;
+// "🔹 Pantalla: …", "🔹 RAM: …" o "🔹 Precio: …" son datos de UN equipo
+// (la ficha técnica de la base) y se quedan.
+const LINEA_DE_FICHA =
+  /^\s*(?:[🔹🔸🔵⚪🟡💎▪️▫️•·]|[-*]\s)?\s*(?:pantalla|display|procesador|chip|cpu|gpu|ram|memoria|almacenamiento|rom|capacidad|bater[ií]a|carga|cargador|c[aá]maras?|selfie|frontal|trasera|principal|sistema|android|ios|hyperos|one\s*ui|conectividad|red(?:es)?|5g|4g|nfc|wi-?fi|bluetooth|puertos?|usb|huella|sensor(?:es)?|desbloqueo|sonido|audio|altavoces?|resistencia|ip\d\d|peso|dimensiones|grosor|resoluci[oó]n|tasa|refresco|brillo|colores?|precio|garant[ií]a|incluye|en\s+la\s+caja)\b[^:\n]{0,30}:/iu;
+
 function sinListaPegada(texto) {
   const lineas = String(texto || "").split("\n");
-  const cuantas = lineas.filter((linea) => LINEA_DE_LISTA.test(linea)).length;
+  const esDeLista = (linea) => LINEA_DE_LISTA.test(linea) && !LINEA_DE_FICHA.test(linea);
+  const cuantas = lineas.filter(esDeLista).length;
 
   // Una línea suelta con viñeta no es una lista: puede ser parte de la
   // frase. Con dos ya está enumerando.
   if (cuantas < 2) return texto;
 
   const limpio = lineas
-    .filter((linea) => !LINEA_DE_LISTA.test(linea))
+    .filter((linea) => !esDeLista(linea))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -5000,7 +5022,11 @@ function sinBienvenida(respuesta) {
 // De lo que escribió el modelo a lo que se le manda al cliente: se limpia el
 // término, se le quita el color, se busca en la hoja y se decide si la
 // respuesta del modelo sirve o hay que sustituirla.
-async function decidir({ env, salida, texto, historialPrevio, senalado = "", productoAnuncio = null, recientes = [] }) {
+// La IA no supo de qué equipo hablaba: "¿De cuál equipo me hablas?",
+// "¿qué modelo buscas?", "¿cuál celular?".
+const PREGUNTA_QUE_EQUIPO = /\b(?:de\s+)?(?:cu[aá]l|qu[eé])\s+(?:equipo|modelo|tel[eé]fono|celular|producto)\b|\bde\s+cu[aá]l\s+(?:me\s+hablas|hablas|se\s+trata)\b/i;
+
+async function decidir({ env, salida, texto, historialPrevio, yaSeConocen = Boolean(historialPrevio), senalado = "", productoAnuncio = null, recientes = [] }) {
   // "[le enseñé: …]" es una nota de la memoria (ver conLasFichas), no algo
   // que se le dice al cliente: si la IA la copia de la charla, se quita.
   if (/\[le enseñé:/i.test(salida?.respuesta || "")) {
@@ -5139,8 +5165,10 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
           `"${termino || "nada"}": mando lo que él escribió.`
       );
       // Con el del anuncio, además, cuenta el "no buscar nada": su texto
-      // ("¿qué equipo buscas?") no sirve si va el equipo debajo.
-      elModeloHablabaDeOtro = Boolean(termino) || Boolean(elDelAnuncio);
+      // ("¿qué equipo buscas?") no sirve si va el equipo debajo. Y lo mismo
+      // si no buscó nada y preguntó cuál (13-oct-2026, panel: a "Redmi 17"
+      // le contestó "¿De cuál equipo me hablas?" con el Redmi 17 en la tienda).
+      elModeloHablabaDeOtro = Boolean(termino) || Boolean(elDelAnuncio) || (!termino && PREGUNTA_QUE_EQUIPO.test(salida.respuesta || ""));
       termino = suyo;
     }
   } else if ((relacion === "familia" || relacion === "marca") && nombraUnModelo(dondeLoNombro)) {
@@ -5651,7 +5679,7 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
 
   // Si ya se conocen, se le quita la bienvenida aunque el modelo la haya
   // escrito. Es el fallo que más se nota: saludar dos veces.
-  const respuestaFinal = historialPrevio ? sinBienvenida(sinInventos) : sinInventos;
+  const respuestaFinal = yaSeConocen ? sinBienvenida(sinInventos) : sinInventos;
 
   // El orden va de lo más concreto a lo más general. La respuesta que
   // escribió el modelo queda última porque él no vio el resultado de la
@@ -5661,7 +5689,7 @@ async function decidir({ env, salida, texto, historialPrevio, senalado = "", pro
   // Cuando la frase del modelo se cambia por una del código, la bienvenida
   // que él escribió se queda si es el primer mensaje: a quien llega de un
   // anuncio se le saluda antes de enseñarle el equipo.
-  const saludoDelModelo = historialPrevio ? "" : (respuestaFinal.match(SU_BIENVENIDA)?.[0] || "").trim();
+  const saludoDelModelo = yaSeConocen ? "" : (respuestaFinal.match(SU_BIENVENIDA)?.[0] || "").trim();
   const conSuSaludo = (frase) => [saludoDelModelo, frase].filter(Boolean).join(" ");
 
   if (preguntoPorPagos) {

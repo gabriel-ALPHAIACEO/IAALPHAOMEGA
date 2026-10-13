@@ -208,12 +208,35 @@ export function tipoQuePide(texto) {
 
 // QUÉ TIPO ES ESTE PRODUCTO, según su título. Lo que no nombra ningún
 // accesorio es un teléfono: es lo que vende esta tienda.
+//
+// Y SEGÚN SU CATEGORÍA (13-oct-2026, el dueño: "hay más powerbanks, están
+// todos en el inventario"). En el panel un power bank puede llamarse
+// "Xiaomi 20000mAh 22.5W" y estar en la categoría «Powerbanks»: por el
+// nombre contaba como TELÉFONO y no salía al pedir power banks. El título
+// manda si nombra un tipo; si no, vale el de la categoría. sheets.js lo
+// anota al leer el inventario (recordarTipoDeCategoria).
+const TIPO_POR_CATEGORIA = new Map();
+const claveDeTitulo = (titulo) => palabras(titulo).join(" ");
+
+export function recordarTipoDeCategoria(titulo, categoria) {
+  const clave = claveDeTitulo(titulo);
+  if (!clave) return;
+  const tipo = tipoQuePide(categoria);
+  if (tipo && tipo !== "telefono") TIPO_POR_CATEGORIA.set(clave, tipo);
+  else TIPO_POR_CATEGORIA.delete(clave);
+}
+
 export function tipoDelProducto(titulo) {
+  return tipoPorElNombre(titulo) || TIPO_POR_CATEGORIA.get(claveDeTitulo(titulo)) || "telefono";
+}
+
+// Solo lo que dice el nombre ("" si el nombre no nombra ningún accesorio).
+export function tipoPorElNombre(titulo) {
   for (const palabra of palabras(titulo)) {
     const tipo = DE_PALABRA.get(palabra);
     if (tipo && tipo !== "telefono") return tipo;
   }
-  return "telefono";
+  return "";
 }
 
 // ¿Este producto sirve para lo que pidió?

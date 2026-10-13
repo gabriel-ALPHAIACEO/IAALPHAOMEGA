@@ -91,7 +91,7 @@ console.log("— la lista que lee la IA");
   globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => muchas.join("\n") });
   const log = console.log;
   console.log = () => {};
-  const lista = await listaDeTitulos({ SHEET_ID: "x", SHEET_NOMBRE: "Hoja 1" });
+  const lista = await listaDeTitulos({ USAR_HOJA: "si", SHEET_ID: "x", SHEET_NOMBRE: "Hoja 1" });
   console.log = log;
   comprobar("una línea por modelo, con sus capacidades juntas", /Telefono modelo largo numero 7 — 128GB, 256GB, 512GB/.test(lista), true);
   comprobar("y el power bank del final llega a la IA", lista.includes(AORAX), true);

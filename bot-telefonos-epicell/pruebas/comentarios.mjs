@@ -140,7 +140,7 @@ function montar({ privadoFalla = false, publicoFalla = false, ventanaCerrada = f
   return { publicos, privados, DB, control };
 }
 
-const env = { SHEET_ID: "abc", SHEET_NOMBRE: "Hoja 1", IG_TOKEN: "t", OPENAI_API_KEY: "k", COMENTARIOS: "todo" };
+const env = { USAR_HOJA: "si", SHEET_ID: "abc", SHEET_NOMBRE: "Hoja 1", IG_TOKEN: "t", OPENAI_API_KEY: "k", COMENTARIOS: "todo" };
 
 let m = montar();
 await atenderComentario({ ...env, DB: m.DB }, c);

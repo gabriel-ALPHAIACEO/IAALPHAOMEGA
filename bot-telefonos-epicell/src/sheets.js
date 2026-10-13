@@ -66,7 +66,7 @@ const SINONIMOS = {
   stock: ["stock", "cantidad", "existencia", "existencias", "unidades", "inventario"],
 };
 
-import { tipoQuePide, tipoDelProducto } from "./tipos.js";
+import { tipoQuePide, tipoDelProducto, recordarTipoDeCategoria, tipoPorElNombre, comoSeLlama } from "./tipos.js";
 import { juntarModelo } from "./modelo.js";
 import { resumenDeMarcas } from "./disponible.js";
 import { elBotLeeElInventario, catalogoParaElBot } from "./inventario.js";
@@ -617,7 +617,11 @@ export async function listaDeTitulos(env, limite = MAXIMO_CARACTERES_CATALOGO) {
   for (const p of productos) {
     const clave = String(p.titulo || "").trim().toLowerCase();
     if (!clave) continue;
-    const m = modelos.get(clave) || { titulo: String(p.titulo).trim(), capacidades: [] };
+    // Lo que solo la categoría dice qué es ("Xiaomi 20000mAh" en
+    // «Powerbanks»): la IA lo lee con su tipo al lado.
+    const tipo = tipoDelProducto(p.titulo);
+    const queEs = tipo !== "telefono" && !tipoPorElNombre(p.titulo) ? comoSeLlama(tipo) : "";
+    const m = modelos.get(clave) || { titulo: String(p.titulo).trim(), queEs, capacidades: [] };
     const cap = String(p.capacidad || "").trim();
     if (cap && !m.capacidades.includes(cap)) m.capacidades.push(cap);
     modelos.set(clave, m);
@@ -625,7 +629,7 @@ export async function listaDeTitulos(env, limite = MAXIMO_CARACTERES_CATALOGO) {
   for (const m of modelos.values()) {
     // Con la capacidad pegada al título, el modelo la ve al elegir el
     // término de búsqueda y no tiene que suponerla.
-    const linea = m.capacidades.length ? `${m.titulo} — ${m.capacidades.join(", ")}` : m.titulo;
+    const linea = (m.capacidades.length ? `${m.titulo} — ${m.capacidades.join(", ")}` : m.titulo) + (m.queEs ? ` · categoría: ${m.queEs}` : "");
     // +1 por el salto de línea que separa cada título.
     if (usados + linea.length + 1 > limite) break;
     lineas.push(linea);
@@ -643,6 +647,19 @@ export async function listaDeTitulos(env, limite = MAXIMO_CARACTERES_CATALOGO) {
 // Lo que ve el Worker cuando mira tu hoja, en texto plano. Lo usa la ruta
 // /probar-hoja para que no haya que adivinar qué está fallando.
 export async function diagnosticoHoja(env) {
+  if (!hojaConectada(env)) {
+    const delInventario = await leerDelInventario(env, { siempre: true });
+    return [
+      "LA HOJA DE GOOGLE ESTÁ DESCONECTADA: el bot ofrece SOLO lo del inventario del panel.",
+      delInventario.aviso
+        ? `PROBLEMA: ${delInventario.aviso}`
+        : `Productos visibles para el bot: ${delInventario.productos.length} (con stock o sin contar, y sin ocultar).`,
+      "",
+      "Para volver a conectarla: USAR_HOJA = \"si\" en wrangler.toml (con SHEET_ID) y desplegar.",
+      "",
+      ...(delInventario.productos.length ? [resumenDeMarcas(delInventario.productos), ""] : []),
+    ].join("\n");
+  }
   const inventario = await leerDelInventario(env);
   const { productos, aviso, encabezados, filasLeidas, columnas } = await leerSoloLaHoja(env);
 
@@ -739,7 +756,19 @@ export async function diagnosticoHoja(env) {
 // respaldo para cuando esta memoria se pierde.
 let cacheEnMemoria = null; // { clave, vencido, datos }
 
+// LA HOJA DE GOOGLE, DESCONECTADA (13-oct-2026, el dueño: "hay más
+// powerbanks, están todos en el sistema de inventario. Vamos a desconectar
+// el drive"). El bot ofrece SOLO lo del inventario del panel: no lee la hoja
+// ni cuando la base falla (una hoja vieja daría precios y equipos que ya no
+// son). En Importar ya no sale «Traer ahora» desde la hoja. Se vuelve a
+// conectar con USAR_HOJA = "si" en wrangler.toml (y entonces vale otra vez
+// «Lo que ofrece el bot» en Importar, como antes).
+export function hojaConectada(env) {
+  return /^(si|sí|yes|1|on|true)$/i.test(String(env?.USAR_HOJA ?? "").trim());
+}
+
 async function leerHoja(env) {
+  if (!hojaConectada(env)) return leerDelInventario(env, { siempre: true });
   // Traída la hoja al inventario, MANDA EL INVENTARIO (ver más abajo).
   return (await leerDelInventario(env)) || leerSoloLaHoja(env);
 }
@@ -783,14 +812,17 @@ async function leerSoloLaHoja(env) {
 // Se mira cada 30 segundos (no en cada mensaje). Si la base falla, el bot
 // sigue con la hoja: un cliente nunca se queda sin respuesta por esto.
 const SEGUNDOS_DEL_INVENTARIO = 30;
-let cacheDelInventario = null; // { vence, datos } — datos null: se lee la hoja
+let cacheDelInventario = null; // { vence, siempre, datos } — datos null: se lee la hoja
 
-async function leerDelInventario(env) {
-  if (!env.DB) return null;
-  if (cacheDelInventario && cacheDelInventario.vence > Date.now()) return cacheDelInventario.datos;
+// siempre: con la hoja desconectada se lee el inventario sin mirar el
+// ajuste de Importar, y si la base falla se dice (no hay hoja a la que ir).
+async function leerDelInventario(env, { siempre = false } = {}) {
+  const sinLeer = (aviso) => ({ productos: [], encabezados: [], filasLeidas: 0, columnas: {}, fuente: "inventario", aviso });
+  if (!env.DB) return siempre ? sinLeer("no hay base de datos conectada (DB en wrangler.toml).") : null;
+  if (cacheDelInventario && cacheDelInventario.siempre === siempre && cacheDelInventario.vence > Date.now()) return cacheDelInventario.datos;
   let datos = null;
   try {
-    if (await elBotLeeElInventario(env.DB)) {
+    if (siempre || (await elBotLeeElInventario(env.DB))) {
       const filas = await catalogoParaElBot(env.DB);
       datos = {
         productos: filas.map((f) => productoDelInventario(f, env)),
@@ -802,10 +834,15 @@ async function leerDelInventario(env) {
       console.log(`Inventario → ${datos.productos.length} productos visibles para el bot`);
     }
   } catch (error) {
+    if (siempre) {
+      // Sin guardarlo: el próximo mensaje lo vuelve a intentar.
+      console.error(`No pude leer el inventario (la hoja está desconectada): ${error.message}`);
+      return sinLeer(`no pude leer el inventario: ${error.message}`);
+    }
     console.error(`No pude leer el inventario; sigo con la hoja: ${error.message}`);
     datos = null;
   }
-  cacheDelInventario = { vence: Date.now() + SEGUNDOS_DEL_INVENTARIO * 1000, datos };
+  cacheDelInventario = { vence: Date.now() + SEGUNDOS_DEL_INVENTARIO * 1000, siempre, datos };
   return datos;
 }
 
@@ -817,7 +854,13 @@ export function olvidarElInventario() {
 export function productoDelInventario(f, env = {}) {
   const capacidad = String(f.opcion || "").trim();
   const extras = f.extras && typeof f.extras === "object" ? f.extras : {};
-  const textos = [f.titulo, f.marca, capacidad, f.color, ...Object.values(extras)].map((t) => String(t ?? "").trim()).filter(Boolean);
+  // La categoría del panel también dice qué es: un "Xiaomi 20000mAh" en
+  // «Powerbanks» es un power bank aunque el nombre no lo diga (ver tipos.js).
+  recordarTipoDeCategoria(f.titulo, extras.categoria);
+  // Y se encuentra por ese tipo: «Power Bank» de categoría busca como
+  // "powerbank", igual que lo pide el cliente.
+  const tipoDeCategoria = tipoQuePide(extras.categoria);
+  const textos = [f.titulo, f.marca, capacidad, f.color, ...Object.values(extras), tipoDeCategoria && tipoDeCategoria !== "telefono" ? tipoDeCategoria : ""].map((t) => String(t ?? "").trim()).filter(Boolean);
   const piezas = palabrasDeBusqueda(textos.join(" "));
   return {
     titulo: f.titulo,

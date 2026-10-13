@@ -89,7 +89,13 @@ export function pideLoMismoOtraVez(texto, termino) {
 
 // "Por ahora es el único que tenemos de powerbanks 😊", si la respuesta no
 // lo dice ya. La frase va primero: es lo que contesta lo que pidió.
-const YA_DICE_QUE_ES_LO_UNICO = /\b[uú]nic[oa]s?\b|\bs[oó]lo\s+(?:tenemos|hay|queda|nos\s+queda)\b|\bno\s+(?:tenemos|hay)\s+(?:m[aá]s|otr[oa]s?)\b/i;
+// Sin \b delante de la ú: en JavaScript la «ú» no cuenta como letra para
+// \b, y «el único» no se reconocía (13-oct-2026: salió «Por ahora es el
+// único que tenemos… Por ahora es el único powerbank que tenemos»).
+const YA_DICE_QUE_ES_LO_UNICO = /(?<![\p{L}\d])[uú]nic[oa]s?(?![\p{L}\d])|(?<![\p{L}\d])s[oó]lo\s+(?:tenemos|hay|queda|nos\s+queda)(?![\p{L}\d])|(?<![\p{L}\d])no\s+(?:tenemos|hay)\s+(?:m[aá]s|otr[oa]s?)(?![\p{L}\d])/iu;
+// "¡Hola Alberto! Soy la asistente virtual de EPICCELL 👋": la frase va
+// después del saludo, no delante.
+const SALUDO_DELANTE = /^\s*[¡!]*\s*(?:hola|buenas|buen\s+d[ií]a)[^.!?\n]{0,40}[.!?]+\s*(?:soy\s+(?:la|el)\s+asistente[^.!?\n👋]{0,60}[.!?👋]*\s*)?/iu;
 
 export function conLoUnicoQueHay(respuesta, { cuantos = 1, deQue = "" } = {}) {
   const texto = String(respuesta || "").trim();
@@ -98,8 +104,9 @@ export function conLoUnicoQueHay(respuesta, { cuantos = 1, deQue = "" } = {}) {
   const frase = cuantos === 1 ? `Por ahora es el único que tenemos${de} 😊` : `Por ahora son los únicos que tenemos${de} 😊`;
   // "Aquí tienes el X que ya hemos visto." sobra delante de la frase nueva.
   // (Los puntos de "20.000mAh" no cortan la frase.)
-  const resto = texto.replace(/^aqu[ií]\s+tienes\s+(?:[^.!?]|\.(?=\d))*?\bya\s+(?:hemos\s+visto|viste|te\s+mostr[eé])(?:[^.!?]|\.(?=\d))*[.!?]\s*/i, "");
-  return `${frase}${resto ? ` ${resto}` : ""}`;
+  const saludo = (SALUDO_DELANTE.exec(texto) || [""])[0];
+  const resto = texto.slice(saludo.length).replace(/^aqu[ií]\s+tienes\s+(?:[^.!?]|\.(?=\d))*?\bya\s+(?:hemos\s+visto|viste|te\s+mostr[eé])(?:[^.!?]|\.(?=\d))*[.!?]\s*/i, "");
+  return [saludo.trim(), frase, resto].filter(Boolean).join(" ");
 }
 
 export function pideVerLoRecomendado(texto) {

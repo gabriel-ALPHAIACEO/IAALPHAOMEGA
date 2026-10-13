@@ -13,7 +13,7 @@ Poco M8 pro 5G,185,https://x/8.jpg`;
 
 globalThis.fetch = async () => ({ ok: true, text: async () => HOJA, status: 200 });
 
-const env = { SHEET_ID: "abc", SHEET_NOMBRE: "Hoja 1" };
+const env = { USAR_HOJA: "si", SHEET_ID: "abc", SHEET_NOMBRE: "Hoja 1" };
 
 let fallos = 0;
 const comprobar = (n, real, esperado) => {
@@ -64,7 +64,7 @@ globalThis.fetch = async () => ({ ok: true, text: async () => XIAOMI, status: 20
 // Cada búsqueda con su propio id: la hoja se cachea por SHEET_ID.
 let cuantas = 0;
 const enXiaomi = async (t) =>
-  (await buscarProductos({ SHEET_ID: `xiaomi${++cuantas}`, SHEET_NOMBRE: "Hoja 1" }, t)).productos.map(
+  (await buscarProductos({ USAR_HOJA: "si", SHEET_ID: `xiaomi${++cuantas}`, SHEET_NOMBRE: "Hoja 1" }, t)).productos.map(
     (p) => p.titulo
   );
 
