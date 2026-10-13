@@ -16,7 +16,7 @@ const P = await src.cargar("panel.js");
 const E = await src.cargar("estado.js");
 const { DB } = baseDeMentira();
 const ENV = {
-  DB, META_APP_SECRET: SECRETO, META_MODO: "todo", IG_TOKEN: "x", OPENAI_API_KEY: "x",
+  DB, META_APP_SECRET: SECRETO, JUNTAR_SEGUNDOS: "0", META_MODO: "todo", IG_TOKEN: "x", OPENAI_API_KEY: "x",
   SHOPIFY_TIENDA: "tienda.test", SHOPIFY_TOKEN: "x", URL_CATALOGO: "https://tienda.test",
   PANEL_CLAVE: CLAVE, TIENDA_NOMBRE: "Invictus Shoes", PAUSA_HORAS: "1",
 };

@@ -54,7 +54,7 @@ async function mandarNota({ transcripcion = "hola tienes las jordan 4 en negro",
     if (u.includes("/graphql.json")) return new Response(JSON.stringify({ data: { products: { edges: [], pageInfo: { hasNextPage: false } } } }), { status: 200 });
     return new Response("ok", { status: 200 });
   };
-  const env = { DB: db || baseDeMentira().DB, META_APP_SECRET: SECRETO, META_MODO: "todo", IG_TOKEN: "x", OPENAI_API_KEY: "x",
+  const env = { DB: db || baseDeMentira().DB, META_APP_SECRET: SECRETO, JUNTAR_SEGUNDOS: "0", META_MODO: "todo", IG_TOKEN: "x", OPENAI_API_KEY: "x",
     SHOPIFY_TIENDA: "tienda.test", SHOPIFY_TOKEN: "x", SLACK_WEBHOOK: "https://hooks.slack.com/x", URL_CATALOGO: "https://tienda.test" };
   const cuerpo = JSON.stringify({ object: "instagram", entry: [{ id: "999", time: Date.now(), messaging: [{ sender: { id: "123" }, recipient: { id: "999" }, timestamp: Date.now(),
     message: comoTexto ? { mid: `m-${Math.random()}`, text: "hola tienes las jordan 4 en negro" } : { mid: `m-${Math.random()}`, attachments: [{ type: "audio", payload: { url: "https://cdn.test/nota.mp4" } }] } }] }] });

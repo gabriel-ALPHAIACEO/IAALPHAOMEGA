@@ -156,7 +156,7 @@ async function conversacion(mensaje, { texto, vision = null, cotejo = null, revi
     return jpeg();
   };
   const env = {
-    ...envDrive, DB: base.DB, META_APP_SECRET: SECRETO, META_MODO: "todo", IG_TOKEN: "x", DEEPSEEK_API_KEY: "x",
+    ...envDrive, DB: base.DB, META_APP_SECRET: SECRETO, JUNTAR_SEGUNDOS: "0", META_MODO: "todo", IG_TOKEN: "x", DEEPSEEK_API_KEY: "x",
     SLACK_WEBHOOK: "https://hooks.slack.com/x", URL_CATALOGO: "https://drive.test", COTEJO_BARRIDO: "no",
     ...extraEnv,
   };

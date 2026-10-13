@@ -77,7 +77,7 @@ async function escribe(texto, ia) {
     if (u.includes("hooks.slack.com")) return new Response("ok");
     return new Response(new Uint8Array([0xff, 0xd8, 0xff]), { status: 200, headers: { "content-type": "image/jpeg" } });
   };
-  const envBot = { ...env, META_APP_SECRET: SECRETO, META_MODO: "todo", IG_TOKEN: "x", DEEPSEEK_API_KEY: "x", SLACK_WEBHOOK: "https://hooks.slack.com/x", URL_CATALOGO: "https://drive.test", COTEJO_BARRIDO: "no", REVISOR_IA: "no" };
+  const envBot = { ...env, META_APP_SECRET: SECRETO, JUNTAR_SEGUNDOS: "0", META_MODO: "todo", IG_TOKEN: "x", DEEPSEEK_API_KEY: "x", SLACK_WEBHOOK: "https://hooks.slack.com/x", URL_CATALOGO: "https://drive.test", COTEJO_BARRIDO: "no", REVISOR_IA: "no" };
   const cuerpo = JSON.stringify({ object: "instagram", entry: [{ id: "999", time: Date.now(), messaging: [{ sender: { id: igsid }, recipient: { id: "999" }, timestamp: Date.now(), message: { mid: `m-${Math.random()}`, text: texto } }] }] });
   const firma = "sha256=" + crypto.createHmac("sha256", SECRETO).update(cuerpo).digest("hex");
   const real = globalThis.fetch, log = console.log, err = console.error;

@@ -18,6 +18,7 @@ const SRC = path.join(AQUI, "..", "src");
 
 const SUITES = [
   ["asesor.mjs", "la IA se calla cuando habla el asesor (también a mitad del turno)"],
+  ["rafaga.mjs", "Meta repite un mensaje: se atiende una vez; mensajes seguidos del mismo cliente: una sola respuesta con todos (sin mezclar clientes); JUNTAR_MENSAJES = \"no\" lo apaga"],
   ["pagos.mjs", "los métodos de pago, la tasa y el guardián de los datos"],
   ["gasto.mjs", "la medición del gasto de OpenAI"],
   ["hotstep.mjs", "lo de Invictus del 11-oct: Nocta Hot Step 2 y las redes de faltas.js"],

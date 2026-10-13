@@ -197,7 +197,7 @@ titulo("un cliente manda una foto con poco margen: el cotejo se recorta, la resp
     return jpeg();
   });
   const env = {
-    DB: base.DB, META_APP_SECRET: SECRETO, META_MODO: "todo", IG_TOKEN: "x", DEEPSEEK_API_KEY: "x",
+    DB: base.DB, META_APP_SECRET: SECRETO, JUNTAR_SEGUNDOS: "0", META_MODO: "todo", IG_TOKEN: "x", DEEPSEEK_API_KEY: "x",
     SHOPIFY_TIENDA: "tienda.test", SHOPIFY_TOKEN: "x", SLACK_WEBHOOK: "https://hooks.slack.com/x", URL_CATALOGO: "https://tienda.test",
     // Un margen corto a propósito: el cotejo querría más de lo que cabe.
     SUBPETICIONES_MAXIMAS: "20",

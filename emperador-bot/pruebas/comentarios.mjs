@@ -58,7 +58,7 @@ async function comentar(texto, { decision, env = {}, privadoFalla = false, de = 
     entry: [{ id: "999", time: Date.now(), changes: [{ field: "comments", value: { id, text: texto, from: { id: de, username: "cliente" + de }, media: { id: media } } }] }],
   });
   const firma = "sha256=" + crypto.createHmac("sha256", SECRETO).update(cuerpo).digest("hex");
-  const fullEnv = { DB: base.DB, META_APP_SECRET: SECRETO, META_MODO: "todo", IG_TOKEN: "x", DEEPSEEK_API_KEY: "x", SHOPIFY_TIENDA: "tienda.test", SHOPIFY_TOKEN: "x", SLACK_WEBHOOK: "https://hooks.slack.com/x", URL_CATALOGO: "https://tienda.test", ...env };
+  const fullEnv = { DB: base.DB, META_APP_SECRET: SECRETO, JUNTAR_SEGUNDOS: "0", META_MODO: "todo", IG_TOKEN: "x", DEEPSEEK_API_KEY: "x", SHOPIFY_TIENDA: "tienda.test", SHOPIFY_TOKEN: "x", SLACK_WEBHOOK: "https://hooks.slack.com/x", URL_CATALOGO: "https://tienda.test", ...env };
   const [fetchReal, log, error] = [globalThis.fetch, console.log, console.error];
   globalThis.fetch = falso;
   console.log = () => {};

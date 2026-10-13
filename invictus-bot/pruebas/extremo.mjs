@@ -77,7 +77,7 @@ async function conversar(texto, { respuestaModelo, ahora, productos = [], sesion
   const base = sesion.base;
   const env = {
     DB: base.DB,
-    META_APP_SECRET: SECRETO,
+    META_APP_SECRET: SECRETO, JUNTAR_SEGUNDOS: "0",
     META_MODO: "todo",
     IG_TOKEN: "x",
     OPENAI_API_KEY: "x",
