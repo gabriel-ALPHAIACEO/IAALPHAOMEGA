@@ -25,6 +25,7 @@ const SUITES = [
   ["sincontar.mjs", "inventario: lo recién traído sale «Sin contar», no Agotado"],
   ["catalogo-web.mjs", "la tienda web: el inventario como catálogo público, sin costos y sin descontar stock"],
   ["pedidos-web.mjs", "pagar en la tienda web: datos de pago del panel, comprobante (solo foto o PDF), precios del servidor, aprobar anota la venta (no dos veces) y rechazar con motivo"],
+  ["fotos.mjs", "las fotos se suben desde el panel (solo fotos de verdad, 10 por producto, principal y quitar) y se ven en /tienda/img; categoría en vez de condición; precio Cashea obligatorio"],
   ["prompt.mjs", "que los prompts se armen y las reglas sigan escritas"],
   ["corpus.mjs", "que los guardianes no alteren respuestas buenas"],
   ["cotejo.mjs", "que llegue al modelo el zapato del color correcto"],

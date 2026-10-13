@@ -225,7 +225,7 @@ const parsear = new Function(`return (${inv.leerOpciones.toString()})`)();
 ok(JSON.stringify(parsear("40-43")) === JSON.stringify(["40", "41", "42", "43"]) && JSON.stringify(parsear("S, M, L")) === JSON.stringify(["S", "M", "L"]) && parsear("")[0] === "única", "las tallas se entienden igual en el navegador (40-43, S, M, L, vacío)");
 ok(html.includes(inv.leerOpciones.toString().slice(0, 40)), "y el navegador recibe esa misma función");
 
-let rr = await pedir("/panel/inventario/nuevo", {}, { method: "POST", body: formulario([["titulo", "Bota Grilla"], ["precio", "60"], ["sede", sede.id], ["opciones", "38-40"], ["cantidad", "2"], ["v_opcion", "38"], ["v_cantidad", "2"], ["v_opcion", "39"], ["v_cantidad", ""], ["v_opcion", "40"], ["v_cantidad", "5"]]) });
+let rr = await pedir("/panel/inventario/nuevo", {}, { method: "POST", body: formulario([["precio_cashea", "70"], ["titulo", "Bota Grilla"], ["precio", "60"], ["sede", sede.id], ["opciones", "38-40"], ["cantidad", "2"], ["v_opcion", "38"], ["v_cantidad", "2"], ["v_opcion", "39"], ["v_cantidad", ""], ["v_opcion", "40"], ["v_cantidad", "5"]]) });
 const botaId = sql.prepare("SELECT id FROM inv_productos WHERE titulo = 'Bota Grilla'").get()?.id;
 const botas = sql.prepare("SELECT id, opcion FROM inv_variantes WHERE producto_id = ? ORDER BY CAST(opcion AS REAL)").all(botaId);
 ok(rr.status === 303 && botas.length === 3, "se crea con sus 3 tallas", `${rr.status} · ${botas.length}`);
@@ -233,17 +233,17 @@ ok(stockDe(botas[0].id) === 2 && stockDe(botas[1].id) === 0 && stockDe(botas[2].
 ok(donde(rr).includes("7 unidades"), "y dice cuántas unidades quedaron", donde(rr));
 ok(movimientos(botas[0].id)[0].nota === "Al crearlo", "con su movimiento «Al crearlo»");
 
-rr = await pedir("/panel/inventario/nuevo", {}, { method: "POST", body: formulario([["titulo", "Sandalia sin JS"], ["sede", sede.id], ["opciones", "41-43"], ["cantidad", "4"]]) });
+rr = await pedir("/panel/inventario/nuevo", {}, { method: "POST", body: formulario([["precio_cashea", "70"], ["titulo", "Sandalia sin JS"], ["sede", sede.id], ["opciones", "41-43"], ["cantidad", "4"]]) });
 const sandaliaId = sql.prepare("SELECT id FROM inv_productos WHERE titulo = 'Sandalia sin JS'").get()?.id;
 const sandalias = sql.prepare("SELECT id FROM inv_variantes WHERE producto_id = ?").all(sandaliaId);
 ok(rr.status === 303 && sandalias.length === 3 && sandalias.every((s) => stockDe(s.id) === 4), "sin JavaScript sigue valiendo: la misma cantidad para todas", sandalias.map((s) => stockDe(s.id)).join(","));
 
-rr = await pedir("/panel/inventario/nuevo", {}, { method: "POST", body: formulario([["titulo", "Sin cantidades"], ["opciones", "S, M"]]) });
+rr = await pedir("/panel/inventario/nuevo", {}, { method: "POST", body: formulario([["precio_cashea", "70"], ["titulo", "Sin cantidades"], ["opciones", "S, M"]]) });
 const sinId = sql.prepare("SELECT id FROM inv_productos WHERE titulo = 'Sin cantidades'").get()?.id;
 ok(rr.status === 303 && sql.prepare("SELECT COUNT(*) AS n FROM inv_variantes WHERE producto_id = ?").get(sinId).n === 2 && sql.prepare("SELECT COUNT(*) AS n FROM inv_stock s JOIN inv_variantes v ON v.id = s.variante_id WHERE v.producto_id = ?").get(sinId).n === 0, "si no escribe ninguna cantidad, el stock no se toca (quedan sin contar)");
 
 const n0 = productosEnLaBase();
-rr = await pedir("/panel/inventario/nuevo", {}, { method: "POST", body: formulario([["titulo", "No debe existir"], ["sede", sede.id], ["v_opcion", "38"], ["v_cantidad", "3"], ["v_opcion", "39"], ["v_cantidad", "-4"]]) });
+rr = await pedir("/panel/inventario/nuevo", {}, { method: "POST", body: formulario([["precio_cashea", "70"], ["titulo", "No debe existir"], ["sede", sede.id], ["v_opcion", "38"], ["v_cantidad", "3"], ["v_opcion", "39"], ["v_cantidad", "-4"]]) });
 ok(rr.status === 303 && /error=/.test(rr.headers.get("location") || "") && /39/.test(donde(rr)), "una cantidad mal escrita da error y dice cuál talla", donde(rr));
 ok(productosEnLaBase() === n0, "y no deja un producto a medias");
 

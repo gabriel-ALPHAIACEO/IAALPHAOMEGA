@@ -216,7 +216,7 @@ const cookie = galleta.split(";")[0];
 const pedir = (ruta, opciones = {}, init = {}) => atenderPanel(new Request(`https://bot.test${ruta}`, { ...init, headers: { cookie, "sec-fetch-site": "same-origin", ...(init.headers || {}) } }), ENV, { tienda: "Prueba", ...opciones });
 
 let html = await (await pedir("/panel/inventario/nuevo", { rubro: "telefonos" })).text();
-ok(/Capacidades<input/.test(html) && /128GB, 256GB/.test(html) && /Condición<input/.test(html) && !/Tallas<input/.test(html), "teléfonos: capacidades y condición, no tallas");
+ok(/Capacidades<input/.test(html) && /128GB, 256GB/.test(html) && !/Condición|usado/i.test(html) && /Categoría<input/.test(html) && !/Tallas<input/.test(html), "teléfonos: capacidades y categoría; sin «condición» (dueño 13-oct: nuevo/usado no va), y no tallas");
 html = await (await pedir("/panel/inventario/nuevo", { rubro: "calzado" })).text();
 ok(/Tallas<input/.test(html) && /38-44/.test(html) && !/Capacidades/.test(html), "zapatos: tallas");
 html = await (await pedir("/panel/caja", { rubro: "telefonos", tarifaDeCaja: "cashea" })).text();

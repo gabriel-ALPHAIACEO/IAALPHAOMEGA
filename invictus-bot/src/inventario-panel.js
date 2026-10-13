@@ -68,6 +68,9 @@ import {
   filasParaExportar,
   parteDelInventario,
   contarModelosActivos,
+  ponerCategoria,
+  categoriasUsadas,
+  leerNumero,
   FILAS_POR_PAQUETE,
   svgEan13,
   TIPOS_DE_MOVIMIENTO,
@@ -75,6 +78,7 @@ import {
 import { verVenta, textoDelRecibo, METODOS_DE_PAGO, diaDe } from "./negocio.js";
 import { iconoDeMetodo, enlaceWhatsapp } from "./negocio-panel.js";
 import { aCsv, respuestaCsv } from "./alpha.js";
+import { archivosDelFormulario, subirFotos, quitarFoto, hacerPrincipal, FOTOS_POR_PRODUCTO } from "./fotos.js";
 import { iconoSuelto } from "./iconos.js";
 import {
   esc,
@@ -369,6 +373,22 @@ const ESTILO = `<style>
 .aviso-importando{margin-bottom:18px}
 .tostada.quieta{animation:tostada-entra .7s var(--resorte) both}
 @media (prefers-reduced-motion:reduce){.avance i{transition:none}.avance i::after{animation:none}}
+/* Las fotos (13-oct-2026): subir, elegir la principal, quitar */
+.fotos-tarjeta{margin:18px 0}.fotos-tarjeta h2{display:flex;align-items:center;gap:10px}
+.subir-fotos{display:grid;gap:10px}.subir-fotos>span small{color:var(--tenue);font-weight:600}
+.fotos-zona{position:relative;display:grid;justify-items:center;gap:4px;padding:18px 14px;border:1.5px dashed var(--borde-fuerte);border-radius:18px;background:var(--velo);cursor:pointer;text-align:center;transition:border-color .3s,transform .5s var(--resorte)}
+.fotos-zona:hover{border-color:var(--marca);transform:translateY(-1px)}.fotos-zona .ico{width:26px;height:26px;color:var(--cian)}.fotos-zona small{color:var(--suave);font-size:12.5px}
+.fotos-zona input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.fotos-vista{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.fotos-vista img{width:64px;height:64px;object-fit:cover;border-radius:12px;border:1px solid var(--borde)}
+.fotos-admin{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px;margin-bottom:12px}
+.foto-admin{margin:0;position:relative;border-radius:16px;overflow:hidden;border:1px solid var(--borde);background:var(--velo);aspect-ratio:1/1}
+.foto-admin.principal{border-color:var(--marca);box-shadow:0 0 0 1px var(--marca)}
+.foto-admin img{width:100%;height:100%;object-fit:cover;cursor:zoom-in}
+.foto-admin figcaption{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-between;align-items:center;gap:4px;padding:6px;background:linear-gradient(180deg,transparent,rgba(5,7,13,.82))}
+.foto-admin form{margin:0}
+.foto-boton{display:inline-flex;align-items:center;gap:4px;min-height:0;padding:5px 8px;border-radius:999px;font-size:11.5px;font-weight:750;background:rgba(5,7,13,.6);color:#fff;border:1px solid rgba(255,255,255,.22)}
+.foto-boton.peligro{padding:5px 7px}.foto-boton:hover{border-color:#fff}
+.foto-principal{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:800;color:#fff;padding:5px 8px;border-radius:999px;background:var(--marca)}
 </style>`;
 
 /* ── Las piezas ──────────────────────────────────────────────────────── */
@@ -479,11 +499,31 @@ ${
 }`;
 }
 
+// Las fotos del producto en la ficha: elegir la principal, quitar y subir.
+function seccionDeFotos(p) {
+  const fotos = p.fotos || [];
+  const lista = fotos
+    .map(
+      (f, i) => `<figure class="foto-admin${i ? "" : " principal"}"><img src="${esc(f.url)}" alt="" loading="lazy" data-foto="${esc(f.url)}" title="Ver en grande"><figcaption>
+${i ? `<form method="post" action="/panel/inventario/fotos/principal"><input type="hidden" name="producto" value="${p.id}"><input type="hidden" name="foto" value="${f.id}"><button class="foto-boton" title="Que salga primero en la tienda web y en la ficha">Hacer principal</button></form>` : `<span class="foto-principal">${icono("medalla", { clase: "chico" })}Principal</span>`}
+<form method="post" action="/panel/inventario/fotos/quitar" data-confirmar="¿Quitar esta foto del producto?" data-confirmar-boton="Quitar" data-peligro><input type="hidden" name="producto" value="${p.id}"><input type="hidden" name="foto" value="${f.id}"><button class="foto-boton peligro" title="Quitar" aria-label="Quitar">${icono("borrar", { clase: "chico" })}</button></form>
+</figcaption></figure>`
+    )
+    .join("");
+  const subir =
+    fotos.length < FOTOS_POR_PRODUCTO
+      ? `<form method="post" action="/panel/inventario/fotos" enctype="multipart/form-data" data-una-vez><input type="hidden" name="producto" value="${p.id}">${campoDeFotos({ auto: true, productoId: p.id })}</form>`
+      : `<p class="suave" style="font-size:13px;margin:8px 0 0">Ya tiene ${FOTOS_POR_PRODUCTO} fotos: quita alguna para subir otra.</p>`;
+  return `<section class="panel-tarjeta fotos-tarjeta"><h2>${insignia("foto", "marca", "chica")}Fotos <span class="chip">${fotos.length}/${FOTOS_POR_PRODUCTO}</span></h2>
+${fotos.length ? `<div class="fotos-admin">${lista}</div>` : `<p class="suave" style="font-size:13.5px;margin:0 0 10px">Todavía no tiene fotos. La primera que subas es la que sale en la tienda web y en la ficha.</p>`}
+${subir}</section>`;
+}
+
 async function paginaDeProducto(env, id, url, opciones = {}) {
   const r = rubroDe(opciones.rubro);
   const p = await verProducto(env.DB, id);
   if (!p) return null;
-  const listaDeSedes = await sedes(env.DB);
+  const [listaDeSedes, usadas] = await Promise.all([sedes(env.DB), categoriasUsadas(env.DB)]);
   const sedeElegida = listaDeSedes.some((s) => s.id === Number(url.searchParams.get("sede"))) ? Number(url.searchParams.get("sede")) : listaDeSedes[0]?.id;
   const nombreSede = listaDeSedes.find((s) => s.id === sedeElegida)?.nombre || "la sede";
   const volver = `/panel/inventario/p/${p.id}?sede=${sedeElegida}`;
@@ -496,9 +536,8 @@ async function paginaDeProducto(env, id, url, opciones = {}) {
   const margen = p.costo !== null && p.costo !== undefined && precios.length ? Math.min(...precios) - Number(p.costo) : null;
 
   const fotos = p.fotos.slice(0, 8);
-  const galeria = `<div class="ficha-foto" id="foto-grande">${fotoDe(fotos[0]?.url, p.titulo)}</div>${
-    fotos.length > 1 ? `<div class="miniaturas">${fotos.map((f, i) => `<button type="button" class="${i ? "" : "activa"}" data-foto="${esc(f.url)}" aria-label="Foto ${i + 1}"><img src="${esc(f.url)}" alt="" loading="lazy"></button>`).join("")}</div>` : ""
-  }`;
+  // Las miniaturas están en «Fotos» (debajo): tocar una la enseña aquí.
+  const galeria = `<div class="ficha-foto" id="foto-grande">${fotoDe(fotos[0]?.url, p.titulo)}</div>`;
 
   const cuadros = [
     `<span>Precio</span><b>${precioTexto ? esc(precioTexto) : "—"}</b>${p.precio_local ? `<small>Bs ${esc(numero(p.precio_local))}</small>` : ""}`,
@@ -567,9 +606,10 @@ ${cuadros.map((c, i) => `<div${cuadros.length % 2 && i === cuadros.length - 1 ? 
   const formEditar = `<form method="post" action="/panel/inventario/editar"><input type="hidden" name="producto" value="${p.id}">
 <div class="campos"><label class="campo ancho">Nombre<input name="titulo" value="${esc(p.titulo)}" required maxlength="300"></label>
 <label class="campo">Marca<input name="marca" value="${esc(p.marca)}" maxlength="80"></label>
-<label class="campo">${esc(r.gama)}<input name="gama" value="${esc(p.gama)}" placeholder="${esc(r.ejemploGama)}" maxlength="20"></label>
+${campoDeCategoria(r, usadas, p.extras?.categoria || "")}
+${r.gama ? `<label class="campo">${esc(r.gama)}<input name="gama" value="${esc(p.gama)}" placeholder="${esc(r.ejemploGama)}" maxlength="20"></label>` : `<input type="hidden" name="gama" value="${esc(p.gama)}">`}
 <label class="campo">Precio (divisas)<input name="precio" value="${esc(p.precio ?? "")}" inputmode="decimal"></label>
-<label class="campo">Precio Cashea<input name="precio_cashea" value="${esc(p.precio_cashea ?? "")}" inputmode="decimal"></label>
+<label class="campo">Precio Cashea<input name="precio_cashea" value="${esc(p.precio_cashea ?? "")}" inputmode="decimal" required placeholder="Obligatorio"></label>
 <label class="campo">Precio en Bs<input name="precio_local" value="${esc(p.precio_local ?? "")}" inputmode="decimal"></label>
 <label class="campo">Te costó<input name="costo" value="${esc(p.costo ?? "")}" inputmode="decimal" placeholder="Para saber cuánto ganas"></label></div>
 <div class="acciones">${botonCerrarVentana("editar")}<button class="principal">${icono("check")}Guardar cambios</button></div></form>
@@ -578,7 +618,7 @@ ${cuadros.map((c, i) => `<div${cuadros.length % 2 && i === cuadros.length - 1 ? 
   const delModelo = (n) => (n === null || n === undefined ? "" : `El del modelo: ${plata(n, { siempre: true })}`);
   const formVariante = `<form method="post" action="/panel/inventario/variante/editar" id="variante-form"><input type="hidden" name="producto" value="${p.id}"><input type="hidden" name="variante" value="">
 <div class="campos"><label class="campo">Precio (divisas)<input name="precio" inputmode="decimal" placeholder="${esc(delModelo(p.precio))}"></label>
-<label class="campo">Precio Cashea<input name="precio_cashea" inputmode="decimal" placeholder="Opcional"></label>
+<label class="campo">Precio Cashea<input name="precio_cashea" inputmode="decimal" placeholder="${esc(delModelo(p.precio_cashea) || "El del modelo")}"></label>
 <label class="campo">Precio en Bs<input name="precio_local" inputmode="decimal" placeholder="Opcional"></label>
 <label class="campo">Código de fábrica<input name="codigo_fabricante" maxlength="40" placeholder="El que trae la caja"></label>
 <label class="campo ancho">Foto<input name="foto" inputmode="url" maxlength="500" placeholder="https://… (vacío: la del modelo)"></label></div>
@@ -595,7 +635,7 @@ ${opciones.botLeeInventario ? `<input type="hidden" name="con_bot" value="1"><la
     acciones: `<a class="boton suave" href="/panel/inventario/etiquetas?producto=${p.id}">${icono("etiqueta")}Etiquetas</a><button type="button" class="boton suave" popovertarget="editar">${icono("editar")}Editar</button>`,
   })}
 ${avisoFijo(url)}<div class="ficha-producto">
-<div>${galeria}${datos}</div>
+<div>${galeria}${seccionDeFotos(p)}${datos}</div>
 <div>
 <section class="panel-tarjeta"><div class="stock-cima"><h2>${insignia("inventario", "marca", "chica")}Stock${listaDeSedes.length > 1 ? "" : ` <span class="chip"><span data-n-aqui>${esc(numero(enSede))}</span> en total</span>`}</h2>${sedesSegmento}</div>
 ${p.variantes.length ? `<div class="variantes" data-otras="${total - enSede}">${filas}</div>` : vacio({ icono: "etiqueta", titulo: `Todavía no tiene ${r.variantes}`, texto: "Añádelas abajo: cada una recibe su código de barras sola." })}
@@ -614,6 +654,7 @@ ${listaDeMovimientos(movimientos, { conModelo: false })}
 ${ventana("mover", { titulo: "Mover stock", texto: `<span id="mover-texto">En ${esc(nombreSede)}</span>`, icono: "movimientos", cuerpo: formMover })}
 ${ventana("editar", { titulo: "Editar producto", icono: "editar", cuerpo: formEditar }).replace('class="ventana"', 'class="ventana ventana-ancha"')}
 ${ventana("editar-variante", { titulo: `Editar ${r.laVariante}`, icono: "etiqueta", cuerpo: formVariante }).replace('class="ventana"', 'class="ventana ventana-ancha"')}
+${SCRIPT_FOTOS}
 <script>
 (function(){
 var grande=document.getElementById("foto-grande");
@@ -766,23 +807,94 @@ function tallasDelFormulario(datos) {
   return leerOpciones(datos.get("opciones")).map((opcion) => ({ opcion, cantidad: igual }));
 }
 
+// LA CATEGORÍA (13-oct-2026): en lugar de la "condición" de los teléfonos
+// (nuevo/usado no va con estas tiendas). Es la colección de la tienda web.
+// Se sugieren las que ya hay y las típicas del negocio.
+const CATEGORIAS_DEL_RUBRO = {
+  telefonos: ["Teléfonos", "Relojes", "Audífonos", "Cargadores", "Accesorios"],
+  moda: ["Calzados", "Bolsos", "Camisas", "Pantalones", "Gorras"],
+  calzado: ["Caballero", "Dama", "Niños"],
+  general: [],
+};
+
+function campoDeCategoria(r, usadas, valor = "") {
+  const vistas = new Set();
+  const lista = [...usadas, ...(CATEGORIAS_DEL_RUBRO[r.clave] || [])].filter((c) => {
+    const k = String(c).toLowerCase();
+    if (!c || vistas.has(k)) return false;
+    vistas.add(k);
+    return true;
+  });
+  const ejemplo = (CATEGORIAS_DEL_RUBRO[r.clave] || []).slice(0, 3).join(", ");
+  return `<label class="campo">Categoría<input name="categoria" list="categorias-sugeridas" maxlength="40" value="${esc(valor)}" placeholder="${esc(ejemplo || "La sección de la tienda")}" autocomplete="off"></label>
+<datalist id="categorias-sugeridas">${lista.map((c) => `<option value="${esc(c)}"></option>`).join("")}</datalist>`;
+}
+
+// EL PRECIO CASHEA ES OBLIGATORIO (dueño, 13-oct-2026: "en Venezuela no es
+// para nada opcional"). En el modelo; una talla sin el suyo usa el del modelo.
+function campoDeCashea(valor = "") {
+  return `<label class="campo">Precio Cashea<div class="monto chico"><span>$</span><input name="precio_cashea" inputmode="decimal" placeholder="0" value="${esc(valor)}" required></div></label>`;
+}
+
+function leerCashea(datos) {
+  const texto = String(datos.get("precio_cashea") ?? "").trim();
+  const n = leerNumero(texto);
+  if (!texto) throw new Error("Falta el precio Cashea: es obligatorio.");
+  if (n === null || n < 0) throw new Error("El precio Cashea tiene que ser un número (por ejemplo 45 o 45,50).");
+  return n;
+}
+
+// Elegir fotos: el navegador las achica (1600 px, JPG) antes de mandarlas.
+function campoDeFotos({ auto = false, productoId = 0 } = {}) {
+  return `<div class="campo ancho subir-fotos" data-subir-fotos>${auto ? "" : `<span>Fotos <small>(hasta ${FOTOS_POR_PRODUCTO}; se achican solas)</small></span>`}
+<label class="fotos-zona"><input type="file" name="fotos" accept="image/*" multiple data-fotos${auto ? " data-auto" : ""}>${icono("camara")}<b>${auto ? "Subir fotos" : "Elegir fotos"}</b><small>Desde el teléfono o la computadora</small></label>
+<div class="fotos-vista" data-fotos-vista></div>${productoId ? `<noscript><button class="principal">${icono("subir")}Subir</button></noscript>` : ""}</div>`;
+}
+
+const SCRIPT_FOTOS = `<script>
+(function(){
+function achicar(a,cb){if(!/^image\\//.test(a.type)||/gif|svg/.test(a.type)){cb(a);return}
+ try{var u=URL.createObjectURL(a),img=new Image();img.onload=function(){var m=1600,w=img.naturalWidth,h=img.naturalHeight,k=Math.min(1,m/Math.max(w,h)),c=document.createElement("canvas");
+  c.width=Math.round(w*k);c.height=Math.round(h*k);var x=c.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,c.width,c.height);x.drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);
+  c.toBlob(function(b){cb(b&&(b.size<a.size||!/jpe?g|png|webp/.test(a.type))?b:a)},"image/jpeg",.82)};img.onerror=function(){cb(a)};img.src=u}catch(e){cb(a)}}
+document.querySelectorAll("input[data-fotos]").forEach(function(input){
+ var caja=input.closest("[data-subir-fotos]"),vista=caja&&caja.querySelector("[data-fotos-vista]"),form=input.form;
+ function botones(no){if(form)[].forEach.call(form.querySelectorAll("button"),function(b){b.disabled=no})}
+ input.addEventListener("change",function(){var lista=[].slice.call(input.files||[]).slice(0,${FOTOS_POR_PRODUCTO});
+  if(!lista.length){if(vista)vista.innerHTML="";return}
+  if(vista)vista.innerHTML='<span class="suave">Preparando '+lista.length+(lista.length>1?" fotos":" foto")+'…</span>';botones(true);
+  var salida=[],faltan=lista.length;
+  lista.forEach(function(a,i){achicar(a,function(b){salida[i]=b;if(--faltan===0)fin()})});
+  function fin(){
+   try{var dt=new DataTransfer();salida.forEach(function(b,i){var n=(lista[i].name||"foto").replace(/\\.[^.]+$/,"")+(b.type==="image/jpeg"?".jpg":"");dt.items.add(b instanceof File&&b===lista[i]?b:new File([b],n,{type:b.type||"image/jpeg"}))});input.files=dt.files}catch(e){}
+   botones(false);
+   if(vista){vista.innerHTML="";salida.forEach(function(b){var im=document.createElement("img");try{im.src=URL.createObjectURL(b)}catch(e){}im.alt="";vista.appendChild(im)})}
+   if(input.hasAttribute("data-auto")&&form){if(vista)vista.insertAdjacentHTML("beforeend",'<span class="suave">Subiendo…</span>');if(form.requestSubmit)form.requestSubmit();else form.submit()}
+  }});
+});
+})();
+</script>`;
+
 async function paginaDeNuevo(env, url, r) {
   const listaDeSedes = await sedes(env.DB);
+  const usadas = await categoriasUsadas(env.DB);
   return `${ESTILO}${tostadaDesde(url)}${cabecera({ volver: volverAlInventario, sobre: "Inventario", titulo: "Nuevo producto", texto: `Lo básico basta: el nombre. Cada ${r.variante} recibe su código de barras sola, y si escribes cuántas hay de cada una, quedan cargadas.` })}
 <div class="dos">
-<section class="panel-tarjeta"><form method="post" action="/panel/inventario/nuevo" data-quien data-una-vez>
+<section class="panel-tarjeta"><form method="post" action="/panel/inventario/nuevo" enctype="multipart/form-data" data-quien data-una-vez>
 <div class="campos">
 <label class="campo ancho">Nombre<input name="titulo" required maxlength="300" placeholder="${esc(r.ejemploProducto)}" autofocus></label>
 <label class="campo">Marca<input name="marca" maxlength="80"></label>
-<label class="campo">${esc(r.gama)}<input name="gama" maxlength="20" placeholder="${esc(r.ejemploGama)}"></label>
+${campoDeCategoria(r, usadas)}
+${r.gama ? `<label class="campo">${esc(r.gama)}<input name="gama" maxlength="20" placeholder="${esc(r.ejemploGama)}"></label>` : ""}
 <label class="campo">${esc(mayuscula(r.variantes))}<input name="opciones" data-grilla-opciones placeholder="${esc(r.ejemploVariantes)}, o vacío" autocomplete="off"></label>
 <label class="campo">Color (opcional)<input name="color" maxlength="40"></label>
 <label class="campo">Precio (divisas)<div class="monto chico"><span>$</span><input name="precio" inputmode="decimal" placeholder="0"></div></label>
+${campoDeCashea()}
 <label class="campo">Te costó<div class="monto chico"><span>$</span><input name="costo" inputmode="decimal" placeholder="0"></div></label>
-<label class="campo">Precio Cashea (opcional)<input name="precio_cashea" inputmode="decimal"></label>
 <label class="campo">Código de fábrica (opcional)<input name="codigo_fabricante" maxlength="40" placeholder="El que trae la caja"></label>
 ${selectorDeSede(listaDeSedes, listaDeSedes[0]?.id)}
 ${cantidadesPorVariante(r)}
+${campoDeFotos()}
 </div>
 <div class="formulario-pie"><span class="suave" style="font-size:13px">Lo que no sepas ahora lo pones después en Editar.</span><button class="principal">${icono("check")}Crear producto</button></div>
 </form></section>
@@ -792,7 +904,7 @@ ${cantidadesPorVariante(r)}
 <div class="consejo">${insignia("etiqueta", "marca")}<span>Imprime las etiquetas en hoja carta o en impresora de rollo (50 × 25 mm) desde el producto.</span></div>
 <div class="consejo">${insignia("enlace", "marca")}<span>Si la caja ya trae un código de fábrica, escríbelo: también pasa en la caja.</span></div>
 </div></section>
-</div>${scriptDeCantidades()}`;
+</div>${scriptDeCantidades()}${SCRIPT_FOTOS}`;
 }
 
 async function paginaDeImportar(env, url, opciones = {}) {
@@ -1647,14 +1759,17 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
       // no deja un producto a medias.
       const tallas = tallasDelFormulario(datos);
       for (const t of tallas) leerCantidad(t.cantidad, t.opcion === "única" ? "" : t.opcion);
+      const precioCashea = leerCashea(datos);
+      const categoria = String(datos.get("categoria") || "").replace(/\s+/g, " ").trim().slice(0, 40);
       const productoId = await guardarProducto(env.DB, {
         origen: "manual",
         titulo: datos.get("titulo"),
         marca: datos.get("marca"),
         gama: datos.get("gama"),
         precio: datos.get("precio"),
-        precio_cashea: datos.get("precio_cashea"),
+        precio_cashea: precioCashea,
         costo: datos.get("costo"),
+        extras: categoria ? { categoria } : {},
       });
       const ids = await guardarVariantes(
         env.DB,
@@ -1668,7 +1783,11 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
         ({ unidades } = await cargarCantidades(env.DB, { sedeId, quien, nota: "Al crearlo", filas: ids.map((id, i) => ({ varianteId: id, cantidad: tallas[i].cantidad, nombre: tallas[i].opcion })) }));
       }
       const n = tallas.length;
-      return redirigir(conAviso(`/panel/inventario/p/${productoId}`, { ok: `Creado con ${n} ${n === 1 ? "variante" : "tallas"}, cada una con su código${unidades > 0 ? ` y ${unidades} ${unidades === 1 ? "unidad" : "unidades"} en stock` : ""}.` }));
+      // Las fotos, al final: si una falla, el producto ya está y se dice cuál.
+      const fotos = await subirFotos(env.DB, productoId, await archivosDelFormulario(datos), { origen: url.origin });
+      const conFotos = fotos.subidas ? ` y ${fotos.subidas} ${fotos.subidas === 1 ? "foto" : "fotos"}` : "";
+      const aviso = `Creado con ${n} ${n === 1 ? "variante" : "tallas"}, cada una con su código${unidades > 0 ? `, ${unidades} ${unidades === 1 ? "unidad" : "unidades"} en stock` : ""}${conFotos}.`;
+      return redirigir(conAviso(`/panel/inventario/p/${productoId}`, fotos.errores.length ? { error: `${aviso} No se subieron: ${fotos.errores.join(" · ")}` } : { ok: aviso }));
     } catch (error) {
       return redirigir(conAviso("/panel/inventario/nuevo", { error: error.message }));
     }
@@ -1716,8 +1835,33 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
     return redirigir(conAviso("/panel/inventario/importar", { ok: fuente === "hoja" ? `El bot vuelve a leer ${String(opciones.nombreDelCatalogo || "la hoja").split(" (")[0]}.` : "El bot ofrece lo del inventario." }));
   }
   if (ruta === "/panel/inventario/editar") {
-    await editarProducto(env.DB, productoId, Object.fromEntries(["titulo", "marca", "gama", "precio", "precio_local", "precio_cashea", "costo"].map((k) => [k, datos.get(k)])));
-    return redirigir(conAviso(alProducto, { ok: "Guardado." }));
+    try {
+      const precioCashea = leerCashea(datos);
+      await editarProducto(env.DB, productoId, { ...Object.fromEntries(["titulo", "marca", "gama", "precio", "precio_local", "costo"].map((k) => [k, datos.get(k)])), precio_cashea: precioCashea });
+      if (datos.has("categoria")) await ponerCategoria(env.DB, productoId, datos.get("categoria"));
+      return redirigir(conAviso(alProducto, { ok: "Guardado." }));
+    } catch (error) {
+      return redirigir(conAviso(alProducto, { error: error.message }));
+    }
+  }
+  if (ruta === "/panel/inventario/fotos") {
+    try {
+      const r = await subirFotos(env.DB, productoId, await archivosDelFormulario(datos), { origen: url.origin });
+      if (!r.subidas && !r.errores.length) return redirigir(conAviso(alProducto, { error: "Elige al menos una foto." }));
+      const ok = r.subidas ? `${r.subidas} ${r.subidas === 1 ? "foto subida" : "fotos subidas"}.` : "";
+      return redirigir(conAviso(alProducto, r.errores.length ? { error: `${ok} No se subieron: ${r.errores.join(" · ")}`.trim() } : { ok }));
+    } catch (error) {
+      return redirigir(conAviso(alProducto, { error: error.message }));
+    }
+  }
+  if (ruta === "/panel/inventario/fotos/quitar" || ruta === "/panel/inventario/fotos/principal") {
+    try {
+      if (ruta.endsWith("/quitar")) await quitarFoto(env.DB, productoId, datos.get("foto"));
+      else await hacerPrincipal(env.DB, productoId, datos.get("foto"));
+      return redirigir(conAviso(alProducto, { ok: ruta.endsWith("/quitar") ? "Foto quitada." : "Esa foto sale primero ahora." }));
+    } catch (error) {
+      return redirigir(conAviso(alProducto, { error: error.message }));
+    }
   }
   if (ruta === "/panel/inventario/archivar") {
     await archivarProducto(env.DB, productoId);

@@ -660,6 +660,34 @@ export async function editarProducto(db, id, cambios) {
     .run();
 }
 
+// La categoría del producto (extras.categoria): la colección de la tienda
+// web y el filtro "Categoría". Vacía la quita.
+export async function ponerCategoria(db, id, categoria) {
+  await asegurarInventario(db);
+  const cat = String(categoria || "").replace(/\s+/g, " ").trim().slice(0, 40);
+  await db
+    .prepare(
+      `UPDATE inv_productos SET extras = CASE WHEN ? = '' THEN json_remove(CASE WHEN json_valid(extras) THEN extras ELSE '{}' END, '$.categoria')
+                                           ELSE json_set(CASE WHEN json_valid(extras) THEN extras ELSE '{}' END, '$.categoria', ?) END,
+             actualizado = ?
+        WHERE id = ?`
+    )
+    .bind(cat, cat, Date.now(), Number(id) || 0)
+    .run();
+}
+
+// Las categorías que ya existen, para sugerirlas al escribir.
+export async function categoriasUsadas(db) {
+  try {
+    const { results } = await db
+      .prepare("SELECT json_extract(extras, '$.categoria') AS cat, COUNT(*) AS n FROM inv_productos WHERE activo = 1 AND json_valid(extras) AND json_extract(extras, '$.categoria') IS NOT NULL AND json_extract(extras, '$.categoria') <> '' GROUP BY cat ORDER BY n DESC LIMIT 40")
+      .all();
+    return (results || []).map((f) => String(f.cat));
+  } catch {
+    return [];
+  }
+}
+
 export async function archivarProducto(db, id) {
   await asegurarInventario(db);
   await db.prepare("UPDATE inv_productos SET activo = 0, actualizado = ? WHERE id = ?").bind(Date.now(), Number(id) || 0).run();

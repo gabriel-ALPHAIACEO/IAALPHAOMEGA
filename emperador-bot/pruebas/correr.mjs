@@ -25,6 +25,7 @@ const SUITES = [
   ["comentarios.mjs", "la IA responde todos los comentarios de Instagram: público, privado con precios, sin spam, sin repetir"],
   ["catalogo-web.mjs", "la tienda web: el inventario como catálogo público, sin costos y sin descontar stock"],
   ["pedidos-web.mjs", "pagar en la tienda web: datos de pago del panel, comprobante (solo foto o PDF), precios del servidor, aprobar anota la venta (no dos veces) y rechazar con motivo"],
+  ["fotos.mjs", "las fotos se suben desde el panel (solo fotos de verdad, 10 por producto, principal y quitar) y se ven en /tienda/img; categoría en vez de condición; precio Cashea obligatorio"],
   ["prompt.mjs", "que los prompts se armen y las reglas sigan escritas"],
   ["corpus.mjs", "que los guardianes no alteren respuestas buenas"],
   ["deepseek.mjs", "DeepSeek: dos modelos (texto e imágenes), sin pensar de más, JSON, fotos, errores y /estado"],

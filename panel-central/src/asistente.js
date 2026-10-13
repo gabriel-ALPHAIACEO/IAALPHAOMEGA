@@ -91,7 +91,7 @@ export function nombreDePantalla(ruta) {
 export function guiaDelPanel(palabras = {}, { conAnuncios = true, tarifaDeCaja = "" } = {}) {
   const v = palabras.variante || "variante";
   const vs = palabras.variantes || "variantes";
-  const gama = palabras.gama || "Gama o calidad";
+  const gama = palabras.gama || "";
   return `GUÍA DEL PANEL (qué hay en cada pantalla y cómo se hace cada cosa)
 
 El menú tiene dos grupos. En la computadora va a la izquierda; en el teléfono
@@ -122,13 +122,16 @@ TU NEGOCIO
   a Excel.
 · Inventario (/panel/inventario): los productos con cuántos quedan. Buscador
   y filtros (con stock, por reponer, agotados). Al abrir un producto se ven sus ${vs}, el
-  stock por sede, su código de barras, y se edita nombre, marca, ${gama.toLowerCase()},
-  precio y costo. La cantidad de cada ${v} se cambia escribiéndola ahí mismo
+  stock por sede, su código de barras, y se edita nombre, marca, ${gama ? `${gama.toLowerCase()}, ` : ""}categoría,
+  precio, precio Cashea (obligatorio) y costo. Las FOTOS se suben ahí mismo
+  (desde el teléfono o la computadora, hasta 10): «Principal» elige la que
+  sale primero (en la tienda web y en la ficha) y «Quitar» la saca. La cantidad de cada ${v} se cambia escribiéndola ahí mismo
   (se guarda sola, con Deshacer; sube = Entrada, baja = Ajuste). También se
   puede mover con el botón Mover: Entrada (llegó mercancía), Vendí (se
   vendió fuera de la caja), Devolución, o Contar (poner la cantidad exacta
   que se contó). Cada cambio queda en Movimientos.
-  - Nuevo producto (/panel/inventario/nuevo): crear uno a mano con sus ${vs}.
+  - Nuevo producto (/panel/inventario/nuevo): crear uno a mano con sus ${vs},
+    sus fotos y su categoría. El precio Cashea es obligatorio.
     Al escribir las ${vs} aparece una casilla por cada una para poner cuántas
     hay (o "Igual para todas"). Lo mismo al añadir ${vs} a un producto, pero ahí lo que escribes se SUMA a lo que ya había (es una entrada).
   - Importar (/panel/inventario/importar): "Traer del catálogo" (trae los

@@ -52,6 +52,7 @@ import { botonDeTema, SCRIPT_TEMA } from "./alpha.js";
 import { LOGO } from "./logo-tienda.js";
 import { pagosParaLaWeb, metodosVisibles, crearPedido, pedidoPublico, PedidoInvalido, MAXIMO_COMPROBANTE, bolivares } from "./pedidos-web.js";
 import { alertarCentral } from "./registro.js";
+import { fotoSubida, RUTA_DE_FOTOS } from "./fotos.js";
 
 const PREFIJO = "/tienda";
 const POR_PAGINA = 24;
@@ -139,6 +140,22 @@ function bytesDeBase64(b64) {
   const u = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
   return u;
+}
+
+async function respuestaFoto(env, ruta) {
+  const m = /^\/tienda\/img\/(\d+)\.(?:jpg|png|webp)$/.exec(ruta);
+  const foto = m && env?.DB ? await fotoSubida(env.DB, m[1]) : null;
+  if (!foto) return new Response("No existe esa foto", { status: 404, headers: { "cache-control": "no-store" } });
+  return new Response(foto.bytes, {
+    headers: {
+      "content-type": foto.tipo,
+      // Una foto subida no cambia nunca (otra foto es otro número).
+      "cache-control": "public, max-age=31536000, immutable",
+      "x-content-type-options": "nosniff",
+      "content-security-policy": "default-src 'none'",
+      "access-control-allow-origin": "*",
+    },
+  });
 }
 
 function respuestaLogo(cual) {
@@ -714,6 +731,9 @@ ${p.total_bs ? `<div class="estado-linea"><span>En bolívares (tasa ${esc(String
 // Devuelve la respuesta, o null si esta dirección no es de la tienda web
 // (para que index.js siga con lo suyo).
 export async function atenderCatalogoWeb(request, env, { tienda = "Tienda", rubro = "calzado" } = {}) {
+  // Las fotos subidas desde el panel (fotos.js) se sirven SIEMPRE, también con
+  // la tienda web apagada: el panel y el bot las usan igual.
+  if ((request.method === "GET" || request.method === "HEAD") && new URL(request.url).pathname.startsWith(RUTA_DE_FOTOS)) return respuestaFoto(env, new URL(request.url).pathname);
   if (String(env?.TIENDA_WEB || "").trim().toLowerCase() === "no") return null;
   const esPost = request.method === "POST";
   if (request.method !== "GET" && request.method !== "HEAD" && !esPost) return null;

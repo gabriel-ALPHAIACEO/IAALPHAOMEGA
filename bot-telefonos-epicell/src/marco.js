@@ -93,13 +93,14 @@ export function saludo(ms = Date.now()) {
 // Cada tienda funciona según su negocio (Gabriel, 7-oct-2026: "cuando es
 // tienda de teléfono es de teléfono y cuando es de zapatos es de zapatos").
 // Cada index.js dice el suyo (rubro: "calzado", "moda" o "telefonos") y
-// aquí está cómo se llaman las cosas en cada uno: tallas o capacidades,
-// gama o condición, y si la caja pide el IMEI.
+// aquí está cómo se llaman las cosas en cada uno: tallas o capacidades, la
+// gama o calidad (gama vacía = el campo no sale: en teléfonos no hay
+// "condición", dueño 13-oct-2026), y si la caja pide el IMEI.
 export const RUBROS = {
   general: { clave: "general", variante: "variante", variantes: "variantes", laVariante: "la variante", ejemploVariantes: "S, M, L, o 38-44", ejemploProducto: "Camisa azul manga larga", gama: "Gama o calidad", ejemploGama: "", conSerial: false },
   calzado: { clave: "calzado", variante: "talla", variantes: "tallas", laVariante: "la talla", ejemploVariantes: "38-44, o 38, 39, 40", ejemploProducto: "Nike Air Force One blanco", gama: "Gama o calidad", ejemploGama: "1.1, AA, AAA", conSerial: false },
   moda: { clave: "moda", variante: "talla", variantes: "tallas", laVariante: "la talla", ejemploVariantes: "38-44, o S, M, L", ejemploProducto: "Gorra New Era negra", gama: "Calidad", ejemploGama: "AA, AAA", conSerial: false },
-  telefonos: { clave: "telefonos", variante: "capacidad", variantes: "capacidades", laVariante: "la capacidad", ejemploVariantes: "128GB, 256GB", ejemploProducto: "iPhone 15 Pro Max", gama: "Condición", ejemploGama: "Nuevo, usado, reacondicionado", conSerial: true },
+  telefonos: { clave: "telefonos", variante: "capacidad", variantes: "capacidades", laVariante: "la capacidad", ejemploVariantes: "128GB, 256GB", ejemploProducto: "iPhone 15 Pro Max", gama: "", ejemploGama: "", conSerial: true },
 };
 
 export function rubroDe(nombre) {
