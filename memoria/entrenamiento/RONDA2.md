@@ -36,7 +36,13 @@ Carpeta: `...\dataset\Camila2\8_camilareyes`, extensión `.txt`, prefijo `camila
 Así cada foto describe su ropa y su fondo, y la LoRA asocia a `camilareyes` solo la cara.
 
 ## Paso E. Reentrenar
-En kohya_ss carga `entrenamiento\camila_v2.json` (Configuration file > abrir > Load). Ya trae estos cambios sobre la ronda 1:
+Sin pasar por la interfaz (la pestaña Dreambooth lanza `sdxl_train.py` y falla), en una PowerShell nueva:
+```
+cd C:\kohya_ss
+$env:PYTHONUTF8="1"; $env:PYTHONIOENCODING="utf-8"
+.\venv\Scripts\accelerate.exe launch --num_processes 1 --num_machines 1 --mixed_precision fp16 --dynamo_backend no --num_cpu_threads_per_process 2 sd-scripts/sdxl_train_network.py --config_file "C:/ia comfy y swarm/memoria/entrenamiento/config_camila_v2.toml"
+```
+`config_camila_v2.toml` (y `camila_v2.json` para la interfaz, pestaña LoRA) traen estos cambios sobre la ronda 1:
 - `train_data_dir` → `C:\ia comfy y swarm\memoria\entrenamiento\dataset\Camila2`
 - `output_name` → `camila_v2`
 - `max_train_epochs` → 10, `max_train_steps` → 0, `save_every_n_epochs` → 2 (la ronda 1 se cortó en 1600 pasos por el valor por defecto de `max_train_steps`)
