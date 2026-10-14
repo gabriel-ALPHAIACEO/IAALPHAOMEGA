@@ -173,9 +173,8 @@ titulo('"soy nivel 3" en fecha');
 titulo("el 12 de octubre, entre dos Días del Club");
 {
   const r = await conversar("Tienes cashea?", { ahora: ENTRE });
-  ok(/Casheálo con menos/.test(r.todo) && /Arranca el 15 de octubre/.test(r.todo) && /• Nivel 1 → 50% de inicial/.test(r.todo),
-     "anuncia la próxima (15 al 20, Casheálo con menos) con la tabla", r.todo.slice(0, 160));
-  ok(/inicial normal de tu nivel/.test(r.todo), "y dice que hoy Cashea va con la inicial normal");
+  ok(/• Nivel 1 → 50% de inicial \+ 3 cuotas sin interés/.test(r.todo) && /Próxima promo, del 15 al 20 de octubre: Casheálo con menos/.test(r.todo),
+     "el esquema normal (3 cuotas sin interés) y anuncia la próxima (15 al 20, Casheálo con menos)", r.todo.slice(0, 160));
 }
 
 titulo("después de la campaña (pasado el 31 de diciembre)");

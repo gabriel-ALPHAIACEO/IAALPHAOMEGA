@@ -61,7 +61,7 @@ const EN = hora("2026-10-03T12:00:00-04:00");
 ok(C.momentoDeLaPromocion(hora("2026-09-30T23:59:00-04:00")) === "antes", "el 30 de septiembre a las 23:59: todavía no empezó");
 ok(C.momentoDeLaPromocion(hora("2026-10-01T00:00:00-04:00")) === "vigente", "el 1 de octubre a las 00:00: en fecha");
 ok(C.momentoDeLaPromocion(hora("2026-10-06T23:59:00-04:00")) === "vigente", "el 6 de octubre a las 23:59: todavía en fecha");
-ok(C.momentoDeLaPromocion(hora("2026-10-07T00:00:01-04:00")) === "antes", "el 7 de octubre: terminó la del 1 al 6 y se anuncia la del 15 al 20");
+ok(C.nombreDeLasCuotas(hora("2026-10-07T00:00:01-04:00")) === "3 cuotas sin interés" && /Próxima promo, del 15 al 20 de octubre/.test(C.tarjetaCashea({ ahora: hora("2026-10-07T00:00:01-04:00") })), "el 7 de octubre: terminó la del 1 al 6, va el esquema normal (3 cuotas sin interés) y se anuncia la del 15 al 20");
 ok(C.momentoDeLaPromocion(hora("2027-01-01T00:00:01-04:00")) === "despues", "el 1 de enero: terminó la campaña");
 ok(C.casheaVigente(HOY), "HOY (antes de empezar) el bot SÍ contesta Cashea (pedido del dueño)");
 ok(!C.casheaVigente(hora("2027-01-01T00:00:01-04:00")), "después de la campaña, al asesor");
@@ -70,9 +70,9 @@ ok(!C.casheaVigente(hora("2027-01-01T00:00:01-04:00")), "después de la campaña
 titulo("Días del Club Cashea (12-oct-2026): 1 al 6 y 15 al 20 de cada mes, hasta fin de año");
 {
   const D = (iso) => C.tarjetaCashea({ ahora: hora(iso) });
-  ok(C.momentoDeLaPromocion(hora("2026-10-14T23:59:00-04:00")) === "antes" && C.momentoDeLaPromocion(hora("2026-10-15T00:00:00-04:00")) === "vigente",
+  ok(C.nombreDeLasCuotas(hora("2026-10-14T23:59:00-04:00")) === "3 cuotas sin interés" && C.nombreDeLasCuotas(hora("2026-10-15T00:00:00-04:00")) === "hasta 3 cuotas" && /Casheálo con menos/.test(D("2026-10-15T00:00:00-04:00")),
      "el 15 a las 00:00 (hora de Venezuela) empieza Casheálo con menos");
-  ok(C.momentoDeLaPromocion(hora("2026-10-20T23:59:00-04:00")) === "vigente" && C.momentoDeLaPromocion(hora("2026-10-21T00:00:01-04:00")) === "antes",
+  ok(/Casheálo con menos/.test(D("2026-10-20T23:59:00-04:00")) && /Próxima promo, del 1 al 6 de noviembre/.test(D("2026-10-21T00:00:01-04:00")) && C.nombreDeLasCuotas(hora("2026-10-21T00:00:01-04:00")) === "3 cuotas sin interés",
      "el 20 a las 23:59 todavía; el 21 se anuncia la del 1 de noviembre");
   ok(C.nombreDeLasCuotas(hora("2026-10-16T12:00:00-04:00")) === "hasta 3 cuotas" && C.textoDelMinimo(hora("2026-10-16T12:00:00-04:00")) === "",
      "del 15 al 20: hasta 3 cuotas y sin mínimo");
@@ -85,7 +85,7 @@ titulo("Días del Club Cashea (12-oct-2026): 1 al 6 y 15 al 20 de cada mes, hast
     ok(C.momentoDeLaPromocion(t) === "vigente" && C.fechasDeLaPromocion(t) === "del 1 al 31 de diciembre" && C.nombreDeLasCuotas(t) === "6 cuotas",
        `el ${dia} de diciembre: vigente, del 1 al 31, en 6 cuotas`);
   }
-  ok(C.momentoDeLaPromocion(hora("2026-11-25T12:00:00-04:00")) === "antes" && /1 de diciembre/.test(D("2026-11-25T12:00:00-04:00")), "el 25 de noviembre: anuncia que arranca el 1 de diciembre", D("2026-11-25T12:00:00-04:00").split("\n").slice(0, 2).join(" | "));
+  ok(/Próxima promo, del 1 al 31 de diciembre/.test(D("2026-11-25T12:00:00-04:00")) && /• Nivel 1 → 50% de inicial \+ 3 cuotas sin interés/.test(D("2026-11-25T12:00:00-04:00")), "el 25 de noviembre: el esquema normal y la próxima promo (todo diciembre)", D("2026-11-25T12:00:00-04:00").replace(/\n/g, " | ").slice(0, 200));
   ok(C.textoDelMinimo(hora("2026-12-17T12:00:00-04:00")) === "compras desde 100$", "en diciembre el mínimo de 100$ rige todo el mes");
   for (const n of [1, 2, 3, 4, 5, 6]) {
     ok(C.inicialDelNivel(n, hora("2026-12-17T12:00:00-04:00")) === [50, 40, 30, 20, 10, 0][n - 1], `17 de diciembre, Nivel ${n} → ${[50, 40, 30, 20, 10, 0][n - 1]}%`);
@@ -97,10 +97,13 @@ titulo("Días del Club Cashea (12-oct-2026): 1 al 6 y 15 al 20 de cada mes, hast
     ok(C.inicialDelNivel(n, hora("2026-10-16T12:00:00-04:00")) === [50, 40, 30, 20, 10, 0][n - 1], `del 15 al 20, Nivel ${n} → ${[50, 40, 30, 20, 10, 0][n - 1]}%`);
   }
   const entre = D("2026-10-12T12:00:00-04:00");
-  ok(/Casheálo con menos/.test(entre) && /¡Arranca el 15 de octubre!/.test(entre) && /hasta 3 cuotas/.test(entre), "el 12: anuncia la del 15 al 20", entre.split("\n").slice(0, 2).join(" | "));
-  ok(/Hoy también puedes comprar con Cashea, con la inicial normal de tu nivel/.test(entre), "y que hoy Cashea va con la inicial normal");
+  // ENTRE PROMOCIONES (14-oct-2026, dueño): el esquema normal de Cashea, nivel
+  // por nivel con sus 3 cuotas sin interés, y la próxima promo.
+  ok(/^💜 ¡Sí, trabajamos con Cashea!/.test(entre) && /• Nivel 1 → 50% de inicial \+ 3 cuotas sin interés\n• Nivel 2 → 40% de inicial \+ 3 cuotas sin interés\n• Nivel 3 → 30% de inicial \+ 3 cuotas sin interés\n• Nivel 4 → 20% de inicial \+ 3 cuotas sin interés\n• Nivel 5 → 10% de inicial \+ 3 cuotas sin interés\n• Nivel 6 → 0% de inicial \+ 3 cuotas sin interés/.test(entre),
+     "el 12: el esquema normal, del Nivel 1 al 6, cada uno con 3 cuotas sin interés", entre.replace(/\n/g, " | ").slice(0, 200));
+  ok(/🔥 Próxima promo, del 15 al 20 de octubre: Casheálo con menos/.test(entre) && /¿Qué nivel tienes en Cashea\?/.test(entre), "y anuncia la próxima (15 al 20) y pregunta el nivel");
   const entreN3 = C.tarjetaCashea({ nivel: 3, productos: [{ titulo: "Jordan 4 Retro", precio: "120 USD" }], ahora: hora("2026-10-12T12:00:00-04:00") });
-  ok(/^💜 ¡Perfecto! Del 15 al 20 de octubre, con tu Nivel 3 en Cashea, el Jordan 4 Retro te lo llevas con el 30% de inicial 🙌/.test(entreN3), "con nivel, entre promociones: dice DESDE CUÁNDO es su 30% (como Invictus)", entreN3.split("\n")[0]);
+  ok(/^💜 ¡Perfecto! Con tu Nivel 3 en Cashea, el Jordan 4 Retro te lo llevas con el 30% de inicial 🙌\n🗓️ Y el resto lo pagas en 3 cuotas sin interés\.\n🔥 Próxima promo, del 15 al 20 de octubre/.test(entreN3), "con nivel, entre promociones: su 30% + 3 cuotas sin interés, y la próxima promo", entreN3.replace(/\n/g, " | "));
   const dentro = D("2026-10-16T12:00:00-04:00");
   ok(/🔥 Del 15 al 20 de octubre: Casheálo con menos: bajada de inicial de 50% a 0% en compras de hasta 3 cuotas/.test(dentro) && !/inicial normal/.test(dentro) && !/100\$/.test(dentro),
      "el 16: en fecha, hasta 3 cuotas, sin el mínimo de las 6");

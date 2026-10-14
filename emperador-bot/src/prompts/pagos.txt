@@ -101,6 +101,18 @@
 
 Vigencia: 2026-10-01 al 2026-12-31
 
+# ENTRE PROMOCIONES (14-oct-2026, dueño): lo de aquí, ANTES del primer
+# "Días:", es el esquema normal de Cashea, el de los días sin promoción
+# (en octubre y noviembre: del 7 al 14 y del 21 a fin de mes). El bot lo
+# ofrece esos días y anuncia la próxima promo.
+Cuotas: 3 sin interés
+Nivel 1: 50%
+Nivel 2: 40%
+Nivel 3: 30%
+Nivel 4: 20%
+Nivel 5: 10%
+Nivel 6: 0%
+
 Días: 1 al 6
 Meses: 10 al 11
 6 cuotas para TODOS los niveles en compras de 100$ en adelante

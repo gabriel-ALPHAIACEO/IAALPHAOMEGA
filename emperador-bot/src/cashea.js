@@ -190,13 +190,28 @@ function leer(ahora) {
   const repetida = c.tramos.length > 1;
   let tramo = base, desde = c.desde, hasta = c.hasta, d1 = c.desdeDia, d2 = c.hastaDia;
 
+  // ENTRE PROMOCIONES, EL ESQUEMA NORMAL (14-oct-2026, dueño: "las fechas
+  // entre promos son: Nivel 1 50% de inicial + 3 cuotas sin interés…"). Si
+  // lo de antes del primer "Días:" trae su tabla, ESE es el de los días sin
+  // promoción dentro de la campaña, y se anuncia la próxima.
+  let proxima = null;
+  let enBase = false;
   if (repetida) {
     const lista = ventanas(c, t);
-    const elegida =
-      lista.find((v) => v.desde <= t && t <= v.hasta) ||
-      lista.find((v) => v.desde > t) ||
-      lista[lista.length - 1];
-    if (elegida) ({ tramo, desde, hasta, d1, d2 } = elegida);
+    const actual = lista.find((v) => v.desde <= t && t <= v.hasta);
+    const siguiente = lista.find((v) => v.desde > t);
+    const dentroDeLaCampana = (!c.desde || t >= c.desde) && (!c.hasta || t <= c.hasta);
+    if (!actual && base.niveles.size && dentroDeLaCampana) {
+      enBase = true;
+      desde = c.desde;
+      hasta = c.hasta;
+      d1 = "";
+      d2 = "";
+      if (siguiente) proxima = { titular: siguiente.tramo.titular, fechas: rangoLegible(siguiente.d1, siguiente.d2), empieza: diaLegible(siguiente.d1) };
+    } else {
+      const elegida = actual || siguiente || lista[lista.length - 1];
+      if (elegida) ({ tramo, desde, hasta, d1, d2 } = elegida);
+    }
   }
 
   const niveles = tramo.niveles.size ? tramo.niveles : base.niveles;
@@ -214,6 +229,8 @@ function leer(ahora) {
     hasta,
     fechas: d1 && d2 ? rangoLegible(d1, d2) : "",
     empieza: d1 ? diaLegible(d1) : "",
+    enBase,
+    proxima,
   };
 }
 
@@ -469,7 +486,7 @@ function armarTarjeta({ nivel, productos, ahora }) {
   if (!hayCashea()) return "";
   if (!hayTablaCashea()) return tarjetaSinTabla(nivel);
 
-  const { titular, niveles, fechas, empieza, repetida } = leer();
+  const { titular, niveles, fechas, empieza, repetida, enBase, proxima } = leer();
   const pct = nivel ? inicialDelNivel(nivel) : null;
   const momento = momentoDeLaPromocion(ahora);
   // ENTRE DOS PROMOCIONES DEL MES (Días del Club, 12-oct-2026): hoy Cashea
@@ -513,6 +530,34 @@ function armarTarjeta({ nivel, productos, ahora }) {
   //   ‘’ Para optar por el modo 6 cuotas la compra debe ser de 100$ o más ‘’
   //
   //   ¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca 😉
+  // La próxima promoción, en una línea (los días sin promoción).
+  const laProxima = enBase && proxima
+    ? `🔥 Próxima promo, ${proxima.fechas}: ${String(proxima.titular || "").replace(/\s*🔥\s*$/, "")}`
+    : "";
+
+  // ── Sin nivel, ENTRE PROMOCIONES: el esquema normal, nivel por nivel con
+  // sus cuotas, y la próxima promo.
+  if (pct === null && enBase) {
+    const conCuotas = lasCuotas ? ` + ${lasCuotas}` : "";
+    const tabla = [...niveles.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([n, v]) => `• Nivel ${n} → ${formatoPct(v)} de inicial${conCuotas}`)
+      .join("\n");
+    const aviso = nivel ? `No tengo el Nivel ${nivel} en la tabla de Cashea. ` : "";
+    return [
+      "💜 ¡Sí, trabajamos con Cashea!",
+      "",
+      tabla,
+      "",
+      laProxima || null,
+      laProxima ? "" : null,
+      aviso + "¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca 😉",
+    ]
+      .filter((l) => l !== null)
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n");
+  }
+
   if (pct === null) {
     const tabla = [...niveles.entries()]
       .sort((a, b) => b[0] - a[0])
@@ -573,6 +618,7 @@ function armarTarjeta({ nivel, productos, ahora }) {
     minimo ? `💲 ${mayuscula(fraseDelMinimo())}.` : null,
     cuando || null,
     hoyNormal || null,
+    laProxima || null,
     "",
     `💬 ${mayuscula(ASESOR_CONFIRMA_MONTOS)}`,
   ]
