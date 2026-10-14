@@ -151,7 +151,7 @@ titulo('"Tienes cashea?" HOY 30-sep (antes de que empiece)');
   const r = await conversar("Tienes cashea?", { ahora: HOY });
   ok(r.textos.length >= 1, "le llega respuesta", `${r.textos.length} mensaje(s)`);
   ok(/• Nivel 1 → 50% de inicial/.test(r.todo) && /Nivel 6 → 0%/.test(r.todo), "le llega la tabla de Cashea", r.todo.slice(0, 120));
-  ok(/Arranca el 1 de octubre/.test(r.todo), "anunciando que arranca el 1 de octubre");
+  ok(/arranca el 1 de octubre/.test(r.todo), "anunciando que arranca el 1 de octubre");
   ok(!/confirma un asesor/.test(r.todo), 'NO le dice "te lo confirma un asesor"', r.todo.slice(0, 160));
 }
 
@@ -173,8 +173,18 @@ titulo('"soy nivel 3" en fecha');
 titulo("el 12 de octubre, entre dos Días del Club");
 {
   const r = await conversar("Tienes cashea?", { ahora: ENTRE });
-  ok(/• Nivel 1 → 50% de inicial \+ 3 cuotas sin interés/.test(r.todo) && /Próxima promo, del 15 al 20 de octubre: Casheálo con menos/.test(r.todo),
+  ok(/el resto en 3 cuotas sin interés/.test(r.todo) && /• Nivel 1 → 50% de inicial/.test(r.todo) && /👀 Y del 15 al 20 de octubre tenemos promo: «Casheálo con menos»/.test(r.todo),
      "el esquema normal (3 cuotas sin interés) y anuncia la próxima (15 al 20, Casheálo con menos)", r.todo.slice(0, 160));
+}
+
+titulo("«Hola, tienes cashea?»: el saludo de la IA y la tarjeta, sin decir dos veces que sí (14-oct-2026)");
+{
+  const r = await conversar("Hola, tienes cashea?", {
+    ahora: ENTRE,
+    respuestaModelo: { respuesta: "¡Hola! Soy la asistente virtual de El Emperador 👋 ¡Sí, trabajamos con Cashea! 🙌", buscar: "NADA", historial: "Preguntó por Cashea." },
+  });
+  ok((r.todo.match(/trabajamos con Cashea/gi) || []).length === 1, "«trabajamos con Cashea» una sola vez", r.todo.replace(/\n/g, " | ").slice(0, 220));
+  ok(/^¡Hola! Soy la asistente virtual de El Emperador 👋\n\n¡Sí, trabajamos con Cashea! 💜/.test(r.todo), "primero el saludo de la IA, después la tarjeta", r.todo.split("\n").slice(0, 3).join(" | "));
 }
 
 titulo("después de la campaña (pasado el 31 de diciembre)");

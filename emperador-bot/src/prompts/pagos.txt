@@ -115,7 +115,7 @@ Nivel 6: 0%
 
 Días: 1 al 6
 Meses: 10 al 11
-6 cuotas para TODOS los niveles en compras de 100$ en adelante
+6 cuotas para todos los niveles en compras de 100$ en adelante
 Cuotas: 6
 Mínimo para las 6 cuotas: 100
 Nivel 6: 0%
@@ -127,7 +127,7 @@ Nivel 1: 50%
 
 Días: 15 al 20
 Meses: 10 al 11
-Casheálo con menos: bajada de inicial de 50% a 0% en compras de hasta 3 cuotas
+«Casheálo con menos», bajada de inicial de 50% a 0% en compras de hasta 3 cuotas
 Cuotas: hasta 3
 Nivel 6: 0%
 Nivel 5: 10%
@@ -138,7 +138,7 @@ Nivel 1: 50%
 
 Días: 1 al 31
 Mes: 12
-¡Todo diciembre! 6 cuotas para TODOS los niveles en compras de 100$ en adelante
+todo el mes, 6 cuotas para todos los niveles en compras de 100$ en adelante
 Cuotas: 6
 Mínimo para las 6 cuotas: 100
 Nivel 6: 0%

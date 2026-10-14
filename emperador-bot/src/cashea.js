@@ -486,146 +486,95 @@ function armarTarjeta({ nivel, productos, ahora }) {
   if (!hayCashea()) return "";
   if (!hayTablaCashea()) return tarjetaSinTabla(nivel);
 
-  const { titular, niveles, fechas, empieza, repetida, enBase, proxima } = leer();
+  // CÓMO SUENA (14-oct-2026, dueño: "debe quedar más lógico y humano, se ve
+  // muy robótico"). Como lo diría una vendedora: primero el sí, después la
+  // promo en una frase (o, entre promos, las 3 cuotas una sola vez), los
+  // niveles, la próxima promo como un aviso, y la pregunta del nivel. Sin
+  // títulos sueltos ni la misma frase en cada renglón.
+  const { titular, niveles, fechas, empieza, enBase, proxima } = leer();
   const pct = nivel ? inicialDelNivel(nivel) : null;
   const momento = momentoDeLaPromocion(ahora);
-  // ENTRE DOS PROMOCIONES DEL MES (Días del Club, 12-oct-2026): hoy Cashea
-  // funciona igual, pero sin la promoción. Se anuncia la próxima sin hacerle
-  // creer que hoy ya tiene esa inicial.
-  const entrePromociones = repetida && momento === "antes";
-  const hoyNormal = entrePromociones ? "💜 Hoy también puedes comprar con Cashea, con la inicial normal de tu nivel." : "";
-
-  // La línea de las fechas: la urgencia de verdad. Antes de empezar, se
-  // anuncia ("¡Arranca el 1 de octubre!"); en fecha, cuándo termina.
-  const cuando =
-    momento === "antes"
-      ? `⏳ ¡Arranca ${empieza}! Promoción por tiempo limitado ${fechas}.`
-      : fechas
-        ? `⏳ Promoción por tiempo limitado ${fechas}.`
-        : "";
-
-  const conCuenta = (productos || [])
-    .map((p) => ({ p, cuenta: cuentaCashea(p.precio, pct ?? 0) }))
-    .filter((x) => x.p?.titulo && x.cuenta)
-    .slice(0, MAXIMO_EN_LA_CUENTA);
-
   const lasCuotas = nombreDeLasCuotas();
-  const minimo = textoDelMinimo();
-  const lineaCuotas = lasCuotas
-    ? minimo
-      ? `🗓️ El resto, en ${lasCuotas}.\n💲 ${mayuscula(fraseDelMinimo())}.`
-      : `🗓️ El resto, en ${lasCuotas}.`
+  const minimo = leer().minimo;
+  const promo = String(titular || "").replace(/\s*🔥\s*$/, "").trim();
+  // La condición del mínimo, solo si el titular no la dice ya.
+  const condicion = minimo && lasCuotas && !promo.includes(String(minimo))
+    ? `Para las ${lasCuotas}, la compra debe ser de ${minimo}$ o más.`
     : "";
-
-  // ── Sin nivel (o uno que no existe): IGUAL QUE EL DE INVICTUS (14-oct-2026,
-  // dueño: "el mensaje tiene que ser como el de Invictus, así igualito, solo
-  // que con la estrategia de ventas"):
-  //
-  //   💜 ¡Sí, trabajamos con Cashea!
-  //
-  //   🔥 Del 1 al 6 de octubre: 6 cuotas para todos los niveles…
-  //
-  //   • Nivel 6 → 0% de inicial
-  //   …
-  //   ‘’ Para optar por el modo 6 cuotas la compra debe ser de 100$ o más ‘’
-  //
-  //   ¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca 😉
-  // La próxima promoción, en una línea (los días sin promoción).
-  const laProxima = enBase && proxima
-    ? `🔥 Próxima promo, ${proxima.fechas}: ${String(proxima.titular || "").replace(/\s*🔥\s*$/, "")}`
+  // "Y del 15 al 20 de octubre tenemos promo: …" (entre promos).
+  const avisoDeLaProxima = enBase && proxima?.titular
+    ? `👀 Y ${proxima.fechas} tenemos promo: ${String(proxima.titular).replace(/\s*🔥\s*$/, "")} 🔥`
     : "";
+  // La de hoy, en una frase; o la que viene, si todavía no arranca.
+  const laPromo = enBase || !promo
+    ? ""
+    : momento === "antes"
+      ? `Y ojo 👀 ${fechas} tenemos promo: ${promo} 🔥 (arranca ${empieza})`
+      : `Y llegaste en buen momento: ${fechas} tenemos promo, ${promo} 🔥`;
 
-  // ── Sin nivel, ENTRE PROMOCIONES: el esquema normal, nivel por nivel con
-  // sus cuotas, y la próxima promo.
-  if (pct === null && enBase) {
-    const conCuotas = lasCuotas ? ` + ${lasCuotas}` : "";
+  // ── Sin nivel: el sí, la promo o las cuotas, los niveles y la pregunta.
+  if (pct === null) {
     const tabla = [...niveles.entries()]
       .sort((a, b) => a[0] - b[0])
-      .map(([n, v]) => `• Nivel ${n} → ${formatoPct(v)} de inicial${conCuotas}`)
+      .map(([n, v]) => `• Nivel ${n} → ${formatoPct(v)} de inicial${v === 0 ? " 🎉" : ""}`)
       .join("\n");
+    const entrada = enBase
+      ? `¡Sí, trabajamos con Cashea! 💜 Pagas una inicial según tu nivel${lasCuotas ? ` y el resto en ${lasCuotas}` : ""}:`
+      : `¡Sí, trabajamos con Cashea! 💜 ${laPromo}`.trim();
     const aviso = nivel ? `No tengo el Nivel ${nivel} en la tabla de Cashea. ` : "";
     return [
-      "💜 ¡Sí, trabajamos con Cashea!",
+      entrada,
       "",
+      enBase ? null : "Tu inicial según tu nivel:",
       tabla,
       "",
-      laProxima || null,
-      laProxima ? "" : null,
-      aviso + "¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca 😉",
+      enBase ? null : condicion || null,
+      enBase || !condicion ? null : "",
+      avisoDeLaProxima || null,
+      avisoDeLaProxima ? "" : null,
+      aviso + "¿Qué nivel tienes en Cashea? Dímelo y te digo cuánto te toca de inicial 😉",
     ]
-      .filter((l) => l !== null)
+      .filter((l) => l !== null && l !== undefined)
       .join("\n")
       .replace(/\n{3,}/g, "\n\n");
   }
 
-  if (pct === null) {
-    const tabla = [...niveles.entries()]
-      .sort((a, b) => b[0] - a[0])
-      .map(([n, v]) => `• Nivel ${n} → ${formatoPct(v)} de inicial`)
-      .join("\n");
-    const promo = titular ? `🔥 ${fechas ? `${mayuscula(fechas)}: ` : ""}${titular.replace(/\s*🔥\s*$/, "")}` : "";
-    const arranca = momento === "antes" && empieza ? `⏳ ¡Arranca ${empieza}!` : "";
-    const delMinimo = minimo && lasCuotas ? `‘’ Para optar por el modo ${lasCuotas} la compra debe ser de ${String(minimo).replace(/^compras\s+desde\s+/i, "")} o más ‘’` : "";
-    const aviso = nivel ? `No tengo el Nivel ${nivel} en la tabla de Cashea. ` : "";
-
-    return [
-      "💜 ¡Sí, trabajamos con Cashea!",
-      "",
-      promo,
-      arranca,
-      promo || arranca ? "" : null,
-      tabla,
-      "",
-      delMinimo,
-      delMinimo ? "" : null,
-      hoyNormal || null,
-      hoyNormal ? "" : null,
-      aviso + "¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca 😉",
-    ]
-      .filter((l) => l !== null && l !== undefined)
-      .join("\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .replace(/^\n+/, "");
-  }
-
-  // ── Con nivel.
-  //
-  // SIN MONTOS (2-oct-2026, dueño: "eliminemos eso de cuánto dinero son
-  // las cuotas; no debe prometer nada de eso, de eso se encarga un asesor,
-  // cuando habla de dinero"). Se dice lo que es de la PROMOCIÓN —el
-  // porcentaje de inicial de su nivel y en cuántas cuotas— y para QUÉ
-  // producto, pero ni la inicial en dinero ni lo de cada cuota: eso lo
-  // confirma un asesor, que recibe el aviso (ver ASESOR_CONFIRMA_MONTOS).
-  const condicionDelCero = minimo && leer().minimoAlCero ? " en " + minimo : "";
+  // ── Con nivel. SIN MONTOS (2-oct-2026): su porcentaje y en cuántas cuotas;
+  // el dinero de la inicial y de cada cuota lo confirma un asesor.
+  const condicionDelCero = minimo && leer().minimoAlCero ? ` en compras desde ${minimo}$` : "";
+  const conCuenta = (productos || [])
+    .map((p) => ({ p, cuenta: cuentaCashea(p.precio, pct ?? 0) }))
+    .filter((x) => x.p?.titulo && x.cuenta)
+    .slice(0, MAXIMO_EN_LA_CUENTA);
   const nombres = [...new Set(conCuenta.map(({ p }) => p.titulo))];
-  const delProducto = !nombres.length
-    ? ""
-    : nombres.length === 1
-      ? nombres[0]
-      : nombreComun(nombres) || "";
-  const conProducto = delProducto ? ", " + nombreCorto(delProducto) : "";
-  // Como Invictus: "💜 ¡Perfecto! Con tu Nivel 3 en Cashea, el X te lo llevas
-  // con el 30% de inicial 🙌". Entre promociones, desde cuándo.
-  const desde = entrePromociones ? `${mayuscula(fechas)}, con` : "Con";
-  const encabezadoConProducto =
+  const delProducto = !nombres.length ? "" : nombres.length === 1 ? nombres[0] : nombreComun(nombres) || "";
+  const conProducto = delProducto ? `, ${nombreCorto(delProducto)}` : "";
+  const elResto = lasCuotas ? ` y el resto en ${lasCuotas}` : "";
+  const cuando = momento === "antes" && fechas ? ` ${mayuscula(fechas)},` : "";
+  // Sin zapato a la vista, "pagas"; con zapato, "te lo llevas".
+  const verbo = conProducto ? `${conProducto} te lo llevas con` : " pagas";
+  const encabezado =
     pct === 0
-      ? `🎉 ¡Buenas noticias! ${desde} tu Nivel ${nivel} en Cashea${conProducto} te lo llevas con 0% de inicial${condicionDelCero} 🙌`
-      : `💜 ¡Perfecto! ${desde} tu Nivel ${nivel} en Cashea${conProducto} te lo llevas con el ${formatoPct(pct)} de inicial 🙌`;
+      ? `🎉 ¡Buenas noticias!${cuando} Con tu Nivel ${nivel} en Cashea${verbo} 0% de inicial${condicionDelCero}${elResto} 🙌`
+      : `💜 ¡Perfecto!${cuando} Con tu Nivel ${nivel} en Cashea${verbo} el ${formatoPct(pct)} de inicial${elResto} 🙌`;
+  // Con nivel el titular no sale: la condición del mínimo va siempre.
+  const condicionConNivel = minimo && lasCuotas ? `Solo ten en cuenta que para las ${lasCuotas} la compra debe ser de ${minimo}$ o más.` : "";
+  const hasta = !enBase && fechas && momento !== "antes" ? `⏳ La promo es ${fechas}, aprovéchala.` : "";
+  const hoyNormal = !enBase && momento === "antes" ? "Y si lo quieres hoy, también puedes con Cashea, con la inicial normal de tu nivel 💜" : "";
 
   return [
-    encabezadoConProducto,
-    lasCuotas ? `🗓️ Y el resto lo pagas en ${lasCuotas}.` : null,
-    minimo ? `💲 ${mayuscula(fraseDelMinimo())}.` : null,
-    cuando || null,
+    encabezado,
+    condicionConNivel || null,
+    hasta || null,
     hoyNormal || null,
-    laProxima || null,
+    avisoDeLaProxima ? "" : null,
+    avisoDeLaProxima || null,
     "",
     `💬 ${mayuscula(ASESOR_CONFIRMA_MONTOS)}`,
   ]
     .filter((l) => l !== null)
     .join("\n")
     .replace(/\n{3,}/g, "\n\n");
-
 }
 
 // Lleva "en un momento" a propósito: así hayEscalada() avisa al asesor.
