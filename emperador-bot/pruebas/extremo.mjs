@@ -302,12 +302,16 @@ titulo('"X cuanto me lo dejan en cashea soy level 6" después de ver los Jordan 
   });
   ok(/Nivel 6/.test(r.todo) && !/• Nivel 1 → 50% de inicial/.test(r.todo), "le contesta con su Nivel 6, sin el párrafo de la tabla", r.todo.slice(0, 160));
   const deCashea = r.textos.filter((t) => /Cashea/.test(t)).join(" ");
-  ok(deCashea && !/\d+\s*USD|Inicial:\s*\d|cuotas? de \d/.test(deCashea), "la tarjeta de Cashea va sin montos de dinero", deCashea.slice(0, 200));
+  ok(deCashea && /cuotas de \d/.test(deCashea) && !/asesor/.test(deCashea), "la tarjeta de Cashea trae la cuenta en dinero (sin mandarlo al asesor)", deCashea.slice(0, 200));
   // Cashea NO suena en Slack (dueño, 6-oct-2026: "todo menos preguntaron
   // por Cashea"), pero queda guardado: sale en el panel.
   ok(!r.slack.some((t) => /CASHEA/i.test(t)), "lo de Cashea NO suena en Slack", r.slack.join(" | ").slice(0, 120));
-  const guardado = sesion.base.sql.prepare("SELECT motivo FROM avisos WHERE instr(motivo, 'CONFIRMARLE LOS MONTOS') > 0").get();
-  ok(Boolean(guardado), "pero el aviso queda guardado para el panel", JSON.stringify(guardado));
+  // La cuenta la da el bot (14-oct-2026): ya no hay "confírmale los montos".
+  let guardado = null;
+  try {
+    guardado = sesion.base.sql.prepare("SELECT motivo FROM avisos WHERE instr(motivo, 'CONFIRMARLE LOS MONTOS') > 0").get() ?? null;
+  } catch {}
+  ok(!guardado, "y ya no se le pide al asesor que confirme los montos (el bot los dio)", JSON.stringify(guardado));
 
   // Cashea + OTRA razón en el mismo mensaje: el aviso suena, por la otra.
   const r2 = await conversar("y talla 42 tienen? lo pago con cashea nivel 3", {

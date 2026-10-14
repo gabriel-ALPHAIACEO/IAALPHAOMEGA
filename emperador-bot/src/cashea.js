@@ -539,42 +539,99 @@ function armarTarjeta({ nivel, productos, ahora }) {
       .replace(/\n{3,}/g, "\n\n");
   }
 
-  // ── Con nivel. SIN MONTOS (2-oct-2026): su porcentaje y en cuántas cuotas;
-  // el dinero de la inicial y de cada cuota lo confirma un asesor.
+  // ── Con nivel: LA CUENTA EN DINERO (14-oct-2026, dueño: "que saque las
+  // cuentas de Cashea, a todos los clientes; quitemos esa restricción").
+  // La hace ESTE código con el precio real del producto (cuentaCashea), no
+  // la IA a ojo: es dinero. Antes se decía solo el porcentaje y "los montos
+  // te los confirma un asesor".
   const condicionDelCero = minimo && leer().minimoAlCero ? ` en compras desde ${minimo}$` : "";
-  const conCuenta = (productos || [])
-    .map((p) => ({ p, cuenta: cuentaCashea(p.precio, pct ?? 0) }))
-    .filter((x) => x.p?.titulo && x.cuenta)
+  // Los del mismo precio van en UNA cuenta con su nombre común ("Jordan 40"
+  // en negro, blanco y rojo, a 120: una sola cuenta, no tres iguales).
+  const porPrecio = new Map();
+  for (const p of productos || []) {
+    const cuenta = p?.titulo ? cuentaCashea(p.precio, pct ?? 0) : null;
+    if (!cuenta) continue;
+    const g = porPrecio.get(cuenta.precio) || { titulos: [], cuenta };
+    g.titulos.push(String(p.titulo).trim());
+    porPrecio.set(cuenta.precio, g);
+  }
+  const conCuenta = [...porPrecio.values()]
+    .map(({ titulos, cuenta }) => ({ p: { titulo: titulos.length > 1 ? nombreComun(titulos) || titulos[0] : titulos[0] }, cuenta }))
     .slice(0, MAXIMO_EN_LA_CUENTA);
-  const nombres = [...new Set(conCuenta.map(({ p }) => p.titulo))];
-  const delProducto = !nombres.length ? "" : nombres.length === 1 ? nombres[0] : nombreComun(nombres) || "";
-  const conProducto = delProducto ? `, ${nombreCorto(delProducto)}` : "";
-  const elResto = lasCuotas ? ` y el resto en ${lasCuotas}` : "";
   const cuando = momento === "antes" && fechas ? ` ${mayuscula(fechas)},` : "";
-  // Sin zapato a la vista, "pagas"; con zapato, "te lo llevas".
-  const verbo = conProducto ? `${conProducto} te lo llevas con` : " pagas";
-  const encabezado =
-    pct === 0
-      ? `🎉 ¡Buenas noticias!${cuando} Con tu Nivel ${nivel} en Cashea${verbo} 0% de inicial${condicionDelCero}${elResto} 🙌`
-      : `💜 ¡Perfecto!${cuando} Con tu Nivel ${nivel} en Cashea${verbo} el ${formatoPct(pct)} de inicial${elResto} 🙌`;
-  // Con nivel el titular no sale: la condición del mínimo va siempre.
-  const condicionConNivel = minimo && lasCuotas ? `Solo ten en cuenta que para las ${lasCuotas} la compra debe ser de ${minimo}$ o más.` : "";
   const hasta = !enBase && fechas && momento !== "antes" ? `⏳ La promo es ${fechas}, aprovéchala.` : "";
   const hoyNormal = !enBase && momento === "antes" ? "Y si lo quieres hoy, también puedes con Cashea, con la inicial normal de tu nivel 💜" : "";
+  const { hastaCuotas, detalleCuotas } = leer();
 
+  // Las cuotas de una cuenta, como se dicen: "3 cuotas sin interés de 28$",
+  // "5 cuotas de 9.98$ y la última de 9.95$".
+  const lasCuotasDe = (c) => {
+    const extra = detalleCuotas ? ` ${detalleCuotas}` : "";
+    const menos = hastaCuotas ? " (o en menos cuotas, si prefieres)" : "";
+    return c.iguales
+      ? `${c.cuantas} cuotas${extra} de ${c.cada}${menos}`
+      : `${c.cuantas - 1} cuotas${extra} de ${c.cada} y la última de ${c.ultima}${menos}`;
+  };
+  const renglones = ({ p, cuenta }) => {
+    if (cuenta.ceroSinMinimo) {
+      return [`🛍️ ${p.titulo} — ${cuenta.precio}`, `• El 0% de inicial es en compras desde ${minimo}$: esta no llega todavía 😕`];
+    }
+    const lineas = [
+      `🛍️ ${p.titulo} — ${cuenta.precio}`,
+      pct === 0 ? "• Sin inicial (0%) 🎉" : `• Inicial (${formatoPct(pct)}): ${cuenta.inicial}`,
+    ];
+    if (!cuenta.alcanzaMinimo) {
+      lineas.push(`• Las ${lasCuotas} son en compras desde ${minimo}$, y esta no llega todavía. Si le sumas otro producto, entra 😉`);
+    } else if (cuenta.cuotas) {
+      lineas.push(`• ${pct === 0 ? "Pagas" : "Luego"} ${lasCuotasDe(cuenta.cuotas)}`);
+    } else if (cuenta.restoCifra > 0) {
+      lineas.push(`• El resto, ${cuenta.resto}, en cuotas`);
+    }
+    return lineas;
+  };
+
+  // Sin producto a la vista: su porcentaje y le pide cuál, para la cuenta.
+  if (!conCuenta.length) {
+    const elResto = lasCuotas ? ` y el resto en ${lasCuotas}` : "";
+    const encabezado =
+      pct === 0
+        ? `🎉 ¡Buenas noticias!${cuando} Con tu Nivel ${nivel} en Cashea pagas 0% de inicial${condicionDelCero}${elResto} 🙌`
+        : `💜 ¡Perfecto!${cuando} Con tu Nivel ${nivel} en Cashea pagas el ${formatoPct(pct)} de inicial${elResto} 🙌`;
+    return [
+      encabezado,
+      minimo && lasCuotas ? `Solo ten en cuenta que para las ${lasCuotas} la compra debe ser de ${minimo}$ o más.` : null,
+      hasta || null,
+      hoyNormal || null,
+      avisoDeLaProxima ? "" : null,
+      avisoDeLaProxima || null,
+      "",
+      "Dime cuál te gusta y te saco la cuenta exacta 😉",
+    ]
+      .filter((l) => l !== null)
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n");
+  }
+
+  const encabezado =
+    pct === 0
+      ? `🎉 ¡Buenas noticias!${cuando} Con tu Nivel ${nivel} en Cashea no pagas inicial. Te queda así:`
+      : `💜 ¡Perfecto!${cuando} Con tu Nivel ${nivel} en Cashea te queda así:`;
+  const bloques = conCuenta.map((x) => renglones(x).join("\n"));
   return [
     encabezado,
-    condicionConNivel || null,
+    "",
+    bloques.join("\n\n"),
+    "",
     hasta || null,
     hoyNormal || null,
-    avisoDeLaProxima ? "" : null,
     avisoDeLaProxima || null,
-    "",
-    `💬 ${mayuscula(ASESOR_CONFIRMA_MONTOS)}`,
+    hasta || hoyNormal || avisoDeLaProxima ? "" : null,
+    "¿Qué te parece? 😉",
   ]
     .filter((l) => l !== null)
     .join("\n")
-    .replace(/\n{3,}/g, "\n\n");
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 // Lleva "en un momento" a propósito: así hayEscalada() avisa al asesor.
@@ -631,8 +688,8 @@ const INICIAL_CON_PORCENTAJE =
 const SIN_INICIAL = /\b(?:sin|0|cero)\s*%?\s*(?:de\s+)?inicial\b|\binicial\s+(?:de\s+)?(?:0|cero)\b/i;
 
 // Un monto de dinero pegado a la inicial o a las cuotas ("inicial de 36$",
-// "6 cuotas de 20 USD", "pagas 14$ por cuota"). La IA no los da: los da un
-// asesor (dueño, 2-oct-2026).
+// "6 cuotas de 20 USD", "pagas 14$ por cuota"). La IA no los escribe a ojo:
+// la cuenta la saca el sistema con el precio real (14-oct-2026).
 const MONTO_DE_CASHEA =
   /\b(?:inicial|cuotas?)\b[^.!?\n]{0,30}?(?:\$\s*\d|\d+(?:[.,]\d+)?\s*(?:\$|usd|d[oó]lares?|bs\.?|bol[ií]vares))|(?:\$\s*\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:\$|usd|d[oó]lares?))[^.!?\n]{0,25}?\b(?:de\s+inicial|por\s+cuota|cada\s+cuota|en\s+cuotas|mensual|quincenal)/i;
 
@@ -655,8 +712,11 @@ function revisar(respuesta, ahora) {
     ""
   );
   if (hayCashea() && MONTO_DE_CASHEA.test(sinCondicion) && /\b(?:c|k)a(?:s|c)?hea\b|\binicial\b|\bcuotas?\b/i.test(texto)) {
-    console.error("CASHEA: escribió un monto de dinero de la inicial o las cuotas. Va la tarjeta, sin montos.");
-    return { respuesta: tarjetaCashea({ ahora }), corregido: true, motivos: ["monto de dinero de Cashea"] };
+    // Las cuentas las saca el sistema con el precio real (14-oct-2026): la
+    // frase de la IA con cifras se quita y va la tarjeta con la cuenta de
+    // verdad (index.js la arma con su nivel y sus productos: conCuenta).
+    console.error("CASHEA: la IA escribió montos de la inicial o las cuotas. Va la cuenta que saca el sistema.");
+    return { respuesta: "¡Claro que sí! 🙌", corregido: true, conCuenta: true, motivos: ["monto de dinero de Cashea: va la cuenta del sistema"] };
   }
   if (hayCashea() && !hayTablaCashea()) {
     const hablaDeCashea = /\b(?:c|k)a(?:s|c)?hea\b|\binicial\b|\bnivel\s*\d/i.test(texto);
