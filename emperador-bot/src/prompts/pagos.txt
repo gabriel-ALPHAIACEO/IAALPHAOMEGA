@@ -67,6 +67,15 @@
 # la inicial normal de su nivel. (La comisión del 5% es del comercio: el bot
 # no la dice nunca.)
 #
+# 13-oct-2026 (aviso de Cashea): EN DICIEMBRE la promoción es del 1 AL 31 (todo
+# el mes, en 6 cuotas), no solo los días 1 al 6 y 15 al 20. Por eso los dos
+# bloques de abajo valen solo en octubre y noviembre ("Meses: 10 al 11") y
+# diciembre tiene el suyo ("Mes: 12", "Días: 1 al 31"). Si un mes cambia, se
+# cambia aquí y nada más.
+#
+# MESES: debajo de "Días:", "Meses: 10 al 11" o "Mes: 12" hace que ese bloque
+# valga solo en esos meses. Sin la línea, vale todos los meses de la vigencia.
+#
 # VIGENCIA: del día que empieza al día que termina, ambos incluidos, en hora
 # de Venezuela, con el formato AAAA-MM-DD. Después de esa fecha el bot NO
 # ofrece estos porcentajes: pasa Cashea a un asesor, que es mejor que
@@ -93,6 +102,7 @@
 Vigencia: 2026-10-01 al 2026-12-31
 
 Días: 1 al 6
+Meses: 10 al 11
 Días del Club Cashea: los primeros 6 son en 6 cuotas 🔥
 Cuotas: 6
 Mínimo para las 6 cuotas: 100
@@ -104,8 +114,21 @@ Nivel 2: 40%
 Nivel 1: 50%
 
 Días: 15 al 20
+Meses: 10 al 11
 Días del Club Cashea: Casheálo con menos 🔥
 Cuotas: hasta 3
+Nivel 6: 0%
+Nivel 5: 10%
+Nivel 4: 20%
+Nivel 3: 30%
+Nivel 2: 40%
+Nivel 1: 50%
+
+Días: 1 al 31
+Mes: 12
+Días del Club Cashea: ¡todo diciembre en 6 cuotas! 🔥
+Cuotas: 6
+Mínimo para las 6 cuotas: 100
 Nivel 6: 0%
 Nivel 5: 10%
 Nivel 4: 20%

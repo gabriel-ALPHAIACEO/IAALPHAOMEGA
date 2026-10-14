@@ -62,9 +62,9 @@ ok(C.momentoDeLaPromocion(hora("2026-09-30T23:59:00-04:00")) === "antes", "el 30
 ok(C.momentoDeLaPromocion(hora("2026-10-01T00:00:00-04:00")) === "vigente", "el 1 de octubre a las 00:00: en fecha");
 ok(C.momentoDeLaPromocion(hora("2026-10-06T23:59:00-04:00")) === "vigente", "el 6 de octubre a las 23:59: todavía en fecha");
 ok(C.momentoDeLaPromocion(hora("2026-10-07T00:00:01-04:00")) === "antes", "el 7 de octubre: terminó la del 1 al 6 y se anuncia la del 15 al 20");
-ok(C.momentoDeLaPromocion(hora("2026-12-21T00:00:01-04:00")) === "despues", "el 21 de diciembre: terminó la campaña");
+ok(C.momentoDeLaPromocion(hora("2027-01-01T00:00:01-04:00")) === "despues", "el 1 de enero: terminó la campaña");
 ok(C.casheaVigente(HOY), "HOY (antes de empezar) el bot SÍ contesta Cashea (pedido del dueño)");
-ok(!C.casheaVigente(hora("2026-12-21T00:00:01-04:00")), "después de la campaña, al asesor");
+ok(!C.casheaVigente(hora("2027-01-01T00:00:01-04:00")), "después de la campaña, al asesor");
 
 // ───────────────────────────────────────────────────────────────────────
 titulo("Días del Club Cashea (12-oct-2026): 1 al 6 y 15 al 20 de cada mes, hasta fin de año");
@@ -78,7 +78,20 @@ titulo("Días del Club Cashea (12-oct-2026): 1 al 6 y 15 al 20 de cada mes, hast
      "del 15 al 20: hasta 3 cuotas y sin mínimo");
   ok(C.nombreDeLasCuotas(hora("2026-11-03T12:00:00-04:00")) === "6 cuotas" && C.textoDelMinimo(hora("2026-11-03T12:00:00-04:00")) === "compras desde 100$",
      "del 1 al 6 de noviembre: 6 cuotas desde 100$ (se repite cada mes)");
-  ok(C.fechasDeLaPromocion(hora("2026-12-17T12:00:00-04:00")) === "del 15 al 20 de diciembre", "en diciembre también");
+  ok(C.fechasDeLaPromocion(hora("2026-11-17T12:00:00-04:00")) === "del 15 al 20 de noviembre", "en noviembre también");
+  // DICIEMBRE (13-oct-2026, aviso de Cashea): del 1 al 31, todo el mes.
+  for (const dia of ["01", "10", "17", "25", "31"]) {
+    const t = hora(`2026-12-${dia}T12:00:00-04:00`);
+    ok(C.momentoDeLaPromocion(t) === "vigente" && C.fechasDeLaPromocion(t) === "del 1 al 31 de diciembre" && C.nombreDeLasCuotas(t) === "6 cuotas",
+       `el ${dia} de diciembre: vigente, del 1 al 31, en 6 cuotas`);
+  }
+  ok(C.momentoDeLaPromocion(hora("2026-11-25T12:00:00-04:00")) === "antes" && /1 de diciembre/.test(D("2026-11-25T12:00:00-04:00")), "el 25 de noviembre: anuncia que arranca el 1 de diciembre", D("2026-11-25T12:00:00-04:00").split("\n").slice(0, 2).join(" | "));
+  ok(C.textoDelMinimo(hora("2026-12-17T12:00:00-04:00")) === "compras desde 100$", "en diciembre el mínimo de 100$ rige todo el mes");
+  for (const n of [1, 2, 3, 4, 5, 6]) {
+    ok(C.inicialDelNivel(n, hora("2026-12-17T12:00:00-04:00")) === [50, 40, 30, 20, 10, 0][n - 1], `17 de diciembre, Nivel ${n} → ${[50, 40, 30, 20, 10, 0][n - 1]}%`);
+  }
+  ok(!/Casheálo con menos/.test(D("2026-12-17T12:00:00-04:00")), "en diciembre ya no sale «Casheálo con menos»");
+  ok(C.momentoDeLaPromocion(hora("2026-12-07T12:00:00-04:00")) === "vigente", "el 7 de diciembre sigue vigente (antes era entre promociones)");
   ok(C.momentoDeLaPromocion(hora("2027-01-02T12:00:00-04:00")) === "despues", "en enero ya no (la campaña es hasta fin de año)");
   for (const n of [1, 2, 3, 4, 5, 6]) {
     ok(C.inicialDelNivel(n, hora("2026-10-16T12:00:00-04:00")) === [50, 40, 30, 20, 10, 0][n - 1], `del 15 al 20, Nivel ${n} → ${[50, 40, 30, 20, 10, 0][n - 1]}%`);

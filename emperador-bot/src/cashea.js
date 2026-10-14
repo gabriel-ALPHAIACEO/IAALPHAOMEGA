@@ -40,8 +40,10 @@ let crudo = null;
 // trae su titular, sus cuotas, su mínimo y su tabla; la "Vigencia" de arriba
 // es la de toda la campaña. Lo de antes del primer "Días:" vale como
 // promoción de siempre (y su tabla la heredan los bloques que no traen una).
+// Un bloque puede valer solo en algunos meses con "Meses: 10 al 11" o
+// "Mes: 12" (13-oct-2026: en diciembre la promoción es del 1 al 31).
 function tramoVacio(dias = null) {
-  return { dias, titular: "", niveles: new Map(), cuotas: 0, hastaCuotas: false, detalleCuotas: "", minimo: 0, minimoAlCero: false };
+  return { dias, meses: null, titular: "", niveles: new Map(), cuotas: 0, hastaCuotas: false, detalleCuotas: "", minimo: 0, minimoAlCero: false };
 }
 
 function leerCrudo() {
@@ -79,6 +81,21 @@ function leerCrudo() {
       if (dias) {
         const de = Number(dias[1]), a = Number(dias[2]);
         if (de >= 1 && a >= de && a <= 31) crudo.tramos.push(tramoVacio([de, a]));
+        continue;
+      }
+
+      // "Meses: 10 al 11", "Mes: 12", "Meses: 10, 11" — el bloque vale SOLO
+      // en esos meses (diciembre es otra cosa: del 1 al 31).
+      const meses = linea.match(/^mes(?:es)?\s*:\s*(.+)$/i);
+      if (meses && tramo.dias) {
+        const set = new Set();
+        for (const parte of meses[1].split(",")) {
+          const rango = parte.trim().match(/^(\d{1,2})(?:\s*(?:al|a|hasta|-|–)\s*(\d{1,2}))?$/i);
+          if (!rango) continue;
+          const de = Number(rango[1]), a = Number(rango[2] || rango[1]);
+          for (let m = de; m <= a && m <= 12; m++) if (m >= 1) set.add(m);
+        }
+        if (set.size) tramo.meses = set;
         continue;
       }
 
@@ -145,6 +162,7 @@ function ventanas(c, ahora) {
   }
   for (let vueltas = 0; vueltas < 60 && (anio < finAnio || (anio === finAnio && mes <= finMes)); vueltas++) {
     for (const t of repetidos) {
+      if (t.meses && !t.meses.has(mes)) continue;
       const tope = diasDelMes(anio, mes);
       if (t.dias[0] > tope) continue;
       const deDia = `${anio}-${DOS(mes)}-${DOS(t.dias[0])}`;
