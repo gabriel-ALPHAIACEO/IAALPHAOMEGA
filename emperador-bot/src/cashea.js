@@ -214,6 +214,21 @@ function leer(ahora) {
     }
   }
 
+  // PASADA LA CAMPAÑA, SIGUE EL ESQUEMA NORMAL (14-oct-2026, dueño: "cuando es
+  // fuera de fecha, que no hay ninguna promoción, es normal"): Cashea no se
+  // acaba el 31 de diciembre, solo se acaba la promo. Si lo de antes del primer
+  // "Días:" trae su tabla (Nivel 1 50% … Nivel 6 0% + 3 cuotas sin interés), ese
+  // es el de ahí en adelante, sin anunciar ninguna próxima promo.
+  if (c.hasta && t > c.hasta && base.niveles.size) {
+    enBase = true;
+    tramo = base;
+    desde = c.desde;
+    hasta = c.hasta;
+    d1 = "";
+    d2 = "";
+    proxima = null;
+  }
+
   const niveles = tramo.niveles.size ? tramo.niveles : base.niveles;
   return {
     acepta: c.acepta,
@@ -261,11 +276,14 @@ export function momentoDeLaPromocion(ahora = fijado ?? Date.now()) {
 // ¿Se contesta Cashea con la tabla y las cuentas? SÍ mientras está en fecha
 // Y TAMBIÉN ANTES DE QUE EMPIECE (pedido del dueño, 30-sep-2026: "que
 // responda la IA, no que como no está activa no responda"): antes, se
-// anuncia —"arranca el 1 de octubre"— con sus cuentas. Solo cuando YA
-// TERMINÓ pasa al asesor, que no se promete una promoción vencida.
+// anuncia —"arranca el 1 de octubre"— con sus cuentas. Cuando YA
+// TERMINÓ sigue el esquema normal si está cargado; sin él, pasa al asesor, que
+// no se promete una promoción vencida.
 export function casheaVigente(ahora = fijado ?? Date.now()) {
   if (!hayCashea()) return false;
-  return momentoDeLaPromocion(ahora) !== "despues";
+  // Terminada la promo, con el esquema normal cargado se sigue contestando.
+  if (momentoDeLaPromocion(ahora) === "despues") return leer(ahora).enBase;
+  return true;
 }
 
 // Lo que se contesta a una pregunta de Cashea fuera de fecha. Lleva "en un

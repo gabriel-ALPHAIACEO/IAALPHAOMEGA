@@ -66,7 +66,15 @@ ok(C.momentoDeLaPromocion(hora("2026-10-06T23:59:00-04:00")) === "vigente", "el 
 ok(C.nombreDeLasCuotas(hora("2026-10-07T00:00:01-04:00")) === "3 cuotas sin interés" && /👀 Y del 15 al 20 de octubre tenemos promo: «Casheálo con menos»/.test(C.tarjetaCashea({ ahora: hora("2026-10-07T00:00:01-04:00") })), "el 7 de octubre: terminó la del 1 al 6, va el esquema normal (3 cuotas sin interés) y se anuncia la del 15 al 20");
 ok(C.momentoDeLaPromocion(hora("2027-01-01T00:00:01-04:00")) === "despues", "el 1 de enero: terminó la campaña");
 ok(C.casheaVigente(HOY), "HOY (antes de empezar) el bot SÍ contesta Cashea (pedido del dueño)");
-ok(!C.casheaVigente(hora("2027-01-01T00:00:01-04:00")), "después de la campaña, al asesor");
+ok(C.casheaVigente(hora("2027-01-01T00:00:01-04:00")), "después de la campaña Cashea sigue normal (esquema base), no pasa al asesor");
+{
+  const enero = hora("2027-01-08T12:00:00-04:00");
+  const t = C.tarjetaCashea({ ahora: enero });
+  ok(/trabajamos con Cashea/.test(t) && /• Nivel 1 → 50% de inicial/.test(t) && /• Nivel 6 → 0%/.test(t) && /3 cuotas sin interés/.test(t),
+     "enero: el esquema normal, Nivel 1 50% … Nivel 6 0% y 3 cuotas sin interés", t.slice(0, 160));
+  ok(!/promo|asesor|⏳|🔥/.test(t.replace(/Dímelo[^\n]*/, "")), "enero: no anuncia ninguna promo ni manda al asesor", t.slice(0, 200));
+  ok(!/confirma un asesor/.test(t), "ni «te lo confirma un asesor»");
+}
 
 // ───────────────────────────────────────────────────────────────────────
 titulo("Días del Club Cashea (12-oct-2026): 1 al 6 y 15 al 20 de cada mes, hasta fin de año");
@@ -253,9 +261,11 @@ ok(mal.corregido && /Nivel 1 → 50%/.test(mal.respuesta), "Nivel 3 con 20% (es 
 const inventada = C.revisarCashea("Con Cashea das solo 15% de inicial", EN_FECHA);
 ok(inventada.corregido, "una inicial de 15% que no está en la tabla: se corrige");
 
-const vencida = C.revisarCashea("Con Nivel 3 pagas el 30% de inicial", Date.parse("2027-01-08T10:00:00-04:00"));
-ok(vencida.corregido && vencida.respuesta === C.CASHEA_FUERA_DE_FECHA,
-   "fuera de fecha, hasta el porcentaje correcto se pasa al asesor");
+// Pasada la campaña sigue el esquema normal: el 30% del Nivel 3 es correcto, el 20% no.
+const enero = Date.parse("2027-01-08T10:00:00-04:00");
+ok(!C.revisarCashea("Con Nivel 3 pagas el 30% de inicial", enero).corregido, "en enero, el 30% del Nivel 3 (esquema normal) no se toca");
+const enero20 = C.revisarCashea("Con Nivel 3 pagas el 20% de inicial", enero);
+ok(enero20.corregido && /Nivel 1 → 50%/.test(enero20.respuesta) && enero20.respuesta !== C.CASHEA_FUERA_DE_FECHA, "en enero, un 20% que no es del Nivel 3 se corrige con la tabla normal, no con el asesor");
 
 ok(!C.revisarCashea("Tenemos 20% de descuento en Nike", EN_FECHA).corregido,
    "un descuento que no es de Cashea no se toca");

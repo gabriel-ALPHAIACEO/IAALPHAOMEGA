@@ -190,7 +190,7 @@ titulo("«Hola, tienes cashea?»: la tarjeta va SOLA, sin el texto de la IA pega
 titulo("después de la campaña (pasado el 31 de diciembre)");
 {
   const r = await conversar("Tienes cashea?", { ahora: PASADA });
-  ok(/confirma un asesor/.test(r.todo) && !/• Nivel 1 → 50% de inicial/.test(r.todo), "ahí sí, al asesor (promoción vencida)");
+  ok(/• Nivel 1 → 50% de inicial/.test(r.todo) && /3 cuotas sin interés/.test(r.todo) && !/confirma un asesor/.test(r.todo), "sigue Cashea normal (sin promo), no al asesor", r.todo.slice(0, 160));
 }
 
 titulo("aunque el modelo se equivoque y diga 'asesor', la tabla llega");
