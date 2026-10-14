@@ -103,7 +103,7 @@ Vigencia: 2026-10-01 al 2026-12-31
 
 Días: 1 al 6
 Meses: 10 al 11
-Días del Club Cashea: los primeros 6 son en 6 cuotas 🔥
+6 cuotas para TODOS los niveles en compras de 100$ en adelante
 Cuotas: 6
 Mínimo para las 6 cuotas: 100
 Nivel 6: 0%
@@ -115,7 +115,7 @@ Nivel 1: 50%
 
 Días: 15 al 20
 Meses: 10 al 11
-Días del Club Cashea: Casheálo con menos 🔥
+Casheálo con menos: bajada de inicial de 50% a 0% en compras de hasta 3 cuotas
 Cuotas: hasta 3
 Nivel 6: 0%
 Nivel 5: 10%
@@ -126,7 +126,7 @@ Nivel 1: 50%
 
 Días: 1 al 31
 Mes: 12
-Días del Club Cashea: ¡todo diciembre en 6 cuotas! 🔥
+¡Todo diciembre! 6 cuotas para TODOS los niveles en compras de 100$ en adelante
 Cuotas: 6
 Mínimo para las 6 cuotas: 100
 Nivel 6: 0%

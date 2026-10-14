@@ -500,32 +500,42 @@ function armarTarjeta({ nivel, productos, ahora }) {
       : `🗓️ El resto, en ${lasCuotas}.`
     : "";
 
-  // ── Sin nivel (o uno que no existe): la promoción, la tabla y la pregunta.
+  // ── Sin nivel (o uno que no existe): IGUAL QUE EL DE INVICTUS (14-oct-2026,
+  // dueño: "el mensaje tiene que ser como el de Invictus, así igualito, solo
+  // que con la estrategia de ventas"):
+  //
+  //   💜 ¡Sí, trabajamos con Cashea!
+  //
+  //   🔥 Del 1 al 6 de octubre: 6 cuotas para todos los niveles…
+  //
+  //   • Nivel 6 → 0% de inicial
+  //   …
+  //   ‘’ Para optar por el modo 6 cuotas la compra debe ser de 100$ o más ‘’
+  //
+  //   ¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca 😉
   if (pct === null) {
-    // Del nivel más alto al más bajo: el 0% primero, que es el gancho.
-    const marcaDelCero = minimo && leer().minimoAlCero ? " 🎉 (" + minimo + ")" : " 🎉";
     const tabla = [...niveles.entries()]
       .sort((a, b) => b[0] - a[0])
-      .map(([n, v]) => `• Nivel ${n} → ${formatoPct(v)} de inicial${v === 0 ? marcaDelCero : ""}`)
+      .map(([n, v]) => `• Nivel ${n} → ${formatoPct(v)} de inicial`)
       .join("\n");
-
+    const promo = titular ? `🔥 ${fechas ? `${mayuscula(fechas)}: ` : ""}${titular.replace(/\s*🔥\s*$/, "")}` : "";
+    const arranca = momento === "antes" && empieza ? `⏳ ¡Arranca ${empieza}!` : "";
+    const delMinimo = minimo && lasCuotas ? `‘’ Para optar por el modo ${lasCuotas} la compra debe ser de ${String(minimo).replace(/^compras\s+desde\s+/i, "")} o más ‘’` : "";
     const aviso = nivel ? `No tengo el Nivel ${nivel} en la tabla de Cashea. ` : "";
-    const cierre = conCuenta.length
-      ? `¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca por ${nombreCorto(conCuenta[0].p.titulo)} 😉`
-      : "¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca 😉";
 
     return [
-      titular ? (/🔥/.test(titular) ? titular : `🔥 ${titular}`) : "💜 ¡Sí, trabajamos con Cashea!",
-      cuando,
+      "💜 ¡Sí, trabajamos con Cashea!",
       "",
-      "Bajada de inicial ⬇️",
+      promo,
+      arranca,
+      promo || arranca ? "" : null,
       tabla,
       "",
-      lineaCuotas,
-      lineaCuotas ? "" : null,
+      delMinimo,
+      delMinimo ? "" : null,
       hoyNormal || null,
       hoyNormal ? "" : null,
-      aviso + cierre,
+      aviso + "¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca 😉",
     ]
       .filter((l) => l !== null && l !== undefined)
       .join("\n")
@@ -549,24 +559,24 @@ function armarTarjeta({ nivel, productos, ahora }) {
       ? nombres[0]
       : nombreComun(nombres) || "";
   const conProducto = delProducto ? ", " + nombreCorto(delProducto) : "";
-  const encabezadoConProducto = entrePromociones
-    ? pct === 0
-      ? `🎉 ¡${mayuscula(fechas)}, con tu Nivel ${nivel} en Cashea${conProducto} te lo llevas con 0% de inicial${condicionDelCero}!`
-      : `💜 ${mayuscula(fechas)}, con tu Nivel ${nivel} en Cashea${conProducto} es con el ${formatoPct(pct)} de inicial`
-    : pct === 0
-      ? `🎉 ¡Con tu Nivel ${nivel} en Cashea${conProducto} te lo llevas con 0% de inicial${condicionDelCero}!`
-      : `💜 Con tu Nivel ${nivel} en Cashea${conProducto} es con el ${formatoPct(pct)} de inicial`;
+  // Como Invictus: "💜 ¡Perfecto! Con tu Nivel 3 en Cashea, el X te lo llevas
+  // con el 30% de inicial 🙌". Entre promociones, desde cuándo.
+  const desde = entrePromociones ? `${mayuscula(fechas)}, con` : "Con";
+  const encabezadoConProducto =
+    pct === 0
+      ? `🎉 ¡Buenas noticias! ${desde} tu Nivel ${nivel} en Cashea${conProducto} te lo llevas con 0% de inicial${condicionDelCero} 🙌`
+      : `💜 ¡Perfecto! ${desde} tu Nivel ${nivel} en Cashea${conProducto} te lo llevas con el ${formatoPct(pct)} de inicial 🙌`;
 
   return [
     encabezadoConProducto,
-    lasCuotas ? `🗓️ El resto, en ${lasCuotas}.` : "",
-    minimo ? `💲 ${mayuscula(fraseDelMinimo())}.` : "",
-    cuando,
-    hoyNormal,
+    lasCuotas ? `🗓️ Y el resto lo pagas en ${lasCuotas}.` : null,
+    minimo ? `💲 ${mayuscula(fraseDelMinimo())}.` : null,
+    cuando || null,
+    hoyNormal || null,
     "",
     `💬 ${mayuscula(ASESOR_CONFIRMA_MONTOS)}`,
   ]
-    .filter((l, n, todas) => l !== "" || (n > 0 && todas[n - 1] !== ""))
+    .filter((l) => l !== null)
     .join("\n")
     .replace(/\n{3,}/g, "\n\n");
 

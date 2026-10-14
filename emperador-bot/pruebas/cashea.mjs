@@ -40,7 +40,7 @@ titulo('"X cuanto me lo dejan en cashea soy level 6" (caso real, 2-oct)');
   ];
   const tarjeta = C.tarjetaCashea({ nivel: 6, productos: tres, ahora: DIA });
   ok(/Nivel 6/.test(tarjeta) && /0% de inicial/.test(tarjeta), "le contesta con SU nivel (0% de inicial), no con la tabla", tarjeta.split("\n")[0]);
-  ok(!/Bajada de inicial/.test(tarjeta), "sin la tabla entera de niveles");
+  ok(!/• Nivel 1 → 50% de inicial/.test(tarjeta), "sin la tabla entera de niveles");
   ok((tarjeta.match(/Jordan 40/g) || []).length === 1 && !/\d+\s*USD/.test(tarjeta), "nombra el Jordan 40 UNA vez, y sin montos de dinero", tarjeta.replace(/\n/g, " | "));
   ok(/6 cuotas/.test(tarjeta) && /asesor/.test(tarjeta), "las 6 cuotas sí; los montos, el asesor");
 }
@@ -100,12 +100,12 @@ titulo("Días del Club Cashea (12-oct-2026): 1 al 6 y 15 al 20 de cada mes, hast
   ok(/Casheálo con menos/.test(entre) && /¡Arranca el 15 de octubre!/.test(entre) && /hasta 3 cuotas/.test(entre), "el 12: anuncia la del 15 al 20", entre.split("\n").slice(0, 2).join(" | "));
   ok(/Hoy también puedes comprar con Cashea, con la inicial normal de tu nivel/.test(entre), "y que hoy Cashea va con la inicial normal");
   const entreN3 = C.tarjetaCashea({ nivel: 3, productos: [{ titulo: "Jordan 4 Retro", precio: "120 USD" }], ahora: hora("2026-10-12T12:00:00-04:00") });
-  ok(/^💜 Del 15 al 20 de octubre, con tu Nivel 3/.test(entreN3), "con nivel, entre promociones: dice DESDE CUÁNDO es su 30%", entreN3.split("\n")[0]);
+  ok(/^💜 ¡Perfecto! Del 15 al 20 de octubre, con tu Nivel 3 en Cashea, el Jordan 4 Retro te lo llevas con el 30% de inicial 🙌/.test(entreN3), "con nivel, entre promociones: dice DESDE CUÁNDO es su 30% (como Invictus)", entreN3.split("\n")[0]);
   const dentro = D("2026-10-16T12:00:00-04:00");
-  ok(/Promoción por tiempo limitado del 15 al 20 de octubre/.test(dentro) && !/inicial normal/.test(dentro) && !/100\$/.test(dentro),
+  ok(/🔥 Del 15 al 20 de octubre: Casheálo con menos: bajada de inicial de 50% a 0% en compras de hasta 3 cuotas/.test(dentro) && !/inicial normal/.test(dentro) && !/100\$/.test(dentro),
      "el 16: en fecha, hasta 3 cuotas, sin el mínimo de las 6");
   const noviembre = D("2026-11-02T12:00:00-04:00");
-  ok(/los primeros 6 son en 6 cuotas/.test(noviembre) && /del 1 al 6 de noviembre/.test(noviembre) && /100\$ en adelante/.test(noviembre),
+  ok(/🔥 Del 1 al 6 de noviembre: 6 cuotas para TODOS los niveles en compras de 100\$ en adelante/.test(noviembre) && /‘’ Para optar por el modo 6 cuotas la compra debe ser de 100\$ o más ‘’/.test(noviembre),
      "el 2 de noviembre: los primeros 6 en 6 cuotas, desde 100$");
   ok(!/5\s*%|comisi/i.test(entre + dentro + noviembre), "la comisión del 5% es del comercio: al cliente no se le dice");
   ok(!C.revisarCashea("Con Nivel 3 pagas el 30% de inicial", hora("2026-10-12T12:00:00-04:00")).corregido,
@@ -163,24 +163,24 @@ const jordan = { titulo: "Jordan 4 Retro", precio: "120 USD" };
 const samba = { titulo: "Adidas Samba", precio: "75 USD" };
 
 const hoy = C.tarjetaCashea({ ahora: HOY });
-ok(/Días del Club Cashea: los primeros 6 son en 6 cuotas/.test(hoy), "arriba, el titular de la promoción");
+ok(/^💜 ¡Sí, trabajamos con Cashea!\n\n🔥 Del 1 al 6 de octubre: 6 cuotas para TODOS los niveles en compras de 100\$ en adelante/.test(hoy), "arriba, como Invictus: «¡Sí, trabajamos con Cashea!» y la promoción con sus fechas", hoy.split("\n").slice(0, 3).join(" | "));
 ok(/¡Arranca el 1 de octubre!/.test(hoy), "HOY la anuncia: arranca el 1 de octubre");
-ok(/Bajada de inicial/.test(hoy) && /Nivel 6 → 0% de inicial/.test(hoy) && /Nivel 1 → 50% de inicial/.test(hoy),
-   "la bajada de inicial, los 6 niveles");
+ok(/• Nivel 6 → 0% de inicial\n• Nivel 5 → 10% de inicial\n• Nivel 4 → 20% de inicial\n• Nivel 3 → 30% de inicial\n• Nivel 2 → 40% de inicial\n• Nivel 1 → 50% de inicial/.test(hoy),
+   "la bajada de inicial, los 6 niveles (como Invictus: «• Nivel N → X% de inicial»)");
 ok(hoy.indexOf("Nivel 6") < hoy.indexOf("Nivel 1"), "del 6 al 1: el 0% primero");
-ok(/Para optar por las 6 cuotas la compra debe ser de 100\$ en adelante/.test(hoy),
-   "dice, con las palabras del dueño, que las 6 cuotas son desde 100$");
-ok(/Nivel 6 → 0% de inicial 🎉\n/.test(hoy) && !/0% de inicial y las 6/.test(hoy),
+ok(/‘’ Para optar por el modo 6 cuotas la compra debe ser de 100\$ o más ‘’/.test(hoy),
+   "el mínimo de las 6 cuotas, igual que Invictus");
+ok(/Nivel 6 → 0% de inicial\n/.test(hoy) && !/0% de inicial y las 6/.test(hoy),
    "y el 0% del Nivel 6 NO lleva mínimo");
 ok(/¿Qué nivel tienes en Cashea\?/.test(hoy), "y le pregunta su nivel");
 ok(!/🔥.*🔥.*🔥/.test(hoy.split("\n")[0]), "sin fuegos repetidos en el titular");
 
 const enFecha = C.tarjetaCashea({ ahora: EN });
-ok(/Promoción por tiempo limitado del 1 al 6 de octubre/.test(enFecha) && !/Arranca/.test(enFecha),
-   "en fecha ya no dice 'arranca', dice hasta cuándo");
+ok(/Del 1 al 6 de octubre/.test(enFecha) && !/Arranca/.test(enFecha),
+   "en fecha ya no dice 'arranca', dice las fechas");
 
 const sinNivelConZapato = C.tarjetaCashea({ productos: [jordan], ahora: EN });
-ok(/por el Jordan 4 Retro/.test(sinNivelConZapato), "sin nivel pero mirando un zapato: le promete la cuenta de ESE");
+ok(/¿Qué nivel tienes en Cashea\? Dímelo y te digo qué inicial te toca 😉$/.test(sinNivelConZapato), "sin nivel, mirando un zapato: la misma tarjeta de Invictus, que termina preguntando el nivel");
 
 // SIN MONTOS (dueño, 2-oct-2026): el porcentaje de su nivel y las cuotas,
 // sí; cuánto dinero es la inicial o cada cuota, NO — eso, el asesor.
@@ -193,7 +193,7 @@ ok(/montos exactos de la inicial y de cada cuota te los confirma un asesor en un
 ok(/6 cuotas/.test(n3) && /debe ser de 100\$ en adelante/.test(n3), "sí dice las 6 cuotas y la condición de la promoción (desde 100$)");
 
 const n6 = C.tarjetaCashea({ nivel: 6, productos: [jordan], ahora: EN });
-ok(/0% de inicial!/.test(n6) && !SIN_DINERO.test(n6) && !/!:/.test(n6), "Nivel 6: 0% de inicial, sin montos", n6.split("\n")[0]);
+ok(/^🎉 ¡Buenas noticias! Con tu Nivel 6 en Cashea, el Jordan 4 Retro te lo llevas con 0% de inicial 🙌/.test(n6) && !SIN_DINERO.test(n6), "Nivel 6: 0% de inicial, sin montos (como Invictus)", n6.split("\n")[0]);
 
 const nivelSinZapato = C.tarjetaCashea({ nivel: 2, ahora: HOY });
 ok(/40% de inicial/.test(nivelSinZapato) && /Arranca/.test(nivelSinZapato) && !SIN_DINERO.test(nivelSinZapato),

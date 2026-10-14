@@ -150,7 +150,7 @@ titulo('"Tienes cashea?" HOY 30-sep (antes de que empiece)');
 {
   const r = await conversar("Tienes cashea?", { ahora: HOY });
   ok(r.textos.length >= 1, "le llega respuesta", `${r.textos.length} mensaje(s)`);
-  ok(/Bajada de inicial/.test(r.todo) && /Nivel 6 → 0%/.test(r.todo), "le llega la tabla de Cashea", r.todo.slice(0, 120));
+  ok(/• Nivel 1 → 50% de inicial/.test(r.todo) && /Nivel 6 → 0%/.test(r.todo), "le llega la tabla de Cashea", r.todo.slice(0, 120));
   ok(/Arranca el 1 de octubre/.test(r.todo), "anunciando que arranca el 1 de octubre");
   ok(!/confirma un asesor/.test(r.todo), 'NO le dice "te lo confirma un asesor"', r.todo.slice(0, 160));
 }
@@ -158,7 +158,7 @@ titulo('"Tienes cashea?" HOY 30-sep (antes de que empiece)');
 titulo('"Tienes cashea?" el 3 de octubre (en fecha)');
 {
   const r = await conversar("Tienes cashea?", { ahora: EN_FECHA });
-  ok(/Bajada de inicial/.test(r.todo) && !/confirma un asesor/.test(r.todo), "la tabla, sin asesor", r.todo.slice(0, 120));
+  ok(/• Nivel 1 → 50% de inicial/.test(r.todo) && !/confirma un asesor/.test(r.todo), "la tabla, sin asesor", r.todo.slice(0, 120));
 }
 
 titulo('"soy nivel 3" en fecha');
@@ -173,7 +173,7 @@ titulo('"soy nivel 3" en fecha');
 titulo("el 12 de octubre, entre dos Días del Club");
 {
   const r = await conversar("Tienes cashea?", { ahora: ENTRE });
-  ok(/Casheálo con menos/.test(r.todo) && /Arranca el 15 de octubre/.test(r.todo) && /Bajada de inicial/.test(r.todo),
+  ok(/Casheálo con menos/.test(r.todo) && /Arranca el 15 de octubre/.test(r.todo) && /• Nivel 1 → 50% de inicial/.test(r.todo),
      "anuncia la próxima (15 al 20, Casheálo con menos) con la tabla", r.todo.slice(0, 160));
   ok(/inicial normal de tu nivel/.test(r.todo), "y dice que hoy Cashea va con la inicial normal");
 }
@@ -181,7 +181,7 @@ titulo("el 12 de octubre, entre dos Días del Club");
 titulo("después de la campaña (pasado el 31 de diciembre)");
 {
   const r = await conversar("Tienes cashea?", { ahora: PASADA });
-  ok(/confirma un asesor/.test(r.todo) && !/Bajada de inicial/.test(r.todo), "ahí sí, al asesor (promoción vencida)");
+  ok(/confirma un asesor/.test(r.todo) && !/• Nivel 1 → 50% de inicial/.test(r.todo), "ahí sí, al asesor (promoción vencida)");
 }
 
 titulo("aunque el modelo se equivoque y diga 'asesor', la tabla llega");
@@ -190,7 +190,7 @@ titulo("aunque el modelo se equivoque y diga 'asesor', la tabla llega");
     ahora: HOY,
     respuestaModelo: { respuesta: "Eso te lo confirma un asesor en un momento 😊", buscar: "NADA", historial: "Preguntó por Cashea." },
   });
-  ok(/Bajada de inicial/.test(r.todo), "la tabla llega igual", r.todo.slice(0, 160));
+  ok(/• Nivel 1 → 50% de inicial/.test(r.todo), "la tabla llega igual", r.todo.slice(0, 160));
   ok(!/confirma un asesor/.test(r.todo), "y la frase del asesor NO sale delante de la tabla", r.todo.slice(0, 160));
 }
 
@@ -291,7 +291,7 @@ titulo('"X cuanto me lo dejan en cashea soy level 6" después de ver los Jordan 
     sesion, ahora: DIA, productos: J40,
     respuestaModelo: { pienso: "Habla del Jordan 40; Cashea nivel 6.", respuesta: "¡Claro! 🙌 Mira cómo te queda 👇", buscar: "Jordan 40", historial: "Pidió Jordan 40. Preguntó Cashea. Nivel Cashea: 6. Ya busqué: Jordan 40." },
   });
-  ok(/Nivel 6/.test(r.todo) && !/Bajada de inicial/.test(r.todo), "le contesta con su Nivel 6, sin el párrafo de la tabla", r.todo.slice(0, 160));
+  ok(/Nivel 6/.test(r.todo) && !/• Nivel 1 → 50% de inicial/.test(r.todo), "le contesta con su Nivel 6, sin el párrafo de la tabla", r.todo.slice(0, 160));
   const deCashea = r.textos.filter((t) => /Cashea/.test(t)).join(" ");
   ok(deCashea && !/\d+\s*USD|Inicial:\s*\d|cuotas? de \d/.test(deCashea), "la tarjeta de Cashea va sin montos de dinero", deCashea.slice(0, 200));
   // Cashea NO suena en Slack (dueño, 6-oct-2026: "todo menos preguntaron
