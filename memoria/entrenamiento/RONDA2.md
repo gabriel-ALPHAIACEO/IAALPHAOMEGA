@@ -26,7 +26,7 @@ camilareyes, a woman, long straight black hair, <random:close-up face portrait|h
 ```
 
 ## Paso C. Elegir (lo más importante)
-Quédate solo con las ~30 fotos donde la cara se ve **igual a la referencia** (forma de cara, cejas finas, ojos, labios, tono de piel).
+Quédate solo con las ~30 fotos donde la cara se ve **igual a la referencia** (forma de cara, cejas gruesas y arqueadas, ojos, labios, tono de piel).
 Si dudas, descártala. Es mejor 25 perfectas que 60 regulares. Procura que haya al menos 8 primeros planos de la cara.
 Cópialas a `entrenamiento\dataset\Camila2\8_camilareyes\` junto con las 10 buenas del paso A.
 
@@ -40,6 +40,11 @@ Usa el mismo `.toml` de la ronda 1 (copia y edita estas líneas):
 - `train_data_dir` → `C:\ia comfy y swarm\memoria\entrenamiento\dataset\Camila2`
 - `output_name` → `camila_v2`
 - `max_train_epochs` → 10, `save_every_n_epochs` → 2
+- `enable_bucket` → true (hay fotos verticales y cuadradas)
+
+Estado del dataset (14/10): `Camila2\5_camilareyes` tiene 42 fotos de cuerpo y las originales (5 repeticiones)
+y `Camila2\8_camilareyes` tiene 10 primeros planos de la cara (8 repeticiones, para que la cara pese más).
+Son 42×5 + 10×8 = 290 pasos por época, 2900 en total con 10 épocas.
 Lo demás igual (SDXL, rank 16, alpha 8, 768, bf16, AdamW8bit, lr 1e-4). Recuerda `PYTHONUTF8=1` y `PYTHONIOENCODING=utf-8`.
 
 ## Paso F. Probar
