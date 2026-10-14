@@ -177,14 +177,14 @@ titulo("el 12 de octubre, entre dos Días del Club");
      "el esquema normal (3 cuotas sin interés) y anuncia la próxima (15 al 20, Casheálo con menos)", r.todo.slice(0, 160));
 }
 
-titulo("«Hola, tienes cashea?»: el saludo de la IA y la tarjeta, sin decir dos veces que sí (14-oct-2026)");
+titulo("«Hola, tienes cashea?»: la tarjeta va SOLA, sin el texto de la IA pegado (14-oct-2026)");
 {
   const r = await conversar("Hola, tienes cashea?", {
     ahora: ENTRE,
     respuestaModelo: { respuesta: "¡Hola! Soy la asistente virtual de El Emperador 👋 ¡Sí, trabajamos con Cashea! 🙌", buscar: "NADA", historial: "Preguntó por Cashea." },
   });
   ok((r.todo.match(/trabajamos con Cashea/gi) || []).length === 1, "«trabajamos con Cashea» una sola vez", r.todo.replace(/\n/g, " | ").slice(0, 220));
-  ok(/^¡Hola! Soy la asistente virtual de El Emperador 👋\n\n¡Sí, trabajamos con Cashea! 💜/.test(r.todo), "primero el saludo de la IA, después la tarjeta", r.todo.split("\n").slice(0, 3).join(" | "));
+  ok(/^¡Sí, trabajamos con Cashea! 💜/.test(r.todo) && !/asistente virtual/.test(r.todo), "la tarjeta sola, sin el texto de la IA delante", r.todo.split("\n").slice(0, 3).join(" | "));
 }
 
 titulo("después de la campaña (pasado el 31 de diciembre)");
@@ -235,6 +235,21 @@ const JORDAN = [
   ok(!/Cashea|calle de prueba|métodos de pago|no hacemos|Nuestro horario/.test(r.todo),
      "sin nada de Cashea, ubicación, pagos, empleo ni envíos colado");
   ok(r.slack.length === 0, "y sin avisos a Slack");
+}
+
+titulo("«El AF1, ¿cuánto me queda? Soy nivel 4»: fichas y la tarjeta, SIN texto de la IA delante (14-oct-2026, «mandó doble mensaje»)");
+{
+  const r = await conversar("El AF1 clásico cuánto me queda? Soy nivel 4", {
+    ahora: EN_FECHA,
+    productos: JORDAN,
+    respuestaModelo: { respuesta: "¡Claro que sí! 🙌 Mira cómo te queda con tu Nivel 4 👇", buscar: "Retro 4", historial: "Nivel Cashea: 4." },
+  });
+  const iTarjeta = r.textos.findIndex((t) => /Con tu Nivel 4 en Cashea te queda así/.test(t));
+  const iFichas = r.textos.findIndex((t) => /Retro 4 negro caballero/.test(t) && !/Cashea/.test(t));
+  ok(iFichas >= 0 && iTarjeta > iFichas, "las fichas primero y la tarjeta detrás", r.textos.map((t) => t.slice(0, 40)).join(" | "));
+  ok(!/Claro que sí|Mira cómo te queda/.test(r.todo), "sin el «¡Claro que sí! Mira cómo te queda» de la IA", r.todo.slice(0, 160));
+  ok(r.textos.length === 2, "solo DOS envíos: las fichas y la tarjeta", `${r.textos.length} envío(s)`);
+  ok(/^💜 ¡Perfecto! Con tu Nivel 4/.test(r.textos[iTarjeta] || ""), "la tarjeta empieza sola, sin texto pegado", (r.textos[iTarjeta] || "").slice(0, 80));
 }
 
 titulo("frases normales que NO deben secuestrar los atajos nuevos");
