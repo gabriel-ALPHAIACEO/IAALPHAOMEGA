@@ -36,10 +36,10 @@ Carpeta: `...\dataset\Camila2\8_camilareyes`, extensión `.txt`, prefijo `camila
 Así cada foto describe su ropa y su fondo, y la LoRA asocia a `camilareyes` solo la cara.
 
 ## Paso E. Reentrenar
-Usa el mismo `.toml` de la ronda 1 (copia y edita estas líneas):
+En kohya_ss carga `entrenamiento\camila_v2.json` (Configuration file > abrir > Load). Ya trae estos cambios sobre la ronda 1:
 - `train_data_dir` → `C:\ia comfy y swarm\memoria\entrenamiento\dataset\Camila2`
 - `output_name` → `camila_v2`
-- `max_train_epochs` → 10, `save_every_n_epochs` → 2
+- `max_train_epochs` → 10, `max_train_steps` → 0, `save_every_n_epochs` → 2 (la ronda 1 se cortó en 1600 pasos por el valor por defecto de `max_train_steps`)
 - `enable_bucket` → true (hay fotos verticales y cuadradas)
 
 Estado del dataset (14/10): el look final es **piel clara y rostro afinado** (como `camilareyes_003`).
