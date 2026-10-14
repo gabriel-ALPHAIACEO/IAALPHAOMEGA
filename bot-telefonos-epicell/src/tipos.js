@@ -227,7 +227,15 @@ export function recordarTipoDeCategoria(titulo, categoria) {
 }
 
 export function tipoDelProducto(titulo) {
-  return tipoPorElNombre(titulo) || TIPO_POR_CATEGORIA.get(claveDeTitulo(titulo)) || "telefono";
+  return tipoPorElNombre(titulo) || TIPO_POR_CATEGORIA.get(claveDeTitulo(titulo)) || tipoPorLosMah(titulo) || "telefono";
+}
+
+// Un nombre con 8.000 mAh o más ("Xiaomi 20000mAh 22.5W", "Baseus 30.000 mAh")
+// es un power bank aunque no lo diga ni su nombre ni su categoría: una
+// batería así no cabe en un teléfono (13-oct-2026).
+function tipoPorLosMah(titulo) {
+  const m = /(\d{1,3}(?:[.,]\d{3})+|\d{4,6})\s*mah\b/i.exec(String(titulo || ""));
+  return m && Number(m[1].replace(/[.,]/g, "")) >= 8000 ? "powerbank" : "";
 }
 
 // Solo lo que dice el nombre ("" si el nombre no nombra ningún accesorio).

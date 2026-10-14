@@ -499,8 +499,14 @@ function paraBuscar(texto) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
+    // "20.000mAh" y "20,000 mAh" son 20000 (13-oct-2026, power banks: el
+    // punto partía la cifra en "20" y "000mah" y «de 20000» no los encontraba).
+    .replace(/(\d)[.,](?=\d{3}(?!\d))/g, "$1")
     // "128 GB" → "128gb", "5000 mAh" → "5000mah": la unidad va pegada.
     .replace(/(\d)\s+(gb|tb|mb|mah|mp|hz|w)\b/g, "$1$2")
+    // "power bank(s)" es "powerbank" (así se llama el tipo y así lo escriben
+    // en los títulos), también en plural.
+    .replace(/\bpower\s*banks?\b/g, "powerbank")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
@@ -824,8 +830,17 @@ async function leerDelInventario(env, { siempre = false } = {}) {
   try {
     if (siempre || (await elBotLeeElInventario(env.DB))) {
       const filas = await catalogoParaElBot(env.DB);
+      // Un producto en dos colores (mismo título, capacidad y precios) es
+      // UNA tarjeta: el color lo confirma un asesor, no se ofrece aparte.
+      const vistos = new Set();
+      const unicos = filas.map((f) => productoDelInventario(f, env)).filter((p) => {
+        const clave = [p.titulo, p.capacidad, p.precio, p.precioCashea].join("|").toLowerCase();
+        if (vistos.has(clave)) return false;
+        vistos.add(clave);
+        return true;
+      });
       datos = {
-        productos: filas.map((f) => productoDelInventario(f, env)),
+        productos: unicos,
         encabezados: [],
         filasLeidas: filas.length,
         columnas: { titulo: "(inventario del panel)", precio: "(inventario del panel)" },
@@ -859,8 +874,9 @@ export function productoDelInventario(f, env = {}) {
   recordarTipoDeCategoria(f.titulo, extras.categoria);
   // Y se encuentra por ese tipo: «Power Bank» de categoría busca como
   // "powerbank", igual que lo pide el cliente.
-  const tipoDeCategoria = tipoQuePide(extras.categoria);
-  const textos = [f.titulo, f.marca, capacidad, f.color, ...Object.values(extras), tipoDeCategoria && tipoDeCategoria !== "telefono" ? tipoDeCategoria : ""].map((t) => String(t ?? "").trim()).filter(Boolean);
+  // (Vale también el tipo que se deduce de los mAh del nombre.)
+  const tipoPuesto = tipoDelProducto(f.titulo);
+  const textos = [f.titulo, f.marca, capacidad, f.color, ...Object.values(extras), tipoPuesto !== "telefono" ? tipoPuesto : ""].map((t) => String(t ?? "").trim()).filter(Boolean);
   const piezas = palabrasDeBusqueda(textos.join(" "));
   return {
     titulo: f.titulo,
