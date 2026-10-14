@@ -42,10 +42,11 @@ Usa el mismo `.toml` de la ronda 1 (copia y edita estas líneas):
 - `max_train_epochs` → 10, `save_every_n_epochs` → 2
 - `enable_bucket` → true (hay fotos verticales y cuadradas)
 
-Estado del dataset (14/10): `Camila2\5_camilareyes` tiene 42 fotos de cuerpo y las originales (5 repeticiones)
-y `Camila2\8_camilareyes` tiene 10 primeros planos de la cara (8 repeticiones, para que la cara pese más).
-Son 42×5 + 10×8 = 290 pasos por época, 2900 en total con 10 épocas.
-Lo demás igual (SDXL, rank 16, alpha 8, 768, bf16, AdamW8bit, lr 1e-4). Recuerda `PYTHONUTF8=1` y `PYTHONIOENCODING=utf-8`.
+Estado del dataset (14/10): el look final es **piel clara y rostro afinado** (como `camilareyes_003`).
+- `Camila2\5_camilareyes`: 33 fotos de cuerpo, incluida la 003 (5 repeticiones).
+- `Camila2\8_camilareyes`: 15 primeros planos de piel clara, 5 con sonrisa de dientes (8 repeticiones, para que la cara pese más).
+- Fuera del dataset: las originales de la ronda 1 (r2_34 a r2_42), con piel oscura y cara más ancha.
+Son 33×5 + 15×8 = 285 pasos por época, 2850 en total con 10 épocas.
 
 ## Paso F. Probar
 Mismo método de la ronda 1: Grid con las épocas de `camila_v2` y pesos 0.7, 0.9 y 1.0, siempre con `camilareyes, a woman` al inicio.
