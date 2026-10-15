@@ -202,6 +202,19 @@ export function nivelDelCliente(texto) {
   return /^\d+$/.test(valor) ? Number(valor) : NUMEROS[valor];
 }
 
+// SOLO PREGUNTA SI HAY CASHEA (15-oct-2026, caso real en producción): "¿Tienes
+// cashea??" a un cliente que ya había dicho "soy nivel 3" salía con SU nivel
+// ("Con tu Nivel 3 te lo llevas con el 30%…") en vez del "¡Sí, trabajamos con
+// Cashea!" con el mensaje completo que pidió el dueño (8-oct). El nivel del
+// historial solo se usa cuando el cliente pide algo que depende de él: cuánto
+// paga, la inicial, las cuotas, el precio, o si lo dice en este mensaje.
+export function soloPreguntaSiHay(texto) {
+  const t = sinTildes(texto);
+  if (!/\b(?:c|k)a(?:s|c)?hea\b/i.test(t)) return false;
+  if (nivelDelCliente(texto) !== null) return false;
+  return !/\b(?:cuanto|cuantas?|queda|quedaria|inicial|cuotas?|pago|pagar|pagaria|monto|precio|cuenta|nivel|level|descuento|calcula\w*)\b|\d/i.test(t);
+}
+
 // EL NIVEL SE RECUERDA. Quien dijo "soy nivel 3" hace dos mensajes no tiene
 // por qué repetirlo al preguntar por otro zapato. Se guarda como nota en el
 // historial —la única memoria de texto que hay— con esta forma exacta.

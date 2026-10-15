@@ -161,6 +161,34 @@ titulo('"Tienes cashea?" el 3 de octubre (en fecha)');
   ok(/• Nivel 1 → 50% de inicial/.test(r.todo) && !/confirma un asesor/.test(r.todo), "la tabla, sin asesor", r.todo.slice(0, 120));
 }
 
+titulo('"Tienes cashea??" a quien ya dijo su nivel: el "¡Sí, trabajamos con Cashea!" completo, no SU nivel (15-oct-2026, caso real)');
+{
+  const sesion = nuevaSesion();
+  await conversar("soy nivel 3", {
+    sesion, ahora: EN_FECHA,
+    respuestaModelo: { respuesta: "¡Perfecto! 🙌", buscar: "NADA", historial: "Nivel Cashea: 3." },
+  });
+  // La IA, con el nivel a la vista, se pone a personalizar y se equivoca (50% al Nivel 3).
+  const r = await conversar("Tienes cashea??", {
+    sesion, ahora: EN_FECHA,
+    respuestaModelo: { respuesta: "¡Claro! Con tu Nivel 3 de Cashea pagas el 50% de inicial 😊", buscar: "NADA", historial: "Nivel Cashea: 3. Preguntó si hay Cashea." },
+  });
+  const limpia = await conversar("Tienes cashea??", {
+    ahora: EN_FECHA,
+    respuestaModelo: { respuesta: "¡Claro! 😊", buscar: "NADA", historial: "Preguntó si hay Cashea." },
+  });
+  ok(/trabajamos con Cashea/.test(r.todo) && /Nivel 5/.test(r.todo), "le llega el «Sí, trabajamos con Cashea» con la tabla, como a cualquier cliente", r.todo.slice(0, 160));
+  ok(!/Con tu Nivel 3/.test(r.todo) && !/50% de inicial 😊/.test(r.todo), "no le contesta con SU nivel ni con el error de la IA", r.todo.slice(0, 160));
+  ok(r.todo.replace(/\s+/g, " ").includes(limpia.todo.replace(/\s+/g, " ").slice(-120)), "lo mismo que le llegaría a quien nunca dijo su nivel", r.todo.slice(-120));
+  // Si de verdad pide su cuenta, sí se usa el nivel que ya dijo.
+  const cuenta = await conversar("cuanto me queda con cashea?", {
+    sesion, ahora: EN_FECHA,
+    respuestaModelo: { respuesta: "¡Claro! 🙌", buscar: "NADA", historial: "Nivel Cashea: 3." },
+  });
+  ok(/Nivel 3/.test(cuenta.todo), "y si pide cuánto le queda, sí va con su Nivel 3", cuenta.todo.slice(0, 160));
+  sesion.src.limpiar();
+}
+
 titulo('"soy nivel 3" en fecha');
 {
   const r = await conversar("soy nivel 3", {
