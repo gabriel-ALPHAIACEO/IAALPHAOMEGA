@@ -1,0 +1,30 @@
+[
+  {
+    "nombre": "Camila",
+    "checkpoint": "analogMadnessSDXL_xl5",
+    "pasos": 40,
+    "cfg": 7,
+    "ancho": 1024,
+    "alto": 1024,
+    "rostro": "Camila Reyes Ortega, 30 year old striking Mexican woman from Oaxaca, warm copper-brown skin with golden undertone. Heart-shaped face, high rounded cheekbones, small pointed chin, soft narrow jawline. Almond-shaped dark brown eyes with smooth slim eyelids, natural thick straight brows, straight nose bridge with a delicate rounded tip, full natural lips with distinct borders. Waist-length straight glossy jet black hair with heavy volume",
+    "cuerpo": "Soft natural hourglass silhouette, breast augmentation 380 cc, full rounded natural-looking bust with soft teardrop contour, slim waist, soft flat abdomen, naturally broad hips, natural thighs and arms",
+    "estilo": "",
+    "refuerzo_rostro": "photorealistic masterpiece portrait, a 30 year old Mexican woman, warm copper-brown skin, heart-shaped face shape, high rounded cheekbones, small pointed chin, soft narrow jawline, almond-shaped dark brown eyes, smooth slim eyelids, natural thick straight eyebrows, straight nose bridge, delicate rounded nose tip, full natural lips with distinct borders, waist-length straight glossy jet black hair, high detail facial features, extreme realism",
+    "semilla": 1943052671,
+    "notas": "Sacada de la imagen destacada en SwarmUI (1855001-...-9.png, 5-oct-2026). Sin LoRA propio todavia."
+  },
+  {
+    "nombre": "Ines",
+    "checkpoint": "analogMadnessSDXL_xl5",
+    "pasos": 40,
+    "cfg": 7,
+    "ancho": 1024,
+    "alto": 1024,
+    "rostro": "Inês Carvalho Batista, 30 year old striking Portuguese woman from Porto, fair porcelain skin with a rosy undertone. Long oval face, high narrow cheekbones, softly pointed chin, slim tapered jawline. Hooded light grey-green eyes with deep upper lids, natural thick arched brows, long straight nose with a slightly upturned tip, full natural lips with distinct borders and a pronounced cupid's bow. Shoulder-length wavy chestnut brown hair with medium volume and golden highlights",
+    "cuerpo": "Soft natural hourglass silhouette, slim waist, soft flat abdomen, naturally broad hips, natural thighs and arms",
+    "estilo": "",
+    "refuerzo_rostro": "photorealistic masterpiece portrait, a 30 year old Portuguese woman, fair porcelain skin, rosy undertone, long oval face shape, high narrow cheekbones, softly pointed chin, slim tapered jawline, hooded light grey-green eyes, natural thick arched eyebrows, long straight nose, slightly upturned nose tip, full natural lips, pronounced cupid's bow, shoulder-length wavy chestnut brown hair with golden highlights, high detail facial features, extreme realism",
+    "semilla": 95943767,
+    "notas": "Sacada de 1954001-...png en SwarmUI (5-oct-2026). Sin LoRA propio todavia."
+  }
+]
