@@ -78,26 +78,26 @@ la tasa del BCV (Banco Central de Venezuela)
 # ("¡Arranca el 1 de octubre!") con la tabla y las cuentas. DESPUÉS de la
 # fecha final, pasa Cashea a un asesor.
 
-# (8-oct-2026, dueño) LA TABLA DE HOY: 6 cuotas + 0% de inicial, beneficio
-# exclusivo del Nivel 6 (las 6 cuotas, desde 100$; el 0% del Nivel 6, siempre).
-# Los demás niveles, su inicial; cuántas cuotas les tocan lo confirma el
-# asesor con los montos. Sin línea de vigencia: vale siempre.
+# (15-oct-2026, dueño) CLUB CASHEA MÁS — «MENOS INICIAL», del 15 al 20 de cada
+# mes (aviso de Cashea): bajada de inicial escalonada de 50% a 0% en hasta 3
+# cuotas, justo cuando cae el segundo pago del mes. Nivel 1: 50%, 2: 40%,
+# 3: 30%, 4: 20%, 5: 10%, 6: 0%. Esta es la del 15 al 20 DE OCTUBRE.
 #
-# "Cuotas solo para el nivel: 6" dice a qué niveles se les ofrecen las
-# cuotas de "Cuotas:". Sin esa línea, se les ofrecen a todos.
-#
-# La promoción del 1 al 6 de octubre está guardada en
-# pruebas/datos/pagos-promo-oct.txt por si vuelve.
+# EL 21 DE OCTUBRE el bot pasa Cashea a un asesor (la vigencia terminó): ese
+# día hay que pegar el pagos.txt de la tabla normal, que está guardado en
+# pruebas/datos/pagos-normal-despues-del-20-oct.txt (Nivel 1: 60% … Nivel 6:
+# 0% con 6 cuotas desde 100$). Y para el 15 al 20 de noviembre, cambiar las
+# fechas de "Vigencia" y ya.
 
-Cuotas: 6
-Cuotas solo para el nivel: 6
-Mínimo para las 6 cuotas: 100
+Vigencia: 2026-10-15 al 2026-10-20
+Cuotas: 3 sin interés
+«Casheálo con menos» 🔥 Bajada de inicial de 50% a 0% en compras de hasta 3 cuotas
 Nivel 6: 0%
-Nivel 5: 20%
-Nivel 4: 25%
+Nivel 5: 10%
+Nivel 4: 20%
 Nivel 3: 30%
-Nivel 2: 50%
-Nivel 1: 60%
+Nivel 2: 40%
+Nivel 1: 50%
 
 
 [CASHEA_TARJETA]
@@ -109,14 +109,15 @@ Nivel 1: 60%
 # calculada con la tabla de arriba.
 💜 ¡Sí, trabajamos con Cashea!
 
-6 cuotas + 0% de inicial (Beneficio exclusivo para nivel 6)
+🔥 «Casheálo con menos»: del 15 al 20 de octubre, bajada de inicial de 50% a 0% en compras de hasta 3 cuotas
 
-• Nivel 5 → 20% de inicial
-• Nivel 4 → 25% de inicial
+• Nivel 6 → 0% de inicial 🎉
+• Nivel 5 → 10% de inicial
+• Nivel 4 → 20% de inicial
 • Nivel 3 → 30% de inicial
-• Nivel 2 → 50% de inicial
-• Nivel 1 → 60% de inicial
+• Nivel 2 → 40% de inicial
+• Nivel 1 → 50% de inicial
 
-‘’ Para optar por el modo 6 cuotas la compra debe ser de 100$ o más ‘’
+🗓️ El resto, en 3 cuotas sin interés
 
 ¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca 😉

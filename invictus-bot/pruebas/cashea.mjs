@@ -23,6 +23,7 @@ import { prepararSrc, ok, titulo, terminar } from "./ayuda.mjs";
 // guardada en pruebas/datos/: si vuelve una, tiene que funcionar igual.
 // La tabla de hoy se prueba al final, con el pagos.txt de verdad.
 const PROMO = fs.readFileSync(path.join(import.meta.dirname, "datos", "pagos-promo-oct.txt"), "utf8");
+const NORMAL = fs.readFileSync(path.join(import.meta.dirname, "datos", "pagos-normal-despues-del-20-oct.txt"), "utf8");
 const src = await prepararSrc({ txt: { "prompts/pagos.txt": PROMO } });
 const C = await src.cargar("cashea.js");
 const U = await src.cargar("ubicacion.js");
@@ -213,7 +214,7 @@ ok(!C.revisarCashea("Tenemos 20% de descuento en Nike", EN_FECHA).corregido,
 // ───────────────────────────────────────────────────────────────────────
 titulo("LA TABLA DE HOY (8-oct-2026): 6 cuotas + 0% exclusivo del Nivel 6, y la tarjeta tal cual");
 {
-  const H = await (await prepararSrc()).cargar("cashea.js");
+  const H = await (await prepararSrc({ txt: { "prompts/pagos.txt": NORMAL } })).cargar("cashea.js");
   const DESPUES = Date.parse("2026-10-08T12:00:00-04:00");
   ok(H.hayCashea() && H.momentoDeLaPromocion(DESPUES) === "siempre" && H.casheaVigente(DESPUES), "sin fechas: vale siempre (no pasa al asesor)");
   const tabla = { 1: 60, 2: 50, 3: 30, 4: 25, 5: 20, 6: 0 };
@@ -266,7 +267,7 @@ titulo("LA TABLA DE HOY (8-oct-2026): 6 cuotas + 0% exclusivo del Nivel 6, y la 
 // ───────────────────────────────────────────────────────────────────────
 titulo("LA RED, CON LOS CASOS REALES DEL 9-OCT (la IA se inventaba los porcentajes)");
 {
-  const H = await (await prepararSrc()).cargar("cashea.js");
+  const H = await (await prepararSrc({ txt: { "prompts/pagos.txt": NORMAL } })).cargar("cashea.js");
   // Captura 1: a "Tengo nivel 6" la IA escribió SU tabla, toda inventada.
   const TABLA_INVENTADA = "¡Claro que sí! 🙌 Aquí tienes la tabla de niveles de Cashea:\n\n🔹 Level 1: 20%\n🔹 Level 2: 30%\n🔹 Level 3: 40%\n🔹 Level 4: 50%\n🔹 Level 5: 60%\n🔹 Level 6: 70%\n\nCon cada nivel, la promoción vigente ofrece condiciones especiales. ¿Te gustaría que te ayude a ver opciones específicas con tu nivel?";
   const r1 = H.revisarCashea(TABLA_INVENTADA, Date.now(), { nivel: 6 });
@@ -298,6 +299,25 @@ titulo("LA RED, CON LOS CASOS REALES DEL 9-OCT (la IA se inventaba los porcentaj
 }
 
 // ───────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────
+titulo("CLUB CASHEA MÁS (15-oct-2026): «Casheálo con menos», del 15 al 20 de octubre, con el pagos.txt de verdad");
+{
+  const H = await (await prepararSrc()).cargar("cashea.js");
+  const D15 = Date.parse("2026-10-15T00:00:01-04:00"), D20 = Date.parse("2026-10-20T23:59:00-04:00"), D21 = Date.parse("2026-10-21T00:00:01-04:00");
+  ok(H.casheaVigente(D15) && H.casheaVigente(D20) && !H.casheaVigente(D21), "vale del 15 al 20 (ambos incluidos); el 21 pasa al asesor");
+  ok(H.fechasDeLaPromocion(D15) === "del 15 al 20 de octubre", "las fechas en palabras", H.fechasDeLaPromocion(D15));
+  const tabla = { 1: 50, 2: 40, 3: 30, 4: 20, 5: 10, 6: 0 };
+  ok(Object.entries(tabla).every(([n, v]) => H.inicialDelNivel(n) === v), "Nivel 1 50% · 2 40% · 3 30% · 4 20% · 5 10% · 6 0%");
+  ok(H.nombreDeLasCuotas() === "3 cuotas sin interés" && H.textoDelMinimo() === "", "3 cuotas sin interés, sin mínimo", `${H.nombreDeLasCuotas()} / ${H.textoDelMinimo()}`);
+  ok([1, 2, 3, 4, 5, 6].every((n) => H.tieneLasCuotas(n)), "las 3 cuotas son para todos los niveles");
+  const t = H.tarjetaCashea({ ahora: D15 });
+  ok(/Casheálo con menos/.test(t) && /del 15 al 20 de octubre/.test(t) && /• Nivel 6 → 0% de inicial/.test(t) && /• Nivel 1 → 50% de inicial/.test(t), "la tarjeta sin nivel dice la promo y la tabla", t.slice(0, 200));
+  const n3 = H.tarjetaCashea({ nivel: 3, ahora: D15 });
+  ok(/Nivel 3/.test(n3) && /30% de inicial/.test(n3) && /3 cuotas sin interés/.test(n3), "con su nivel, su inicial y las 3 cuotas", n3.slice(0, 200));
+  ok(!H.revisarCashea("Con Nivel 4 pagas el 20% de inicial", D15).corregido, "el 20% del Nivel 4 es correcto");
+  ok(H.revisarCashea("Con Nivel 4 pagas el 25% de inicial", D15).corregido, "el 25% de la tabla vieja ya no vale para el Nivel 4");
+}
+
 titulo("la ubicación: tal cual, con su botón, desde wrangler.toml");
 
 const TOML = fs.readFileSync(path.join(import.meta.dirname, "..", "wrangler.toml"), "utf8");

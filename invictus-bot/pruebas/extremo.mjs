@@ -148,6 +148,9 @@ async function conversar(texto, { respuestaModelo, ahora, productos = [], sesion
 // ya terminó: se prueban con ella guardada en pruebas/datos/ (si vuelve
 // una promoción, tiene que funcionar igual).
 const PROMO = fs.readFileSync(path.join(import.meta.dirname, "datos", "pagos-promo-oct.txt"), "utf8");
+// La tabla normal (la de antes del 15 al 20 de octubre), guardada en datos/.
+const NORMAL = fs.readFileSync(path.join(import.meta.dirname, "datos", "pagos-normal-despues-del-20-oct.txt"), "utf8");
+const conNormal = async () => ({ base: baseDeMentira(), src: await prepararSrc({ txt: { "prompts/pagos.txt": NORMAL } }) });
 const conPromo = async () => ({ base: baseDeMentira(), src: await prepararSrc({ txt: { "prompts/pagos.txt": PROMO } }) });
 const HOY = Date.parse("2026-09-30T19:00:00-04:00");
 const EN_FECHA = Date.parse("2026-10-03T12:00:00-04:00");
@@ -214,15 +217,33 @@ titulo("después del 6 de octubre");
 
 titulo("HOY, 8 de octubre, con la tabla del dueño: la tarjeta tal cual, no el asesor");
 {
-  const r = await conversar("Tienes cashea?", { ahora: PASADA });
+  const r = await conversar("Tienes cashea?", { ahora: PASADA, sesion: await conNormal() });
   ok(/6 cuotas \+ 0% de inicial \(Beneficio exclusivo para nivel 6\)/.test(r.todo) && /Nivel 1 → 60%/.test(r.todo) && /‘’ Para optar por el modo 6 cuotas/.test(r.todo), "la tarjeta de Cashea de hoy", r.todo.slice(0, 200));
   ok(!/confirma un asesor|Arranca|tiempo limitado/.test(r.todo), "sin asesor y sin nada de la promoción vieja");
+}
+
+titulo("CLUB CASHEA MÁS, 15 al 20 de octubre: «Casheálo con menos» (pagos.txt de verdad)");
+{
+  const D16 = Date.parse("2026-10-16T12:00:00-04:00");
+  const r = await conversar("Tienes cashea?", { ahora: D16 });
+  ok(/Casheálo con menos/.test(r.todo) && /Nivel 1 → 50%/.test(r.todo) && /Nivel 6 → 0%/.test(r.todo) && /3 cuotas sin interés/.test(r.todo), "la tarjeta de la promo: 50% a 0% en hasta 3 cuotas", r.todo.slice(0, 200));
+  ok(!/confirma un asesor|Beneficio exclusivo|6 cuotas/.test(r.todo), "sin asesor y sin lo de las 6 cuotas", r.todo.slice(0, 160));
+  const sesion = nuevaSesion();
+  const p = await conversar("soy nivel 4 con cashea", {
+    sesion, ahora: D16,
+    respuestaModelo: { respuesta: "¡Perfecto! 🙌", buscar: "NADA", historial: "Nivel Cashea: 4." },
+  });
+  ok(/Nivel 4/.test(p.todo) && /20% de inicial/.test(p.todo), "con su nivel: el 20% del Nivel 4", p.todo.slice(0, 160));
+  sesion.src.limpiar();
+  const D21 = Date.parse("2026-10-21T12:00:00-04:00");
+  const t = await conversar("Tienes cashea?", { ahora: D21 });
+  ok(/confirma un asesor/.test(t.todo), "el 21 de octubre vence: al asesor hasta pegar la tabla normal", t.todo.slice(0, 120));
 }
 
 titulo("aunque el modelo se equivoque y diga 'asesor', la tabla llega");
 {
   const r = await conversar("aceptan cashea?", {
-    ahora: HOY,
+    ahora: HOY, sesion: await conNormal(),
     respuestaModelo: { respuesta: "Eso te lo confirma un asesor en un momento 😊", buscar: "NADA", historial: "Preguntó por Cashea." },
   });
   ok(/Beneficio exclusivo para nivel 6/.test(r.todo), "la tabla llega igual", r.todo.slice(0, 160));
