@@ -924,6 +924,28 @@ ${campoDeFotos()}
 </div>${scriptDeCantidades()}${SCRIPT_FOTOS}`;
 }
 
+// CONECTAR CON UN SISTEMA CERRADO (15-oct-2026, ver conectores.js): si la
+// puerta está encendida (SYNC_CLAVE), enseña la dirección y cómo va lo último;
+// si no, dice cómo encenderla. La clave NUNCA se enseña.
+async function tarjetaDeLaConexion(env, url) {
+  const direccion = `${url.origin}/api/sync/inventario`;
+  if (!env.SYNC_CLAVE) {
+    return `<section class="panel-tarjeta"><h2>${insignia("enlace", "marca", "chica")}Conectar con tu sistema de inventario</h2>
+<p>Para que otro sistema (uno cerrado, sin API) le pase su stock a esta tienda, hay que encender la conexión: carga una clave con <code>npx.cmd wrangler secret put SYNC_CLAVE</code> y vuelve a desplegar. Las instrucciones paso a paso están en la carpeta <b>conector-puente</b>.</p></section>`;
+  }
+  let ultimo = null;
+  try {
+    ultimo = await env.DB.prepare("SELECT estado, total, hechos, creado, json_extract(opciones, '$.quien') AS origen FROM inv_trabajos WHERE tipo = 'csv' AND json_extract(opciones, '$.quien') LIKE 'Sistema%' ORDER BY id DESC LIMIT 1").first();
+  } catch {}
+  const cuando = ultimo?.creado ? new Date(Number(ultimo.creado)).toLocaleString("es-VE", { timeZone: "America/Caracas", dateStyle: "short", timeStyle: "short" }) : "";
+  const estado = ultimo
+    ? `Último conteo del sistema: <b>${esc(cuando)}</b> · ${esc(String(ultimo.origen || "Sistema"))} · ${ultimo.estado === "listo" ? "terminado" : ultimo.estado === "trabajando" ? `en curso (${Number(ultimo.hechos)} de ${Number(ultimo.total)} partes)` : esc(String(ultimo.estado))}.`
+    : "Todavía no ha llegado ningún conteo de un sistema de afuera.";
+  return `<section class="panel-tarjeta"><h2>${insignia("enlace", "marca", "chica")}Conectar con tu sistema de inventario <span class="chip marca">encendida</span></h2>
+<p>${estado}</p>
+<p style="font-size:13px;margin:10px 0 0">Dirección para mandar el stock (CSV o JSON, con tu clave): <code>${esc(direccion)}</code><br>Las ventas para cargarlas en el otro sistema: <code>${esc(`${url.origin}/api/sync/ventas`)}</code></p></section>`;
+}
+
 async function paginaDeImportar(env, url, opciones = {}) {
   const { traerCatalogo, nombreDelCatalogo } = opciones;
   const [listaDeSedes, enCurso] = await Promise.all([sedes(env.DB), importacionesEnCurso(env.DB)]);
@@ -943,9 +965,10 @@ async function paginaDeImportar(env, url, opciones = {}) {
 <button name="fuente" value="hoja" class="${fuente === "hoja" ? "principal" : "suave"}"${fuente === "hoja" ? ' aria-pressed="true"' : ""}>${icono("lista")}${esc(mayuscula(nombreCorto))}</button></form></section>`
     : "";
   const columnas = ["código", "producto", rubroDe(opciones.rubro).variante, "color", "cantidad", "precio", "costo", "marca", "sede"];
+  const tarjetaDeConexion = await tarjetaDeLaConexion(env, url);
   return `${ESTILO}${tostadaDesde(url)}${cabecera({ volver: volverAlInventario, sobre: "Inventario", titulo: "Importar", texto: "Pasa al inventario lo que ya tienes: el catálogo de la tienda o el Excel del sistema viejo. Volver a importar no duplica nada." })}
 ${avisoDeImportaciones(enCurso, opciones)}<div class="pasos-importar">
-${tarjetaDelBot}${
+${tarjetaDelBot}${tarjetaDeConexion}${
   traerCatalogo
     ? `<section class="panel-tarjeta"><h2>${insignia("enlace", "marca", "chica")}Traer del catálogo</h2>
 <p>Lee ${esc(nombreDelCatalogo || "el catálogo de la tienda")} y crea los productos que falten. Los que ya están se ponen al día (nombre, precio, fotos) sin tocar su stock.</p>

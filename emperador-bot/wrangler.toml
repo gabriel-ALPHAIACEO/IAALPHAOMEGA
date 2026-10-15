@@ -257,3 +257,14 @@ APRENDER = "si"
 #   npx.cmd wrangler secret delete GEMINI_API_KEY
 #   npx.cmd wrangler secret delete OPENAI_API_KEY
 # ------------------------------------------------------------------------
+
+# CONECTAR CON UN SISTEMA DE INVENTARIO CERRADO (15-oct-2026; ver
+# conector-puente/LEEME.md). Todo opcional y apagado por defecto.
+#   SYNC_CLAVE (secreto, NO aquí): enciende la puerta /api/sync/*.
+#       npx.cmd wrangler secret put SYNC_CLAVE
+#   Para que el Worker lea solo un CSV/JSON de una dirección (cada 15 min,
+#   solo donde hay cron: Invictus y El Emperador), descomenta:
+# CONECTOR_URL    = "https://…/stock.csv"
+# CONECTOR_ORIGEN = "Nombre del sistema"
+# CONECTOR_SEDE   = ""        # una sede ya creada; vacío = la principal
+#   y si la dirección pide clave: npx.cmd wrangler secret put CONECTOR_CLAVE

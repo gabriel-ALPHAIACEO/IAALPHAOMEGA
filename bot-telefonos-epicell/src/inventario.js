@@ -1580,7 +1580,7 @@ const MOVIMIENTOS_DE_FLUJO = "('venta', 'devolucion', 'entrada')";
 
 // UNA FILA DEL EXCEL. Suma lo que hizo en informe (y el error, si lo hay).
 // subidoEn: cuándo se subió el archivo (ver más abajo).
-async function importarFilaCsv(db, fila, numeroDeFila, { col, sedeFija, sedePorNombre, quien = "", aplicar = true, subidoEn = 0 }, informe) {
+async function importarFilaCsv(db, fila, numeroDeFila, { col, sedeFija, sedePorNombre, quien = "", aplicar = true, subidoEn = 0, actualizaPrecio = false }, informe) {
   const celda = (clave) => (col[clave] === -1 ? "" : String(fila[col[clave]] ?? "").trim());
   informe.filas++;
   try {
@@ -1653,6 +1653,14 @@ async function importarFilaCsv(db, fila, numeroDeFila, { col, sedeFija, sedePorN
     }
     const costo = numero(celda("costo"));
     if (costo !== null && productoDeLaFila) await db.prepare("UPDATE inv_productos SET costo = ? WHERE id = ?").bind(costo, productoDeLaFila).run();
+    // El precio de un sistema de afuera manda (solo cuando el conteo lo pide:
+    // conectores.js). El Excel de siempre no toca los precios de lo que ya está.
+    if (actualizaPrecio && productoDeLaFila) {
+      const precioDeLaFila = numero(celda("precio"));
+      if (precioDeLaFila !== null && precioDeLaFila >= 0) {
+        await db.prepare("UPDATE inv_productos SET precio = ?, actualizado = ? WHERE id = ? AND (precio IS NULL OR precio <> ?)").bind(precioDeLaFila, Date.now(), productoDeLaFila, precioDeLaFila).run();
+      }
+    }
     let nueva = Math.trunc(cantidad);
     let yaLaPuso = false;
     if (subidoEn) {
@@ -1812,7 +1820,10 @@ export async function empezarImportacion(db, { tipo, items = [], opciones = {} }
     const filas = (items || []).map((fila, n) => ({ n, fila }));
     paquetes = [];
     for (let i = 0; i < filas.length; i += FILAS_POR_PAQUETE) paquetes.push({ filas: filas.slice(i, i + FILAS_POR_PAQUETE) });
-    guardadas = { col: opciones.col, sedeFija: Number(opciones.sedeFija) || 0, quien: String(opciones.quien || "").slice(0, 60), aplicar: opciones.aplicar !== false, filas: filas.length };
+    // corteEn: cuándo se leyó el stock en el sistema de afuera (conectores.js).
+    // Lo vendido desde ese momento se tiene en cuenta; sin él, vale el momento
+    // en que se subió el archivo.
+    guardadas = { col: opciones.col, sedeFija: Number(opciones.sedeFija) || 0, quien: String(opciones.quien || "").slice(0, 60), aplicar: opciones.aplicar !== false, filas: filas.length, corteEn: Number(opciones.corteEn) || 0, precios: Boolean(opciones.precios) };
   }
   if (!paquetes.length) throw new Error("No hay nada que importar.");
   if (tipo === "csv" && guardadas.aplicar) {
@@ -1910,7 +1921,7 @@ export async function seguirImportacion(dbReal, { id = 0, cuantos = 25, consulta
             if (informe.errores.length < 20) informe.errores.push(`${datos?.titulo || "(sin nombre)"}: ${error.message}`);
           }
         } else {
-          contextoCsv ??= { col: opciones.col, sedeFija: opciones.sedeFija, sedePorNombre: await sedesPorNombre(db), quien: opciones.quien || "", aplicar: opciones.aplicar !== false, subidoEn: Number(trabajo.creado) || 0 };
+          contextoCsv ??= { col: opciones.col, sedeFija: opciones.sedeFija, sedePorNombre: await sedesPorNombre(db), quien: opciones.quien || "", aplicar: opciones.aplicar !== false, subidoEn: Number(opciones.corteEn) || Number(trabajo.creado) || 0, actualizaPrecio: Boolean(opciones.precios) };
           for (const { n, fila } of datos?.filas || []) await importarFilaCsv(db, fila, n + 2, contextoCsv, informe);
         }
       } catch (error) {
