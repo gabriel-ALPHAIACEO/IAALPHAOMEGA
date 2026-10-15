@@ -226,8 +226,8 @@ titulo("CLUB CASHEA MÁS, 15 al 20 de octubre: «Casheálo con menos» (pagos.tx
 {
   const D16 = Date.parse("2026-10-16T12:00:00-04:00");
   const r = await conversar("Tienes cashea?", { ahora: D16 });
-  ok(/Casheálo con menos/.test(r.todo) && /Nivel 1 → 50%/.test(r.todo) && /Nivel 6 → 0%/.test(r.todo) && /3 cuotas sin interés/.test(r.todo), "la tarjeta de la promo: 50% a 0% en hasta 3 cuotas", r.todo.slice(0, 200));
-  ok(!/confirma un asesor|Beneficio exclusivo|6 cuotas/.test(r.todo), "sin asesor y sin lo de las 6 cuotas", r.todo.slice(0, 160));
+  ok(/Casheálo con menos/.test(r.todo) && /Nivel 1 → 50%/.test(r.todo) && /Nivel 6 → 0%/.test(r.todo) && /hasta 3 cuotas/.test(r.todo) && /Exclusivo Nivel 6: acceso a 6 cuotas/.test(r.todo), "la tarjeta de la promo (50% a 0% en hasta 3 cuotas) y el exclusivo del Nivel 6", r.todo.slice(0, 200));
+  ok(!/confirma un asesor|Beneficio exclusivo/.test(r.todo), "sin asesor", r.todo.slice(0, 160));
   const sesion = nuevaSesion();
   const p = await conversar("soy nivel 4 con cashea", {
     sesion, ahora: D16,

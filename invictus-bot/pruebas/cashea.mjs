@@ -308,12 +308,16 @@ titulo("CLUB CASHEA MÁS (15-oct-2026): «Casheálo con menos», del 15 al 20 de
   ok(H.fechasDeLaPromocion(D15) === "del 15 al 20 de octubre", "las fechas en palabras", H.fechasDeLaPromocion(D15));
   const tabla = { 1: 50, 2: 40, 3: 30, 4: 20, 5: 10, 6: 0 };
   ok(Object.entries(tabla).every(([n, v]) => H.inicialDelNivel(n) === v), "Nivel 1 50% · 2 40% · 3 30% · 4 20% · 5 10% · 6 0%");
-  ok(H.nombreDeLasCuotas() === "3 cuotas sin interés" && H.textoDelMinimo() === "", "3 cuotas sin interés, sin mínimo", `${H.nombreDeLasCuotas()} / ${H.textoDelMinimo()}`);
-  ok([1, 2, 3, 4, 5, 6].every((n) => H.tieneLasCuotas(n)), "las 3 cuotas son para todos los niveles");
+  ok(H.nombreDeLasCuotas() === "6 cuotas sin interés" && H.textoDelMinimo() === "compras desde 100$", "6 cuotas sin interés, desde 100$", `${H.nombreDeLasCuotas()} / ${H.textoDelMinimo()}`);
+  ok(H.tieneLasCuotas(6) && [1, 2, 3, 4, 5].every((n) => !H.tieneLasCuotas(n)), "las 6 cuotas son EXCLUSIVAS del Nivel 6");
   const t = H.tarjetaCashea({ ahora: D15 });
   ok(/Casheálo con menos/.test(t) && /del 15 al 20 de octubre/.test(t) && /• Nivel 6 → 0% de inicial/.test(t) && /• Nivel 1 → 50% de inicial/.test(t), "la tarjeta sin nivel dice la promo y la tabla", t.slice(0, 200));
+  ok(/Exclusivo Nivel 6: acceso a 6 cuotas sin interés en compras de 100\$ en adelante/.test(t), "y el exclusivo del Nivel 6 (6 cuotas desde 100$)", t.slice(-200));
   const n3 = H.tarjetaCashea({ nivel: 3, ahora: D15 });
-  ok(/Nivel 3/.test(n3) && /30% de inicial/.test(n3) && /3 cuotas sin interés/.test(n3), "con su nivel, su inicial y las 3 cuotas", n3.slice(0, 200));
+  ok(/Nivel 3/.test(n3) && /30% de inicial/.test(n3) && !/6 cuotas/.test(n3), "con su nivel, su inicial y SIN las 6 cuotas", n3.slice(0, 200));
+  const n6 = H.tarjetaCashea({ nivel: 6, productos: [{ titulo: "Jordan 4 Retro", precio: 120 }], ahora: D15 });
+  ok(/Nivel 6/.test(n6) && /0% de inicial/.test(n6) && /6 cuotas sin interés/.test(n6) && /100\$ o más/.test(n6), "el Nivel 6: 0% de inicial y 6 cuotas desde 100$", n6.slice(0, 260));
+  ok(H.revisarCashea("Con tu Nivel 3 tienes 6 cuotas", D15, { nivel: 3 }).corregido, "no se le ofrecen las 6 cuotas a un Nivel 3");
   ok(!H.revisarCashea("Con Nivel 4 pagas el 20% de inicial", D15).corregido, "el 20% del Nivel 4 es correcto");
   ok(H.revisarCashea("Con Nivel 4 pagas el 25% de inicial", D15).corregido, "el 25% de la tabla vieja ya no vale para el Nivel 4");
 }

@@ -89,8 +89,13 @@ la tasa del BCV (Banco Central de Venezuela)
 # 0% con 6 cuotas desde 100$). Y para el 15 al 20 de noviembre, cambiar las
 # fechas de "Vigencia" y ya.
 
+# (15-oct-2026, dueño) EXCLUSIVO DEL NIVEL 6: acceso a 6 cuotas en compras de
+# 100$ en adelante. Va encima de la promo: los demás niveles no reciben un
+# número de cuotas del bot (el titular ya dice "hasta 3 cuotas").
 Vigencia: 2026-10-15 al 2026-10-20
-Cuotas: 3 sin interés
+Cuotas: 6 sin interés
+Cuotas solo para el nivel: 6
+Mínimo para las 6 cuotas: 100
 «Casheálo con menos» 🔥 Bajada de inicial de 50% a 0% en compras de hasta 3 cuotas
 Nivel 6: 0%
 Nivel 5: 10%
@@ -118,6 +123,6 @@ Nivel 1: 50%
 • Nivel 2 → 40% de inicial
 • Nivel 1 → 50% de inicial
 
-🗓️ El resto, en 3 cuotas sin interés
+⭐ Exclusivo Nivel 6: acceso a 6 cuotas sin interés en compras de 100$ en adelante
 
 ¿Qué nivel tienes en Cashea? Dímelo y te digo qué inicial te toca 😉
