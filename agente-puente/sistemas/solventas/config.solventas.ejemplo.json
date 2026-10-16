@@ -11,8 +11,10 @@
     "codificacion": "utf8",
     "timeoutSegundos": 180
   },
-  "columnas": { "costo": "" },
+  "columnas": {
+    "costo": ""
+  },
   "fotos": {
-    "carpeta": "C:\\SSCA\\fotos"
+    "activar": false
   }
 }

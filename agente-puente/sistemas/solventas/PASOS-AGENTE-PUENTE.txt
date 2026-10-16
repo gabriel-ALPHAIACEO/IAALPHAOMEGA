@@ -87,8 +87,8 @@ B5. Probar el agente SIN mandar nada:
     Abre config.json con el Bloc de notas y cambia SOLO:
       "url":   la direccion del Worker del PASO A4 (sin /api...)
       "clave": la SYNC_CLAVE del PASO A2
-      "fotos": { "carpeta": ... }  -> si no tienes la carpeta de fotos, borra
-                esa parte (o pon  "fotos": { "activar": false }  )
+      (las fotos ya vienen apagadas: Solventas no las guarda; se suben
+       desde el panel)
     y revisa que "comando" apunte a:
       C:\\agente-puente\\sistemas\\solventas\\sacar-stock-solventas.bat
     Guarda. Luego:
