@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 let mal = 0;
-for (const archivo of ["agente.mjs", "abierto.mjs"]) {
+for (const archivo of ["agente.mjs", "abierto.mjs", "fotos.mjs"]) {
   const r = spawnSync(process.execPath, [path.join(AQUI, archivo)], { encoding: "utf8" });
   const ultima = (r.stdout || "").trim().split("\n").at(-1);
   console.log(`${r.status === 0 ? "✅" : "❌"} ${archivo}: ${ultima}`);

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// AGENTE PUENTE v2.1 (16-oct-2026). ABIERTO A CUALQUIER TIENDA Y A CUALQUIER
+// AGENTE PUENTE v2.2 (16-oct-2026). ABIERTO A CUALQUIER TIENDA Y A CUALQUIER
 // SISTEMA DE INVENTARIO que esté instalado en una computadora. Funciona solo,
 // aparte de los bots: necesita Node 18 o más y esta carpeta, nada más.
 //
@@ -16,9 +16,13 @@
 //     con su clave y firma opcional: ver PROTOCOLO.md);
 //   · una carpeta (un stock.csv / stock.json limpio, siempre igual).
 //
+// LAS FOTOS (lib/fotos.mjs): si el sistema las tiene (una columna con la
+// dirección o el archivo, o una carpeta con las fotos nombradas por el código),
+// se mandan también: solo las nuevas o cambiadas, como mucho 30 por vuelta.
+//
 // EN CADA VUELTA: latido a las tiendas ALPHA IA (y preguntar si pidieron
-// sincronizar) → si toca, leer el stock → mandarlo a cada destino → bajar las
-// ventas → contar cómo le fue (latido «ok»/«error», y aviso propio si se
+// sincronizar) → si toca, leer el stock → mandarlo a cada destino → las fotos →
+// bajar las ventas → contar cómo le fue (latido «ok»/«error», y aviso propio si se
 // configuró). Tras un error, reintenta a los 5 minutos.
 //
 // CÓMO SE USA (todo desde esta carpeta):
@@ -55,6 +59,7 @@ import { leerFuente } from "./lib/fuentes.mjs";
 import { detectarColumnas, textoDeLasColumnas, NOMBRES_DE_CAMPOS, productosDe } from "./lib/columnas.mjs";
 import { listaDeDestinos, nombreDelDestino, problemasDelDestino, enviarA, latido as latidoA, bajarVentas as bajarVentasDe, llamar as llamarA, pedir, pausa, errorDeLaTienda, claveDe } from "./lib/destinos.mjs";
 import { avisarSiHaceFalta } from "./lib/avisos.mjs";
+import { mandarFotos, fotosActivadas, fotosDeLosProductos } from "./lib/fotos.mjs";
 import { ejecutarPrograma, estaInstalado, instalar, desinstalar } from "./lib/instalar.mjs";
 
 export * from "./lib/secretos.mjs";
@@ -65,9 +70,10 @@ export * from "./lib/columnas.mjs";
 export * from "./lib/fuentes.mjs";
 export { listaDeDestinos, nombreDelDestino, problemasDelDestino, enviarA, firmar, enviarWebhook, escribirCarpeta, enviarAlpha, pedir, pausa } from "./lib/destinos.mjs";
 export * from "./lib/avisos.mjs";
+export * from "./lib/fotos.mjs";
 export * from "./lib/instalar.mjs";
 
-export const VERSION = "2.1.0";
+export const VERSION = "2.2.0";
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const MINUTO = 60 * 1000;
 // Pasado este tiempo, un candado (otra vuelta corriendo) se da por muerto.
@@ -215,10 +221,19 @@ function resumen(c) {
   return partes.join(", ");
 }
 
+export function textoDeFotos(f) {
+  if (!f || !(f.mandadas || f.pendientes || f.saltadas)) return "";
+  const partes = [];
+  if (f.mandadas) partes.push(`${f.mandadas} ${f.mandadas === 1 ? "foto mandada" : "fotos mandadas"}`);
+  if (f.pendientes) partes.push(`${f.pendientes} fotos para las próximas vueltas`);
+  if (f.saltadas) partes.push(`${f.saltadas} ${f.saltadas === 1 ? "foto" : "fotos"} con problemas${f.errores[0] ? ` (${f.errores[0]})` : ""}`);
+  return partes.join(", ");
+}
+
 // Latido → (si toca) leer el stock → mandarlo a cada destino → latido con el
 // resultado de cada tienda ALPHA IA. «forzar» = sincroniza aunque no toque.
 // Devuelve { sincronizo, ok, error?, resultados: [{ destino, ok, mensaje }] }.
-export async function vuelta(config, { forzar = false, modo = "continuo", hacer = globalThis.fetch, esperar = pausa, registrar = console.log, ahora = Date.now } = {}) {
+export async function vuelta(config, { forzar = false, modo = "continuo", hacer = globalThis.fetch, esperar = pausa, registrar = console.log, ahora = Date.now, achicar } = {}) {
   const estado = leerEstado(config);
   const secretos = secretosDe(config);
   const destinos = listaDeDestinos(config);
@@ -280,6 +295,18 @@ export async function vuelta(config, { forzar = false, modo = "continuo", hacer 
       const mensaje = sinSecretos(error.message, secretos);
       registrar(`❌ ${nombreDelDestino(d)}: ${mensaje}`, { error: true });
       resultados.push({ destino: d, ok: false, mensaje });
+    }
+  }
+
+  // 3b. Las fotos (si el sistema las tiene), a los destinos que recibieron bien
+  //     el stock. Un problema con una foto no hace malo el conteo: se cuenta.
+  if (datos) {
+    try {
+      const f = await mandarFotos(config, datos, resultados.filter((x) => x.ok).map((x) => x.destino), { ...deps, ahora: ahora(), ...(achicar ? { achicar } : {}) });
+      const texto = textoDeFotos(f);
+      if (texto) for (const x of resultados) if (x.ok) x.mensaje += `; ${texto}`;
+    } catch (error) {
+      registrar(`⚠ Fotos: ${sinSecretos(error.message, secretos)}`, { error: true });
     }
   }
 
@@ -519,7 +546,13 @@ export async function doctor(config, { hacer = globalThis.fetch, esperar = pausa
       const sinCantidad = productos.filter((x) => x.cantidad === null).length;
       if (sinCantidad) anotar(null, "Las cantidades", `${sinCantidad} filas no tienen una cantidad que sea un número.`);
       if (saltadas) anotar(null, "Filas sin código ni nombre", `${saltadas} filas se van a saltar.`);
-      if (indices.foto === -1) anotar(null, "Fotos", "El sistema no trae fotos: se suben en el panel de la tienda (Inventario › Sin foto) y un conteo del sistema nunca las borra.");
+      if (fotosActivadas(config, indices)) {
+        const fotos = fotosDeLosProductos(config, { tabla, indices });
+        const locales = fotos.filter((x) => x.fuente.archivo);
+        const faltan = locales.filter((x) => !fs.existsSync(x.fuente.archivo));
+        const conFoto = new Set(fotos.map((x) => x.clave)).size;
+        anotar(fotos.length ? (faltan.length ? null : true) : null, "Fotos del sistema", fotos.length ? `${fotos.length} fotos de ${conFoto} productos (${indices.foto !== -1 ? `columna «${tabla.columnas[indices.foto]}»` : `carpeta ${config.fotos.carpeta}`})${faltan.length ? `; ${faltan.length} no están, por ejemplo ${faltan[0].fuente.archivo}` : ""}. Se mandan ${Number(config.fotos?.maximoPorVuelta) || 30} por vuelta como mucho, y solo las nuevas o cambiadas.` : `Están activadas pero no encontré ninguna${config.fotos?.carpeta ? ` en ${config.fotos.carpeta} (los archivos se tienen que llamar como el código: A1.jpg, A1-2.jpg…)` : ""}.`);
+      } else anotar(null, "Fotos", "El sistema no trae fotos: se suben en el panel de la tienda (Inventario › Sin foto) y un conteo del sistema nunca las borra. Si las tiene en una carpeta, ponla en \"fotos\": { \"carpeta\": \"…\" }.");
     }
   } catch (error) {
     anotar(false, "Se puede leer el stock del sistema", error.message);
@@ -555,6 +588,10 @@ export function textoDelDoctor(resultado) {
 export async function probar(config, deps = {}) {
   const datos = await leerStock(config);
   const salida = [`Leídas ${datos.tabla.filas.length} filas de ${datos.nombre}.`, `Columnas: ${textoDeLasColumnas(datos.comoSeLeyo)}`];
+  if (fotosActivadas(config, datos.indices)) {
+    const fotos = fotosDeLosProductos(config, datos);
+    salida.push(`Fotos: ${fotos.length} encontradas (se mandan ${Number(config.fotos?.maximoPorVuelta) || 30} por vuelta como mucho, solo las nuevas o cambiadas).`);
+  }
   for (const d of listaDeDestinos(config)) {
     try {
       const c = await enviarA(config, d, datos, { version: VERSION, ...deps, probar: true });

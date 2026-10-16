@@ -84,6 +84,7 @@ import { aCsv, respuestaCsv } from "./alpha.js";
 import { archivosDelFormulario, subirFotos, quitarFoto, hacerPrincipal, FOTOS_POR_PRODUCTO } from "./fotos.js";
 import { iconoSuelto } from "./iconos.js";
 import { listarAgentes, eventosDelAgente, ordenPendiente, pedirSincronizacion, haceCuanto, TIPOS_DE_EVENTO } from "./agentes.js";
+import { contarFotosDelSistema } from "./fotos-del-sistema.js";
 import {
   esc,
   plata,
@@ -999,11 +1000,15 @@ async function tarjetaDeLosAgentes(env) {
   // Los sistemas cerrados casi nunca traen fotos: las fotos se suben aquí, en
   // el panel, y un conteo del sistema nunca las toca.
   const sinFoto = await contarSinFoto(env.DB).catch(() => 0);
+  const delSistema = await contarFotosDelSistema(env.DB);
+  const fotosDelSistema = delSistema
+    ? `<p style="font-size:13px;display:flex;gap:6px;align-items:flex-start;margin:10px 0 0">${icono("foto")}<span>${numero(delSistema)} ${delSistema === 1 ? "foto llegó" : "fotos llegaron"} del sistema. Las que subas tú en el panel mandan: el sistema no las cambia.</span></p>`
+    : "";
   const fotos = sinFoto
-    ? `<p style="font-size:13px;display:flex;gap:6px;align-items:flex-start;margin:10px 0 0">${icono("foto")}<span>${numero(sinFoto)} ${sinFoto === 1 ? "producto no tiene" : "productos no tienen"} foto. El sistema no las manda: súbelas aquí y se quedan aunque el sistema vuelva a mandar el stock. <a href="/panel/inventario?f=sin-foto">Ver los que faltan</a></span></p>`
+    ? `<p style="font-size:13px;display:flex;gap:6px;align-items:flex-start;margin:10px 0 0">${icono("foto")}<span>${numero(sinFoto)} ${sinFoto === 1 ? "producto no tiene" : "productos no tienen"} foto. Si el sistema no la trae, súbela aquí: se queda aunque el sistema vuelva a mandar el stock. <a href="/panel/inventario?f=sin-foto">Ver los que faltan</a></span></p>`
     : "";
   return `<section class="panel-tarjeta"><h2>${insignia("enlace", "marca", "chica")}Agente puente</h2>
-${filas.join("")}${pedida}${fotos}
+${filas.join("")}${pedida}${fotosDelSistema}${fotos}
 <form method="post" action="/panel/inventario/conector/sincronizar" class="opciones" data-una-vez style="margin-top:12px"><button class="principal">${icono("subir")}Sincronizar ahora</button></form></section>`;
 }
 

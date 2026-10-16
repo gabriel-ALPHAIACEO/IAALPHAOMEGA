@@ -4,7 +4,23 @@
   "origen": "Profit",
   "equipo": "PC de la caja",
   "cadaMinutos": 15,
-  "fuente": { "tipo": "comando", "comando": "C:\\agente-puente\\ejemplos\\sacar-stock-sqlserver.bat" },
-  "columnas": { "codigo": "co_art", "producto": "art_des", "cantidad": "stock_act", "precio": "prec_vta1" },
-  "ventas": { "activar": true, "carpeta": "C:\\ventas-de-la-tienda" }
+  "fuente": {
+    "tipo": "comando",
+    "comando": "C:\\agente-puente\\ejemplos\\sacar-stock-sqlserver.bat"
+  },
+  "columnas": {
+    "codigo": "co_art",
+    "producto": "art_des",
+    "cantidad": "stock_act",
+    "precio": "prec_vta1"
+  },
+  "ventas": {
+    "activar": true,
+    "carpeta": "C:\\ventas-de-la-tienda"
+  },
+  "fotos": {
+    "carpeta": "C:\\Profit\\Imagenes",
+    "por": "codigo",
+    "maximoPorVuelta": 30
+  }
 }

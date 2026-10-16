@@ -162,7 +162,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-16 (106) · 🔌 AGENTE PUENTE ABIERTO A CUALQUIER TIENDA Y SISTEMA (en agente-puente/, v2.1): lee CSV/TXT/Excel .xlsx/JSON, el más nuevo de una carpeta o la base del sistema; reconoce las columnas solo o con «columnas»; manda a una tienda ALPHA IA, a CUALQUIER otra plataforma (webhook JSON/CSV con clave y firma, ver PROTOCOLO.md) o a una carpeta, a varios a la vez. 📷 En el inventario, el atajo «Sin foto (N)» y, en la tarjeta del agente puente, cuántos productos no tienen foto: el sistema no las trae, se suben en el panel y un conteo del sistema nunca las toca.";
+const VERSION = "2026-10-16 (107) · 📷 LAS FOTOS DEL SISTEMA: si el sistema de inventario tiene fotos (una columna con la dirección o el archivo, o una carpeta con las fotos nombradas por el código), el agente puente (v2.2) las manda a POST /api/sync/foto, solo las nuevas o cambiadas y como mucho 30 por vuelta; la tienda las guarda como las del panel (fotos-del-sistema.js, tabla sync_fotos) y LAS DEL PANEL MANDAN: a un producto con fotos puestas por una persona el sistema no le toca nada, y una foto quitada en el panel no vuelve. La tarjeta del agente puente dice cuántas llegaron.";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo

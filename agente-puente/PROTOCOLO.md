@@ -16,8 +16,8 @@ Hay dos formas de recibir:
 ```
 POST <la url del destino>
 Content-Type: application/json
-User-Agent: agente-puente/2.1.0
-X-Agente-Puente: 2.1.0
+User-Agent: agente-puente/2.2.0
+X-Agente-Puente: 2.2.0
 X-Puente-Envio: caja-1-1792115958133      ← igual en todas las partes de un mismo envío
 X-Puente-Parte: 1/3                       ← parte 1 de 3
 X-Puente-Tiempo: 1792115958200            ← solo si hay firma (milisegundos)
@@ -30,7 +30,7 @@ X-Puente-Firma: sha256=9f2c…              ← solo si hay firma
   "agente": "caja-1",
   "origen": "Saint",
   "equipo": "PC de la caja",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "envio": "caja-1-1792115958133",
   "generado": "2026-10-16T14:30:00.000Z",
   "parte": 1,
@@ -83,6 +83,20 @@ Del lado que recibe:
 
 Ejemplos que funcionan: `ejemplos/recibir-webhook.php` y `ejemplos/recibir-webhook.mjs`.
 
+### Las fotos (si el sistema las tiene)
+
+Cada foto llega en un **envío aparte**, después del stock, a `urlFotos` del destino (o a su misma `url`), con las mismas cabeceras y la misma firma, más `X-Puente-Tipo: foto`:
+
+```json
+{ "tipo": "foto", "agente": "caja-1", "origen": "Saint",
+  "codigo": "A1", "producto": "Zapato Casual", "posicion": 0,
+  "contentType": "image/jpeg", "huella": "<sha256 de los bytes>", "datos": "<la foto en base64>" }
+```
+- `posicion` 0 es la principal; luego 1, 2… (10 como mucho por producto).
+- Llega **solo cuando es nueva o cambió**: si `huella` es la misma que ya tienes para ese `codigo` y esa `posicion`, puedes ignorarla.
+- JPG, PNG o WEBP, de 1,5 MB como mucho.
+- Contestar 2xx = recibida (el agente no la vuelve a mandar mientras no cambie).
+
 ---
 
 ## 2. La puerta ALPHA IA (`/api/sync`)
@@ -97,13 +111,14 @@ Todas las rutas llevan `Authorization: Bearer <clave>`. Respuestas en JSON con `
 | `GET /api/sync/estado` | Productos, los últimos conteos, los agentes y si hay una orden pendiente |
 | `GET /api/sync/ventas?desde=AAAA-MM-DD \| desde_id=N \| formato=json` | Las ventas, para cargarlas en el sistema (nunca con el costo) |
 | `POST /api/sync/orden` | Pide que el agente sincronice ya (lo mismo que el botón del panel) |
+| `POST /api/sync/foto?codigo=&producto=&posicion=` | Una foto (los bytes en el cuerpo, `Content-Type: image/jpeg`, `image/png` o `image/webp`, hasta 1,5 MB). Respuesta `estado`: `nueva`, `cambiada`, `igual` (ya la tenía), `del-panel` (el producto tiene fotos puestas por una persona: esas mandan) · `404` con `sin-producto` = todavía no llegó ese producto en el stock · `413` muy grande · `415` no es una foto |
 
 ### El latido
 
 El agente lo manda en cada vuelta (cada minuto, si se instaló con `instalar.bat`):
 
 ```json
-{ "agente": "caja-1", "origen": "Saint", "equipo": "PC de la caja", "version": "2.1.0",
+{ "agente": "caja-1", "origen": "Saint", "equipo": "PC de la caja", "version": "2.2.0",
   "modo": "continuo", "cadaMinutos": 15,
   "estado": "inicio | espera | trabajando | ok | error",
   "ciclo": true, "mensaje": "120 filas, 118 sin cambios", "filas": 120, "sinCambios": 118,

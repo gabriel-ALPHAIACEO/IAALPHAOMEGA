@@ -283,10 +283,80 @@ try {
       const fotos = sql.prepare("SELECT url FROM inv_fotos WHERE producto_id = ?").all(bota);
       ok(v.ok && fotos.length === 1 && fotos[0].url.endsWith("/1.jpg"), "la foto subida en el panel sigue ahí después de otro conteo del sistema", JSON.stringify(fotos));
       ok(!(await inv.listarProductos(DB, { sinFoto: true })).some((p) => p.id === bota), "y ya no sale en «Sin foto»");
+
+      // Y SI EL SISTEMA SÍ TIENE FOTOS (dueño, 16-oct: "que también envíe las
+      // fotos en caso de que tenga fotos el sistema"): una carpeta con las
+      // fotos nombradas por el código.
+      const dirFotos = path.join(carpeta, "Imagenes");
+      fs.mkdirSync(dirFotos);
+      const jpg = (n) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(300, n)]);
+      fs.writeFileSync(path.join(dirFotos, "PZ1.jpg"), jpg(1));
+      fs.writeFileSync(path.join(dirFotos, "PZ2.jpg"), jpg(2));
+      fs.writeFileSync(path.join(dirFotos, "PZ2-2.jpg"), jpg(3));
+      fs.writeFileSync(archivo, "Código;Descripción;Talla;Existencia\nPZ1;Bota Puente;40;9\nPZ2;Sandalia Puente;38;4\n");
+      const conFotos = agente.completarConfig({ ...config, fotos: { carpeta: dirFotos } }, carpeta);
+      v = await agente.vuelta(conFotos, { forzar: true, registrar: () => {}, esperar: async () => {}, achicar: async () => null });
+      const sandalia = sql.prepare("SELECT id FROM inv_productos WHERE titulo = 'Sandalia Puente'").get().id;
+      const suyas = sql.prepare("SELECT url, orden FROM inv_fotos WHERE producto_id = ? ORDER BY orden").all(sandalia);
+      ok(v.ok && suyas.length === 2 && suyas.every((f) => /^http:\/\/127\.0\.0\.1(:\d+)?\/tienda\/img\/\d+\.jpg$/.test(f.url)), "las fotos del sistema llegan al producto, guardadas como las del panel", JSON.stringify(suyas));
+      ok(/2 fotos mandadas/.test(fila("oficina").mensaje), "y el panel lo cuenta en el último conteo", fila("oficina").mensaje);
+      const deBota = sql.prepare("SELECT url FROM inv_fotos WHERE producto_id = ?").all(bota);
+      ok(deBota.length === 1 && deBota[0].url.endsWith("/1.jpg"), "la Bota ya tenía una foto puesta en el panel: el sistema NO le añade ni le cambia nada", JSON.stringify(deBota));
+      const mandadas = sql.prepare("SELECT COUNT(*) AS n FROM sync_fotos").get().n;
+      await agente.vuelta(conFotos, { forzar: true, registrar: () => {}, esperar: async () => {}, achicar: async () => null });
+      ok(sql.prepare("SELECT COUNT(*) AS n FROM inv_fotos WHERE producto_id = ?").get(sandalia).n === 2 && sql.prepare("SELECT COUNT(*) AS n FROM sync_fotos").get().n === mandadas, "otra vuelta: nada se duplica");
     } finally {
       servidor.close();
       fs.rmSync(carpeta, { recursive: true, force: true });
     }
+  }
+  titulo("/api/sync/foto: las fotos del sistema, sin pisar las del panel");
+  {
+    const jpg = (n) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(200, n)]);
+    const foto = (q, bytes, clave = CLAVE) =>
+      con.atenderSync(new Request(`https://bot.test/api/sync/foto?${new URLSearchParams(q)}`, { method: "POST", headers: { authorization: `Bearer ${clave}`, "content-type": "image/jpeg" }, body: bytes }), env, new URL(`https://bot.test/api/sync/foto?${new URLSearchParams(q)}`), { waitUntil: () => {} }).then(async (r) => ({ estado: r.status, cuerpo: await r.json() }));
+    sql.prepare("INSERT INTO inv_productos (titulo, origen, origen_id, activo, actualizado) VALUES ('Foto Uno', 'manual', 'F1', 1, 0)").run();
+    const f1 = sql.prepare("SELECT id FROM inv_productos WHERE origen_id = 'F1'").get().id;
+    const fotosDe = (id) => sql.prepare("SELECT id, url, orden FROM inv_fotos WHERE producto_id = ? ORDER BY orden, id").all(id);
+    let r = await foto({ codigo: "F1", posicion: 0 }, jpg(1), "mala");
+    ok(r.estado === 401, "sin la clave: 401");
+    r = await foto({ codigo: "NO-EXISTE", posicion: 0 }, jpg(1));
+    ok(r.estado === 404 && r.cuerpo.estado === "sin-producto", "un código que no está: 404 «sin-producto» (el agente lo intenta más tarde)");
+    r = await foto({ codigo: "F1" }, Buffer.from("<svg onload=alert(1)>"));
+    ok(r.estado === 415, "algo que no es JPG/PNG/WEBP (un SVG): no entra");
+    r = await foto({ codigo: "F1" }, Buffer.concat([jpg(1), Buffer.alloc(1_500_001)]));
+    ok(r.estado === 413, "más de 1,5 MB: no entra");
+    r = await foto({ codigo: "F1", posicion: 0 }, jpg(1));
+    ok(r.estado === 200 && r.cuerpo.estado === "nueva" && fotosDe(f1).length === 1 && /^https:\/\/bot\.test\/tienda\/img\/\d+\.jpg$/.test(fotosDe(f1)[0].url), "una foto nueva: queda como las del panel (/tienda/img/…)", JSON.stringify(fotosDe(f1)));
+    const primera = fotosDe(f1)[0];
+    r = await foto({ codigo: "F1", posicion: 0 }, jpg(1));
+    ok(r.cuerpo.estado === "igual" && fotosDe(f1).length === 1, "la misma otra vez: «igual», no se duplica");
+    const imagenes = sql.prepare("SELECT COUNT(*) AS n FROM inv_imagenes").get().n;
+    r = await foto({ codigo: "F1", posicion: 0 }, jpg(2));
+    const ahora = fotosDe(f1);
+    ok(r.cuerpo.estado === "cambiada" && ahora.length === 1 && ahora[0].id === primera.id && ahora[0].url !== primera.url, "el sistema la cambió: se cambia en el mismo lugar", JSON.stringify(ahora));
+    ok(sql.prepare("SELECT COUNT(*) AS n FROM inv_imagenes").get().n === imagenes, "y la imagen vieja se borra (no se acumula)");
+    r = await foto({ producto: "foto uno", posicion: 1 }, jpg(3));
+    ok(r.cuerpo.estado === "nueva" && fotosDe(f1).length === 2 && fotosDe(f1)[0].id === primera.id, "por el nombre (sin código) también; la principal sigue primero");
+    // Alguien la quita en el panel: la misma no vuelve.
+    const segunda = fotosDe(f1)[1];
+    sql.prepare("DELETE FROM inv_fotos WHERE id = ?").run(segunda.id);
+    r = await foto({ codigo: "F1", posicion: 1 }, jpg(3));
+    ok(r.cuerpo.estado === "igual" && fotosDe(f1).length === 1, "si la quitaron en el panel, la misma foto no vuelve a entrar");
+    r = await foto({ codigo: "F1", posicion: 1 }, jpg(4));
+    ok(r.cuerpo.estado === "nueva" && fotosDe(f1).length === 2, "una distinta, sí");
+    // Un producto con foto puesta por una persona: el sistema no toca nada.
+    sql.prepare("INSERT INTO inv_productos (titulo, origen, origen_id, activo, actualizado) VALUES ('Foto Dos', 'manual', 'F2', 1, 0)").run();
+    const f2 = sql.prepare("SELECT id FROM inv_productos WHERE origen_id = 'F2'").get().id;
+    sql.prepare("INSERT INTO inv_fotos (producto_id, url, orden) VALUES (?, 'https://bot.test/tienda/img/999.jpg', 0)").run(f2);
+    r = await foto({ codigo: "F2", posicion: 0 }, jpg(5));
+    ok(r.cuerpo.estado === "del-panel" && fotosDe(f2).length === 1 && fotosDe(f2)[0].url.endsWith("/999.jpg"), "con una foto puesta en el panel: «del-panel», mandan las del dueño");
+    // Por el código de barras de una talla.
+    sql.prepare("INSERT INTO inv_productos (titulo, origen, origen_id, activo, actualizado) VALUES ('Foto Tres', 'manual', 'm-x', 1, 0)").run();
+    const f3 = sql.prepare("SELECT id FROM inv_productos WHERE titulo = 'Foto Tres'").get().id;
+    sql.prepare("INSERT INTO inv_variantes (producto_id, opcion, color, codigo_barras) VALUES (?, '40', '', '2000000000017')").run(f3);
+    r = await foto({ codigo: "2000000000017", posicion: 0 }, jpg(6));
+    ok(r.cuerpo.estado === "nueva" && fotosDe(f3).length === 1, "también por el código de barras de una talla");
   }
 } finally {
   globalThis.fetch = fetchReal;

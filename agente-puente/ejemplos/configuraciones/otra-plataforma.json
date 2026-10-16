@@ -2,16 +2,27 @@
   "origen": "Saint",
   "equipo": "PC de la oficina",
   "cadaMinutos": 15,
-  "fuente": { "tipo": "archivo", "ruta": "C:\\exportes\\inventario.xlsx", "hoja": "Stock", "maximoMinutos": 180 },
+  "fuente": {
+    "tipo": "archivo",
+    "ruta": "C:\\exportes\\inventario.xlsx",
+    "hoja": "Stock",
+    "maximoMinutos": 180
+  },
   "destinos": [
     {
       "tipo": "webhook",
       "url": "https://mi-tienda.com/recibir-webhook.php",
       "formato": "json",
-      "cabeceras": { "X-Api-Key": "${ENV:CLAVE_DE_MI_TIENDA}" },
+      "cabeceras": {
+        "X-Api-Key": "${ENV:CLAVE_DE_MI_TIENDA}"
+      },
       "secretoFirma": "${ENV:FIRMA_DE_MI_TIENDA}",
-      "lote": 1000
+      "lote": 1000,
+      "urlFotos": "https://mi-tienda.com/recibir-foto.php"
     }
   ],
-  "avisos": { "webhook": "${ENV:SLACK_WEBHOOK}", "formato": "slack" }
+  "avisos": {
+    "webhook": "${ENV:SLACK_WEBHOOK}",
+    "formato": "slack"
+  }
 }

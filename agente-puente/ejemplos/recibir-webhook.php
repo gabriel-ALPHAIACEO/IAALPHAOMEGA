@@ -29,8 +29,25 @@ if (!$FIRMA || !hash_equals($esperada, $firma) || abs(microtime(true) * 1000 - (
   exit(json_encode(['error' => 'firma inválida']));
 }
 
-// 3. Los productos.
 $datos = json_decode($cuerpo, true);
+
+// 3a. Una foto (llega aparte, solo si es nueva o cambió).
+if (($datos['tipo'] ?? '') === 'foto') {
+  $bytes = base64_decode($datos['datos'] ?? '', true);
+  if ($bytes === false || hash('sha256', $bytes) !== ($datos['huella'] ?? '')) {
+    http_response_code(422);
+    exit(json_encode(['error' => 'foto dañada']));
+  }
+  $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'][$datos['contentType']] ?? 'jpg';
+  $nombre = preg_replace('/[^\w.-]+/', '_', $datos['codigo'] ?? $datos['producto']) . '-' . ((int)$datos['posicion'] + 1) . '.' . $ext;
+  @mkdir(__DIR__ . '/fotos');
+  file_put_contents(__DIR__ . '/fotos/' . $nombre, $bytes);
+  // Con WooCommerce: subirla a la biblioteca y ponerla al producto de ese SKU.
+  http_response_code(200);
+  exit(json_encode(['recibida' => $nombre]));
+}
+
+// 3b. Los productos.
 if (!is_array($datos['productos'] ?? null)) {
   http_response_code(422);
   exit(json_encode(['error' => 'sin productos']));

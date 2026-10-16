@@ -42,6 +42,8 @@ import {
   FILAS_POR_PAQUETE,
 } from "./inventario.js";
 import { recibirLatido, vigilarAgentes, listarAgentes, ordenPendiente, pedirSincronizacion, MAXIMO_DEL_LATIDO } from "./agentes.js";
+import { recibirFoto } from "./fotos-del-sistema.js";
+import { MAXIMO_FOTO } from "./fotos.js";
 
 const MAXIMO_BYTES = 2 * 1024 * 1024;
 const MAXIMO_FILAS = 20000;
@@ -405,6 +407,7 @@ export async function ventasParaElSistema(db, { desde = 0, desdeId = 0 } = {}) {
 //   GET  /api/sync/ventas       ?desde=AAAA-MM-DD | ?desde_id=N | ?formato=json
 //   POST /api/sync/latido       el agente puente dice «estoy vivo» (agentes.js)
 //   POST /api/sync/orden        pide que el agente sincronice ya (lo mismo que el botón del panel)
+//   POST /api/sync/foto         una foto del sistema (?codigo= &producto= &posicion=), los bytes en el cuerpo (fotos-del-sistema.js)
 export async function atenderSync(request, env, url, ctx = null) {
   if (!url.pathname.startsWith("/api/sync/") && url.pathname !== "/api/sync") return null;
   if (!env.SYNC_CLAVE) {
@@ -490,6 +493,21 @@ export async function atenderSync(request, env, url, ctx = null) {
         return json({ ok: false, error: "El JSON no se entiende." }, 400);
       }
       const r = await recibirLatido(env, cuerpo);
+      return json(r.cuerpo, r.estado);
+    }
+
+    if (ruta === "/api/sync/foto") {
+      if (request.method !== "POST") return json({ ok: false, error: "Esta ruta es POST." }, 405);
+      const largo = Number(request.headers.get("content-length")) || 0;
+      if (largo > MAXIMO_FOTO) return json({ ok: false, error: `La foto pesa más de ${MAXIMO_FOTO / 1e6} MB: hay que achicarla.` }, 413);
+      const bytes = new Uint8Array(await request.arrayBuffer());
+      const r = await recibirFoto(db, {
+        codigo: String(url.searchParams.get("codigo") || "").slice(0, 64),
+        producto: String(url.searchParams.get("producto") || "").slice(0, 200),
+        posicion: url.searchParams.get("posicion"),
+        bytes,
+        origen: url.origin,
+      });
       return json(r.cuerpo, r.estado);
     }
 

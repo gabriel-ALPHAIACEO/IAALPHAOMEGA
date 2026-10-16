@@ -1,4 +1,4 @@
-# AGENTE PUENTE v2.1: el inventario de CUALQUIER sistema, a CUALQUIER tienda
+# AGENTE PUENTE v2.2: el inventario de CUALQUIER sistema, a CUALQUIER tienda
 
 **Funciona solo, aparte de todo.** No se despliega en Cloudflare y no necesita ningún archivo de los bots: esta carpeta se copia a la PC o al servidor donde está el sistema de inventario y, con **Node.js 18 o más**, corre.
 
@@ -26,6 +26,7 @@
 | `lib/columnas.mjs` | Qué es cada columna (solas o dichas en `"columnas"`). |
 | `lib/destinos.mjs` | A dónde manda: tienda ALPHA IA, webhook o carpeta. |
 | `lib/avisos.mjs` | Los avisos propios (Slack, Teams, Google Chat, Discord). |
+| `lib/fotos.mjs` | Las fotos del sistema: dónde están, cuáles cambiaron, mandarlas. |
 | `lib/secretos.mjs` · `lib/registro.mjs` · `lib/instalar.mjs` | Tapar secretos, el registro y la tarea programada. |
 | `PROTOCOLO.md` | **Para quien programa la tienda que recibe**: qué llega, qué contestar, cómo comprobar la firma. |
 | `instalar.bat` · `probar.bat` · `sincronizar-ya.bat` · `estado.bat` · `desinstalar.bat` | Doble clic (Windows). |
@@ -34,7 +35,7 @@
 | `ejemplos/recibir-webhook.php` · `.mjs` | Cómo recibir el stock en otra tienda (con la clave y la firma comprobadas). |
 | `pruebas/` | `node pruebas/correr.mjs`: las pruebas del agente (corren solas, sin ningún bot). |
 
-Lo que el agente escribe al correr (no se copia de una PC a otra): `config.json` (con las claves: **no se comparte**), `estado-puente.json`, `puente.log` (al pasar de 1 MB el viejo queda como `puente.log.1`) y `puente.lock`.
+Lo que el agente escribe al correr (no se copia de una PC a otra): `config.json` (con las claves: **no se comparte**), `estado-puente.json`, `fotos-enviadas.json`, `puente.log` (al pasar de 1 MB el viejo queda como `puente.log.1`) y `puente.lock`.
 
 ## Instalar en la PC del cliente (Windows), en 5 minutos
 
@@ -171,9 +172,33 @@ Hace falta **la cantidad** y **el código o el nombre**. Si el sistema usa nombr
 
 ## Las fotos
 
-Casi ningún sistema cerrado tiene fotos. **Con una tienda ALPHA IA, las fotos se suben en su panel**: en **Inventario** hay un atajo **«Sin foto (N)»** con los productos que llegaron sin imagen, y la tarjeta del agente puente dice cuántos faltan. **Un conteo del sistema nunca borra ni cambia una foto subida en el panel**: el sistema manda las cantidades (y los precios), y las fotos quedan como el dueño las dejó. El `--doctor` lo recuerda cuando el sistema no trae ninguna columna de fotos.
+**Si el sistema tiene fotos, el agente las manda.** Sirven dos maneras, y se activan solas:
 
-Si el sistema sí tiene la dirección de cada foto (una columna «foto» o «imagen» con `https://…`), a otra plataforma le llega en el campo `foto`.
+1. **Una columna con la foto** de cada producto (se reconoce sola: foto, imagen, image, photo…). Puede tener:
+   - una dirección: `https://…`, o una de la red de la oficina (`http://192.168.1.10/img/A1.jpg`), que el agente baja desde esa PC;
+   - la ruta de un archivo: `C:\Sistema\Fotos\A1.jpg`, o solo `A1.jpg` (se busca en `"fotos.carpeta"`);
+   - varias fotos en la misma celda, separadas por `|`. La primera es la principal.
+2. **Una carpeta con las fotos nombradas por el código** del producto: `A1.jpg` (la principal), `A1-2.jpg`, `A1_3.png`, `A1 (4).jpg`… Sin importar mayúsculas.
+
+```json
+"fotos": { "carpeta": "C:\\Sistema\\Fotos", "por": "codigo", "maximoPorVuelta": 30 }
+```
+- `por`: `codigo` (lo normal) o `producto` (si las fotos se llaman como el nombre del producto).
+- `maximoPorVuelta`: cuántas fotos se mandan como mucho en cada vuelta (30). La primera vez, un catálogo de miles se completa en varias vueltas sin trabar el stock.
+- `"fotos": { "activar": false }` las apaga.
+
+**Solo se manda lo nuevo o lo cambiado.** El agente recuerda en `fotos-enviadas.json` la huella de cada foto mandada a cada destino. Un archivo se vuelve a leer solo si cambió su fecha o su tamaño, y una dirección se revisa una vez al día.
+
+**Las fotos van después del stock** y solo a los destinos que lo recibieron bien. Una foto que no se puede mandar (no está, no es JPG, PNG o WEBP, o pesa más de 1,5 MB) se salta y se cuenta, con su motivo («2 fotos con problemas (B7.jpg: pesa 3.2 MB…)»), pero **no hace malo el conteo**. En Windows, una foto más grande o en BMP, GIF o TIFF se achica sola a un JPG de 1600 px con el propio Windows (PowerShell).
+
+**En una tienda ALPHA IA, las fotos del panel mandan:**
+- Si el producto ya tiene fotos puestas por una persona, el sistema no le añade ni le cambia ninguna.
+- Si el sistema cambia una foto, se cambia en el mismo lugar y la vieja se borra.
+- Si alguien quita en el panel una foto que vino del sistema, esa misma no vuelve a entrar.
+- Un producto que todavía no llegó en el stock recibe su foto más tarde.
+- Lo que el sistema no tiene se sube en el panel: en **Inventario** está el atajo **«Sin foto (N)»**, y la tarjeta del agente puente dice cuántas fotos llegaron del sistema y cuántos productos siguen sin foto.
+
+**A otra plataforma** le llega cada foto en un envío aparte, un JSON con la foto en base64, firmado igual que el stock (ver `PROTOCOLO.md`). Va a `"urlFotos"` del destino o, si no hay, a su misma `"url"`. **A una carpeta** se copian en `fotos/<código>-<n>.jpg`.
 
 ## Los avisos propios (cuando el stock va a otra plataforma)
 
@@ -295,5 +320,5 @@ Otras rutas (todas con la clave): `GET /api/sync/estado` (productos y últimos c
 - No lee los `.xls` viejos (binarios), ni fechas de Excel como fechas.
 - No baja ventas de otras plataformas (solo de las tiendas ALPHA IA).
 - No borra en el destino los productos que desaparecen del sistema: si se acaba, el sistema tiene que mandarlo con cantidad 0.
-- No sube fotos desde el sistema a una tienda ALPHA IA (se suben en el panel).
+- No borra en la tienda las fotos que el sistema deja de tener (si se quita una del sistema, sigue en la tienda hasta que alguien la quite en el panel).
 - No se actualiza solo: una versión nueva se copia encima (la carpeta entera menos `config.json`). El panel de una tienda ALPHA IA enseña qué versión tiene cada PC.
