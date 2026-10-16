@@ -24,7 +24,8 @@ Nada de esta carpeta se despliega en un Worker ni se mezcla con los bots. Va en 
 1. Copiar esta carpeta (`sistemas\solventas`) a la PC del servidor.
 2. **`diagnostico.bat`** (doble clic). Solo lee. Deja `diagnostico-solventas.txt`: servicios, archivos que faltan (BDE, `VMAX.ocx`), servidor de `modoc.ini` sin claves, tamaño de la base, últimos respaldos, tablas sin índice, códigos de barras repetidos, facturas que no cuadran, fragmentación. **Mándame ese archivo**: no tiene contraseñas.
 3. **`reparar-base.bat`** (clic derecho → *Ejecutar como administrador*). Pide escribir `SI`, **hace un respaldo primero** en `C:\SSCA\respaldos` (si el respaldo falla, **no cambia nada**) y luego aplica el arreglo. Se puede repetir sin problema: lo que ya está hecho lo salta. No borra ni cambia ningún dato.
-   - Necesita `sqlcmd` (gratis: *Microsoft Command Line Utilities for SQL Server*). Si no lo tiene, el `.bat` lo dice; también se puede abrir `reparar-base.sql` en SQL Server Management Studio.
+   - **No hay que instalar nada**: usa `ejecutar-sql.ps1` (PowerShell, que ya trae Windows) en vez de `sqlcmd`. Entra con el usuario de Windows con el que lo abras: **ejecútalo como Administrador** para que SQL Server lo deje pasar.
+   - Si la instancia no se llama `SQLEXPRESS`, cambia `SERVIDOR` al principio del `.bat` (el `diagnostico-solventas.txt` lista los servicios de SQL que hay en la PC).
 4. Abrir Solventas y comprobar. Si algo se ve raro, el respaldo que dice el resultado deja todo como estaba.
 
 > Hazlo **una vez, en un momento tranquilo** (cierre de la tienda). Tarda minutos según el tamaño.
@@ -70,6 +71,7 @@ El agente puente (`agente-puente.mjs`, en la misma PC) lee el stock de Solventas
 
 | Archivo | Para qué |
 |---|---|
+| `ejecutar-sql.ps1` | Corre los `.sql` sin `sqlcmd` (lo usan los dos `.bat` de arriba) |
 | `diagnostico.bat` / `diagnostico.sql` | Mirar el estado (solo lee) y dejar un `.txt` para enviar |
 | `reparar-base.bat` / `reparar-base.sql` | Respaldo + AUTO_CLOSE/AUTO_SHRINK apagados + CHECKSUM + 25 índices + estadísticas |
 | `sacar-stock-solventas.bat` / `.ps1` | El stock en CSV para el agente puente |

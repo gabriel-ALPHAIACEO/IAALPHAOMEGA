@@ -3,20 +3,15 @@ setlocal EnableExtensions
 rem ============================================================================
 rem  REPARAR LA BASE DE SOLVENTAS (rapida y estable). Primero hace un RESPALDO.
 rem  Ejecutalo en la PC del servidor, como ADMINISTRADOR, con Solventas CERRADO
-rem  en todas las PC. No borra ni cambia ningun dato: apaga AUTO_CLOSE/AUTO_SHRINK,
-rem  activa CHECKSUM y crea indices. Se puede repetir sin problema.
+rem  en todas las PC. No necesita instalar nada (no usa sqlcmd).
+rem  No borra ni cambia ningun dato: apaga AUTO_CLOSE/AUTO_SHRINK, activa CHECKSUM
+rem  y crea indices. Se puede repetir sin problema.
 rem ============================================================================
 set "SERVIDOR=.\SQLEXPRESS"
 set "BASE=RRVS2013CA"
 set "RESPALDO=C:\SSCA\respaldos"
 set "SALIDA=%~dp0reparar-base-resultado.txt"
-
-where sqlcmd >nul 2>&1
-if errorlevel 1 (
-  echo No se encontro "sqlcmd". Instalalo ^(gratis, Microsoft "Command Line Utilities for SQL Server"^) y repite.
-  pause
-  exit /b 1
-)
+set "PS=powershell -NoProfile -ExecutionPolicy Bypass -File"
 
 echo Vas a reparar la base %BASE% en %SERVIDOR%.
 echo   1) Cierra Solventas en TODAS las PC.
@@ -37,7 +32,7 @@ if not exist "%RESPALDO%" (
 )
 
 echo Reparando... ^(puede tardar varios minutos^)
-sqlcmd -E -S "%SERVIDOR%" -d master -b -i "%~dp0reparar-base.sql" -v BASE="%BASE%" RESPALDO="%RESPALDO%" -W > "%SALIDA%" 2>&1
+%PS% "%~dp0ejecutar-sql.ps1" -Servidor "%SERVIDOR%" -Archivo "%~dp0reparar-base.sql" BASE=%BASE% "RESPALDO=%RESPALDO%" > "%SALIDA%" 2>&1
 set "CODIGO=%errorlevel%"
 type "%SALIDA%"
 echo.

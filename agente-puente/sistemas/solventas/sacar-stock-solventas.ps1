@@ -2,13 +2,13 @@
 # SOLO LEE la base: un SELECT. No escribe nada en Solventas.
 #
 # Lo llama sacar-stock-solventas.bat. Se configura con variables de entorno
-# (así la clave NO queda escrita en un archivo del agente):
-#   SOLVENTAS_SERVIDOR   por defecto  .\SQLEXPRESS   (el de la primera línea de C:\SSCA\modoc.ini)
+# (asi la clave NO queda escrita en un archivo del agente):
+#   SOLVENTAS_SERVIDOR   por defecto  .\SQLEXPRESS   (el de la primera linea de C:\SSCA\modoc.ini)
 #   SOLVENTAS_BASE       por defecto  RRVS2013CA
-#   SOLVENTAS_USUARIO    vacío = seguridad integrada de Windows (lo recomendado)
+#   SOLVENTAS_USUARIO    vacio = seguridad integrada de Windows (lo recomendado)
 #   SOLVENTAS_CLAVE      solo si se usa usuario (mejor uno de SOLO LECTURA, nunca "sa")
 #   SOLVENTAS_PRECIO     PVP1Prod (por defecto) | PVP2Prod | PVP3Prod | cifus | PVPBSF
-#   SOLVENTAS_SOLO_CON_STOCK  "si" para no mandar lo que está en 0 (por defecto manda todo:
+#   SOLVENTAS_SOLO_CON_STOCK  "si" para no mandar lo que esta en 0 (por defecto manda todo:
 #                        un producto en 0 tiene que llegar como 0, si no la tienda cree que sigue igual)
 #
 # Salida: CSV en UTF-8, separado por ";", con encabezados codigo;producto;talla;color;cantidad;precio;marca;categoria;foto
@@ -26,12 +26,12 @@ $base     = Variable "SOLVENTAS_BASE" "RRVS2013CA"
 $usuario  = Variable "SOLVENTAS_USUARIO" ""
 $clave    = Variable "SOLVENTAS_CLAVE" ""
 $precio   = Variable "SOLVENTAS_PRECIO" "PVP1Prod"
-$soloStock = (Variable "SOLVENTAS_SOLO_CON_STOCK" "no").ToLower() -in @("si", "sí", "1", "true")
+$soloStock = (Variable "SOLVENTAS_SOLO_CON_STOCK" "no").ToLower() -in @("si", "1", "true")
 
 # Solo estas columnas de precio (el nombre va dentro de la consulta: no se acepta cualquier cosa).
 $preciosValidos = @("PVP1Prod", "PVP2Prod", "PVP3Prod", "cifus", "PVPBSF", "psiva")
 $columnaPrecio = $preciosValidos | Where-Object { $_ -ieq $precio } | Select-Object -First 1
-if (-not $columnaPrecio) { throw "SOLVENTAS_PRECIO no es válido ($precio). Usa uno de: $($preciosValidos -join ', ')." }
+if (-not $columnaPrecio) { throw "SOLVENTAS_PRECIO no es valido ($precio). Usa uno de: $($preciosValidos -join ', ')." }
 
 if ($usuario) {
   $cadena = "Server=$servidor;Database=$base;User ID=$usuario;Password=$clave;Connect Timeout=15;ApplicationIntent=ReadOnly"
@@ -60,7 +60,7 @@ $(if ($soloStock) { "  AND ISNULL(p.ExistProd, 0) > 0" })
 ORDER BY p.DescProd, p.ncolor, p.TallaProd
 "@
 
-# El dato va entre comillas solo cuando hace falta; ";" y saltos de línea dentro de un texto no rompen la fila.
+# El dato va entre comillas solo cuando hace falta; ";" y saltos de linea dentro de un texto no rompen la fila.
 function Celda($valor) {
   if ($null -eq $valor -or $valor -is [System.DBNull]) { return "" }
   if ($valor -is [decimal] -or $valor -is [double] -or $valor -is [single]) {
@@ -93,7 +93,7 @@ try {
   $conexion.Close()
 }
 
-# UTF-8 SIN marca (BOM) por la salida estándar: así las ñ y las tildes llegan bien (con sqlcmd no).
+# UTF-8 SIN marca (BOM) por la salida estandar: asi las n y las tildes llegan bien (con sqlcmd no).
 $salida = [Console]::OpenStandardOutput()
 $bytes = (New-Object System.Text.UTF8Encoding($false)).GetBytes($sb.ToString())
 $salida.Write($bytes, 0, $bytes.Length)

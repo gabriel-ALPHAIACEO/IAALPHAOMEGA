@@ -3,6 +3,7 @@ setlocal EnableExtensions
 rem ============================================================================
 rem  DIAGNOSTICO DE SOLVENTAS (SOLO LEE, no cambia nada).
 rem  Ejecutalo en la PC donde esta SQL Server (la "del servidor"), con doble clic.
+rem  No necesita instalar nada (no usa sqlcmd).
 rem  Deja el resultado en  diagnostico-solventas.txt  (junto a este archivo).
 rem  Envia ESE archivo; no contiene claves.
 rem  Ajusta solo si es distinto en tu PC:
@@ -11,15 +12,17 @@ set "CARPETA_SOLVENTAS=C:\SSCA"
 set "SERVIDOR=.\SQLEXPRESS"
 set "BASE=RRVS2013CA"
 set "SALIDA=%~dp0diagnostico-solventas.txt"
+set "PS=powershell -NoProfile -ExecutionPolicy Bypass -File"
 
 echo DIAGNOSTICO DE SOLVENTAS  -  %DATE% %TIME%> "%SALIDA%"
 echo Equipo: %COMPUTERNAME%   Usuario de Windows: %USERNAME%>> "%SALIDA%"
+ver >> "%SALIDA%"
 echo.>> "%SALIDA%"
 
-echo === A. SERVICIOS DE SQL SERVER ===>> "%SALIDA%"
-for %%S in ("MSSQL$SQLEXPRESS" "SQLBrowser" "MSSQLSERVER") do (
-  sc query %%~S 2>nul | findstr /i "SERVICE_NAME STATE" >> "%SALIDA%"
-)
+echo === A. SERVICIOS DE SQL SERVER (todos los que hay en esta PC) ===>> "%SALIDA%"
+sc query type= service state= all 2>nul | findstr /i /c:"SERVICE_NAME: MSSQL" /c:"SERVICE_NAME: SQLBrowser" /c:"SERVICE_NAME: SQLAgent" >> "%SALIDA%"
+echo   (los que estan funcionando ahora:)>> "%SALIDA%"
+net start 2>nul | findstr /i "sql" >> "%SALIDA%"
 echo.>> "%SALIDA%"
 
 echo === B. ARCHIVOS DEL PROGRAMA en %CARPETA_SOLVENTAS% ===>> "%SALIDA%"
@@ -39,23 +42,13 @@ echo   (la linea 1 es el servidor que usa Solventas; esta PC se llama %COMPUTERN
 echo.>> "%SALIDA%"
 
 echo === D. LA BASE DE DATOS ===>> "%SALIDA%"
-where sqlcmd >nul 2>&1
+%PS% "%~dp0ejecutar-sql.ps1" -Servidor "%SERVIDOR%" -Probar >> "%SALIDA%" 2>&1
 if errorlevel 1 (
-  echo   No esta "sqlcmd" en esta PC. Instalalo gratis ^(Microsoft "Command Line Utilities for SQL Server"^)>> "%SALIDA%"
-  echo   o abre SQL Server Management Studio y ejecuta diagnostico.sql ahi.>> "%SALIDA%"
-  echo.
-  echo No se encontro sqlcmd. Mira el archivo %SALIDA%
+  echo   Si dice "no se pudo conectar": mira la seccion A ^(servicio detenido?^) y la C ^(nombre del servidor^).>> "%SALIDA%"
+  echo   Si el nombre de la instancia es otro, cambia SERVIDOR dentro de este archivo.>> "%SALIDA%"
   goto fin
 )
-sqlcmd -E -S "%SERVIDOR%" -d master -b -Q "SELECT 1" >nul 2>&1
-if errorlevel 1 (
-  echo   NO SE PUDO CONECTAR a "%SERVIDOR%" con el usuario de Windows %USERNAME%.>> "%SALIDA%"
-  echo   Causas habituales: el servicio MSSQL$SQLEXPRESS esta detenido ^(mira A^), el nombre del>> "%SALIDA%"
-  echo   servidor es otro ^(mira C: linea 1^), o este usuario no tiene permiso. Error exacto:>> "%SALIDA%"
-  sqlcmd -E -S "%SERVIDOR%" -d master -Q "SELECT 1" >> "%SALIDA%" 2>&1
-  goto fin
-)
-sqlcmd -E -S "%SERVIDOR%" -d master -i "%~dp0diagnostico.sql" -v BASE="%BASE%" -W -s"|" >> "%SALIDA%" 2>&1
+%PS% "%~dp0ejecutar-sql.ps1" -Servidor "%SERVIDOR%" -Archivo "%~dp0diagnostico.sql" BASE=%BASE% >> "%SALIDA%" 2>&1
 
 :fin
 echo.
