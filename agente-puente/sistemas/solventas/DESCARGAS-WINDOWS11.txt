@@ -1,0 +1,82 @@
+============================================================================
+ SOLVENTAS EN WINDOWS 11 - TODO LO QUE HAY QUE DESCARGAR / LLEVAR
+============================================================================
+Descarga SOLO desde las paginas oficiales de cada empresa (Microsoft,
+Embarcadero, el fabricante de tu impresora fiscal). Busca el nombre exacto en
+Google; no uses paginas de "descargas gratis" ni "crack". Yo no pude comprobar
+enlaces directos desde mi servidor, por eso te doy el NOMBRE exacto y donde
+buscarlo, no un enlace.
+
+----------------------------------------------------------------------------
+A. OBLIGATORIO (bajalo en el Windows 11)
+----------------------------------------------------------------------------
+1) SQL Server 2019 Express  (Microsoft, gratis)
+   - Que buscar: "SQL Server 2019 Express descargar" en el Centro de descargas
+     de Microsoft (microsoft.com). El archivo se llama algo como
+     SQL2019-SSEI-Expr.exe (pesa poco; baja el resto al instalar, unos 250 MB).
+   - IMPORTANTE: la version 2019. En la pagina principal de SQL Server a veces
+     solo aparece la 2022: no la uses todavia. Yo probe tu base en 2019. Si no
+     encuentras la 2019, avisame antes de instalar otra.
+   - Al instalar elige el tipo "Basica". Deja el nombre de instancia como esta
+     (SQLEXPRESS).
+
+2) El paquete de traslado que te mande (solventas-traslado-windows11.zip)
+   Trae los scripts para restaurar la base y dejarla lista. Descomprimelo en
+   C:\SSCA.
+
+3) El respaldo NUEVO de la base (RRVS2013CA-....bak), el que sacas en el
+   Windows 8.1 el dia del traslado. Ya tienes uno de hoy (RRVS2013CA-hoy.bak)
+   para las pruebas.
+
+----------------------------------------------------------------------------
+B. LO QUE SACAS DEL WINDOWS 8.1 (copialo a un pendrive o al disco compartido)
+----------------------------------------------------------------------------
+1) La carpeta COMPLETA  C:\SSCA  (el programa Solventas con todos sus archivos
+   .ini, .dll, VMAX.ocx, etc.).
+2) El respaldo de la base (.bak) - ver paso 1 del archivo
+   PASOS-TRASLADO-WINDOWS11.txt.
+3) Los instaladores y drivers de la IMPRESORA FISCAL que tengas guardados en
+   el 8.1 (carpeta Descargas / Escritorio) y anota la MARCA y el MODELO de la
+   impresora (viene en la etiqueta del equipo).
+4) (Plan B para el BDE) la carpeta:
+     C:\Program Files (x86)\Common Files\Borland Shared\BDE
+   Copiala completa solo por si la necesitas.
+
+----------------------------------------------------------------------------
+C. SOLO SI Solventas LO PIDE (no lo bajes antes)
+----------------------------------------------------------------------------
+1) BDE - Borland Database Engine (Embarcadero, gratis)
+   - Solo si al abrir Solventas dice algo como "BDE", "Borland Database
+     Engine" o "IDAPI32.DLL".
+   - Que buscar: "Embarcadero BDE installer" / "BDE 5.2 redistributable".
+   - Como instalarlo y que hacer despues lo vemos juntos: no basta con copiar
+     la carpeta, a veces hay que instalarlo como administrador.
+
+2) Driver de la impresora fiscal y del cable USB-serial
+   - Solo si Windows 11 no la reconoce. Busca el driver en la pagina del
+     FABRICANTE (la marca esta en la etiqueta; el programa usa tfhkaif.dll, de
+     la familia "The Factory HKA / Tfhka"). El cable puede necesitar driver
+     FTDI, CH340 o Prolific segun su chip.
+   - Dime la marca y el modelo y te digo cual.
+
+----------------------------------------------------------------------------
+D. OPCIONAL (comodidad, no hace falta)
+----------------------------------------------------------------------------
+1) SQL Server Management Studio (SSMS), de Microsoft: un programa para
+   mirar la base con ventanas. No lo necesitamos para el traslado.
+
+----------------------------------------------------------------------------
+LO QUE NO DEBES DESCARGAR
+----------------------------------------------------------------------------
+  - SQL Server 2022 (por ahora), ni versiones "Developer" o "Standard".
+  - "Reparadores", "optimizadores" ni "drivers automaticos" de terceros.
+  - Cracks o parches de Solventas.
+
+----------------------------------------------------------------------------
+RESUMEN RAPIDO
+----------------------------------------------------------------------------
+  Descargar en Windows 11:   SQL Server 2019 Express
+  Traer del 8.1:             carpeta C:\SSCA, respaldo .bak, drivers de la
+                             impresora (y la carpeta BDE por si acaso)
+  Mi paquete:                solventas-traslado-windows11.zip
+  Despues, si hace falta:    BDE (Embarcadero) y driver de la impresora fiscal
