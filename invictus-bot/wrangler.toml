@@ -39,8 +39,8 @@ database_id = "b7cc27df-dbcf-4188-b0f2-c00a1629d1e2"
 #
 # Cuando ya no falta nada, la pasada no gasta ni una llamada al modelo.
 # Para ver como va: /estado  o  /indexar-catalogo
-# WORKERS AI (16-oct-2026): la IA gratis de Cloudflare, SIN clave. Solo la usa
-# la IA sombra (ver SOMBRA al final). Sin esta línea la sombra se queda quieta.
+# WORKERS AI (16-oct-2026): la IA de Cloudflare, SIN clave. Solo la usa la IA de
+# respaldo (ver SOMBRA al final). Sin esta línea el respaldo se queda quieto.
 [ai]
 binding = "AI"
 
@@ -248,29 +248,38 @@ FRASE_DESPAUSAR = "te dejo con la asistente"
 # CONECTOR_SEDE   = ""        # una sede ya creada; vacío = la principal
 #   y si la dirección pide clave: npx.cmd wrangler secret put CONECTOR_CLAVE
 
-# LA IA SOMBRA (16-oct-2026; ver src/sombra.js). Una segunda IA, GRATIS, lee cada
-# conversación en paralelo a la de OpenAI y escribe en secreto qué habría
-# contestado; NUNCA le habla al cliente. Aprende de la de pago con sus ejemplos
-# y se compara con ella en /sombra?clave=<PANEL_API_CLAVE>.
+# LA IA DE RESPALDO (16-oct-2026; ver src/sombra.js y SOMBRA.md). Una segunda IA
+# sin costo que SOLO contesta cuando la de OpenAI no responde (sin saldo, límite,
+# caída): en vez de «se me trabó el sistema», el cliente recibe una respuesta de
+# verdad. Pasa por las mismas redes de seguridad, el panel la marca como
+# «respondió la IA de RESPALDO» y el dueño recibe un aviso (cada 30 min).
+# Mientras la de pago funciona, la de respaldo no gasta nada, pero va juntando
+# las respuestas buenas de la de pago como ejemplos para saber cómo contesta la tienda.
 #   SOMBRA            "si" la enciende; "no" la apaga.
+#   SOMBRA_MODO       "respaldo" (por defecto) | "sombra" (además la compara en
+#                     paralelo con la de pago: gasta cuota midiendo) | "ambos".
 #   SOMBRA_PROVEEDOR  "cloudflare" (Workers AI, sin clave; el binding [ai] de arriba)
 #                     o "compatible" (Gemini, Groq…: SOMBRA_URL + el secreto SOMBRA_CLAVE).
 #   SOMBRA_MODELO     el modelo. OJO: el prompt de esta tienda pesa ~25.000 tokens,
 #                     así que hace falta un modelo con ventana de 100.000 o más.
 #                     Cloudflare retira modelos de vez en cuando: comprueba que
 #                     funciona con /sombra/probar.
-#   SOMBRA_MAX_DIA    tope de llamadas al día (la cuota gratis es de 10.000
-#                     «neuronas» al día y cada llamada gasta ~700). Con la cuenta
-#                     de pago de Cloudflare, lo que pase de la cuota se cobra:
-#                     este tope es lo que lo limita a centavos.
-#   SOMBRA_EJEMPLOS   cuántos ejemplos de la IA de pago recibe la gratis en cada
-#                     llamada (3; 0 = ninguno).
+#   RESPALDO_MAX_DIA  tope de respaldos al día (400). La cuenta GRATIS de
+#                     Cloudflare solo da 10.000 «neuronas» al día (unas 12
+#                     respuestas: después, el aviso de siempre). Con la cuenta
+#                     de PAGO ya no hay ese límite y lo que pase de la cuota se
+#                     cobra (~$0,011 por 1.000 neuronas, ~$0,008 por respuesta):
+#                     este tope es el techo del gasto si OpenAI se cae un día entero.
+#   SOMBRA_MAX_DIA    solo para el modo «sombra»: tope de comparaciones al día (12).
+#   SOMBRA_EJEMPLOS   cuántos ejemplos de la IA de pago recibe el respaldo (3; 0 = ninguno).
 SOMBRA = "si"
+SOMBRA_MODO = "respaldo"
 SOMBRA_PROVEEDOR = "cloudflare"
 SOMBRA_MODELO = "@cf/meta/llama-4-scout-17b-16e-instruct"
+RESPALDO_MAX_DIA = "400"
 SOMBRA_MAX_DIA = "12"
 SOMBRA_EJEMPLOS = "3"
-# Otra IA gratis con clave (Gemini, por ejemplo), en vez de Workers AI:
+# Otra IA con clave (Gemini, por ejemplo), en vez de Workers AI:
 #   SOMBRA_PROVEEDOR = "compatible"
 #   SOMBRA_URL    = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 #   SOMBRA_MODELO = "gemini-2.0-flash"

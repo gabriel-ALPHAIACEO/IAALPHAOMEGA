@@ -1,3 +1,22 @@
+// EL RESPALDO (16-oct-2026, giro del dueño: "la IA sombra gratis realmente no
+// nos sirve de nada, solo servirá de respaldo por si el sistema se cae, y
+// cuando paguemos los Workers es que se usará al 100% para respaldar").
+//
+// MODO POR DEFECTO = "respaldo": la IA sin costo NO corre en paralelo (eso
+// gastaba la cuota midiendo sin aportar). Se queda quieta hasta que la de pago
+// (OpenAI) no responde —sin saldo, límite del minuto, caída—; entonces contesta
+// ELLA, con el mismo prompt y los ejemplos aprendidos, en vez del «se me trabó
+// el sistema». Su respuesta pasa por TODAS las redes de seguridad de siempre
+// (tono, precios, Cashea, datos de la tienda), el panel la marca como
+// «respondió la IA de respaldo» y el dueño recibe UN aviso (cada 30 min) de que
+// la de pago está fallando. Los ejemplos de la de pago se siguen juntando en
+// cada mensaje, sin llamar a nadie: así el respaldo ya sabe cómo contesta la
+// tienda cuando le toca.
+//   SOMBRA_MODO  "respaldo" (por defecto) | "sombra" (la comparación en
+//                paralelo de abajo) | "ambos".
+//   RESPALDO_MAX_DIA  tope de respaldos al día (400): es lo que limita el gasto
+//                cuando la cuota gratis ya no es el límite (cuenta de pago).
+//
 // LA IA SOMBRA (16-oct-2026, pedido del dueño: "vamos a ir trabajando sobre
 // las IA sin pagar api key… usar por ahora los 2 en paralelo para que las IA
 // aprendan de las otras IA").
@@ -43,6 +62,7 @@
 
 import { armarPedidoDeTexto, leerRespuestaDelModelo } from "./ia.js";
 import { noHaceFaltaRevisar } from "./revisor.js";
+import { alertarCentral } from "./registro.js";
 
 export const MODELO_POR_DEFECTO = "@cf/meta/llama-4-scout-17b-16e-instruct";
 const MAXIMO_POR_DIA = 12;
@@ -91,6 +111,21 @@ const TABLAS = [
     error          TEXT NOT NULL DEFAULT ''
   )`,
   "CREATE INDEX IF NOT EXISTS ia_sombra_dia ON ia_sombra (dia, id)",
+  // Cada vez que contestó el respaldo porque la de pago falló.
+  `CREATE TABLE IF NOT EXISTS ia_respaldo (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    cuando         INTEGER NOT NULL,
+    dia            TEXT NOT NULL,
+    cliente        TEXT NOT NULL DEFAULT '',
+    respuesta      TEXT NOT NULL DEFAULT '',
+    modelo         TEXT NOT NULL DEFAULT '',
+    ms             INTEGER NOT NULL DEFAULT 0,
+    tokens_entrada INTEGER NOT NULL DEFAULT 0,
+    tokens_salida  INTEGER NOT NULL DEFAULT 0,
+    ok             INTEGER NOT NULL DEFAULT 1,
+    error          TEXT NOT NULL DEFAULT ''
+  )`,
+  "CREATE INDEX IF NOT EXISTS ia_respaldo_dia ON ia_respaldo (dia, id)",
 ];
 
 const listas = new WeakSet();
@@ -112,11 +147,32 @@ export function modeloDeLaSombra(env = {}) {
   return String(env.SOMBRA_MODELO || "").trim() || (proveedorDeLaSombra(env) === "compatible" ? "gemini-2.0-flash" : MODELO_POR_DEFECTO);
 }
 
+// "respaldo" (por defecto), "sombra" o "ambos".
+export function modoDeLaSombra(env = {}) {
+  const m = String(env.SOMBRA_MODO || "").trim().toLowerCase();
+  return m === "sombra" || m === "ambos" ? m : "respaldo";
+}
+
 // ¿Está encendida Y tiene con qué correr? (Sin el binding [ai] o sin la
 // dirección y la clave no hay nada que llamar: se queda quieta.)
 export function sombraActiva(env = {}) {
   if (!SI.test(String(env.SOMBRA || "").trim())) return false;
   return proveedorDeLaSombra(env) === "compatible" ? Boolean(env.SOMBRA_URL && env.SOMBRA_CLAVE) : Boolean(env.AI && typeof env.AI.run === "function");
+}
+
+// La comparación en paralelo (modo "sombra" o "ambos").
+export function sombraParalelaActiva(env = {}) {
+  return sombraActiva(env) && modoDeLaSombra(env) !== "respaldo";
+}
+
+// Contestar cuando la de pago no responde (modo "respaldo" o "ambos").
+export function respaldoActivo(env = {}) {
+  return sombraActiva(env) && modoDeLaSombra(env) !== "sombra";
+}
+
+export function maximoDeRespaldos(env = {}) {
+  const n = Number(env.RESPALDO_MAX_DIA);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 400;
 }
 
 export function maximoPorDia(env = {}) {
@@ -318,10 +374,15 @@ export async function llamarALaGratis(env, sistema, contenido, { maxTokens = 102
 
 /* ── El tope del día ─────────────────────────────────────────────────── */
 
+// «agotado»: Cloudflare dijo hace menos de 30 minutos que la cuota se acabó.
+// Pasado ese rato se vuelve a intentar (si mientras tanto pasaron a una cuenta
+// de pago, vuelve a funcionar sin esperar al día siguiente).
+const REINTENTO_AGOTADO_MS = 30 * 60 * 1000;
 export async function llamadasDeHoy(db, ahora = Date.now()) {
   await asegurarSombra(db);
-  const f = await db.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN error LIKE 'agotado%' THEN 1 ELSE 0 END) AS agotado FROM ia_sombra WHERE dia = ?").bind(diaUtc(ahora)).first();
-  return { n: Number(f?.n) || 0, agotado: Number(f?.agotado) > 0 };
+  const f = await db.prepare("SELECT COUNT(*) AS n FROM ia_sombra WHERE dia = ?").bind(diaUtc(ahora)).first();
+  const a = await db.prepare("SELECT MAX(cuando) AS ultima FROM (SELECT cuando FROM ia_sombra WHERE error LIKE 'agotado%' UNION ALL SELECT cuando FROM ia_respaldo WHERE error LIKE 'agotado%')").first();
+  return { n: Number(f?.n) || 0, agotado: Boolean(a?.ultima) && ahora - Number(a.ultima) < REINTENTO_AGOTADO_MS };
 }
 
 const CUOTA_AGOTADA = /neuron|quota|allocation|limit|exceeded|capacity|4006|3036|too many/i;
@@ -408,6 +469,73 @@ export async function anotarSombra(env, datos, consulta, turno, ahora = Date.now
   }
 }
 
+/* ── El respaldo: contesta cuando la de pago no responde ─────────────── */
+
+const AVISO_CADA_MS = 30 * 60 * 1000;
+
+export async function respaldosDeHoy(db, ahora = Date.now()) {
+  await asegurarSombra(db);
+  const f = await db.prepare("SELECT COUNT(*) AS n FROM ia_respaldo WHERE dia = ?").bind(diaUtc(ahora)).first();
+  return Number(f?.n) || 0;
+}
+
+// La IA de pago no respondió: contesta la de respaldo. Devuelve lo mismo que
+// responderTexto (respuesta, buscar, mostrar…) o null si tampoco puede (sin
+// cupo, tope del día, apagada, o ella también falló): en ese caso todo sigue
+// como antes, con el «se me trabó el sistema». Nunca lanza.
+export async function responderConRespaldo(env, entrada, textoCliente = "", { ahora = Date.now() } = {}) {
+  if (!respaldoActivo(env) || !env.DB || !entrada) return null;
+  const db = env.DB;
+  try {
+    await asegurarSombra(db);
+    const hoy = await llamadasDeHoy(db, ahora);
+    if (hoy.agotado) return null;
+    if ((await respaldosDeHoy(db, ahora)) >= maximoDeRespaldos(env)) return null;
+    const ejemplos = await ejemplosParecidos(db, textoCliente, cuantosEjemplos(env));
+    const { sistema, contenido } = await armarPedidoDeTexto(env, entrada);
+    const pedido = [bloqueDeEjemplos(ejemplos), contenido, FORMATO].filter(Boolean).join("\n\n");
+    const inicio = Date.now();
+    let r = null;
+    let libre = null;
+    let error = "";
+    // Dos intentos solo si el primero no devolvió un JSON entendible (pasa con
+    // los modelos chicos); un error de la API no se repite.
+    for (let intento = 0; intento < 2 && !libre && !error; intento++) {
+      try {
+        r = await llamarALaGratis(env, sistema, pedido);
+        libre = leerRespuestaDelModelo(r.texto);
+      } catch (e) {
+        const motivo = sinClave(e?.message || e, env);
+        error = CUOTA_AGOTADA.test(motivo) ? `agotado: ${motivo}` : motivo;
+      }
+    }
+    if (!libre && !error) error = "no devolvió un JSON que se entienda";
+    // El aviso al dueño: la primera vez y luego cada 30 minutos, no en cada mensaje.
+    const antes = await db.prepare("SELECT MAX(cuando) AS ultima FROM ia_respaldo").first();
+    const avisar = !antes?.ultima || ahora - Number(antes.ultima) >= AVISO_CADA_MS;
+    await db
+      .prepare("INSERT INTO ia_respaldo (cuando, dia, cliente, respuesta, modelo, ms, tokens_entrada, tokens_salida, ok, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(ahora, diaUtc(ahora), String(textoCliente || "").slice(0, 400), String(libre?.respuesta || "").slice(0, 1500), modeloDeLaSombra(env), Date.now() - inicio, r?.entrada || 0, r?.salida || 0, libre ? 1 : 0, error.slice(0, 300))
+      .run();
+    if (avisar) {
+      await alertarCentral(env, [
+        {
+          tipo: "error",
+          texto: libre
+            ? "⚙️ La IA de pago (OpenAI) no está respondiendo (¿sin saldo o caída?): está contestando la IA de respaldo. Revisa platform.openai.com → Billing."
+            : `⚙️ La IA de pago (OpenAI) no responde y la de respaldo tampoco pudo (${error.slice(0, 120)}). Los clientes reciben el aviso de «se me trabó el sistema».`,
+        },
+      ]).catch(() => {});
+    }
+    if (!libre) return null;
+    // Nada de nota de voz: la voz también es de OpenAI y si no responde, tampoco.
+    return { ...libre, voz: false };
+  } catch (error) {
+    console.error("RESPALDO:", sinClave(error?.message || error, env));
+    return null;
+  }
+}
+
 /* ── El informe ──────────────────────────────────────────────────────── */
 
 export const MINIMO_PARA_OPINAR = 50;
@@ -440,7 +568,9 @@ export async function resumenDeLaSombra(db, { dias = 14, ahora = Date.now() } = 
     .all();
   const ej = await db.prepare("SELECT COUNT(*) AS total, SUM(bueno) AS buenos, SUM(revisado) AS revisados FROM ia_ejemplos").first();
   const hoy = await llamadasDeHoy(db, ahora);
+  const rp = await db.prepare("SELECT COUNT(*) AS total, SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END) AS bien, SUM(CASE WHEN dia = ? THEN 1 ELSE 0 END) AS hoy, MAX(cuando) AS ultimo FROM ia_respaldo WHERE dia >= ?").bind(diaUtc(ahora), desde).first();
   const resumen = {
+    respaldo: { usosEnElPeriodo: Number(rp?.total) || 0, contestaronBien: Number(rp?.bien) || 0, hoy: Number(rp?.hoy) || 0, ultimo: Number(rp?.ultimo) || null },
     desde,
     comparaciones: Number(f?.total) || 0,
     validas: validos,
@@ -527,9 +657,9 @@ h1{margin:0 0 4px}p{color:#9aa3b5;margin:4px 0 16px}.v{padding:12px 16px;border-
 .g{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:20px}.d{background:#161a24;border:1px solid #232a3b;border-radius:12px;padding:12px}.d b{display:block;font-size:22px}.d span{color:#9aa3b5;font-size:13px}.d small{display:block;color:#6d7690;font-size:12px}
 table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:8px;border-bottom:1px solid #232a3b;vertical-align:top}td small{display:block;color:#6d7690}tr.mal td{opacity:.6}tr.ojo td:last-child{color:#f0b429}a{color:#6ea8ff}
 @media (prefers-color-scheme:light){body{background:#f6f7fb;color:#1b2130}.d,.v{background:#fff;border-color:#dde2ee}.v.ok{background:#e9f7ef}th,td{border-color:#dde2ee}}</style>
-<h1>IA sombra</h1><p>${d.encendida ? "Encendida" : "<b>Apagada</b> (SOMBRA = \"si\" en wrangler.toml)"} · ${esc(d.proveedor)} · <code>${esc(d.modelo)}</code> · hasta ${esc(d.maximoPorDia)} llamadas al día · desde ${esc(d.desde)}</p>
+<h1>IA de respaldo y sombra</h1><p>${d.encendida ? `Encendida · modo <b>${esc(d.modo)}</b>${d.modo === "respaldo" ? " (contesta solo cuando la de pago falla)" : ""}` : "<b>Apagada</b> (SOMBRA = \"si\" en wrangler.toml)"} · ${esc(d.proveedor)} · <code>${esc(d.modelo)}</code> · hasta ${esc(d.maximoPorDia)} llamadas al día · desde ${esc(d.desde)}</p>
 <div class="v ${d.listaParaElMando ? "ok" : ""}"><b>${esc(d.veredicto)}</b></div>
-<div class="g">${dato(d.validas, "comparaciones válidas", `${d.conError} con error`)}${dato(`${d.buscaLoMismoPct}%`, "busca lo mismo", "hace falta 90%")}${dato(`${d.decideElModoPct}%`, "decide igual: texto o fotos")}${dato(d.parecidoMedio, "se parece (0 a 1)", "hace falta 0,45")}${dato(`${d.inventaDatosPct}%`, "inventa un número", "hace falta 2% o menos")}${dato(d.puntajeMedio, "puntaje medio (0 a 1)")}${dato(d.ejemplos.buenos, "ejemplos del maestro", `${d.ejemplos.total} guardados · ${d.ejemplos.revisados} revisados`)}${dato(`${d.hoy.llamadas}/${d.maximoPorDia}`, "llamadas hoy", d.hoy.cuotaAgotada ? "se acabó la cuota del día: descansa hasta las 00:00 UTC" : "")}${dato(d.tokensDeEntradaMedios, "tokens de entrada por llamada", `${d.tokensDeSalidaMedios} de salida · ${d.msMedios} ms`)}</div>
+<div class="g">${dato(d.respaldo.usosEnElPeriodo, "veces que contestó el respaldo", d.respaldo.usosEnElPeriodo ? `${d.respaldo.hoy} hoy · ${d.respaldo.contestaronBien} bien · la de pago estaba fallando` : "la de pago no ha fallado")}${dato(d.validas, "comparaciones válidas", `${d.conError} con error`)}${dato(`${d.buscaLoMismoPct}%`, "busca lo mismo", "hace falta 90%")}${dato(`${d.decideElModoPct}%`, "decide igual: texto o fotos")}${dato(d.parecidoMedio, "se parece (0 a 1)", "hace falta 0,45")}${dato(`${d.inventaDatosPct}%`, "inventa un número", "hace falta 2% o menos")}${dato(d.puntajeMedio, "puntaje medio (0 a 1)")}${dato(d.ejemplos.buenos, "ejemplos del maestro", `${d.ejemplos.total} guardados · ${d.ejemplos.revisados} revisados`)}${dato(`${d.hoy.llamadas}/${d.maximoPorDia}`, "llamadas hoy", d.hoy.cuotaAgotada ? "se acabó la cuota del día: descansa hasta las 00:00 UTC" : "")}${dato(d.tokensDeEntradaMedios, "tokens de entrada por llamada", `${d.tokensDeSalidaMedios} de salida · ${d.msMedios} ms`)}</div>
 <p><a href="/sombra/probar${q}">Probar el modelo ahora</a> · <a href="/sombra/ejemplos.jsonl${q}">Bajar los ejemplos del maestro</a> · <a href="/sombra${q}${q ? "&" : "?"}formato=json">JSON</a></p>
 <table><thead><tr><th>Cuándo</th><th>Cliente</th><th>La de pago (la que vio el cliente)</th><th>La sombra (sin costo)</th><th>Puntaje</th></tr></thead><tbody>${filas || '<tr><td colspan="5">Todavía no hay comparaciones. Cuando lleguen mensajes aparecen aquí.</td></tr>'}</tbody></table></html>`;
 }

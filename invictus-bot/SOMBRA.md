@@ -1,49 +1,54 @@
-# La IA sombra (IA gratis en paralelo) — guía rápida
+# La IA de respaldo (IA sin costo) — guía rápida
 
-**Qué es.** Una segunda IA, sin pagar clave, que lee cada conversación junto a la de OpenAI y escribe en secreto qué habría contestado. **Nunca le habla al cliente**: el cliente recibe exactamente lo mismo que antes. Corre *después* de enviar la respuesta.
+**Qué hace.** Cuando OpenAI no responde —se acabó el saldo (el 4 y 5 de octubre fueron 56 mensajes mudos), el límite del minuto, una caída— el cliente ya **no recibe «se me trabó el sistema»**: contesta una segunda IA, sin pagar clave, con el mismo prompt de la tienda y ejemplos de cómo contesta la de pago.
 
-**Cómo aprende de la de pago** (sin entrenar nada):
-1. Cada respuesta buena de la de pago se guarda como **ejemplo** (las que el revisor marca mal, no).
-2. Cuando la gratis va a contestar, recibe los 3 ejemplos más parecidos a lo que escribió el cliente.
-3. Se **comparan** las dos: ¿buscó lo mismo?, ¿decidió igual enseñar fotos o solo texto?, ¿se parece?, ¿inventó algún número?
-4. Cuando hay 50 comparaciones y coincide en 90 % de lo que busca, no inventa datos y se parece, `/sombra` dice **«Lista para tomar el mando»**. Hasta entonces la de pago sigue sola.
+- Su respuesta pasa por **las mismas redes de seguridad** de siempre (tono, precios, Cashea, datos de la tienda): un «envío gratis» inventado no le llega al cliente.
+- El panel marca el turno: **«respondió la IA de RESPALDO»**.
+- El dueño recibe **un aviso** (en el panel central, cada 30 minutos como mucho): «La IA de pago no está respondiendo… revisa platform.openai.com → Billing».
+- Si el respaldo tampoco puede (sin cupo, caída, tope del día), pasa lo de siempre: el aviso de «se me trabó el sistema». Nadie se queda sin respuesta peor que antes.
+- Nunca contesta con nota de voz (la voz también es de OpenAI).
+
+**Mientras OpenAI funciona, el respaldo no gasta nada** (ya no corre en paralelo). Pero va guardando las respuestas buenas de la IA de pago como ejemplos —las que el revisor marca mal, no—, y cuando le toca contestar recibe los 3 más parecidos a lo que escribió el cliente. Así sabe cómo contesta la tienda.
 
 ## Para encenderla (una vez)
 
 1. Pega `src/` entero y `wrangler.toml` de Invictus (trae `[ai] binding = "AI"` y los ajustes `SOMBRA_*`).
-2. `npx.cmd wrangler deploy` y comprueba en `/estado?clave=<PANEL_API_CLAVE>` que la versión es **108**.
-3. **Comprueba el modelo**: abre `https://<tu-worker>/sombra/probar?clave=<PANEL_API_CLAVE>`. Hace UNA llamada real y dice si el modelo existe, cuántos tokens gasta y si devolvió un JSON entendible. Si dice que el modelo no existe o que el prompt no cabe, cambia `SOMBRA_MODELO` en `wrangler.toml` por otro del catálogo de Workers AI con ventana de **100.000 tokens o más** y vuelve a desplegar.
-4. Mira cómo va en `https://<tu-worker>/sombra?clave=<PANEL_API_CLAVE>` (cada comparación: lo que dijo cada una).
+2. `npx.cmd wrangler deploy` y comprueba en `/estado?clave=<PANEL_API_CLAVE>` que la versión es **109**.
+3. **Comprueba el modelo**: abre `https://<tu-worker>/sombra/probar?clave=<PANEL_API_CLAVE>`. Hace UNA llamada real y dice si el modelo existe, si le cabe el prompt (~25.000 tokens), cuántos tokens gasta y si devolvió un JSON entendible. Si falla, te dice qué cambiar en `SOMBRA_MODELO` (uno del catálogo de Workers AI con ventana de **100.000 tokens o más**).
+4. Mira cuántas veces ha entrado en `https://<tu-worker>/sombra?clave=<PANEL_API_CLAVE>`.
 
 No hay secretos que cargar con Workers AI.
 
-## Lo que cuesta (importante)
+## Lo que cuesta
 
-- Cloudflare regala **10.000 «neuronas» al día** (se reinician a las 00:00 UTC). El prompt de Invictus pesa ~25.000 tokens, así que **cada llamada gasta unas 700 neuronas**: caben ~12 al día. Por eso `SOMBRA_MAX_DIA = "12"`.
-- Con la cuenta **gratis** de Cloudflare, si se acaba la cuota las llamadas fallan y no se cobra nada; la sombra descansa hasta el día siguiente.
-- Con la cuenta **de pago** de Cloudflare, lo que pase de la cuota se cobra (~$0,011 por 1.000 neuronas). El tope de llamadas lo limita a centavos al día.
-- `/sombra` y `/sombra/probar` te dicen cuántos tokens gasta cada llamada para que saques la cuenta con el precio del modelo que elijas.
-- Los ejemplos del maestro se juntan en **cada** mensaje, aunque la cuota ya se haya acabado: lo que aprende no depende de la cuota; la cuota solo limita cuántas comparaciones se miden por día.
+- **Cuenta gratis de Cloudflare**: 10.000 «neuronas» al día (se reinician a las 00:00 UTC). Cada respuesta gasta unas 700 por el prompt largo: caben **~12 respaldos al día**; después, el aviso de siempre. Si se acaba, descansa 30 minutos y vuelve a intentar.
+- **Cuando paguen Workers** (plan de pago de Cloudflare): ya no hay ese límite y el respaldo entra al 100 %. Lo que pase de la cuota gratis se cobra (~$0,011 por 1.000 neuronas, unos **$0,008 por respuesta**). El techo es `RESPALDO_MAX_DIA` (400 al día ≈ $3 si OpenAI estuviera caído un día entero). Súbelo o bájalo en `wrangler.toml`.
+- Las cifras de neuronas son estimadas: `/sombra` y `/sombra/probar` te dicen los tokens reales por llamada.
 
-## Si 12 comparaciones al día no alcanzan
+## Modos (`SOMBRA_MODO`)
 
-Usar otra IA gratis con clave (Gemini, por ejemplo; tiene un plan gratis y admite prompts largos). En `wrangler.toml`:
+- `respaldo` (por defecto): solo entra cuando la de pago falla.
+- `sombra`: además compara en paralelo cada respuesta con la de pago (gasta cuota midiendo; hasta `SOMBRA_MAX_DIA`). Hoy no aporta, pero sirve el día que se quiera decidir si el respaldo ya es tan bueno como la de pago.
+- `ambos`: las dos cosas.
+
+## Si el modelo de Cloudflare no sirve
+
+Usar otra IA con plan gratis (Gemini, por ejemplo; admite prompts largos). En `wrangler.toml`:
 ```
 SOMBRA_PROVEEDOR = "compatible"
 SOMBRA_URL    = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 SOMBRA_MODELO = "gemini-2.0-flash"
 ```
-y la clave: `npx.cmd wrangler secret put SOMBRA_CLAVE`. Los límites de ese plan los pone el proveedor: compruébalos en su página.
+y la clave: `npx.cmd wrangler secret put SOMBRA_CLAVE`. Los límites de ese plan los pone el proveedor.
 
 ## Apagarla
 
-`SOMBRA = "no"` en `wrangler.toml` y desplegar. Lo que ya guardó (tablas `ia_ejemplos` e `ia_sombra`) se queda.
+`SOMBRA = "no"` en `wrangler.toml` y desplegar. Lo guardado (tablas `ia_ejemplos`, `ia_sombra`, `ia_respaldo`) se queda.
 
 ## Privacidad
 
-Los ejemplos y las comparaciones guardan lo que escribieron los clientes, en la base D1 de Invictus (como ya hacen los mensajes). Solo se ven con la clave del panel central. `/sombra/ejemplos.jsonl` baja los ejemplos por si algún día se quiere afinar un modelo propio.
+Los ejemplos y los respaldos guardan lo que escribieron los clientes, en la base D1 de Invictus (como ya hacen los mensajes). Solo se ven con la clave del panel central. `/sombra/ejemplos.jsonl` baja los ejemplos.
 
-## Lo que todavía no hace
+## Lo que todavía no cubre
 
-- Solo la IA de **texto**. La de imágenes y el revisor siguen con OpenAI.
-- La gratis nunca contesta de verdad: no hay modo «respaldo» (cuando OpenAI se queda sin saldo). Se puede añadir cuando la sombra demuestre que está lista.
+- Solo la IA de **texto**. Si OpenAI se cae, **las fotos** (la IA de imágenes) y el **revisor** siguen dependiendo de OpenAI: el cliente que manda una foto se atiende por lo que escribió (como cuando no se puede mirar una historia).

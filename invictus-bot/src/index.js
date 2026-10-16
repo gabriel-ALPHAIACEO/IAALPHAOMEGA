@@ -29,7 +29,7 @@
 // versión y NO van con este código — mezclarlos rompe el arranque.
 
 import { responderTexto, identificarEnImagen } from "./ia.js";
-import { sombraActiva, consultarSombra, aprenderDelMaestro, anotarSombra, resumenDeLaSombra, ultimasComparaciones, ejemplosEnJsonl, probarLaSombra, modeloDeLaSombra, proveedorDeLaSombra, maximoPorDia, paginaDeLaSombra } from "./sombra.js";
+import { sombraActiva, sombraParalelaActiva, respaldoActivo, modoDeLaSombra, responderConRespaldo, consultarSombra, aprenderDelMaestro, anotarSombra, resumenDeLaSombra, ultimasComparaciones, ejemplosEnJsonl, probarLaSombra, modeloDeLaSombra, proveedorDeLaSombra, maximoPorDia, paginaDeLaSombra } from "./sombra.js";
 import {
   revisarPagos,
   metodosDePago,
@@ -163,7 +163,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-16 (108) · 🧠 LA IA SOMBRA SIN COSTO (src/sombra.js): una segunda IA, sin pagar clave (Workers AI de Cloudflare por el binding [ai], u otro proveedor gratis), lee cada conversación en paralelo a la de OpenAI y escribe en secreto qué habría contestado; NUNCA le habla al cliente y corre después de enviar. Aprende de la de pago con sus respuestas buenas como ejemplos (ia_ejemplos) y se compara con ella (ia_sombra): /sombra?clave= enseña el informe y cuándo estaría lista para tomar el mando; /sombra/probar comprueba el modelo; tope diario SOMBRA_MAX_DIA (12) por la cuota gratis de 10.000 neuronas.";
+const VERSION = "2026-10-16 (109) · 🛟 LA IA DE RESPALDO (src/sombra.js): cuando la de OpenAI no responde (sin saldo, límite del minuto, caída), contesta una IA sin costo (Workers AI de Cloudflare, sin clave; u otro proveedor) en vez del «se me trabó el sistema». Su respuesta pasa por TODAS las redes de siempre (tono, precios, Cashea, datos de la tienda), el panel la marca como «respondió la IA de RESPALDO» y el dueño recibe un aviso cada 30 min. Mientras la de pago funciona no gasta nada (ya no corre en paralelo: SOMBRA_MODO = respaldo) pero va juntando sus respuestas buenas como ejemplos. Tope RESPALDO_MAX_DIA (400). /sombra?clave= muestra cuántas veces entró.";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -531,7 +531,7 @@ const trabajador = {
       if (url.pathname === "/sombra/probar") return json(await probarLaSombra(env));
       if (url.pathname === "/sombra/ejemplos.jsonl") return new Response(await ejemplosEnJsonl(env.DB), { headers: { "content-type": "application/x-ndjson; charset=utf-8", "content-disposition": 'attachment; filename="ejemplos-del-maestro.jsonl"', "cache-control": "no-store" } });
       const [resumen, ultimas] = await Promise.all([resumenDeLaSombra(env.DB), ultimasComparaciones(env.DB, 20)]);
-      const datos = { encendida: sombraActiva(env), proveedor: proveedorDeLaSombra(env), modelo: modeloDeLaSombra(env), maximoPorDia: maximoPorDia(env), ...resumen };
+      const datos = { encendida: sombraActiva(env), modo: modoDeLaSombra(env), proveedor: proveedorDeLaSombra(env), modelo: modeloDeLaSombra(env), maximoPorDia: maximoPorDia(env), ...resumen };
       if (url.searchParams.get("formato") === "json") return json({ ...datos, ultimas });
       return new Response(paginaDeLaSombra(datos, ultimas, url.searchParams.get("clave") || ""), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
     }
@@ -1352,13 +1352,13 @@ async function atenderConRed(env, mensaje) {
     // ¿Contestó bien? Con todo ya enviado: el cliente no espera esto. La IA
     // sombra (gratis) contesta lo mismo en paralelo al revisor y se compara.
     const sombra = rastro.sombra && rastro.turno?.id ? rastro.sombra : null;
-    const consultando = sombra ? consultarSombra(env, sombra, { turno: rastro.turno }) : null; // no lanza nunca
+    const consultando = sombra?.paralela ? consultarSombra(env, sombra, { turno: rastro.turno }) : null; // no lanza nunca
     const veredicto = rastro.turno?.id ? await revisarTurno(env, rastro.turno) : null;
     if (sombra) {
       // Primero aprender de la de pago (rápido, no depende de la gratis); luego
       // anotar cómo le fue a la gratis, cuando conteste.
       await aprenderDelMaestro(env, sombra, veredicto, rastro.turno);
-      await anotarSombra(env, sombra, await consultando, rastro.turno);
+      if (consultando) await anotarSombra(env, sombra, await consultando, rastro.turno);
     }
     await guardarErrores(env.DB, env);
   } catch (error) {
@@ -1975,7 +1975,20 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   // LA IA SOMBRA (16-oct-2026, ver sombra.js): lo que leyó la de pago, para
   // que la gratis lo lea igual DESPUÉS de enviar. Nunca le habla al cliente.
   if (salida && sombraActiva(env)) {
-    rastro.sombra = { entrada, textoCliente, salida: { respuesta: salida.respuesta, buscar: salida.buscar, mostrar: salida.mostrar } };
+    rastro.sombra = { entrada, textoCliente, paralela: sombraParalelaActiva(env), salida: { respuesta: salida.respuesta, buscar: salida.buscar, mostrar: salida.mostrar } };
+  }
+
+  // EL RESPALDO (16-oct-2026, ver sombra.js): si la de pago no respondió (sin
+  // saldo, límite, caída), contesta la IA sin costo. Su respuesta sigue por
+  // TODAS las redes de abajo (tono, precios, Cashea, datos de la tienda) como si
+  // fuera la de siempre. Si tampoco puede, queda el aviso de siempre.
+  if (!salida && respaldoActivo(env)) {
+    const delRespaldo = await responderConRespaldo(env, entrada, textoCliente);
+    if (delRespaldo) {
+      salida = delRespaldo;
+      rastro.respaldo = true;
+      console.log("RESPALDO: la IA de pago no respondió; contestó la de respaldo");
+    }
   }
 
   // LA RED DE LOS DATOS DE LA TIENDA. Si el modelo no respondió, o se
@@ -2343,6 +2356,7 @@ async function atenderMeta(env, mensaje, rastro = {}) {
     respuesta: hablado ? `🎤 (nota de voz) ${fraseDeLaIA}` : respuestaCliente,
     productos: fichas.map((p) => p.titulo),
     notas: [
+      rastro.respaldo && "respondió la IA de RESPALDO (la de pago no respondió)",
       notaVoz && "llegó por nota de voz",
       hablado && (vozPorLaIA ? "contestó con nota de voz (la eligió la IA)" : "contestó con nota de voz"),
       revisionDeTono.corregido && "se quitó una grosería o un regaño",

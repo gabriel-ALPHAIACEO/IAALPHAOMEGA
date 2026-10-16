@@ -127,10 +127,18 @@ let comportamientoLibre = () => ({ response: JSON.stringify({ pienso: "saludo", 
 const AI = { run: async (modelo, args) => { llamadasLibre.push({ modelo, args }); return comportamientoLibre(); } };
 
 const real = globalThis.fetch;
+let pagaFalla = null; // null = responde; "saldo" = 429 sin saldo; "caida" = 500
+let alertasCentral = [];
 globalThis.fetch = async (url, op = {}) => {
   const u = String(url?.url || url);
+  if (u.startsWith("https://central.test/api/alerta")) {
+    alertasCentral.push(...JSON.parse(op.body).alertas);
+    return new Response("{}");
+  }
   if (u.includes("api.openai.com")) {
     llamadasPaga.push(JSON.parse(op.body || "{}"));
+    if (pagaFalla === "saldo") return new Response(JSON.stringify({ error: { code: "insufficient_quota", message: "You exceeded your current quota, please check your plan and billing details." } }), { status: 429 });
+    if (pagaFalla === "caida") return new Response("Bad gateway", { status: 502 });
     return Response.json({ choices: [{ message: { content: JSON.stringify({ pienso: "Saludo.", mostrar: "texto", voz: false, respuesta: respuestaPaga, buscar: "NADA", historial: "Saludó." }) } }], usage: { prompt_tokens: 100, completion_tokens: 20 } });
   }
   if (u.includes("graph.instagram.com") && u.includes("/messages")) {
@@ -142,7 +150,7 @@ globalThis.fetch = async (url, op = {}) => {
   if (u.includes("graphql.json")) return Response.json({ data: { products: { edges: [], pageInfo: { hasNextPage: false } } } });
   return new Response("ok");
 };
-const envDe = (extra = {}) => ({ DB, META_APP_SECRET: SECRETO, META_MODO: "todo", IG_TOKEN: "x", OPENAI_API_KEY: "x", SHOPIFY_TIENDA: "tienda.test", SHOPIFY_TOKEN: "x", URL_CATALOGO: "https://tienda.test", TIENDA_NOMBRE: "Invictus Shoes", REVISOR_IA: "no", JUNTAR_MENSAJES: "no", PANEL_API_CLAVE: API, ...extra });
+const envDe = (extra = {}) => ({ PANEL_CENTRAL_URL: "https://central.test", DB, META_APP_SECRET: SECRETO, META_MODO: "todo", IG_TOKEN: "x", OPENAI_API_KEY: "x", SHOPIFY_TIENDA: "tienda.test", SHOPIFY_TOKEN: "x", URL_CATALOGO: "https://tienda.test", TIENDA_NOMBRE: "Invictus Shoes", REVISOR_IA: "no", JUNTAR_MENSAJES: "no", PANEL_API_CLAVE: API, ...extra });
 async function webhook(env, evento) {
   const cuerpo = JSON.stringify({ object: "instagram", entry: [{ id: CUENTA, time: Date.now(), messaging: [evento] }] });
   const firma = "sha256=" + crypto.createHmac("sha256", SECRETO).update(cuerpo).digest("hex");
@@ -171,7 +179,7 @@ titulo("el cliente recibe EXACTAMENTE lo mismo con la sombra encendida o apagada
   const sinSombra = enviados.filter((e) => e.a === "1001").map((e) => e.texto);
   ok(llamadasLibre.length === 0 && sinSombra.length === 1, "apagada: la gratis no se llama", `llamadas ${llamadasLibre.length}`);
   reiniciar();
-  await callado(async () => { await webhook(envDe({ SOMBRA: "si", AI }), texto("1002", "busco unas botas negras")); });
+  await callado(async () => { await webhook(envDe({ SOMBRA: "si", SOMBRA_MODO: "sombra", AI }), texto("1002", "busco unas botas negras")); });
   const conSombra = enviados.filter((e) => e.a === "1002").map((e) => e.texto);
   ok(llamadasLibre.length === 1, "encendida: se llama a la gratis una vez");
   ok(JSON.stringify(sinSombra) === JSON.stringify(conSombra), "el cliente recibe lo mismo, palabra por palabra", JSON.stringify({ sinSombra, conSombra }));
@@ -181,7 +189,7 @@ titulo("el cliente recibe EXACTAMENTE lo mismo con la sombra encendida o apagada
 titulo("la sombra lee EXACTAMENTE lo mismo que la de pago");
 {
   reiniciar();
-  await callado(async () => { await webhook(envDe({ SOMBRA: "si", AI, SOMBRA_EJEMPLOS: "0" }), texto("1003", "buenas, busco unas Nike Pegasus")); });
+  await callado(async () => { await webhook(envDe({ SOMBRA: "si", SOMBRA_MODO: "sombra", AI, SOMBRA_EJEMPLOS: "0" }), texto("1003", "buenas, busco unas Nike Pegasus")); });
   const paga = llamadasPaga.at(-1);
   const libre = llamadasLibre.at(-1);
   const sistemaPaga = paga.messages[0].content;
@@ -206,7 +214,7 @@ titulo("la segunda vez, la gratis recibe lo que ya aprendió de la de pago");
 {
   reiniciar();
   respuestaPaga = "¡Hola! Cuéntame, ¿qué modelo de Nike Pegasus buscas? 😊";
-  await callado(async () => { await webhook(envDe({ SOMBRA: "si", AI }), texto("1004", "tienen Nike Pegasus?")); });
+  await callado(async () => { await webhook(envDe({ SOMBRA: "si", SOMBRA_MODO: "sombra", AI }), texto("1004", "tienen Nike Pegasus?")); });
   const pedido = llamadasLibre.at(-1).args.messages[1].content;
   ok(/EJEMPLOS DE CÓMO CONTESTÓ BIEN LA ASISTENTE PRINCIPAL/.test(pedido) && /buscas unas Nike Pegasus|busco unas Nike Pegasus/.test(pedido) && pedido.includes("¡Hola! ¿Qué estás buscando? 😊"), "recibe el ejemplo parecido de la primera vez", pedido.slice(0, 400));
   const dentro = pedido.indexOf("EJEMPLOS DE CÓMO");
@@ -219,14 +227,14 @@ titulo("si la gratis falla, no pasa nada: el cliente ni se entera");
 {
   reiniciar();
   comportamientoLibre = () => { throw new Error("AiError: el modelo se cayó"); };
-  const visto = await callado(async () => { ok((await webhook(envDe({ SOMBRA: "si", AI }), texto("1005", "busco sandalias negras"))) === 200, "a Meta se le responde 200"); });
+  const visto = await callado(async () => { ok((await webhook(envDe({ SOMBRA: "si", SOMBRA_MODO: "sombra", AI }), texto("1005", "busco sandalias negras"))) === 200, "a Meta se le responde 200"); });
   ok(enviados.filter((e) => e.a === "1005").length === 1 && /Qué estás buscando/.test(enviados.find((e) => e.a === "1005").texto), "el cliente recibe su respuesta normal");
   const f = sql.prepare("SELECT * FROM ia_sombra WHERE turno > 0 ORDER BY id DESC LIMIT 1").get();
   ok(/el modelo se cayó/.test(f.error) && f.puntaje === 0, "el fallo queda anotado con su motivo", JSON.stringify(f));
   ok(!visto.some((l) => /ATENDER FALLÓ/.test(l)), "y no aparece como error del bot");
   reiniciar();
   comportamientoLibre = () => ({ response: "esto no es un json" });
-  await callado(async () => { await webhook(envDe({ SOMBRA: "si", AI }), texto("1006", "busco tenis blancos")); });
+  await callado(async () => { await webhook(envDe({ SOMBRA: "si", SOMBRA_MODO: "sombra", AI }), texto("1006", "busco tenis blancos")); });
   ok(/no devolvió un JSON/.test(sql.prepare("SELECT error FROM ia_sombra WHERE turno > 0 ORDER BY id DESC LIMIT 1").get().error) && enviados.filter((e) => e.a === "1006").length === 1, "si no devuelve un JSON entendible, se anota y el cliente igual recibe lo suyo");
   comportamientoLibre = () => ({ response: JSON.stringify({ pienso: "", mostrar: "texto", voz: false, respuesta: "¡Hola! ¿Qué estás buscando hoy?", buscar: "NADA", historial: "" }), usage: { prompt_tokens: 25000, completion_tokens: 90 } });
 }
@@ -237,7 +245,7 @@ titulo("aprender de la de pago NO depende de que la gratis conteste");
   sql.exec("DELETE FROM ia_sombra");
   reiniciar();
   comportamientoLibre = () => { throw new Error("AiError: se cayó todo"); };
-  await callado(async () => { await webhook(envDe({ SOMBRA: "si", AI }), texto("1401", "busco unas botas de cuero")); });
+  await callado(async () => { await webhook(envDe({ SOMBRA: "si", SOMBRA_MODO: "sombra", AI }), texto("1401", "busco unas botas de cuero")); });
   ok(sql.prepare("SELECT COUNT(*) AS n FROM ia_ejemplos WHERE cliente LIKE '%botas de cuero%'").get().n === 1, "la gratis se cayó, pero el ejemplo de la de pago quedó guardado");
   // Una gratis lenta (más que lo que dura una tarea de fondo) tampoco se lo lleva por delante.
   sql.exec("DELETE FROM ia_ejemplos");
@@ -245,7 +253,7 @@ titulo("aprender de la de pago NO depende de que la gratis conteste");
   let soltar;
   comportamientoLibre = () => new Promise((r) => (soltar = r));
   const AIlenta = { run: async (m, a) => (llamadasLibre.push({ m, a }), comportamientoLibre()) };
-  const trabajo = webhook(envDe({ SOMBRA: "si", AI: AIlenta }), texto("1402", "busco unas sandalias de playa"));
+  const trabajo = webhook(envDe({ SOMBRA: "si", SOMBRA_MODO: "sombra", AI: AIlenta }), texto("1402", "busco unas sandalias de playa"));
   await pausa(300);
   ok(sql.prepare("SELECT COUNT(*) AS n FROM ia_ejemplos WHERE cliente LIKE '%sandalias de playa%'").get().n === 1, "mientras la gratis todavía piensa, el ejemplo de la de pago ya está guardado");
   ok(enviados.filter((e) => e.a === "1402").length === 1, "y el cliente ya recibió su respuesta");
@@ -257,24 +265,136 @@ titulo("aprender de la de pago NO depende de que la gratis conteste");
   ok((await S.ejemplosParecidos(DB, "busco unas sandalias de playa", 3, turnoId)).length === 0 && (await S.ejemplosParecidos(DB, "busco unas sandalias de playa", 3)).length === 1, "el ejemplo del turno que se está contestando se excluye por código (no hace trampa)");
 }
 
+titulo("EL RESPALDO: por defecto la gratis NO corre en paralelo, solo entra cuando la de pago falla");
+{
+  sql.exec("DELETE FROM ia_ejemplos"); sql.exec("DELETE FROM ia_sombra"); sql.exec("DELETE FROM ia_respaldo");
+  ok(S.modoDeLaSombra({}) === "respaldo" && S.modoDeLaSombra({ SOMBRA_MODO: "sombra" }) === "sombra" && S.modoDeLaSombra({ SOMBRA_MODO: "ambos" }) === "ambos" && S.modoDeLaSombra({ SOMBRA_MODO: "raro" }) === "respaldo", "el modo por defecto es «respaldo»");
+  const e = { SOMBRA: "si", AI };
+  ok(S.respaldoActivo(e) && !S.sombraParalelaActiva(e) && S.respaldoActivo({ ...e, SOMBRA_MODO: "ambos" }) && S.sombraParalelaActiva({ ...e, SOMBRA_MODO: "ambos" }) && !S.respaldoActivo({ ...e, SOMBRA_MODO: "sombra" }), "respaldo / sombra / ambos activan lo que dicen");
+  reiniciar();
+  await callado(async () => { await webhook(envDe({ SOMBRA: "si", AI }), texto("1501", "busco unos mocasines")); });
+  ok(llamadasLibre.length === 0, "con la de pago sana, la gratis no gasta ni una llamada (la cuota queda para cuando haga falta)");
+  ok(sql.prepare("SELECT COUNT(*) AS n FROM ia_ejemplos WHERE cliente LIKE '%mocasines%'").get().n === 1, "pero el ejemplo de la de pago sí se guarda: el respaldo va aprendiendo");
+  ok(sql.prepare("SELECT COUNT(*) AS n FROM ia_sombra").get().n === 0, "y no hay comparaciones");
+}
+
+titulo("la de pago se queda sin saldo: contesta el respaldo, y el cliente recibe una respuesta de verdad");
+{
+  reiniciar();
+  alertasCentral = [];
+  pagaFalla = "saldo";
+  comportamientoLibre = () => ({ response: JSON.stringify({ pienso: "pide mocasines", mostrar: "texto", voz: true, respuesta: "¡Hola! Claro, cuéntame qué talla buscas en mocasines 😊", buscar: "NADA", historial: "Pidió mocasines." }), usage: { prompt_tokens: 25000, completion_tokens: 80 } });
+  const visto = await callado(async () => { await webhook(envDe({ SOMBRA: "si", AI }), texto("1502", "busco unos mocasines negros")); });
+  const dijo = enviados.filter((x) => x.a === "1502").map((x) => x.texto);
+  ok(llamadasPaga.length >= 1 && llamadasLibre.length === 1, "la de pago falló y se llamó al respaldo una vez", `${llamadasPaga.length} / ${llamadasLibre.length}`);
+  ok(dijo.length === 1 && /cuéntame qué talla buscas/.test(dijo[0]) && !/se me trabó/.test(dijo[0]), "el cliente recibe la respuesta del respaldo, NO el «se me trabó el sistema»", JSON.stringify(dijo));
+  const pedidoPaga = llamadasPaga[0].messages[1].content[0].text;
+  ok(llamadasLibre[0].args.messages[0].content === llamadasPaga[0].messages[0].content && llamadasLibre[0].args.messages[1].content.includes(pedidoPaga), "el respaldo lee el mismo prompt y el mismo mensaje que la de pago");
+  const t = sql.prepare("SELECT respuesta, notas FROM turnos WHERE cliente LIKE '%mocasines negros%' ORDER BY id DESC LIMIT 1").get();
+  ok(t && /RESPALDO/.test(t.notas || JSON.stringify(t)), "el panel anota que esa respuesta la dio el respaldo", JSON.stringify(t));
+  const r = sql.prepare("SELECT * FROM ia_respaldo ORDER BY id DESC LIMIT 1").get();
+  ok(r && r.ok === 1 && r.tokens_entrada === 25000 && /cuéntame qué talla/.test(r.respuesta), "queda anotado el uso (con los tokens que gastó)", JSON.stringify(r));
+  ok(sql.prepare("SELECT COUNT(*) AS n FROM ia_ejemplos WHERE cliente LIKE '%mocasines negros%'").get().n === 0, "y NO se guarda como ejemplo: no es la maestra");
+  ok(alertasCentral.length === 1 && /no está respondiendo/.test(alertasCentral[0].texto) && /Billing/.test(alertasCentral[0].texto), "el dueño recibe UN aviso: la de pago está fallando", JSON.stringify(alertasCentral));
+  ok(!visto.some((l) => /ATENDER FALLÓ/.test(l)), "sin errores del bot");
+  // Segundo cliente, enseguida: contesta otra vez el respaldo, pero el aviso no se repite.
+  reiniciar();
+  await callado(async () => { await webhook(envDe({ SOMBRA: "si", AI }), texto("1503", "busco unas sandalias")); });
+  ok(enviados.filter((x) => x.a === "1503").length === 1 && /cuéntame/.test(enviados.find((x) => x.a === "1503").texto), "el siguiente cliente también se atiende");
+  ok(alertasCentral.length === 1, "pero el aviso al dueño NO se repite (uno cada 30 minutos)");
+  // Pasada media hora, vuelve a avisar.
+  await S.responderConRespaldo(envDe({ SOMBRA: "si", AI }), "CLIENTE: x", "x", { ahora: Date.now() + 31 * 60000 });
+  ok(alertasCentral.length === 2, "pasados 30 minutos, avisa otra vez");
+  ok(sql.prepare("SELECT COUNT(*) AS n FROM ia_sombra").get().n === 0, "y el respaldo no cuenta como comparación en paralelo");
+}
+
+titulo("el respaldo pasa por las mismas redes de seguridad que la de pago");
+{
+  const fuente = (await import("node:fs")).readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
+  const iRespaldo = fuente.indexOf("responderConRespaldo(env, entrada");
+  const iRed = fuente.indexOf("revisarDatoDeLaTienda(salida?.respuesta");
+  ok(iRespaldo > 0 && iRed > iRespaldo, "su respuesta se asigna a «salida» ANTES de las redes de los datos de la tienda, tono, precios y Cashea (index.js)");
+  reiniciar();
+  pagaFalla = "saldo";
+  comportamientoLibre = () => ({ response: JSON.stringify({ pienso: "", mostrar: "texto", voz: false, respuesta: "Te cuento: el envío es gratis a todo el país 🚚", buscar: "NADA", historial: "" }) });
+  await callado(async () => { await webhook(envDe({ SOMBRA: "si", AI }), texto("1504", "cuanto cuesta el envio a valencia")); });
+  const dijo = enviados.filter((x) => x.a === "1504").map((x) => x.texto).join(" ");
+  ok(!/gratis a todo el país/.test(dijo), "un «envío gratis» inventado por el respaldo NO le llega al cliente (lo corrigen los datos de la tienda)", dijo);
+}
+
+titulo("si el respaldo también falla, todo sigue como antes");
+{
+  reiniciar();
+  alertasCentral = [];
+  sql.exec("DELETE FROM ia_respaldo");
+  pagaFalla = "saldo";
+  comportamientoLibre = () => { throw new Error("AiError: se cayó todo"); };
+  await callado(async () => { await webhook(envDe({ SOMBRA: "si", AI }), texto("1505", "busco unas botas")); });
+  ok(enviados.filter((x) => x.a === "1505").length === 1 && /se me trabó el sistema/.test(enviados.find((x) => x.a === "1505").texto), "el cliente recibe el aviso de siempre (nadie se queda sin respuesta)");
+  ok(sql.prepare("SELECT ok, error FROM ia_respaldo ORDER BY id DESC LIMIT 1").get().ok === 0 && alertasCentral.some((a) => /tampoco pudo/.test(a.texto)), "queda anotado y el aviso al dueño dice que ninguna de las dos pudo");
+  reiniciar();
+  pagaFalla = "caida";
+  comportamientoLibre = () => ({ response: "esto no es un json" });
+  let intentos = 0;
+  const AIdosVeces = { run: async () => (intentos++, intentos === 1 ? { response: "no es json" } : { response: JSON.stringify({ pienso: "", mostrar: "texto", voz: false, respuesta: "¡Hola! ¿Qué buscas hoy? 😊", buscar: "NADA", historial: "" }) }) };
+  await callado(async () => { await webhook(envDe({ SOMBRA: "si", AI: AIdosVeces }), texto("1506", "busco unos tenis")); });
+  ok(intentos === 2 && /¿Qué buscas hoy\?/.test(enviados.find((x) => x.a === "1506")?.texto || ""), "si el primer intento no devuelve un JSON, se reintenta una vez y contesta");
+}
+
+titulo("el modo «sombra» no contesta por la de pago; el respaldo apagado tampoco");
+{
+  reiniciar();
+  pagaFalla = "saldo";
+  comportamientoLibre = () => ({ response: JSON.stringify({ pienso: "", mostrar: "texto", voz: false, respuesta: "NO DEBERÍA SALIR", buscar: "NADA", historial: "" }) });
+  await callado(async () => { await webhook(envDe({ SOMBRA: "si", SOMBRA_MODO: "sombra", AI }), texto("1507", "busco unas pantuflas")); });
+  ok(llamadasLibre.length === 0 && /se me trabó/.test(enviados.find((x) => x.a === "1507")?.texto || ""), "modo «sombra»: no entra de respaldo");
+  reiniciar();
+  await callado(async () => { await webhook(envDe(), texto("1508", "busco unas pantuflas azules")); });
+  ok(llamadasLibre.length === 0 && /se me trabó/.test(enviados.find((x) => x.a === "1508")?.texto || ""), "apagada: igual que siempre");
+  pagaFalla = null;
+}
+
+titulo("el tope de respaldos del día y la cuota agotada");
+{
+  sql.exec("DELETE FROM ia_respaldo");
+  reiniciar();
+  pagaFalla = "saldo";
+  comportamientoLibre = () => ({ response: JSON.stringify({ pienso: "", mostrar: "texto", voz: false, respuesta: "Claro, dime qué buscas 😊", buscar: "NADA", historial: "" }) });
+  const env = envDe({ SOMBRA: "si", AI, RESPALDO_MAX_DIA: "2" });
+  await callado(async () => { for (const [i, t] of ["busco botas", "busco tenis", "busco chancletas"].entries()) await webhook(env, texto(`16${i}`, t)); });
+  ok(llamadasLibre.length === 2, "con tope 2: el tercero ya no llama al respaldo (el gasto tiene techo)", String(llamadasLibre.length));
+  ok(/se me trabó/.test(enviados.find((x) => x.a === "162")?.texto || ""), "y ese tercero recibe el aviso de siempre");
+  ok(S.maximoDeRespaldos({}) === 400 && S.maximoDeRespaldos({ RESPALDO_MAX_DIA: "0" }) === 0, "por defecto 400 al día");
+  // Cuota agotada: descansa 30 minutos, no todo el día (por si pasan a una cuenta de pago).
+  sql.exec("DELETE FROM ia_respaldo");
+  reiniciar();
+  comportamientoLibre = () => { throw new Error("AiError: 4006: you have used up your daily free allocation of 10,000 neurons"); };
+  await callado(async () => { for (const [i, t] of ["busco zapatos", "busco mocasines"].entries()) await webhook(envDe({ SOMBRA: "si", AI }), texto(`17${i}`, t)); });
+  ok(llamadasLibre.length === 1, "si la cuota se acabó, el siguiente no vuelve a intentarlo enseguida (no hace esperar al cliente)", String(llamadasLibre.length));
+  ok((await S.llamadasDeHoy(DB)).agotado && !(await S.llamadasDeHoy(DB, Date.now() + 31 * 60000)).agotado, "y a los 30 minutos vuelve a intentar (por si ya pagaron)");
+  pagaFalla = null;
+  comportamientoLibre = () => ({ response: JSON.stringify({ pienso: "", mostrar: "texto", voz: false, respuesta: "¡Hola! ¿Qué estás buscando hoy?", buscar: "NADA", historial: "" }), usage: { prompt_tokens: 25000, completion_tokens: 90 } });
+  sql.exec("DELETE FROM ia_sombra"); sql.exec("DELETE FROM ia_respaldo");
+}
+
 titulo("el tope del día y la cuota gratis");
 {
   sql.exec("DELETE FROM ia_sombra");
   reiniciar();
-  const env = envDe({ SOMBRA: "si", AI, SOMBRA_MAX_DIA: "2" });
+  const env = envDe({ SOMBRA: "si", SOMBRA_MODO: "sombra", AI, SOMBRA_MAX_DIA: "2" });
   await callado(async () => { for (const [i, t] of ["busco botas", "busco sandalias", "busco tenis blancos", "busco zapatos negros"].entries()) await webhook(env, texto(`11${i}`, t)); });
   ok(llamadasLibre.length === 2 && enviados.length >= 4, "con tope 2: se llama a la gratis 2 veces y los 4 clientes reciben su respuesta", `${llamadasLibre.length} llamadas, ${enviados.length} envíos`);
   sql.exec("DELETE FROM ia_sombra");
   reiniciar();
   comportamientoLibre = () => { throw new Error("AiError: 4006: you have used up your daily free allocation of 10,000 neurons"); };
-  await callado(async () => { for (const [i, t] of ["busco botas", "busco sandalias", "busco tenis blancos"].entries()) await webhook(envDe({ SOMBRA: "si", AI }), texto(`12${i}`, t)); });
+  await callado(async () => { for (const [i, t] of ["busco botas", "busco sandalias", "busco tenis blancos"].entries()) await webhook(envDe({ SOMBRA: "si", SOMBRA_MODO: "sombra", AI }), texto(`12${i}`, t)); });
   ok(llamadasLibre.length === 1 && /^agotado/.test(sql.prepare("SELECT error FROM ia_sombra ORDER BY id LIMIT 1").get().error), "si Cloudflare dice que se acabó la cuota: UNA llamada y descansa el resto del día", `${llamadasLibre.length} llamadas`);
-  ok((await S.llamadasDeHoy(DB)).agotado, "queda anotado hasta mañana");
-  ok((await S.llamadasDeHoy(DB, Date.now() + 86400000)).agotado === false, "al día siguiente (UTC) vuelve a intentar");
+  ok((await S.llamadasDeHoy(DB)).agotado, "queda anotado: descansa un rato");
+  ok((await S.llamadasDeHoy(DB, Date.now() + 86400000)).agotado === false, "pasado el rato (y al día siguiente) vuelve a intentar");
   comportamientoLibre = () => ({ response: JSON.stringify({ pienso: "", mostrar: "texto", voz: false, respuesta: "¡Hola! ¿Qué estás buscando hoy?", buscar: "NADA", historial: "" }), usage: { prompt_tokens: 25000, completion_tokens: 90 } });
   sql.exec("DELETE FROM ia_sombra");
   reiniciar();
-  await callado(async () => { await webhook(envDe({ SOMBRA: "si", AI }), texto("1301", "gracias")); });
+  await callado(async () => { await webhook(envDe({ SOMBRA: "si", SOMBRA_MODO: "sombra", AI }), texto("1301", "gracias")); });
   ok(llamadasLibre.length === 0, "un «gracias» no gasta cuota (es cortesía)");
 }
 
@@ -283,10 +403,10 @@ titulo("lo que el revisor marcó mal NO se imita");
   sql.exec("DELETE FROM ia_ejemplos");
   sql.exec("DELETE FROM ia_sombra");
   const turno = { id: 99, cliente: "tienen Nike Dunk?", respuesta: "Sí, a $5 cada una (inventado)" };
-  await S.aprenderDelMaestro(envDe({ SOMBRA: "si", AI }), { entrada: "x", salida: { buscar: "Nike Dunk", mostrar: "texto" } }, { veredicto: "alucino" }, turno);
+  await S.aprenderDelMaestro(envDe({ SOMBRA: "si", SOMBRA_MODO: "sombra", AI }), { entrada: "x", salida: { buscar: "Nike Dunk", mostrar: "texto" } }, { veredicto: "alucino" }, turno);
   ok(sql.prepare("SELECT bueno, revisado FROM ia_ejemplos WHERE turno = 99").get().bueno === 0, "queda guardado pero como malo: no se usa de ejemplo");
   ok((await S.ejemplosParecidos(DB, "tienen Nike Dunk", 3)).length === 0, "y no sale entre los parecidos");
-  await S.aprenderDelMaestro(envDe({ SOMBRA: "si", AI }), { entrada: "x", salida: { buscar: "NADA", mostrar: "texto" } }, { veredicto: "bien" }, { id: 100, cliente: "tienen Nike Dunk?", respuesta: "Claro, mira estas 😊" });
+  await S.aprenderDelMaestro(envDe({ SOMBRA: "si", SOMBRA_MODO: "sombra", AI }), { entrada: "x", salida: { buscar: "NADA", mostrar: "texto" } }, { veredicto: "bien" }, { id: 100, cliente: "tienen Nike Dunk?", respuesta: "Claro, mira estas 😊" });
   ok((await S.ejemplosParecidos(DB, "tienen Nike Dunk", 3)).length === 1, "una que el revisor dio por buena, sí");
   await S.aprenderDelMaestro(envDe(), { entrada: "x", salida: {} }, null, { id: 101, cliente: "algo nuevo de pruebas", respuesta: "respuesta nueva" });
   ok(!sql.prepare("SELECT 1 FROM ia_ejemplos WHERE turno = 101").get(), "con la sombra apagada no se junta nada");
@@ -318,7 +438,7 @@ titulo("el informe: cuándo diría «lista para tomar el mando»");
 
 titulo("/sombra es confidencial y se puede probar");
 {
-  const get = (ruta, extra = {}) => worker.fetch(new Request(`https://bot.test${ruta}`), envDe({ SOMBRA: "si", AI, ...extra }), { waitUntil: () => {} });
+  const get = (ruta, extra = {}) => worker.fetch(new Request(`https://bot.test${ruta}`), envDe({ SOMBRA: "si", SOMBRA_MODO: "sombra", AI, ...extra }), { waitUntil: () => {} });
   let r = await get("/sombra");
   let t = await r.text();
   ok(/Bot activo/.test(t) && !/IA sombra/.test(t), "sin la clave: solo «vivo»");

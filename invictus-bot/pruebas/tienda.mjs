@@ -746,7 +746,8 @@ titulo("una base de antes (sin la columna de las fotos): se arregla sola");
   const P2 = await otra.cargar("panel.js");
   const { DB: vieja } = baseDeMentira();
   await vieja.prepare("CREATE TABLE mensajes (id INTEGER PRIMARY KEY AUTOINCREMENT, igsid TEXT NOT NULL, cuando INTEGER NOT NULL, de TEXT NOT NULL, texto TEXT NOT NULL)").run();
-  await vieja.prepare("INSERT INTO mensajes (igsid, cuando, de, texto) VALUES ('1', 1, 'cliente', 'un mensaje de antes')").run();
+  // Con fecha reciente: panel.js borra al azar (1 de cada 100) los mensajes viejos y uno de 1970 desaparecía solo.
+  await vieja.prepare("INSERT INTO mensajes (igsid, cuando, de, texto) VALUES ('1', ?, 'cliente', 'un mensaje de antes')").bind(Date.now() - 1000).run();
   await P2.anotarMensaje(vieja, "1", "cliente", "", { fotos: ["https://cdn.example.com/a.jpg"] });
   const filas = (await vieja.prepare("SELECT texto, adjuntos FROM mensajes ORDER BY id").all()).results;
   ok(filas.length === 2 && filas[0].adjuntos === "" && /a\.jpg/.test(filas[1].adjuntos), "añade la columna, sin perder lo que había", JSON.stringify(filas));
