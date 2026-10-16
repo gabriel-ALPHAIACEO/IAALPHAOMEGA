@@ -1,0 +1,129 @@
+============================================================================
+ AGENTE PUENTE DE RODRIGO - PASO A PASO (16-oct-2026)
+============================================================================
+QUE VA A PASAR
+  Solventas (Windows 11) --lee--> agente puente --manda--> el bot de Rodrigo
+  (Cloudflare). El agente SOLO LEE la base de Solventas: nunca escribe,
+  no baja el stock, no crea ventas. El costo no sale de la PC.
+
+DONDE ESTAMOS
+  - Solventas ya abre en Windows 11 con SQL Server 2022 Express.
+  - El bot de Rodrigo (rodrigo-bot) todavia NO esta desplegado en Cloudflare.
+    Hay que desplegarlo primero para tener a donde mandar el stock.
+  - La base tiene hoy 4 productos con existencia 0: sirven para probar la
+    conexion. El stock real aparece cuando la tienda cargue sus compras en
+    Solventas.
+
+Los comandos que empiezan con ">" se copian SIN el ">". Los .bat se ejecutan
+con clic derecho, "Ejecutar como administrador". NO pegues claves en el chat.
+
+============================================================================
+PARTE A - DESPLEGAR EL BOT DE RODRIGO (en la PC donde despliegas tus bots)
+============================================================================
+Todo DENTRO de la carpeta  rodrigo-bot  (si no, se le cargaria a otra tienda).
+No se cambia ningun codigo: solo se crea su base y sus claves.
+
+A1. Crear su base de datos propia:
+> npx.cmd wrangler d1 create rodrigo-bot-db
+    Imprime un database_id. Pegalo en rodrigo-bot\wrangler.toml, en la linea
+    database_id = "PENDIENTE"  (cambia PENDIENTE por ese id, con comillas).
+
+A2. Crear la clave de la conexion (SYNC_CLAVE). Genera una larga y al azar
+    (PowerShell):
+> -join ((48..57)+(65..90)+(97..122) | Get-Random -Count 40 | ForEach-Object {[char]$_})
+    Copiala en un lugar seguro (la vas a necesitar en el PASO B6).
+    Cargala en la tienda (te la pide por la ventana; NO va en ningun archivo):
+> npx.cmd wrangler secret put SYNC_CLAVE
+
+A3. Clave de entrada al panel de la tienda:
+> npx.cmd wrangler secret put PANEL_CLAVE
+
+A4. Desplegar:
+> npx.cmd wrangler deploy
+    Al final imprime la direccion del Worker, algo como
+    https://rodrigo-bot.TU-CUENTA.workers.dev   <- guardala.
+
+A5. Comprobar: abre en el navegador
+    https://rodrigo-bot.TU-CUENTA.workers.dev/estado
+    Debe responder (dice "vivo" y la version).
+    Y  .../panel  pide la clave PANEL_CLAVE.
+
+Nota: lo demas (DeepSeek, Instagram, WhatsApp, horario, pagos...) se llena
+despues; no hace falta para recibir el stock. El bot no atiende clientes de
+verdad hasta tener esos datos.
+
+============================================================================
+PARTE B - EN LA PC DE WINDOWS 11 (donde esta Solventas)
+============================================================================
+B1. Instalar Node.js (la version LTS) desde https://nodejs.org (pagina
+    oficial). Al terminar, abre un CMD nuevo y comprueba:
+> node --version
+    Debe decir v18 o mas (por ejemplo v22.x).
+
+B2. Descomprime  agente-puente-completo.zip  en  C:\agente-puente
+    (ruta corta y sin espacios). Debe quedar C:\agente-puente\agente-puente.mjs
+    y C:\agente-puente\sistemas\solventas\...
+
+B3. Dar permiso de LECTURA al agente (sin claves):
+    clic derecho en
+      C:\agente-puente\sistemas\solventas\dar-lectura-al-agente.bat
+    "Ejecutar como administrador". Debe terminar con:
+      LISTO. El agente puente ya puede leer el stock de RRVS2013CA (y nada mas).
+    (El agente corre como el usuario "SYSTEM" de Windows; esto le da solo el
+    rol de lectura en la base. No puede escribir ni borrar.)
+
+B4. Probar la lectura del stock a mano. Ejecuta (normal, sin administrador):
+      C:\agente-puente\sistemas\solventas\sacar-stock-solventas.bat
+    Debe mostrar una tabla de texto con los 4 productos, con columnas:
+      codigo;producto;talla;color;cantidad;precio;marca;categoria;foto
+    Si da error, copiame el texto.
+    OJO: el precio que sale es el de la columna PVP1Prod (hoy 75 y 80). Dime si
+    ese es el precio de venta en dolares. Si es otro, se cambia en ese .bat
+    (la linea SOLVENTAS_PRECIO).
+
+B5. Probar el agente SIN mandar nada:
+> cd /d C:\agente-puente
+> copy sistemas\solventas\config.solventas.ejemplo.json config.json
+    Abre config.json con el Bloc de notas y cambia SOLO:
+      "url":   la direccion del Worker del PASO A4 (sin /api...)
+      "clave": la SYNC_CLAVE del PASO A2
+      "fotos": { "carpeta": ... }  -> si no tienes la carpeta de fotos, borra
+                esa parte (o pon  "fotos": { "activar": false }  )
+    y revisa que "comando" apunte a:
+      C:\\agente-puente\\sistemas\\solventas\\sacar-stock-solventas.bat
+    Guarda. Luego:
+> node agente-puente.mjs --probar
+    Debe decir "Leidas 4 filas de comando", ensenar como entendio cada columna
+    y decir que la tienda contesta. No manda ni guarda nada.
+
+B6. Instalar (queda corriendo solo, cada minuto, aunque reinicies la PC):
+    doble clic en  C:\agente-puente\instalar.bat  (acepta el permiso).
+    Como ya existe config.json, no repite las preguntas: revisa todo con el
+    "doctor" y, si todo esta bien, crea la tarea "Agente puente".
+    Si el doctor pone alguna X, copiame ese texto.
+
+B7. Comprobar que llego:
+    en el panel de la tienda  https://rodrigo-bot.TU-CUENTA.workers.dev/panel
+    (clave PANEL_CLAVE) -> Inventario -> Importar: el agente sale "Activo" y
+    en Inventario aparecen los 4 productos (con 0 unidades, por ahora).
+    En la PC:   node agente-puente.mjs --estado
+
+============================================================================
+DESPUES (cuando la tienda ya use Solventas de verdad)
+============================================================================
+  - El stock que llega es el que tenga Solventas (ExistProd). Si la tienda
+    carga sus compras/entradas en Solventas, el stock aparece solo en el panel
+    en unos minutos (cada 15 min, o ya con "Sincronizar ahora" en
+    Inventario - Importar).
+  - Las fotos: Solventas no las tiene (campo vacio). Se suben desde el panel
+    de la tienda: Inventario tiene el atajo "Sin foto". Si hay una carpeta
+    con fotos nombradas por el codigo, dime y la activamos en el agente.
+  - Las ventas que se hagan en la tienda web / caja del panel NO bajan stock
+    en Solventas por su cuenta (regla del dueno): la verdad del stock es
+    Solventas.
+
+SI ALGO FALLA, mandame: en que paso fue, el texto exacto (o captura de toda la
+ventana) y, en la PC, el resultado de:  node agente-puente.mjs --estado
+
+NO HAGAS: no cambies la clave de sa, no pegues la SYNC_CLAVE en el chat, no
+compartas config.json (tiene la clave de la tienda).
