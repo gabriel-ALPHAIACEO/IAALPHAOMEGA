@@ -6,6 +6,9 @@ rem  Solventas es un programa de 32 bits: hay que registrarlo con el regsvr32 de
 rem  32 bits (SysWOW64), no con el de System32. Ejecutalo como ADMINISTRADOR.
 rem ============================================================================
 set "OCX=C:\SSCA\VMAX.ocx"
+rem Si VMAX.ocx esta junto a este archivo (por ejemplo en E:\SSCA), se usa ese.
+if exist "%~dp0VMAX.ocx" set "OCX=%~dp0VMAX.ocx"
+echo Usando: %OCX%
 if not "%~1"=="" set "OCX=%~1"
 net session >nul 2>&1
 if errorlevel 1 (

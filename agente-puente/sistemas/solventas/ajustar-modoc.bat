@@ -7,6 +7,9 @@ rem  Antes guarda una copia: modoc.ini.copia. Para una caja que se conecta a otr
 rem  PC, pasa el nombre:  ajustar-modoc.bat NOMBRE-DE-LA-PC\SQLEXPRESS
 rem ============================================================================
 set "INI=C:\SSCA\modoc.ini"
+rem Si modoc.ini esta junto a este archivo (por ejemplo en E:\SSCA), se usa ese.
+if exist "%~dp0modoc.ini" set "INI=%~dp0modoc.ini"
+echo Usando: %INI%
 set "SERVIDOR=.\SQLEXPRESS"
 if not "%~1"=="" set "SERVIDOR=%~1"
 if not exist "%INI%" (
