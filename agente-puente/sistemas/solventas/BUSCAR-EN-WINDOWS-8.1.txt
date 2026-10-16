@@ -1,0 +1,130 @@
+============================================================================
+ SOLVENTAS: BUSCAR Y RESPALDAR LA BASE EN EL OTRO SISTEMA (WINDOWS 8.1)
+============================================================================
+Como usar este archivo:
+  - Cada linea que empieza con ">" es un COMANDO: copiala SIN el ">" y pegala en
+    la ventana negra (CMD) con clic derecho (pegar), luego Enter.
+  - Abre el CMD como ADMINISTRADOR: menu Inicio, escribe cmd, clic derecho,
+    "Ejecutar como administrador".
+  - NO pegues contrasenas en el chat. Si un comando pide la clave, escribela
+    solo en la ventana negra.
+  - Dime que sale en cada paso (puedes copiarme el texto de la ventana).
+
+----------------------------------------------------------------------------
+PASO 0 (OPCIONAL, SIN REINICIAR): mirar el disco de Windows 8.1 desde Windows 11
+----------------------------------------------------------------------------
+El otro disco suele verse como otra letra (D:, E:, F:...). Mira que letras hay:
+> wmic logicaldisk get name,volumename,size
+
+Para CADA letra que no sea C: (cambia D por la letra), busca los archivos de la base:
+> dir D:\*.mdf D:\*.ldf D:\*.bak /s /b > "%PUBLIC%\Desktop\busqueda-disco-D.txt" 2>nul
+
+Y mira si esta la carpeta del programa y su modoc.ini:
+> dir D:\SSCA /b
+> type D:\SSCA\modoc.ini
+
+Si aparece un archivo llamado RRVS2013CA.mdf (y RRVS2013CA_log.ldf o parecido)
+o un .bak de Solventas, mandame busqueda-disco-D.txt: quiza no haga falta
+ni reiniciar. (Windows 8.1 debe haberse REINICIADO, no "apagado", la ultima vez:
+si el disco da error al abrirlo, reinicia en 8.1 y sigue en el PASO 1.)
+
+----------------------------------------------------------------------------
+PASO 1: reiniciar y entrar a Windows 8.1
+----------------------------------------------------------------------------
+Usa REINICIAR (no Apagar) para pasar de un Windows a otro. Elige Windows 8.1.
+Abre CMD como ADMINISTRADOR.
+
+----------------------------------------------------------------------------
+PASO 2: ver como se llama la PC y si SQL Server esta funcionando
+----------------------------------------------------------------------------
+Nombre de esta PC (deberia ser USER o LAPTOP-AJJK7LJQ, el que dice modoc.ini):
+> hostname
+
+Servicios de SQL Server (los que dicen RUNNING estan funcionando):
+> sc query state= all | findstr /i "SERVICE_NAME" | findstr /i "sql"
+> net start | findstr /i sql
+
+Si el servicio MSSQL$SQLEXPRESS esta detenido (STOPPED), iniciarlo:
+> net start "MSSQL$SQLEXPRESS"
+
+Instancias de SQL Server instaladas:
+> reg query "HKLM\SOFTWARE\Microsoft\Microsoft SQL Server" /v InstalledInstances
+
+----------------------------------------------------------------------------
+PASO 3: encontrar la herramienta para hablar con SQL Server (sqlcmd)
+----------------------------------------------------------------------------
+> where sqlcmd
+Si dice que no lo encuentra, busca:
+> dir "C:\Program Files\Microsoft SQL Server\*sqlcmd.exe" /s /b
+> dir "C:\Program Files (x86)\Microsoft SQL Server\*sqlcmd.exe" /s /b
+> dir "C:\Program Files\Microsoft SQL Server\*osql.exe" /s /b
+(osql.exe es el hermano mas viejo; se usa igual que sqlcmd.)
+Usa la ruta completa que salga, entre comillas, en vez de la palabra sqlcmd.
+
+----------------------------------------------------------------------------
+PASO 4: comprobar que la base esta y hasta cuando hay ventas (SOLO LEE)
+----------------------------------------------------------------------------
+> sqlcmd -S .\SQLEXPRESS -E -Q "SELECT name, state_desc FROM sys.databases"
+> sqlcmd -S .\SQLEXPRESS -E -d RRVS2013CA -Q "SELECT MAX(fecha) AS ultima_venta, COUNT(*) AS facturas FROM ventas"
+> sqlcmd -S .\SQLEXPRESS -E -d RRVS2013CA -Q "SELECT COUNT(*) AS productos, SUM(ExistProd) AS unidades FROM Productos"
+
+Donde estan los archivos de la base en el disco:
+> sqlcmd -S .\SQLEXPRESS -E -Q "SELECT name, physical_name FROM sys.master_files WHERE database_id = DB_ID('RRVS2013CA')"
+
+Si da error de "Login failed" con -E, entra con el usuario sa (la clave se escribe
+en la ventana cuando la pide; NO la pegues en el chat):
+> sqlcmd -S .\SQLEXPRESS -U sa -d RRVS2013CA -Q "SELECT MAX(fecha) FROM ventas"
+
+Si la instancia no se llama SQLEXPRESS (mira el PASO 2), cambia  .\SQLEXPRESS
+por  .\NOMBRE  (o por  .  si es la instancia sin nombre).
+
+----------------------------------------------------------------------------
+PASO 5: HACER EL RESPALDO (lo mas importante)
+----------------------------------------------------------------------------
+Crear la carpeta:
+> mkdir C:\respaldo-solventas
+
+Hacer el respaldo (con usuario de Windows):
+> sqlcmd -S .\SQLEXPRESS -E -Q "BACKUP DATABASE [RRVS2013CA] TO DISK='C:\respaldo-solventas\RRVS2013CA-hoy.bak' WITH INIT, CHECKSUM"
+
+Si hace falta el usuario sa, agregale  -U sa  y  quitale  -E :
+> sqlcmd -S .\SQLEXPRESS -U sa -Q "BACKUP DATABASE [RRVS2013CA] TO DISK='C:\respaldo-solventas\RRVS2013CA-hoy.bak' WITH INIT, CHECKSUM"
+
+Debe decir "BACKUP DATABASE successfully processed". Comprobar el archivo:
+> dir C:\respaldo-solventas
+
+----------------------------------------------------------------------------
+PASO 5 ALTERNATIVO: si NO se puede usar sqlcmd (copiar los archivos a mano)
+----------------------------------------------------------------------------
+Primero anota donde estan los .mdf y .ldf (PASO 4, ultima consulta, o busca):
+> dir C:\*.mdf C:\*.ldf /s /b > C:\respaldo-solventas\archivos-base.txt 2>nul
+Detener SQL Server para que los archivos no esten en uso, copiarlos y volver a iniciar:
+> net stop "MSSQL$SQLEXPRESS"
+> copy "RUTA-COMPLETA\RRVS2013CA.mdf" C:\respaldo-solventas\
+> copy "RUTA-COMPLETA\RRVS2013CA_log.ldf" C:\respaldo-solventas\
+> net start "MSSQL$SQLEXPRESS"
+(cambia RUTA-COMPLETA y los nombres por los que salgan en archivos-base.txt)
+
+----------------------------------------------------------------------------
+PASO 6: sacar el respaldo de ese disco
+----------------------------------------------------------------------------
+Copia la carpeta C:\respaldo-solventas a un pendrive, o a una carpeta del
+disco de Windows 11 (que en 8.1 se ve con otra letra). Luego REINICIA y vuelve a
+Windows 11. Desde Windows 11, mandame el archivo .bak (o el .mdf y el .ldf).
+
+----------------------------------------------------------------------------
+PASO 7 (OPCIONAL): el diagnostico completo en esa maquina
+----------------------------------------------------------------------------
+Copia la carpeta con diagnostico.bat, diagnostico.sql y ejecutar-sql.ps1 a un
+lugar de Windows 8.1 (por ejemplo C:\SSCA). Clic derecho en diagnostico.bat,
+"Ejecutar como administrador". Mandame diagnostico-solventas.txt.
+(En Windows 8.1 el servidor puede llamarse distinto: si dice que no conecta,
+el diagnostico lista los servicios de SQL; dime cual es.)
+
+----------------------------------------------------------------------------
+NO HAGAS
+----------------------------------------------------------------------------
+  - No borres nada, no reinstales SQL Server, no ejecutes reparar-base.bat
+    todavia.
+  - No abras el .bak ni los archivos con otro programa.
+  - No pegues claves en el chat.
