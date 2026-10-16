@@ -29,6 +29,7 @@
 // versión y NO van con este código — mezclarlos rompe el arranque.
 
 import { responderTexto, identificarEnImagen } from "./ia.js";
+import { sombraActiva, consultarSombra, aprenderDelMaestro, anotarSombra, resumenDeLaSombra, ultimasComparaciones, ejemplosEnJsonl, probarLaSombra, modeloDeLaSombra, proveedorDeLaSombra, maximoPorDia, paginaDeLaSombra } from "./sombra.js";
 import {
   revisarPagos,
   metodosDePago,
@@ -162,7 +163,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-16 (107) · 📷 LAS FOTOS DEL SISTEMA: si el sistema de inventario tiene fotos (una columna con la dirección o el archivo, o una carpeta con las fotos nombradas por el código), el agente puente (v2.2) las manda a POST /api/sync/foto, solo las nuevas o cambiadas y como mucho 30 por vuelta; la tienda las guarda como las del panel (fotos-del-sistema.js, tabla sync_fotos) y LAS DEL PANEL MANDAN: a un producto con fotos puestas por una persona el sistema no le toca nada, y una foto quitada en el panel no vuelve. La tarjeta del agente puente dice cuántas llegaron.";
+const VERSION = "2026-10-16 (108) · 🧠 LA IA SOMBRA SIN COSTO (src/sombra.js): una segunda IA, sin pagar clave (Workers AI de Cloudflare por el binding [ai], u otro proveedor gratis), lee cada conversación en paralelo a la de OpenAI y escribe en secreto qué habría contestado; NUNCA le habla al cliente y corre después de enviar. Aprende de la de pago con sus respuestas buenas como ejemplos (ia_ejemplos) y se compara con ella (ia_sombra): /sombra?clave= enseña el informe y cuándo estaría lista para tomar el mando; /sombra/probar comprueba el modelo; tope diario SOMBRA_MAX_DIA (12) por la cuota gratis de 10.000 neuronas.";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo
@@ -517,6 +518,22 @@ const trabajador = {
         rubro: "calzado",
         version: VERSION,
       });
+    }
+
+    // LA IA SOMBRA (16-oct-2026, ver sombra.js): cómo le va a la IA gratis
+    // frente a la de pago. Confidencial: con la clave (PANEL_API_CLAVE).
+    //   /sombra                   el informe (&formato=json para máquinas)
+    //   /sombra/probar            UNA llamada real: ¿existe el modelo, cabe el prompt?
+    //   /sombra/ejemplos.jsonl    los ejemplos del maestro, por si se quiere afinar un modelo
+    if (url.pathname === "/sombra" || url.pathname.startsWith("/sombra/")) {
+      if (!estadoCompletoPermitido(request, env)) return estadoPublico(VERSION);
+      const json = (cuerpo) => new Response(JSON.stringify(cuerpo, null, 2), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
+      if (url.pathname === "/sombra/probar") return json(await probarLaSombra(env));
+      if (url.pathname === "/sombra/ejemplos.jsonl") return new Response(await ejemplosEnJsonl(env.DB), { headers: { "content-type": "application/x-ndjson; charset=utf-8", "content-disposition": 'attachment; filename="ejemplos-del-maestro.jsonl"', "cache-control": "no-store" } });
+      const [resumen, ultimas] = await Promise.all([resumenDeLaSombra(env.DB), ultimasComparaciones(env.DB, 20)]);
+      const datos = { encendida: sombraActiva(env), proveedor: proveedorDeLaSombra(env), modelo: modeloDeLaSombra(env), maximoPorDia: maximoPorDia(env), ...resumen };
+      if (url.searchParams.get("formato") === "json") return json({ ...datos, ultimas });
+      return new Response(paginaDeLaSombra(datos, ultimas, url.searchParams.get("clave") || ""), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
     }
 
     // Dispara un aviso de prueba y enseña lo que respondió Slack. Sirve para
@@ -1332,8 +1349,17 @@ async function atenderConRed(env, mensaje) {
     mensaje = aAtender;
 
     await atenderMeta(env, mensaje, rastro);
-    // ¿Contestó bien? Con todo ya enviado: el cliente no espera esto.
-    if (rastro.turno?.id) await revisarTurno(env, rastro.turno);
+    // ¿Contestó bien? Con todo ya enviado: el cliente no espera esto. La IA
+    // sombra (gratis) contesta lo mismo en paralelo al revisor y se compara.
+    const sombra = rastro.sombra && rastro.turno?.id ? rastro.sombra : null;
+    const consultando = sombra ? consultarSombra(env, sombra, { turno: rastro.turno }) : null; // no lanza nunca
+    const veredicto = rastro.turno?.id ? await revisarTurno(env, rastro.turno) : null;
+    if (sombra) {
+      // Primero aprender de la de pago (rápido, no depende de la gratis); luego
+      // anotar cómo le fue a la gratis, cuando conteste.
+      await aprenderDelMaestro(env, sombra, veredicto, rastro.turno);
+      await anotarSombra(env, sombra, await consultando, rastro.turno);
+    }
     await guardarErrores(env.DB, env);
   } catch (error) {
     const detalle = error?.stack || error?.message || String(error);
@@ -1945,6 +1971,12 @@ async function atenderMeta(env, mensaje, rastro = {}) {
   );
 
   let salida = await responderTexto(env, entrada);
+
+  // LA IA SOMBRA (16-oct-2026, ver sombra.js): lo que leyó la de pago, para
+  // que la gratis lo lea igual DESPUÉS de enviar. Nunca le habla al cliente.
+  if (salida && sombraActiva(env)) {
+    rastro.sombra = { entrada, textoCliente, salida: { respuesta: salida.respuesta, buscar: salida.buscar, mostrar: salida.mostrar } };
+  }
 
   // LA RED DE LOS DATOS DE LA TIENDA. Si el modelo no respondió, o se
   // inventó algo (un precio de envío, una zona gratis, una hora), sale el

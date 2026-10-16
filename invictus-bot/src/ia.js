@@ -546,16 +546,23 @@ async function llamar(
   return datos.choices?.[0]?.message?.content || null;
 }
 
-export async function responderTexto(env, entrada) {
-  // LO QUE YA APRENDIÓ (ver lecciones.js). Va en el mensaje y no en el
-  // prompt fijo: así el prompt sigue igual y OpenAI lo cobra cacheado.
+// Lo que lee la IA de texto: el prompt fijo y el mensaje (con lo que ya
+// aprendió, ver lecciones.js). Va en el mensaje y no en el prompt fijo: así el
+// prompt sigue igual y OpenAI lo cobra cacheado. La IA sombra (sombra.js) pide
+// exactamente lo mismo, para que las dos lean igual.
+export async function armarPedidoDeTexto(env, entrada) {
   const reglas = await reglasParaLaIA(env, "texto");
-  const salida = await llamar(
-    env,
-    textoConCatalogo(env),
-    [{ type: "text", text: reglas ? `${reglas}\n\n${entrada}` : entrada }],
-    { schema: ESQUEMA_RESPUESTA }
-  );
+  return { sistema: textoConCatalogo(env), contenido: reglas ? `${reglas}\n\n${entrada}` : entrada };
+}
+
+// El JSON que devuelve cualquier modelo → { respuesta, buscar, mostrar… } o null.
+export function leerRespuestaDelModelo(salida) {
+  return normalizar(salida);
+}
+
+export async function responderTexto(env, entrada) {
+  const { sistema, contenido } = await armarPedidoDeTexto(env, entrada);
+  const salida = await llamar(env, sistema, [{ type: "text", text: contenido }], { schema: ESQUEMA_RESPUESTA });
   return normalizar(salida);
 }
 
