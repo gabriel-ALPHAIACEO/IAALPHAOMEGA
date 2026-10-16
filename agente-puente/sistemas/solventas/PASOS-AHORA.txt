@@ -1,0 +1,83 @@
+============================================================================
+ SOLVENTAS EN WINDOWS 11 - LO QUE HAY QUE HACER AHORA
+============================================================================
+DONDE ESTAMOS
+  - SQL Server 2022 Express ya esta instalado en Windows 11.
+  - La base RRVS2013CA ya esta restaurada (con indices) y el usuario "sa"
+    funciona.
+  - Al abrir Solventas sale este error:
+      [DBNETLIB][ConnectionOpen (Connect()).] No existe el servidor SQL
+      Server o se ha denegado el acceso al mismo.
+    Significa que Solventas (con su conector viejo) no llega a SQL Server.
+    Es de configuracion; los pasos de abajo lo arreglan.
+
+REGLA: los .bat se ejecutan con clic derecho, "Ejecutar como administrador"
+(excepto probar-conexion.bat, que va normal). NO pegues claves en el chat.
+
+----------------------------------------------------------------------------
+PASO 1 - Poner los archivos nuevos
+----------------------------------------------------------------------------
+Descomprime solventas-traslado-windows11-v6.zip y copia los 10 archivos a la
+carpeta de Solventas de Windows 11 (donde esta Solventas.exe; en tu caso
+E:\SSCA), reemplazando los que ya estan.
+
+----------------------------------------------------------------------------
+PASO 2 - Apuntar Solventas a este SQL Server
+----------------------------------------------------------------------------
+Ejecuta  ajustar-modoc.bat  (como administrador).
+Debe mostrar "Usando: ...modoc.ini" y dejar la primera linea como:
+    .\SQLEXPRESS
+(Guarda antes una copia: modoc.ini.copia)
+
+Comprueba abriendo modoc.ini con el Bloc de notas: la primera linea debe ser
+exactamente  .\SQLEXPRESS  (no USER\SQLEXPRESS).
+
+----------------------------------------------------------------------------
+PASO 3 - Encender la red de SQL Server  (el arreglo del error)
+----------------------------------------------------------------------------
+Ejecuta  habilitar-red-sql.bat  (como administrador).
+Activa Named Pipes y TCP/IP, deja funcionando "SQL Server Browser" y reinicia
+SQL Server. Debe terminar con:
+    LISTO. Ahora corre probar-conexion.bat ...
+
+----------------------------------------------------------------------------
+PASO 4 - Probar la conexion igual que lo hace Solventas
+----------------------------------------------------------------------------
+Ejecuta  probar-conexion.bat  (normal, sin administrador).
+Te pide la clave de "sa" (no se ve mientras la escribes). Debe decir:
+    CONECTO BIEN. Productos en la base: 4
+  - Si dice CONECTO BIEN -> pasa al paso 5.
+  - Si dice NO CONECTO -> copiame el "Error exacto" que muestra y no sigas.
+
+----------------------------------------------------------------------------
+PASO 5 - Registrar el componente VMAX.ocx
+----------------------------------------------------------------------------
+Ejecuta  registrar-vmax.bat  (como administrador).
+Debe decir:  Registrado: ...VMAX.ocx
+
+----------------------------------------------------------------------------
+PASO 6 - Abrir Solventas
+----------------------------------------------------------------------------
+Abre Solventas.exe desde esa misma carpeta.
+Si pide permisos o abre raro: clic derecho en Solventas.exe > Propiedades >
+Compatibilidad > marca "Ejecutar este programa como administrador".
+
+----------------------------------------------------------------------------
+SI ALGO FALLA
+----------------------------------------------------------------------------
+Mandame:
+  - en que paso fue,
+  - el texto exacto del error (o una captura de TODA la ventana),
+  - del paso 4, el "Error exacto".
+Casos que ya conocemos:
+  - Error que nombra "BDE", "Borland Database Engine" o "IDAPI32.DLL":
+    falta instalar el BDE. Avisame y lo hacemos.
+  - "Error de inicio de sesion del usuario sa": el servidor SI se alcanzo,
+    pero la clave de sa no coincide. Avisame (no la pegues en el chat).
+
+----------------------------------------------------------------------------
+NO HAGAS
+----------------------------------------------------------------------------
+  - No reinstales SQL Server ni cambies de version.
+  - No borres la base ni el Windows 8.1 (es tu plan B).
+  - No cambies la clave de sa.
