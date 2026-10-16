@@ -69,6 +69,7 @@ import {
   parteDelInventario,
   contarModelosActivos,
   cuentaPorCategoria,
+  contarSinFoto,
   SIN_CATEGORIA_FILTRO,
   ponerCategoria,
   categoriasUsadas,
@@ -448,13 +449,14 @@ const volverAlInventario = { href: "/panel/inventario", texto: "Inventario" };
 
 async function paginaDeLista(env, url, r, opciones = {}) {
   const q = String(url.searchParams.get("q") || "").slice(0, 40);
-  const filtro = ["con-stock", "pocos", "agotados"].includes(url.searchParams.get("f")) ? url.searchParams.get("f") : "";
+  const filtro = ["con-stock", "pocos", "agotados", "sin-foto"].includes(url.searchParams.get("f")) ? url.searchParams.get("f") : "";
   const cat = String(url.searchParams.get("cat") || "").trim().slice(0, 40);
-  const [productos, cuenta, enCurso, categorias] = await Promise.all([
-    listarProductos(env.DB, { q, agotados: filtro === "agotados", soloConStock: filtro === "con-stock", porReponer: filtro === "pocos", categoria: cat }),
+  const [productos, cuenta, enCurso, categorias, sinFoto] = await Promise.all([
+    listarProductos(env.DB, { q, agotados: filtro === "agotados", soloConStock: filtro === "con-stock", porReponer: filtro === "pocos", sinFoto: filtro === "sin-foto", categoria: cat }),
     contarProductos(env.DB),
     importacionesEnCurso(env.DB),
     cuentaPorCategoria(env.DB),
+    contarSinFoto(env.DB),
   ]);
   const enlace = (f, c = cat) => {
     const p = new URLSearchParams({ ...(f ? { f } : {}), ...(q ? { q } : {}), ...(c ? { cat: c } : {}) }).toString();
@@ -472,6 +474,8 @@ async function paginaDeLista(env, url, r, opciones = {}) {
       ["con-stock", "Con stock", enlace("con-stock")],
       ["pocos", "Por reponer", enlace("pocos")],
       ["agotados", "Agotados", enlace("agotados")],
+      // Lo que llegó sin imagen (de un sistema que no tiene fotos): aquí se le suben.
+      ...(sinFoto || filtro === "sin-foto" ? [["sin-foto", `Sin foto (${numero(sinFoto)})`, enlace("sin-foto")]] : []),
     ],
     filtro,
     { nombre: "Filtrar el inventario" }
@@ -992,8 +996,14 @@ async function tarjetaDeLosAgentes(env) {
   const pedida = orden
     ? `<p style="font-size:13px;display:flex;gap:6px;align-items:flex-start;margin:10px 0 0">${icono("reloj")}Sincronización pedida ${esc(haceCuanto(orden, ahora))}: el agente la hace en su próximo aviso (en menos de un minuto si se instaló con instalar.bat; si lo programaron cada tantos minutos, en su próxima vuelta).</p>`
     : "";
+  // Los sistemas cerrados casi nunca traen fotos: las fotos se suben aquí, en
+  // el panel, y un conteo del sistema nunca las toca.
+  const sinFoto = await contarSinFoto(env.DB).catch(() => 0);
+  const fotos = sinFoto
+    ? `<p style="font-size:13px;display:flex;gap:6px;align-items:flex-start;margin:10px 0 0">${icono("foto")}<span>${numero(sinFoto)} ${sinFoto === 1 ? "producto no tiene" : "productos no tienen"} foto. El sistema no las manda: súbelas aquí y se quedan aunque el sistema vuelva a mandar el stock. <a href="/panel/inventario?f=sin-foto">Ver los que faltan</a></span></p>`
+    : "";
   return `<section class="panel-tarjeta"><h2>${insignia("enlace", "marca", "chica")}Agente puente</h2>
-${filas.join("")}${pedida}
+${filas.join("")}${pedida}${fotos}
 <form method="post" action="/panel/inventario/conector/sincronizar" class="opciones" data-una-vez style="margin-top:12px"><button class="principal">${icono("subir")}Sincronizar ahora</button></form></section>`;
 }
 

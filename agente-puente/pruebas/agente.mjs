@@ -178,7 +178,7 @@ try {
     const falta = a.completarConfig({ ...base(), agente: "caja-falta", fuente: { tipo: "archivo", ruta: path.join(carpeta, "no-existe.csv") } }, carpeta);
     fs.rmSync(path.join(carpeta, "estado-puente.json"), { force: true });
     await a.vuelta(falta, { esperar: sinEsperar, registrar: () => {} });
-    ok(/No encuentro el archivo/.test(tienda.latidos.at(-1).mensaje) && /unidad de red/.test(tienda.latidos.at(-1).mensaje), "un archivo que no está: lo dice, y avisa de las unidades de red", tienda.latidos.at(-1).mensaje);
+    ok(/No encuentro/.test(tienda.latidos.at(-1).mensaje) && /unidad de red/.test(tienda.latidos.at(-1).mensaje), "un archivo que no está: lo dice, y avisa de las unidades de red", tienda.latidos.at(-1).mensaje);
 
     // La tienda no contesta: nada se cae.
     const muerta = a.completarConfig({ ...base(), url: "http://127.0.0.1:9", timeoutSegundos: 2 }, carpeta);
@@ -244,7 +244,8 @@ try {
   /* ── Configurar ────────────────────────────────────────────────────── */
   titulo("--configurar pregunta y escribe config.json");
   {
-    const respuestas = ["http://mal", `${URL_TIENDA}/api/sync/inventario`, CLAVE, "Saint", "PC Oficina", "", "x", "2", `"${process.execPath}" "${path.join(carpeta, "salida.mjs")}"`, "utf8", "90", "10", "s", path.join(carpeta, "ventas")];
+    fs.writeFileSync(path.join(carpeta, "salida.mjs"), 'console.log("Ref;Nombre;Existencia");console.log("Z1;Gorra;3");');
+    const respuestas = ["1", "http://mal", `${URL_TIENDA}/api/sync/inventario`, CLAVE, "Saint", "PC Oficina", "", "x", "3", `"${process.execPath}" "${path.join(carpeta, "salida.mjs")}"`, "90", "s", "10", "s", path.join(carpeta, "ventas")];
     const vistas = [];
     const ruta = path.join(carpeta, "config-preguntas.json");
     const salida = [];
@@ -252,7 +253,8 @@ try {
     const leido = JSON.parse(fs.readFileSync(ruta, "utf8"));
     ok(leido.url === URL_TIENDA, "quita /api/sync de la dirección y no acepta una sin https", leido.url);
     ok(leido.fuente.tipo === "comando" && leido.fuente.timeoutSegundos === 90 && leido.cadaMinutos === 10 && leido.ventas.activar, "guarda la fuente, el tiempo, cada cuánto y las ventas", JSON.stringify(leido));
-    ok(vistas.filter((t) => /^6\./.test(t)).length === 2, "una respuesta que no vale («x») se vuelve a preguntar");
+    ok(vistas.filter((t) => /^5\./.test(t)).length === 2, "una respuesta que no vale («x») se vuelve a preguntar");
+    ok(salida.some((m) => /Leí 1 filas/.test(m)) && salida.some((m) => /cantidad ← «Existencia»/.test(m)), "lee el stock una vez y enseña cómo entendió las columnas", salida.join(" | "));
     ok(salida.some((m) => /no lo compartas/.test(m)), "avisa que la clave quedó en el archivo");
     ok(c.origen === "Saint" && c.equipo === "PC Oficina", "con el nombre del sistema y de la PC");
   }
@@ -263,15 +265,15 @@ try {
     const instalada = async (programa) => ({ codigo: programa === "schtasks" ? 0 : 1, salida: "" });
     const r = await a.doctor(base(), { esperar: sinEsperar, ejecutar: instalada, plataforma: "win32" });
     ok(r.every((x) => x.ok !== false), "todo bien: ninguna ❌", a.textoDelDoctor(r));
-    ok(r.some((x) => /tienda contesta/.test(x.nombre) && /3 productos/.test(x.detalle)), "dice que la tienda contesta y cuántos productos tiene");
-    ok(r.some((x) => /Prueba completa/.test(x.nombre) && x.ok), "hace la prueba sin guardar nada (?probar=1)", JSON.stringify(tienda.conteos.at(-1)?.consulta));
+    ok(r.some((x) => /Contesta la tienda/.test(x.nombre) && /3 productos/.test(x.detalle)), "dice que la tienda contesta y cuántos productos tiene");
+    ok(r.some((x) => /^Prueba con/.test(x.nombre) && x.ok), "hace la prueba sin guardar nada (?probar=1)", JSON.stringify(tienda.conteos.at(-1)?.consulta));
     ok(tienda.conteos.at(-1).consulta.probar === "1", "y de verdad con probar=1");
     const mala = await a.doctor({ ...base(), clave: "clave-que-no-es" }, { esperar: sinEsperar, ejecutar: instalada, plataforma: "win32" });
-    const linea = mala.find((x) => /tienda contesta/.test(x.nombre));
+    const linea = mala.find((x) => /Contesta la tienda/.test(x.nombre));
     ok(linea?.ok === false && /401/.test(linea.detalle) && /SYNC_CLAVE/.test(linea.detalle), "con la clave mala: ❌ y qué revisar", linea?.detalle);
     fs.writeFileSync(path.join(carpeta, "sin-cantidad.csv"), "Código;Descripción\nA1;Camisa\n");
     const sin = await a.doctor({ ...base(), fuente: { tipo: "archivo", ruta: path.join(carpeta, "sin-cantidad.csv") } }, { esperar: sinEsperar, ejecutar: async () => ({ codigo: 1 }), plataforma: "win32" });
-    ok(sin.some((x) => x.ok === null && /cantidad/.test(x.detalle)), "sin columna de cantidad: lo avisa");
+    ok(sin.some((x) => x.ok === false && /CANTIDAD/.test(x.detalle) && /"columnas"/.test(x.detalle)), "sin columna de cantidad: ❌, y cómo decirla en config.json");
     ok(sin.some((x) => /tarea programada/.test(x.nombre) && x.ok === null), "y que todavía no corre solo");
     const vacia = await a.doctor({ ...base(), url: "" }, { esperar: sinEsperar });
     ok(vacia.some((x) => x.ok === false && /url/.test(x.detalle)), "sin dirección: ❌ en la configuración");

@@ -1,0 +1,8 @@
+{
+  "origen": "Valery",
+  "cadaMinutos": 30,
+  "fuente": { "tipo": "carpeta", "carpeta": "C:\\Valery\\Exportes", "patron": "existencias_*.csv" },
+  "destinos": [
+    { "tipo": "carpeta", "carpeta": "G:\\Mi unidad\\stock-de-la-tienda", "formato": "csv" }
+  ]
+}

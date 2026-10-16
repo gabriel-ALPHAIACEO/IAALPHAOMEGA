@@ -352,7 +352,14 @@ export async function crearSede(db, nombre) {
 // tener precio propio (EPICCELL), y la lista dice "desde".
 export const UMBRAL_DE_POCOS = 2;
 
-export async function listarProductos(db, { q = "", limite = 200, soloConStock = false, agotados = false, porReponer = false, orden = "nombre", categoria = "" } = {}) {
+// Cuántos productos activos no tienen ninguna foto (16-oct-2026).
+export async function contarSinFoto(db) {
+  await asegurarInventario(db);
+  const fila = await db.prepare("SELECT COUNT(*) AS n FROM inv_productos p WHERE p.activo = 1 AND NOT EXISTS (SELECT 1 FROM inv_fotos f WHERE f.producto_id = p.id)").first();
+  return Number(fila?.n) || 0;
+}
+
+export async function listarProductos(db, { q = "", limite = 200, soloConStock = false, agotados = false, porReponer = false, sinFoto = false, orden = "nombre", categoria = "" } = {}) {
   await asegurarInventario(db);
   const texto = String(q || "").trim().slice(0, 40);
   const donde = ["p.activo = 1"];
@@ -364,6 +371,9 @@ export async function listarProductos(db, { q = "", limite = 200, soloConStock =
     donde.push(`LOWER(${CATEGORIA_SQL}) = LOWER(?)`);
     args.push(cat);
   }
+  // Sin foto (16-oct-2026): lo que llegó de un sistema sin imágenes, para
+  // subírselas en el panel.
+  if (sinFoto) donde.push("NOT EXISTS (SELECT 1 FROM inv_fotos f0 WHERE f0.producto_id = p.id)");
   if (texto) {
     donde.push(
       "(p.titulo LIKE ? OR p.marca LIKE ? OR p.origen_id = ? OR EXISTS (SELECT 1 FROM inv_variantes v2 WHERE v2.producto_id = p.id AND (v2.codigo_barras = ? OR v2.codigo_fabricante = ?)))"

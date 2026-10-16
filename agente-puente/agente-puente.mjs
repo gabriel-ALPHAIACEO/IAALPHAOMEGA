@@ -1,30 +1,30 @@
 #!/usr/bin/env node
-// AGENTE PUENTE v2 (16-oct-2026). Funciona solo, aparte de los bots: no
-// necesita ningún archivo de ellos, solo Node 18 o más y esta carpeta.
+// AGENTE PUENTE v2.1 (16-oct-2026). ABIERTO A CUALQUIER TIENDA Y A CUALQUIER
+// SISTEMA DE INVENTARIO que esté instalado en una computadora. Funciona solo,
+// aparte de los bots: necesita Node 18 o más y esta carpeta, nada más.
 //
-// Es el programa que corre en la PC o el servidor del cliente, junto a su
-// sistema de inventario CERRADO (el que no tiene API), y le pasa el stock al
-// bot de la tienda.
+// DE DÓNDE LEE (fuente, ver lib/fuentes.mjs): un archivo que exporta el
+// sistema (CSV, TXT, Excel .xlsx o JSON), el más nuevo de una carpeta, o un
+// comando que consulta su base de datos (SQL Server, MySQL, PostgreSQL,
+// SQLite, Access/DBF/Firebird por ODBC…). Las columnas se reconocen solas
+// («Existencia», «Stock», «Qty»…) o se dicen en "columnas" (lib/columnas.mjs).
 //
-// QUÉ HACE, en cada vuelta:
-//   1. LATIDO: le avisa a la tienda «estoy vivo» (POST /api/sync/latido) y, de
-//      paso, pregunta si desde el panel pidieron «Sincronizar ahora».
-//   2. Si toca (pasaron «cadaMinutos» o se lo pidieron), SACA EL STOCK del
-//      sistema de una de dos formas (ver config.json):
-//        · "archivo": lee el CSV que el sistema exporta a una carpeta;
-//        · "comando": corre un comando que escribe el stock por pantalla
-//          (sqlcmd para SQL Server, mysql, psql, sqlite3, PowerShell con ODBC…).
-//   3. Lo MANDA a  <url>/api/sync/inventario  con la clave; si es grande, pide
-//      las tandas hasta que termine.
-//   4. (Opcional) BAJA LAS VENTAS de la tienda a una carpeta, en CSV, para
-//      cargarlas en el sistema cerrado con su importador.
-//   5. Le dice a la tienda cómo le fue (otro latido: «ok» o «error» con el
-//      motivo). Si falla, en el panel sale «Con error» y llega un aviso.
+// A DÓNDE MANDA (destinos, ver lib/destinos.mjs), a uno o a varios a la vez:
+//   · una tienda con ALPHA IA (el bot y su panel), con latido, «Sincronizar
+//     ahora» desde el panel, ventas de vuelta y avisos;
+//   · CUALQUIER otra plataforma que reciba datos en una dirección (JSON o CSV,
+//     con su clave y firma opcional: ver PROTOCOLO.md);
+//   · una carpeta (un stock.csv / stock.json limpio, siempre igual).
+//
+// EN CADA VUELTA: latido a las tiendas ALPHA IA (y preguntar si pidieron
+// sincronizar) → si toca, leer el stock → mandarlo a cada destino → bajar las
+// ventas → contar cómo le fue (latido «ok»/«error», y aviso propio si se
+// configuró). Tras un error, reintenta a los 5 minutos.
 //
 // CÓMO SE USA (todo desde esta carpeta):
 //   node agente-puente.mjs --configurar     preguntas paso a paso; escribe config.json
 //   node agente-puente.mjs --doctor         revisa todo y dice qué falla y cómo arreglarlo
-//   node agente-puente.mjs --probar         manda con ?probar=1: dice qué haría, NO guarda nada
+//   node agente-puente.mjs --probar         dice qué mandaría a cada destino, SIN mandar ni guardar nada
 //   node agente-puente.mjs --instalar       lo deja corriendo solo cada minuto (Programador de
 //                                           tareas en Windows, cron en Linux/Mac). --usuario NOMBRE
 //                                           para correrlo con esa cuenta en vez de SYSTEM
@@ -35,96 +35,45 @@
 //   node agente-puente.mjs                  corre para siempre en esta ventana (una vuelta por minuto)
 //   --config otra.json                      con otro archivo de configuración
 //
-// LA CLAVE (SYNC_CLAVE de la tienda) va en config.json o en la variable de
-// entorno SYNC_CLAVE. NUNCA sale por pantalla, en el registro ni en el latido:
-// todo lo que se escribe pasa por sinSecretos(), que también tapa las
-// contraseñas que vayan en el comando (-P, -p, password=, pwd=).
+// LOS SECRETOS (la clave de la tienda, las de las plataformas, la firma, la
+// dirección de los avisos) van en config.json o, mejor, en variables de
+// entorno de la PC: "${ENV:NOMBRE}". NUNCA salen por pantalla, en el registro,
+// en el latido ni en los avisos (lib/secretos.mjs).
 //
 // LO QUE NO HACE: no acepta comandos de afuera (la única orden que entiende es
-// «sincronizar», y sincronizar es lo mismo que haría solo), no borra nada del
-// sistema del cliente, no toca su base (solo lee) y no crea ventas en la tienda.
+// «sincronizar», y sincronizar es lo mismo que haría solo), no escribe ni borra
+// nada en el sistema del cliente (solo lee) y no crea ventas en ninguna tienda.
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
-import { exec, spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { sinSecretos, secretosDe } from "./lib/secretos.mjs";
+import { crearRegistro, marcaDeTiempo } from "./lib/registro.mjs";
+import { leerFuente } from "./lib/fuentes.mjs";
+import { detectarColumnas, textoDeLasColumnas, NOMBRES_DE_CAMPOS, productosDe } from "./lib/columnas.mjs";
+import { listaDeDestinos, nombreDelDestino, problemasDelDestino, enviarA, latido as latidoA, bajarVentas as bajarVentasDe, llamar as llamarA, pedir, pausa, errorDeLaTienda, claveDe } from "./lib/destinos.mjs";
+import { avisarSiHaceFalta } from "./lib/avisos.mjs";
+import { ejecutarPrograma, estaInstalado, instalar, desinstalar } from "./lib/instalar.mjs";
 
-export const VERSION = "2.0.0";
-export const NOMBRE_DE_LA_TAREA = "Agente puente";
+export * from "./lib/secretos.mjs";
+export * from "./lib/registro.mjs";
+export * from "./lib/tabla.mjs";
+export * from "./lib/excel.mjs";
+export * from "./lib/columnas.mjs";
+export * from "./lib/fuentes.mjs";
+export { listaDeDestinos, nombreDelDestino, problemasDelDestino, enviarA, firmar, enviarWebhook, escribirCarpeta, enviarAlpha, pedir, pausa } from "./lib/destinos.mjs";
+export * from "./lib/avisos.mjs";
+export * from "./lib/instalar.mjs";
+
+export const VERSION = "2.1.0";
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const MINUTO = 60 * 1000;
 // Pasado este tiempo, un candado (otra vuelta corriendo) se da por muerto.
 const CANDADO_VIEJO_MS = 30 * MINUTO;
-// El registro (puente.log) se rota al pasar de este tamaño.
-const REGISTRO_MAXIMO = 1024 * 1024;
-
-export function pausa(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-/* ── Nunca un secreto por escrito ───────────────────────────────────── */
-
-// Quita claves, contraseñas y tokens de un texto. «secretos» son valores
-// concretos (la clave, las contraseñas del comando) que se tapan donde estén.
-export function sinSecretos(texto, secretos = []) {
-  let t = String(texto ?? "")
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer ***")
-    .replace(/((?:clave|contrase[ñn]a|password|passwd|pwd|token|secret|secreto|api[_-]?key)\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s;]+)/gi, "$1***")
-    .replace(/(\s-P\s+)("[^"]*"|'[^']*'|\S+)/g, "$1***")
-    .replace(/(\s-p)(?!\s)(\S+)/g, "$1***");
-  for (const s of secretos) {
-    const v = String(s || "");
-    if (v.length >= 4) t = t.split(v).join("***");
-  }
-  return t;
-}
-
-// Las contraseñas que vienen escritas en el comando de la fuente (para taparlas
-// también si el programa las repite en su error).
-export function secretosDe(config = {}) {
-  const lista = [claveDe(config)];
-  const comando = String(config.fuente?.comando || "");
-  const sacar = (re) => {
-    for (const m of comando.matchAll(re)) lista.push(String(m[1]).replace(/^["']|["']$/g, ""));
-  };
-  sacar(/\s-P\s+("[^"]*"|'[^']*'|\S+)/g);
-  sacar(/\s-p(?!\s)(\S+)/g);
-  sacar(/(?:password|passwd|pwd)\s*=\s*("[^"]*"|'[^']*'|[^\s;]+)/gi);
-  return lista.filter((s) => String(s || "").length >= 4);
-}
-
-/* ── El registro (puente.log), con rotación ─────────────────────────── */
-
-function marcaDeTiempo(ms = Date.now()) {
-  const d = new Date(ms);
-  const p = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-}
-
-// Devuelve registrar(mensaje). Escribe en pantalla (si «consola») y en el
-// archivo, siempre sin secretos. Si el archivo pasa de «maximo», el viejo
-// queda como puente.log.1 (uno solo: nunca llena el disco).
-export function crearRegistro({ archivo = "", consola = true, maximo = REGISTRO_MAXIMO, secretos = [] } = {}) {
-  return (mensaje, { error = false } = {}) => {
-    const linea = `[${marcaDeTiempo()}] ${sinSecretos(mensaje, secretos)}`;
-    if (consola) (error ? console.error : console.log)(linea);
-    if (!archivo) return;
-    try {
-      if (fs.existsSync(archivo) && fs.statSync(archivo).size > maximo) fs.renameSync(archivo, `${archivo}.1`);
-      fs.appendFileSync(archivo, `${linea}\n`);
-    } catch {
-      // Sin poder escribir el registro se sigue igual: lo importante es el stock.
-    }
-  };
-}
 
 /* ── La configuración ───────────────────────────────────────────────── */
-
-function claveDe(config) {
-  return String(process.env.SYNC_CLAVE || config.clave || "");
-}
 
 export function leerConfig(ruta) {
   let config;
@@ -132,7 +81,7 @@ export function leerConfig(ruta) {
     config = JSON.parse(fs.readFileSync(ruta, "utf8").replace(/^\uFEFF/, ""));
   } catch (error) {
     const motivo = error.code === "ENOENT" ? "no existe" : error.message;
-    throw new Error(`No pude leer ${ruta} (${motivo}). Corre «node agente-puente.mjs --configurar» o copia config.ejemplo.json como config.json y complétalo.`);
+    throw new Error(`No pude leer ${ruta} (${motivo}). Corre «node agente-puente.mjs --configurar» o copia uno de los ejemplos (config.ejemplo.json) como config.json y complétalo.`);
   }
   return completarConfig(config, path.dirname(path.resolve(ruta)));
 }
@@ -142,7 +91,6 @@ export function completarConfig(config, carpeta = AQUI) {
   return {
     cadaMinutos: 15,
     latidoSegundos: 60,
-    timeoutSegundos: 60,
     ...config,
     agente: String(config.agente || os.hostname() || "puente"),
     equipo: String(config.equipo || os.hostname() || ""),
@@ -153,230 +101,55 @@ export function completarConfig(config, carpeta = AQUI) {
 // Lo que falta o está mal en la configuración (vacío = todo bien).
 export function problemasDeConfig(config) {
   const p = [];
-  const url = String(config.url || "");
-  if (!url) p.push('Falta "url": la dirección del bot, por ejemplo https://invictus-bot.tu-cuenta.workers.dev');
-  else if (!/^https:\/\//i.test(url) && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/i.test(url)) p.push('"url" tiene que empezar por https:// (la clave no puede viajar sin cifrar).');
-  else if (/\/api\/sync/i.test(url)) p.push('"url" es solo la dirección del bot, sin /api/sync al final.');
-  if (!claveDe(config)) p.push('Falta la clave: ponla en "clave" o en la variable de entorno SYNC_CLAVE (es la SYNC_CLAVE que se cargó en la tienda).');
+  const destinos = listaDeDestinos(config);
+  if (!destinos.length) p.push('Falta a dónde mandar el stock: "url" + "clave" (una tienda con ALPHA IA) o "destinos" (cualquier otra plataforma o una carpeta). Ver LEEME.md.');
+  for (const d of destinos) p.push(...problemasDelDestino(d));
   const f = config.fuente || {};
   if (f.tipo === "archivo") {
     if (!f.ruta) p.push('Falta "fuente.ruta": dónde deja el sistema el archivo con el stock.');
+  } else if (f.tipo === "carpeta") {
+    if (!f.carpeta) p.push('Falta "fuente.carpeta": dónde deja el sistema sus archivos.');
   } else if (f.tipo === "comando") {
     if (!f.comando) p.push('Falta "fuente.comando": el comando que escribe el stock por pantalla.');
-  } else p.push('"fuente.tipo" tiene que ser "archivo" o "comando".');
-  if (config.ventas?.activar && !config.ventas.carpeta) p.push('Las ventas están activadas pero falta "ventas.carpeta".');
+  } else p.push('"fuente.tipo" tiene que ser "archivo", "carpeta" o "comando".');
+  if (config.columnas !== undefined && (typeof config.columnas !== "object" || Array.isArray(config.columnas) || !config.columnas)) p.push('"columnas" tiene que ser un objeto: { "cantidad": "Existencia", "codigo": "Ref" }.');
+  else for (const k of Object.keys(config.columnas || {})) if (!NOMBRES_DE_CAMPOS.includes(k)) p.push(`En "columnas", «${k}» no es un campo. Los que hay: ${NOMBRES_DE_CAMPOS.join(", ")}.`);
+  for (const d of destinos) if (d.ventas?.activar && !d.ventas.carpeta) p.push(`Las ventas de ${nombreDelDestino(d)} están activadas pero falta "ventas.carpeta".`);
   return p;
 }
 
-/* ── Sacar el stock del sistema ─────────────────────────────────────── */
+/* ── Leer el stock y entenderlo ─────────────────────────────────────── */
 
-function decodificar(buffer, codificacion = "utf8") {
-  const c = String(codificacion || "utf8").toLowerCase();
-  if (c === "latin1" || c === "windows-1252" || c === "cp1252" || c === "ansi") return new TextDecoder("windows-1252").decode(buffer);
-  if (c === "utf16le" || c === "utf-16le" || c === "utf16") return new TextDecoder("utf-16le").decode(buffer);
-  return new TextDecoder("utf-8").decode(buffer);
+// La fuente leída y sus columnas reconocidas. Lanza un error claro si no se
+// entiende (sin filas, sin cantidad, sin código ni nombre…).
+export async function leerStock(config) {
+  const { tabla, generado, nombre } = await leerFuente(config);
+  if (!tabla.filas.length) throw new Error("La fuente no devolvió ninguna fila (¿el comando o el archivo están bien?).");
+  const { indices, problemas, comoSeLeyo } = detectarColumnas(tabla.columnas, config.columnas || {});
+  if (problemas.length) throw new Error(problemas.join(" "));
+  return { tabla, generado, nombre, indices, comoSeLeyo };
 }
 
-// La salida de sqlcmd y parecidos trae una línea de rayas debajo del encabezado
-// y un "(123 filas afectadas)" al final: se limpian. Un CSV normal queda igual.
-export function limpiarSalida(texto) {
-  const lineas = String(texto || "")
-    .replace(/^\uFEFF/, "")
-    .split(/\r?\n/)
-    .filter((l) => l.trim() !== "")
-    .filter((l) => !/^[-=;,\s|+]+$/.test(l))
-    .filter((l) => !/^\(\d+\s+(rows?|filas?)[^)]*\)$/i.test(l.trim()));
-  return lineas.join("\n");
-}
-
-// Corre el comando de la fuente. El error NUNCA lleva el comando (puede tener
-// la contraseña de la base): solo el código y lo que el programa dijo.
-function correr(comando, { timeoutMs = 120000 } = {}) {
-  return new Promise((resolve, reject) => {
-    exec(comando, { encoding: "buffer", maxBuffer: 64 * 1024 * 1024, timeout: timeoutMs, windowsHide: true }, (error, salida, errores) => {
-      if (error) {
-        if (error.killed) {
-          reject(new Error(`El comando tardó más de ${Math.round(timeoutMs / 1000)} s y se cortó (sube "fuente.timeoutSegundos" si la consulta es lenta).`));
-          return;
-        }
-        const detalle = decodificar(errores || Buffer.alloc(0)).replace(/\s+/g, " ").trim().slice(0, 300);
-        reject(new Error(`El comando falló (código ${error.code ?? "?"})${detalle ? `: ${detalle}` : ". No dijo por qué: pruébalo a mano en una ventana de comandos."}`));
-        return;
-      }
-      resolve(salida);
-    });
-  });
-}
-
-// Saca el stock de la fuente configurada. Devuelve { texto, generado }.
-export async function leerFuente(config) {
-  const f = config.fuente || {};
-  if (f.tipo === "archivo") {
-    if (!f.ruta) throw new Error('Falta "fuente.ruta".');
-    let estado;
-    try {
-      estado = fs.statSync(f.ruta);
-    } catch (error) {
-      throw new Error(error.code === "ENOENT" ? `No encuentro el archivo ${f.ruta}. ¿El sistema lo está exportando ahí? (Si es una unidad de red, usa la ruta \\\\servidor\\carpeta: la tarea programada no ve las letras de unidad.)` : `No pude abrir ${f.ruta}: ${error.message}`);
-    }
-    if (f.maximoMinutos && Date.now() - estado.mtimeMs > f.maximoMinutos * MINUTO) {
-      throw new Error(`El archivo es viejo (de ${marcaDeTiempo(estado.mtimeMs)}). Si el sistema ya no lo actualiza, no se manda.`);
-    }
-    return { texto: limpiarSalida(decodificar(fs.readFileSync(f.ruta), f.codificacion)), generado: estado.mtimeMs };
-  }
-  if (f.tipo === "comando") {
-    if (!f.comando) throw new Error('Falta "fuente.comando".');
-    const inicio = Date.now();
-    const salida = await correr(f.comando, { timeoutMs: (f.timeoutSegundos || 120) * 1000 });
-    return { texto: limpiarSalida(decodificar(salida, f.codificacion)), generado: inicio };
-  }
-  throw new Error('"fuente.tipo" tiene que ser "archivo" o "comando".');
-}
-
-/* ── Hablar con la tienda ───────────────────────────────────────────── */
-
-// Una llamada a la tienda, con su tiempo máximo y hasta 3 intentos si la red
-// falla o la tienda contesta 5xx (repetir no duplica nada: así está hecha la
-// puerta). Un 4xx no se repite: es un problema de datos o de clave.
-export async function llamar(config, ruta, opciones = {}, { hacer = globalThis.fetch, esperar = pausa, intentos = 3 } = {}) {
-  const base = String(config.url || "").replace(/\/+$/, "");
-  if (!base) throw new Error('Falta "url" (la dirección del bot, sin barra final).');
-  const clave = claveDe(config);
-  if (!clave) throw new Error('Falta la clave: ponla en "clave" o en la variable SYNC_CLAVE.');
-  const tiempo = (Number(config.timeoutSegundos) || 60) * 1000;
-  let ultimo = null;
-  for (let i = 0; i < intentos; i++) {
-    if (i) await esperar(2000 * 2 ** (i - 1));
-    try {
-      const respuesta = await hacer(`${base}${ruta}`, {
-        ...opciones,
-        headers: { authorization: `Bearer ${clave}`, "user-agent": `agente-puente/${VERSION}`, ...(opciones.headers || {}) },
-        signal: AbortSignal.timeout(tiempo),
-      });
-      const texto = await respuesta.text();
-      let cuerpo = null;
-      try {
-        cuerpo = JSON.parse(texto);
-      } catch {}
-      if (respuesta.status >= 500 && i < intentos - 1) {
-        ultimo = new Error(`La tienda contestó ${respuesta.status}`);
-        continue;
-      }
-      return { estado: respuesta.status, cuerpo, texto };
-    } catch (error) {
-      const causa = error?.name === "TimeoutError" ? `no contestó en ${tiempo / 1000} s` : error?.cause?.code || error?.cause?.message || error?.message || "error de red";
-      ultimo = new Error(`No pude llegar a la tienda (${new URL(base).host}): ${causa}. ¿Hay internet en esta PC?`);
-    }
-  }
-  throw ultimo;
-}
-
-function errorDeLaTienda(r, que) {
-  const motivo =
-    r.estado === 401
-      ? "la clave no es la de la tienda (revisa «clave» en config.json; tiene que ser la misma SYNC_CLAVE que se cargó con wrangler)"
-      : r.estado === 503
-      ? "la conexión está apagada en la tienda (falta cargar SYNC_CLAVE con wrangler y volver a desplegar)"
-      : r.cuerpo?.error || String(r.texto || "").slice(0, 200);
-  return new Error(`${que} (${r.estado}): ${motivo}`);
-}
-
-// Un ciclo: saca el stock, lo manda, y espera a que termine.
+// UN CICLO hacia el primer destino (lo de siempre: una tienda ALPHA IA).
+// Se queda por compatibilidad: lo usan las pruebas de las tiendas.
 export async function ciclo(config, { probar = false, hacer = globalThis.fetch, registrar = console.log, esperar = pausa } = {}) {
-  const { texto, generado } = await leerFuente(config);
-  const filas = texto.split("\n").length - 1;
-  if (filas < 1) throw new Error("La fuente no devolvió ninguna fila (¿el comando o el archivo están bien?).");
-  const consulta = new URLSearchParams({ origen: config.origen || "", generado: String(Math.round(generado)) });
-  if (config.sede) consulta.set("sede", config.sede);
-  if (probar) consulta.set("probar", "1");
-  if (config.precios === false) consulta.set("precios", "no");
-  registrar(`Mandando ${filas} filas${probar ? " (solo probar)" : ""}…`);
-
-  let r;
-  for (let intento = 0; intento < 30; intento++) {
-    r = await llamar(config, `/api/sync/inventario?${consulta}`, { method: "POST", headers: { "content-type": "text/csv; charset=utf-8" }, body: texto }, { hacer, esperar });
-    if (r.estado !== 409) break;
-    registrar("Hay otro conteo a medias en la tienda; espero un minuto…");
-    await esperar(60000);
-  }
-  if (!r.cuerpo?.ok) throw errorDeLaTienda(r, "La tienda no lo aceptó");
-  let c = { filasLeidas: filas, ...r.cuerpo };
-  if (c.sinCambios && !c.trabajo) {
-    registrar(`Nada cambió (${c.sinCambios} filas iguales).`);
-    return c;
-  }
-  // Por tandas: se pide la siguiente hasta que termine.
-  for (let vuelta = 0; c.estado === "trabajando" && vuelta < 2000; vuelta++) {
-    registrar(`  …${c.hechos} de ${c.total} partes`);
-    const a = await llamar(config, `/api/sync/avanzar?trabajo=${c.trabajo}`, { method: "POST" }, { hacer, esperar });
-    if (!a.cuerpo?.ok) throw errorDeLaTienda(a, "No pude avanzar");
-    c = { ...c, ...a.cuerpo };
-    if (c.estado === "trabajando") await esperar(500);
-  }
-  const i = c.informe || {};
-  registrar(`Listo: ${c.filas ?? filas} filas leídas${c.sinCambios ? `, ${c.sinCambios} sin cambios` : ""}${i.nuevos ? `, ${i.nuevos} productos nuevos` : ""}${i.errores?.length ? `, ${i.errores.length} con problemas` : ""}.`);
-  for (const e of (i.errores || []).slice(0, 10)) registrar(`  ⚠ ${e}`);
-  return c;
+  const datos = await leerStock(config);
+  const [d] = listaDeDestinos(config);
+  if (!d) throw new Error("No hay ningún destino.");
+  registrar(`Mandando ${datos.tabla.filas.length} filas a ${nombreDelDestino(d)}${probar ? " (solo probar)" : ""}…`);
+  return enviarA(config, d, datos, { probar, hacer, registrar, esperar, version: VERSION });
 }
 
-// Las ventas de la tienda, a una carpeta, para cargarlas en el sistema cerrado.
-export async function bajarVentas(config, { hacer = globalThis.fetch, registrar = console.log, esperar = pausa } = {}) {
-  const v = config.ventas;
-  if (!v?.activar) return null;
-  if (!v.carpeta) throw new Error('Falta "ventas.carpeta".');
-  fs.mkdirSync(v.carpeta, { recursive: true });
-  const archivoDeEstado = path.join(v.carpeta, "ultima-venta.json");
-  let ultimo = 0;
-  try {
-    ultimo = Number(JSON.parse(fs.readFileSync(archivoDeEstado, "utf8")).ultimoId) || 0;
-  } catch {}
-  // Las nuevas desde la última que ya bajaste…
-  const nuevas = await llamar(config, `/api/sync/ventas?formato=json&desde_id=${ultimo}`, {}, { hacer, esperar });
-  if (!nuevas.cuerpo?.ok) throw errorDeLaTienda(nuevas, "No pude bajar las ventas");
-  if (nuevas.cuerpo.ventas.length) {
-    const csv = await llamar(config, `/api/sync/ventas?desde_id=${ultimo}`, {}, { hacer, esperar });
-    const maximo = Math.max(...nuevas.cuerpo.ventas.map((x) => x.id));
-    fs.writeFileSync(path.join(v.carpeta, `ventas-nuevas-${maximo}.csv`), csv.texto);
-    fs.writeFileSync(archivoDeEstado, JSON.stringify({ ultimoId: maximo }));
-    registrar(`Ventas: ${nuevas.cuerpo.ventas.length} líneas nuevas en ventas-nuevas-${maximo}.csv`);
-  }
-  // …y siempre los últimos 3 días completos (ahí se ven las ANULADAS).
-  const recientes = await llamar(config, "/api/sync/ventas", {}, { hacer, esperar });
-  if (recientes.estado === 200) fs.writeFileSync(path.join(v.carpeta, "ventas-ultimos-3-dias.csv"), recientes.texto);
-  return nuevas.cuerpo.ventas.length;
+// Compatibilidad: las ventas del primer destino ALPHA IA.
+export async function bajarVentas(config, opciones = {}) {
+  const d = listaDeDestinos(config).find((x) => x.tipo === "alpha");
+  return d ? bajarVentasDe(d, { version: VERSION, ...opciones }) : null;
 }
 
-/* ── El latido ──────────────────────────────────────────────────────── */
-
-// Le dice a la tienda cómo está. Nunca rompe la vuelta: si no llega, devuelve
-// null (la tienda, al no oírlo, avisará sola que no hay señal).
-export async function latido(config, datos = {}, { hacer = globalThis.fetch, esperar = pausa, registrar = () => {} } = {}) {
-  const cuerpo = {
-    agente: config.agente,
-    origen: config.origen || "",
-    equipo: config.equipo || "",
-    version: VERSION,
-    modo: datos.modo || "continuo",
-    cadaMinutos: Number(config.cadaMinutos) || 15,
-    estado: datos.estado || "espera",
-    ...datos,
-  };
-  if (cuerpo.mensaje) cuerpo.mensaje = sinSecretos(cuerpo.mensaje, secretosDe(config)).slice(0, 300);
-  try {
-    const r = await llamar(config, "/api/sync/latido", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(cuerpo) }, { hacer, esperar, intentos: 2 });
-    if (r.estado === 404) {
-      registrar("La tienda todavía no entiende el latido (tiene una versión vieja del bot). El stock se pasa igual.");
-      return null;
-    }
-    if (!r.cuerpo?.ok) {
-      registrar(`El latido no entró: ${errorDeLaTienda(r, "latido").message}`);
-      return null;
-    }
-    return r.cuerpo;
-  } catch (error) {
-    registrar(`El latido no llegó: ${error.message}`);
-    return null;
-  }
+// Compatibilidad: llamar a la tienda de la configuración.
+export function llamar(config, ruta, opciones = {}, deps = {}) {
+  const d = listaDeDestinos(config).find((x) => x.tipo === "alpha") || { url: config.url, clave: config.clave };
+  return llamarA(d, ruta, opciones, { version: VERSION, ...deps });
 }
 
 /* ── Lo que el agente recuerda entre vueltas ────────────────────────── */
@@ -411,14 +184,12 @@ export function tomarCandado(config, ahora = Date.now()) {
       desde = Number(JSON.parse(fs.readFileSync(ruta, "utf8")).desde) || 0;
     } catch {}
     if (ahora - desde < CANDADO_VIEJO_MS) return false;
-    // El de antes se murió a la mitad: se toma.
     fs.writeFileSync(ruta, JSON.stringify({ pid: process.pid, desde: ahora }));
     return true;
   }
 }
 
-// El que corre siempre lo renueva en cada vuelta: así nunca parece «muerto»
-// y la tarea programada no arranca otro al lado.
+// El que corre siempre lo renueva en cada vuelta: así nunca parece «muerto».
 export function renovarCandado(config, ahora = Date.now()) {
   try {
     fs.writeFileSync(rutaDe(config, "puente.lock"), JSON.stringify({ pid: process.pid, desde: ahora }));
@@ -433,65 +204,118 @@ export function soltarCandado(config) {
 
 /* ── Una vuelta ─────────────────────────────────────────────────────── */
 
-function resumenDelCiclo(c) {
+function resumen(c) {
+  if (c.mensaje && c.probando) return c.mensaje;
   const i = c.informe || {};
-  const partes = [`${c.filas ?? c.filasLeidas ?? 0} filas`];
+  const partes = [`${c.filas ?? c.filasLeidas ?? 0} ${c.informe || c.sinCambios !== undefined || c.trabajo ? "filas" : "productos"}`];
   if (c.sinCambios) partes.push(`${c.sinCambios} sin cambios`);
   if (i.nuevos) partes.push(`${i.nuevos} productos nuevos`);
   if (i.errores?.length) partes.push(`${i.errores.length} filas con problemas`);
+  if (c.saltadas) partes.push(`${c.saltadas} filas sin código ni nombre`);
   return partes.join(", ");
 }
 
-// Latido → (si toca) conteo → latido con el resultado. «forzar» = sincroniza
-// aunque no toque (--una-vez). Devuelve { sincronizo, ok, error? }.
+// Latido → (si toca) leer el stock → mandarlo a cada destino → latido con el
+// resultado de cada tienda ALPHA IA. «forzar» = sincroniza aunque no toque.
+// Devuelve { sincronizo, ok, error?, resultados: [{ destino, ok, mensaje }] }.
 export async function vuelta(config, { forzar = false, modo = "continuo", hacer = globalThis.fetch, esperar = pausa, registrar = console.log, ahora = Date.now } = {}) {
   const estado = leerEstado(config);
+  const secretos = secretosDe(config);
+  const destinos = listaDeDestinos(config);
+  const tiendas = destinos.filter((d) => d.tipo === "alpha");
   const cada = Math.max(1, Number(config.cadaMinutos) || 15) * MINUTO;
   const tocaPorTiempo = forzar || !estado.proximaSync || ahora() >= Number(estado.proximaSync);
   const primero = !estado.encendido;
-  const resp = await latido(config, { modo, estado: primero ? "inicio" : tocaPorTiempo ? "trabajando" : "espera" }, { hacer, esperar, registrar });
+  const deps = { hacer, esperar, registrar, version: VERSION };
+
+  // 1. El latido a cada tienda ALPHA IA (y sus órdenes).
+  const ordenes = await Promise.all(
+    tiendas.map(async (d) => {
+      const r = await latidoA(config, d, { modo, estado: primero ? "inicio" : tocaPorTiempo ? "trabajando" : "espera" }, deps);
+      return Number(r?.ordenEn) || 0;
+    })
+  );
   if (primero) {
     estado.encendido = ahora();
     guardarEstado(config, estado);
   }
-  const orden = Number(resp?.ordenEn) || 0;
-  if (orden) registrar("Desde el panel pidieron sincronizar ahora.");
-  if (!tocaPorTiempo && !orden) return { sincronizo: false, ok: true };
+  const hayOrden = ordenes.some(Boolean);
+  if (hayOrden) registrar("Desde el panel pidieron sincronizar ahora.");
+  if (!tocaPorTiempo && !hayOrden) return { sincronizo: false, ok: true, resultados: [] };
 
+  // 2. El stock, una sola vez para todos los destinos.
   const inicio = ahora();
+  const resultados = [];
+  let datos = null;
+  let errorDeLectura = "";
   try {
-    const c = await ciclo(config, { hacer, registrar, esperar });
-    let mensaje = resumenDelCiclo(c);
-    try {
-      const ventas = await bajarVentas(config, { hacer, registrar, esperar });
-      if (ventas) mensaje += `; ${ventas} ventas bajadas`;
-    } catch (error) {
-      // Las ventas fallaron pero el stock entró: se dice, sin marcar el conteo como malo.
-      registrar(`⚠ Ventas: ${error.message}`, { error: true });
-      mensaje += `; las ventas no se pudieron bajar: ${error.message}`;
-    }
-    Object.assign(estado, { ultimaSync: inicio, proximaSync: inicio + cada, ultimoOk: inicio, filas: c.filas ?? c.filasLeidas, sinCambios: c.sinCambios || 0, ultimoMensaje: mensaje, errorSeguido: 0 });
-    guardarEstado(config, estado);
-    await latido(config, { modo, estado: "ok", ciclo: true, mensaje, filas: c.filas ?? c.filasLeidas ?? 0, sinCambios: c.sinCambios || 0, ordenHecha: orden || undefined }, { hacer, esperar, registrar });
-    return { sincronizo: true, ok: true, resultado: c };
+    datos = await leerStock(config);
+    registrar(`Leídas ${datos.tabla.filas.length} filas de ${datos.nombre} (${textoDeLasColumnas(datos.comoSeLeyo)}).`);
   } catch (error) {
-    const mensaje = sinSecretos(error.message, secretosDe(config));
-    registrar(`❌ ${mensaje}`, { error: true });
-    // Tras un error se vuelve a intentar antes (5 min, o cadaMinutos si es menos).
-    const seguidos = (Number(estado.errorSeguido) || 0) + 1;
-    Object.assign(estado, { ultimaSync: inicio, proximaSync: inicio + Math.min(cada, 5 * MINUTO), ultimoError: mensaje, ultimoErrorEn: inicio, errorSeguido: seguidos });
-    guardarEstado(config, estado);
-    // La orden se da por atendida aunque haya fallado: el error sale en el
-    // panel y no se reintenta cada minuto.
-    await latido(config, { modo, estado: "error", ciclo: true, mensaje, ordenHecha: orden || undefined }, { hacer, esperar, registrar });
-    return { sincronizo: true, ok: false, error: mensaje };
+    errorDeLectura = sinSecretos(error.message, secretos);
+    registrar(`❌ ${errorDeLectura}`, { error: true });
   }
+
+  // 3. A cada destino. Si uno falla, los demás siguen.
+  for (const d of destinos) {
+    if (!datos) {
+      resultados.push({ destino: d, ok: false, mensaje: errorDeLectura });
+      continue;
+    }
+    try {
+      const c = await enviarA(config, d, datos, deps);
+      let mensaje = resumen(c);
+      if (d.tipo === "alpha" && d.ventas?.activar) {
+        try {
+          const ventas = await bajarVentasDe(d, deps);
+          if (ventas) mensaje += `; ${ventas} ventas bajadas`;
+        } catch (error) {
+          // Las ventas fallaron pero el stock entró: se dice, sin marcar el conteo como malo.
+          registrar(`⚠ Ventas: ${error.message}`, { error: true });
+          mensaje += `; las ventas no se pudieron bajar: ${error.message}`;
+        }
+      }
+      resultados.push({ destino: d, ok: true, mensaje, filas: c.filas ?? c.filasLeidas ?? 0, sinCambios: c.sinCambios || 0 });
+    } catch (error) {
+      const mensaje = sinSecretos(error.message, secretos);
+      registrar(`❌ ${nombreDelDestino(d)}: ${mensaje}`, { error: true });
+      resultados.push({ destino: d, ok: false, mensaje });
+    }
+  }
+
+  // 4. Cómo le fue, a cada tienda ALPHA IA (la orden se da por atendida aunque
+  //    haya fallado: el error sale en el panel y no se reintenta cada minuto).
+  for (const [n, d] of tiendas.entries()) {
+    const r = resultados.find((x) => x.destino === d);
+    await latidoA(
+      config,
+      d,
+      r.ok
+        ? { modo, estado: "ok", ciclo: true, mensaje: r.mensaje.slice(0, 300), filas: r.filas, sinCambios: r.sinCambios, ordenHecha: ordenes[n] || undefined }
+        : { modo, estado: "error", ciclo: true, mensaje: sinSecretos(r.mensaje, secretos).slice(0, 300), ordenHecha: ordenes[n] || undefined },
+      deps
+    );
+  }
+
+  const malos = resultados.filter((r) => !r.ok);
+  const ok = !malos.length;
+  // Con un solo destino que no es una tienda ALPHA IA, el error también dice
+  // a quién (el de la tienda ya lo dice: «La tienda no lo aceptó…»).
+  const conQuien = (r) => (resultados.length > 1 || r.destino.tipo !== "alpha" ? `${nombreDelDestino(r.destino)}: ${r.mensaje}` : r.mensaje);
+  const textoDelError = malos.map(conQuien).join(" · ");
+  const textoBueno = resultados.map((r) => (resultados.length > 1 ? `${nombreDelDestino(r.destino)}: ${r.mensaje}` : r.mensaje)).join(" · ");
+  if (ok) Object.assign(estado, { ultimaSync: inicio, proximaSync: inicio + cada, ultimoOk: inicio, ultimoMensaje: textoBueno, errorSeguido: 0 });
+  else Object.assign(estado, { ultimaSync: inicio, proximaSync: inicio + Math.min(cada, 5 * MINUTO), ultimoError: textoDelError, ultimoErrorEn: inicio, errorSeguido: (Number(estado.errorSeguido) || 0) + 1 });
+  // 5. El aviso propio (si se configuró): para las plataformas que no avisan solas.
+  await avisarSiHaceFalta(config, estado, ok ? { ok, mensaje: textoBueno } : { ok, mensaje: textoDelError }, { hacer, registrar, ahora: ahora() });
+  guardarEstado(config, estado);
+  return ok ? { sincronizo: true, ok, resultados } : { sincronizo: true, ok, error: textoDelError, resultados };
 }
 
 // Corre para siempre: una vuelta por minuto (latidoSegundos).
 export async function correrSiempre(config, opciones = {}) {
   const { registrar = console.log, esperar = pausa, vueltas = Infinity } = opciones;
-  registrar(`Agente puente ${VERSION} corriendo. Sincroniza cada ${config.cadaMinutos} min y avisa a la tienda cada ${config.latidoSegundos} s. Ctrl+C para parar.`);
+  registrar(`Agente puente ${VERSION} corriendo. Manda el stock cada ${config.cadaMinutos} min a ${listaDeDestinos(config).map(nombreDelDestino).join(", ")}. Ctrl+C para parar.`);
   for (let n = 0; n < vueltas; n++) {
     opciones.alEmpezar?.();
     try {
@@ -505,47 +329,125 @@ export async function correrSiempre(config, opciones = {}) {
 
 /* ── Configurar (las preguntas) ─────────────────────────────────────── */
 
-// «preguntar(texto, porDefecto)» devuelve la respuesta (se puede cambiar en
-// las pruebas). Escribe config.json en «ruta» y devuelve la configuración.
+// «preguntar(texto, porDefecto)» devuelve la respuesta (se puede cambiar en las
+// pruebas). Escribe config.json en «ruta» y devuelve la configuración.
 export async function configurar({ ruta, preguntar, escribir = console.log, anterior = {} } = {}) {
   escribir("\nVamos a configurar el agente puente. Enter deja lo que está entre corchetes.\n");
   const p = async (texto, porDefecto = "") => String((await preguntar(`${texto}${porDefecto !== "" ? ` [${porDefecto}]` : ""}: `, porDefecto)) ?? "").trim() || String(porDefecto);
-  let url = "";
-  for (;;) {
-    url = (await p("1. Dirección del bot de la tienda (https://…workers.dev)", anterior.url || "")).replace(/\/+$/, "").replace(/\/api\/sync.*$/i, "");
-    if (/^https:\/\//i.test(url) || /^http:\/\/(127\.0\.0\.1|localhost)/i.test(url)) break;
-    escribir("   Tiene que empezar por https://");
+  const elegir = async (texto, opciones, porDefecto) => {
+    for (;;) {
+      const r = (await p(texto, porDefecto)).toLowerCase();
+      if (opciones.includes(r)) return r;
+      escribir(`   Contesta ${opciones.join(", ")}.`);
+    }
+  };
+  const direccion = async (texto, porDefecto) => {
+    for (;;) {
+      const u = (await p(texto, porDefecto)).replace(/\/+$/, "");
+      if (/^https:\/\//i.test(u) || /^http:\/\/(127\.0\.0\.1|localhost)/i.test(u)) return u;
+      escribir("   Tiene que empezar por https://");
+    }
+  };
+  const config = {};
+  const antes = listaDeDestinos(anterior)[0] || {};
+
+  // 1. A dónde.
+  const destino = await elegir(
+    "1. ¿A dónde va el stock?\n   1 = una tienda con ALPHA IA (el bot y su panel)\n   2 = otra plataforma o tienda (una dirección que recibe los datos: su API, Zapier, Make, n8n…)\n   3 = solo dejar un archivo en una carpeta\n  ",
+    ["1", "2", "3"],
+    antes.tipo === "webhook" ? "2" : antes.tipo === "carpeta" ? "3" : "1"
+  );
+  if (destino === "1") {
+    config.url = (await direccion("   Dirección de la tienda (https://…workers.dev)", antes.url || "")).replace(/\/api\/sync.*$/i, "");
+    const clave = await p("   La clave de la conexión (la SYNC_CLAVE de la tienda; vacío = se lee de la variable SYNC_CLAVE de esta PC)", anterior.clave ? "(la de antes)" : "");
+    config.clave = clave === "(la de antes)" ? anterior.clave : clave;
+  } else if (destino === "2") {
+    const d = { tipo: "webhook" };
+    d.url = await direccion("   La dirección que recibe los datos", antes.url || "");
+    d.formato = await elegir("   ¿En qué formato? json o csv", ["json", "csv"], antes.formato || "json");
+    const cabecera = await p("   Nombre de la cabecera para la clave de esa plataforma (por ejemplo Authorization o X-Api-Key; vacío = ninguna)", Object.keys(antes.cabeceras || {})[0] || "");
+    if (cabecera) {
+      const valor = await p(`   Valor de ${cabecera} (mejor como \${ENV:NOMBRE_DE_LA_VARIABLE} para no dejarlo escrito aquí)`, antes.cabeceras?.[cabecera] || "");
+      d.cabeceras = { [cabecera]: valor };
+    }
+    const firma = await p("   Clave para firmar cada envío (opcional; la plataforma la usa para comprobar que viene de aquí — ver PROTOCOLO.md)", antes.secretoFirma || "");
+    if (firma) d.secretoFirma = firma;
+    config.destinos = [d];
+  } else {
+    const d = { tipo: "carpeta" };
+    d.carpeta = await p("   La carpeta donde dejar el archivo", antes.carpeta || "C:\\stock-para-la-tienda");
+    d.formato = await elegir("   ¿En qué formato? csv o json", ["csv", "json"], antes.formato || "csv");
+    config.destinos = [d];
   }
-  const clave = await p("2. La clave de la conexión (la SYNC_CLAVE de la tienda; si la dejas vacía, se lee de la variable SYNC_CLAVE)", anterior.clave ? "(la de antes)" : "");
-  const origen = await p("3. Nombre de tu sistema de inventario (sale en los movimientos)", anterior.origen || "Mi sistema");
-  const equipo = await p("4. Nombre de esta PC (para reconocerla en el panel)", anterior.equipo || os.hostname());
-  const sede = await p("5. Sede de la tienda a la que va este stock (vacío = la que diga el archivo, o la principal)", anterior.sede || "");
-  let tipo = "";
-  for (;;) {
-    tipo = (await p("6. ¿De dónde sale el stock? 1 = un archivo que exporta el sistema, 2 = un comando o consulta", anterior.fuente?.tipo === "comando" ? "2" : "1")).toLowerCase();
-    if (["1", "2", "archivo", "comando"].includes(tipo)) break;
-  }
+
+  // 2. Quién es.
+  config.origen = await p("2. Nombre de tu sistema de inventario (sale en los movimientos y los avisos)", anterior.origen || "Mi sistema");
+  config.equipo = await p("3. Nombre de esta PC (para reconocerla)", anterior.equipo || os.hostname());
+  if (destino === "1") config.sede = await p("4. Sede de la tienda a la que va este stock (vacío = la que diga el archivo, o la principal)", anterior.sede || "");
+
+  // 3. De dónde.
+  const tipo = await elegir(
+    "5. ¿De dónde sale el stock?\n   1 = un archivo que exporta el sistema (CSV, TXT, Excel .xlsx o JSON)\n   2 = una carpeta donde deja un archivo nuevo cada vez (se toma el más nuevo)\n   3 = un comando o consulta a su base de datos\n  ",
+    ["1", "2", "3"],
+    anterior.fuente?.tipo === "carpeta" ? "2" : anterior.fuente?.tipo === "comando" ? "3" : "1"
+  );
   const fuente = {};
-  if (tipo === "1" || tipo === "archivo") {
+  if (tipo === "1") {
     fuente.tipo = "archivo";
-    fuente.ruta = await p("   Ruta del archivo (por ejemplo C:\\exportes\\stock.csv)", anterior.fuente?.ruta || "");
-    fuente.codificacion = await p("   Codificación (latin1 en casi todos los sistemas viejos de Windows; utf8 si es nuevo)", anterior.fuente?.codificacion || "latin1");
-    const maximo = Number(await p("   Si el archivo tiene más de estos minutos sin cambiar, no se manda (0 = sin límite)", anterior.fuente?.maximoMinutos ?? 180));
-    if (maximo > 0) fuente.maximoMinutos = maximo;
+    fuente.ruta = await p("   Ruta del archivo (por ejemplo C:\\exportes\\stock.xlsx)", anterior.fuente?.ruta || "");
+    if (/\.xlsx$/i.test(fuente.ruta)) {
+      const hoja = await p("   ¿Qué hoja del Excel? (vacío = la primera)", anterior.fuente?.hoja || "");
+      if (hoja) fuente.hoja = hoja;
+    }
+  } else if (tipo === "2") {
+    fuente.tipo = "carpeta";
+    fuente.carpeta = await p("   La carpeta", anterior.fuente?.carpeta || "");
+    fuente.patron = await p("   Qué archivos (por ejemplo *.csv o stock_*.xlsx)", anterior.fuente?.patron || "*.csv");
   } else {
     fuente.tipo = "comando";
     fuente.comando = await p("   El comando (o la ruta de un .bat que lo corra; ver la carpeta ejemplos)", anterior.fuente?.comando || "");
-    fuente.codificacion = await p("   Codificación de lo que escribe", anterior.fuente?.codificacion || "latin1");
     fuente.timeoutSegundos = Number(await p("   Segundos como máximo que puede tardar", anterior.fuente?.timeoutSegundos || 120)) || 120;
   }
-  const cadaMinutos = Math.max(1, Number(await p("7. Cada cuántos minutos se manda el stock", anterior.cadaMinutos || 15)) || 15);
-  const ventasSi = /^s/i.test(await p("8. ¿Bajar las ventas de la tienda a una carpeta, para cargarlas en tu sistema? (s/n)", anterior.ventas?.activar ? "s" : "n"));
-  const config = { url, clave: clave === "(la de antes)" ? anterior.clave : clave, origen, equipo, sede, cadaMinutos, fuente };
-  if (ventasSi) config.ventas = { activar: true, carpeta: await p("   Carpeta para las ventas", anterior.ventas?.carpeta || "C:\\ventas-de-la-tienda") };
-  else config.ventas = { activar: false, carpeta: "" };
+  if (tipo !== "3") {
+    const maximo = Number(await p("   Si el archivo tiene más de estos minutos sin cambiar, no se manda (0 = sin límite)", anterior.fuente?.maximoMinutos ?? 180));
+    if (maximo > 0) fuente.maximoMinutos = maximo;
+  }
+  config.fuente = fuente;
+
+  // 4. Las columnas: se lee una vez para enseñar cómo se entendió.
+  config.columnas = { ...(anterior.columnas || {}) };
+  try {
+    const { tabla } = await leerFuente(config);
+    const { indices, comoSeLeyo } = detectarColumnas(tabla.columnas, config.columnas);
+    escribir(`\n   Leí ${tabla.filas.length} filas. Columnas: ${tabla.columnas.join(", ")}`);
+    escribir(`   Así las entendí: ${textoDeLasColumnas(comoSeLeyo) || "(ninguna)"}`);
+    const bien = indices.cantidad !== -1 && (indices.codigo !== -1 || indices.producto !== -1) && /^s/i.test(await p("   ¿Está bien? (s/n)", "s"));
+    if (!bien) {
+      for (const campo of ["cantidad", "codigo", "producto", "precio", "talla", "color"]) {
+        const actual = indices[campo] === -1 ? "" : tabla.columnas[indices[campo]];
+        const r = await p(`   ¿Qué columna es «${campo}»? (vacío = ${actual ? `«${actual}»` : "ninguna"}; «-» = no usarla)`, "");
+        if (r === "-") config.columnas[campo] = "";
+        else if (r) config.columnas[campo] = r;
+      }
+    }
+  } catch (error) {
+    escribir(`\n   Todavía no pude leer el stock (${sinSecretos(error.message, secretosDe(config))}). Las columnas se pueden ajustar después en config.json ("columnas").`);
+  }
+  if (!Object.keys(config.columnas).length) delete config.columnas;
+
+  // 5. Cada cuánto, las ventas y los avisos.
+  config.cadaMinutos = Math.max(1, Number(await p("6. Cada cuántos minutos se manda el stock", anterior.cadaMinutos || 15)) || 15);
+  if (destino === "1") {
+    const ventasSi = /^s/i.test(await p("7. ¿Bajar las ventas de la tienda a una carpeta, para cargarlas en tu sistema? (s/n)", anterior.ventas?.activar ? "s" : "n"));
+    config.ventas = ventasSi ? { activar: true, carpeta: await p("   Carpeta para las ventas", anterior.ventas?.carpeta || "C:\\ventas-de-la-tienda") } : { activar: false, carpeta: "" };
+  } else {
+    const aviso = await p("7. Si falla, ¿a qué dirección aviso? (un webhook de Slack, Teams, Google Chat o Discord; vacío = no avisar)", anterior.avisos?.webhook || "");
+    if (aviso) config.avisos = { webhook: aviso, formato: /discord/i.test(aviso) ? "discord" : "slack" };
+  }
+
   fs.writeFileSync(ruta, JSON.stringify(config, null, 2));
   escribir(`\nGuardado en ${ruta}. Ahora corre «node agente-puente.mjs --doctor» para revisar que todo funcione.`);
-  if (config.clave) escribir("La clave quedó en ese archivo: no lo compartas ni lo mandes por chat.");
+  if (config.clave || config.destinos?.some((d) => d.cabeceras || d.secretoFirma) || config.avisos) escribir("Ese archivo tiene claves: no lo compartas ni lo mandes por chat.");
   return config;
 }
 
@@ -556,9 +458,6 @@ function preguntarPorConsola() {
 }
 
 /* ── Doctor: revisa todo y dice qué falla ───────────────────────────── */
-
-const COLUMNA_CANTIDAD = /cant|stock|exist|qty|quantity|unidades|disponible|saldo/i;
-const COLUMNA_NOMBRE = /produ|descrip|nombre|art[ií]culo|item|modelo|t[ií]tulo|c[oó]d|sku|ref|barra|ean/i;
 
 // Devuelve [{ ok: true|false|null, nombre, detalle }]. null = aviso, no error.
 export async function doctor(config, { hacer = globalThis.fetch, esperar = pausa, ejecutar = ejecutarPrograma, plataforma = process.platform } = {}) {
@@ -575,44 +474,70 @@ export async function doctor(config, { hacer = globalThis.fetch, esperar = pausa
     anotar(false, "Puede escribir su registro en esta carpeta", `No puede escribir en ${config.carpeta}: mueve la carpeta a un sitio propio, por ejemplo C:\\agente-puente.`);
   }
   if (problemas.length) return r;
+  const destinos = listaDeDestinos(config);
+  const deps = { hacer, esperar, version: VERSION };
 
-  // La tienda.
-  let tiendaBien = false;
-  try {
-    const e = await llamar(config, "/api/sync/estado", {}, { hacer, esperar, intentos: 1 });
-    tiendaBien = e.estado === 200 && e.cuerpo?.ok;
-    anotar(tiendaBien, `La tienda contesta (${new URL(config.url).host})`, tiendaBien ? `${e.cuerpo.productos} productos en su inventario` : errorDeLaTienda(e, "No").message);
-  } catch (error) {
-    anotar(false, "La tienda contesta", error.message);
+  // Cada destino.
+  const destinosBien = new Set();
+  for (const d of destinos) {
+    const nombre = nombreDelDestino(d);
+    try {
+      if (d.tipo === "alpha") {
+        const e = await llamarA(d, "/api/sync/estado", {}, { ...deps, intentos: 1 });
+        const bien = e.estado === 200 && e.cuerpo?.ok;
+        anotar(bien, `Contesta la ${nombre}`, bien ? `${e.cuerpo.productos} productos en su inventario` : errorDeLaTienda(e, "No").message);
+        if (bien) destinosBien.add(d);
+      } else if (d.tipo === "webhook") {
+        // Sin mandar datos: solo que la dirección conteste algo.
+        const e = await pedir(d.url, { method: "HEAD" }, { hacer, esperar, intentos: 1, segundos: 20 });
+        anotar(true, `Contesta ${nombre}`, `contestó ${e.estado}. (Los datos de verdad no se mandan en esta prueba: usa --una-vez.)`);
+        destinosBien.add(d);
+      } else if (d.tipo === "carpeta") {
+        fs.mkdirSync(d.carpeta, { recursive: true });
+        const prueba = path.join(d.carpeta, `.agente-puente-prueba-${process.pid}`);
+        fs.writeFileSync(prueba, "ok");
+        fs.unlinkSync(prueba);
+        anotar(true, `Puede escribir en la ${nombre}`);
+        destinosBien.add(d);
+      }
+    } catch (error) {
+      anotar(false, d.tipo === "carpeta" ? `Puede escribir en la ${nombre}` : `Contesta ${d.tipo === "alpha" ? "la " : ""}${nombre}`, error.message);
+    }
   }
 
-  // La fuente.
-  let leido = null;
+  // La fuente y sus columnas.
+  let datos = null;
   try {
-    leido = await leerFuente(config);
-    const lineas = leido.texto.split("\n");
-    const encabezado = lineas[0] || "";
-    anotar(lineas.length > 1, "Se puede leer el stock del sistema", lineas.length > 1 ? `${lineas.length - 1} filas; columnas: ${encabezado.slice(0, 160)}` : "No trajo ninguna fila.");
-    const columnas = encabezado.split(/[;,\t|]/).map((c) => c.trim());
-    if (!columnas.some((c) => COLUMNA_CANTIDAD.test(c))) anotar(null, "Columna de la cantidad", "No veo una columna de cantidad (cantidad, stock, existencia…). La tienda la necesita para saber cuánto hay.");
-    if (!columnas.some((c) => COLUMNA_NOMBRE.test(c))) anotar(null, "Columna del producto", "No veo una columna con el código o el nombre del producto.");
-    if (/\uFFFD/.test(leido.texto)) anotar(null, "Las tildes", 'Hay letras raras (�): prueba con "codificacion": "latin1" (o "utf8" si ya estaba en latin1).');
+    const { tabla, nombre } = await leerFuente(config);
+    anotar(tabla.filas.length > 0, "Se puede leer el stock del sistema", tabla.filas.length ? `${tabla.filas.length} filas de ${nombre}; columnas: ${tabla.columnas.join(", ").slice(0, 200)}` : "No trajo ninguna fila.");
+    const { indices, problemas: malas, comoSeLeyo } = detectarColumnas(tabla.columnas, config.columnas || {});
+    anotar(!malas.length, "Se entienden las columnas", malas.length ? malas.join(" ") : textoDeLasColumnas(comoSeLeyo));
+    if (tabla.filas.some((f) => f.some((c) => c.includes("\uFFFD")))) anotar(null, "Las tildes", 'Hay letras raras (�): prueba con "codificacion": "latin1" (o "utf8") en "fuente".');
+    if (!malas.length && tabla.filas.length) {
+      datos = { tabla, indices, generado: Date.now() };
+      const { productos, saltadas } = productosDe(tabla, indices);
+      const sinCantidad = productos.filter((x) => x.cantidad === null).length;
+      if (sinCantidad) anotar(null, "Las cantidades", `${sinCantidad} filas no tienen una cantidad que sea un número.`);
+      if (saltadas) anotar(null, "Filas sin código ni nombre", `${saltadas} filas se van a saltar.`);
+      if (indices.foto === -1) anotar(null, "Fotos", "El sistema no trae fotos: se suben en el panel de la tienda (Inventario › Sin foto) y un conteo del sistema nunca las borra.");
+    }
   } catch (error) {
     anotar(false, "Se puede leer el stock del sistema", error.message);
   }
 
   // Una prueba de verdad, sin guardar nada.
-  if (tiendaBien && leido) {
-    try {
-      const c = await ciclo(config, { probar: true, hacer, esperar, registrar: () => {} });
-      const i = c.informe || {};
-      anotar(true, "Prueba completa (sin guardar nada)", `la tienda entendió ${c.filas ?? c.filasLeidas} filas${i.nuevos ? `; crearía ${i.nuevos} productos nuevos` : ""}${i.errores?.length ? `; ${i.errores.length} con problemas, por ejemplo: ${i.errores[0]}` : ""}`);
-    } catch (error) {
-      anotar(false, "Prueba completa (sin guardar nada)", error.message);
+  if (datos) {
+    for (const d of destinos.filter((x) => destinosBien.has(x))) {
+      try {
+        const c = await enviarA(config, d, datos, { ...deps, probar: true });
+        const i = c.informe || {};
+        anotar(true, `Prueba con ${nombreDelDestino(d)} (sin guardar nada)`, d.tipo === "alpha" ? `la tienda entendió ${c.filas ?? c.filasLeidas} filas${i.nuevos ? `; crearía ${i.nuevos} productos nuevos` : ""}${i.errores?.length ? `; ${i.errores.length} con problemas, por ejemplo: ${i.errores[0]}` : ""}` : `${c.mensaje}. El primero: ${JSON.stringify(c.ejemplo).slice(0, 200)}`);
+      } catch (error) {
+        anotar(false, `Prueba con ${nombreDelDestino(d)} (sin guardar nada)`, error.message);
+      }
     }
   }
 
-  // ¿Está instalado para correr solo?
   const instalado = await estaInstalado({ ejecutar, plataforma });
   anotar(instalado ? true : null, "Corre solo (tarea programada)", instalado ? "" : "Todavía no: corre «node agente-puente.mjs --instalar» (en Windows, como administrador).");
   return r;
@@ -625,133 +550,20 @@ export function textoDelDoctor(resultado) {
   return lineas.join("\n");
 }
 
-/* ── Instalar para que corra solo ───────────────────────────────────── */
+/* ── --probar ───────────────────────────────────────────────────────── */
 
-function ejecutarPrograma(programa, args = [], { heredar = false } = {}) {
-  return new Promise((resolve) => {
-    const hijo = spawn(programa, args, { stdio: heredar ? "inherit" : "pipe", windowsHide: true });
-    let salida = "";
-    hijo.stdout?.on("data", (d) => (salida += d));
-    hijo.stderr?.on("data", (d) => (salida += d));
-    hijo.on("error", (error) => resolve({ codigo: -1, salida: error.message }));
-    hijo.on("close", (codigo) => resolve({ codigo, salida }));
-  });
-}
-
-function xml(texto) {
-  return String(texto).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-// La tarea de Windows en XML: cada minuto, para siempre, sin pararse con la
-// batería, sin ventana, una sola a la vez, y cortada si pasa de 30 min.
-export function tareaDeWindows({ node = process.execPath, script = path.join(AQUI, "agente-puente.mjs"), config = path.join(AQUI, "config.json"), usuario = "" } = {}) {
-  const principal = usuario
-    ? `<UserId>${xml(usuario)}</UserId><LogonType>Password</LogonType><RunLevel>HighestAvailable</RunLevel>`
-    : `<UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel>`;
-  return `<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>Agente puente: le pasa el stock del sistema de inventario al bot de la tienda.</Description></RegistrationInfo>
-  <Triggers>
-    <TimeTrigger>
-      <Repetition><Interval>PT1M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition>
-      <StartBoundary>2026-01-01T00:00:00</StartBoundary>
-      <Enabled>true</Enabled>
-    </TimeTrigger>
-  </Triggers>
-  <Principals><Principal id="Author">${principal}</Principal></Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <StartWhenAvailable>true</StartWhenAvailable>
-    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
-    <IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings>
-    <AllowStartOnDemand>true</AllowStartOnDemand>
-    <Enabled>true</Enabled>
-    <Hidden>false</Hidden>
-    <ExecutionTimeLimit>PT30M</ExecutionTimeLimit>
-    <Priority>7</Priority>
-  </Settings>
-  <Actions Context="Author">
-    <Exec>
-      <Command>${xml(node)}</Command>
-      <Arguments>${xml(`"${script}" --vuelta --config "${config}"`)}</Arguments>
-      <WorkingDirectory>${xml(path.dirname(script))}</WorkingDirectory>
-    </Exec>
-  </Actions>
-</Task>
-`;
-}
-
-// La línea de cron (Linux y Mac): cada minuto.
-export function lineaDeCron({ node = process.execPath, script = path.join(AQUI, "agente-puente.mjs"), config = path.join(AQUI, "config.json") } = {}) {
-  const q = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
-  return `* * * * * ${q(node)} ${q(script)} --vuelta --config ${q(config)} >/dev/null 2>&1 # agente-puente`;
-}
-
-export async function estaInstalado({ ejecutar = ejecutarPrograma, plataforma = process.platform } = {}) {
-  if (plataforma === "win32") return (await ejecutar("schtasks", ["/Query", "/TN", NOMBRE_DE_LA_TAREA])).codigo === 0;
-  const r = await ejecutar("crontab", ["-l"]);
-  return r.codigo === 0 && /# agente-puente/.test(r.salida);
-}
-
-export async function instalar({ rutaConfig, usuario = "", ejecutar = ejecutarPrograma, plataforma = process.platform, escribir = console.log, carpetaTemporal = os.tmpdir() } = {}) {
-  const script = path.join(AQUI, "agente-puente.mjs");
-  const config = path.resolve(rutaConfig);
-  if (plataforma === "win32") {
-    const archivo = path.join(carpetaTemporal, "agente-puente-tarea.xml");
-    // schtasks lee bien el XML en UTF-16 con su marca (BOM).
-    fs.writeFileSync(archivo, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(tareaDeWindows({ script, config, usuario }), "utf16le")]));
-    const args = ["/Create", "/F", "/TN", NOMBRE_DE_LA_TAREA, "/XML", archivo];
-    if (usuario) args.push("/RU", usuario, "/RP", "*");
-    const r = await ejecutar("schtasks", args, { heredar: Boolean(usuario) });
+export async function probar(config, deps = {}) {
+  const datos = await leerStock(config);
+  const salida = [`Leídas ${datos.tabla.filas.length} filas de ${datos.nombre}.`, `Columnas: ${textoDeLasColumnas(datos.comoSeLeyo)}`];
+  for (const d of listaDeDestinos(config)) {
     try {
-      fs.unlinkSync(archivo);
-    } catch {}
-    if (r.codigo !== 0) {
-      escribir(`No se pudo crear la tarea: ${String(r.salida || "").trim()}\n¿Abriste la ventana como administrador? (clic derecho › Ejecutar como administrador)`);
-      return false;
+      const c = await enviarA(config, d, datos, { version: VERSION, ...deps, probar: true });
+      salida.push(`• ${nombreDelDestino(d)}: ${d.tipo === "alpha" ? `la tienda entendió ${c.filas} filas${c.informe?.nuevos ? `, crearía ${c.informe.nuevos} productos nuevos` : ""}${c.informe?.errores?.length ? `, ${c.informe.errores.length} con problemas: ${c.informe.errores.slice(0, 3).join(" | ")}` : ""}` : `${c.mensaje}. El primero: ${JSON.stringify(c.ejemplo)}`}`);
+    } catch (error) {
+      salida.push(`• ${nombreDelDestino(d)}: ❌ ${error.message}`);
     }
-    escribir(`Listo: la tarea «${NOMBRE_DE_LA_TAREA}» corre cada minuto${usuario ? ` con la cuenta ${usuario}` : " como SYSTEM"}, aunque nadie inicie sesión y aunque se reinicie la PC.`);
-    if (!usuario) escribir("Ojo: como SYSTEM no ve las unidades de red con letra (Z:\\…). Si tu archivo está en una, usa la ruta \\\\servidor\\carpeta o instala con --usuario TU_USUARIO.");
-    await ejecutar("schtasks", ["/Run", "/TN", NOMBRE_DE_LA_TAREA]);
-    return true;
   }
-  const actual = await ejecutar("crontab", ["-l"]);
-  const lineas = (actual.codigo === 0 ? actual.salida : "").split("\n").filter((l) => l.trim() && !/# agente-puente/.test(l));
-  lineas.push(lineaDeCron({ script, config }));
-  const r = await escribirCrontab(lineas.join("\n") + "\n", ejecutar);
-  if (r.codigo !== 0) {
-    escribir(`No se pudo instalar en cron: ${r.salida}. Añade a mano esta línea con «crontab -e»:\n${lineaDeCron({ script, config })}`);
-    return false;
-  }
-  escribir("Listo: quedó en cron, cada minuto.");
-  return true;
-}
-
-function escribirCrontab(contenido, ejecutar) {
-  if (ejecutar !== ejecutarPrograma) return ejecutar("crontab", ["-"], { entrada: contenido });
-  return new Promise((resolve) => {
-    const hijo = spawn("crontab", ["-"], { stdio: ["pipe", "pipe", "pipe"] });
-    let salida = "";
-    hijo.stderr.on("data", (d) => (salida += d));
-    hijo.on("error", (error) => resolve({ codigo: -1, salida: error.message }));
-    hijo.on("close", (codigo) => resolve({ codigo, salida }));
-    hijo.stdin.end(contenido);
-  });
-}
-
-export async function desinstalar({ ejecutar = ejecutarPrograma, plataforma = process.platform, escribir = console.log } = {}) {
-  if (plataforma === "win32") {
-    const r = await ejecutar("schtasks", ["/Delete", "/F", "/TN", NOMBRE_DE_LA_TAREA]);
-    escribir(r.codigo === 0 ? `Listo: se quitó la tarea «${NOMBRE_DE_LA_TAREA}».` : `No estaba instalada o no se pudo quitar: ${String(r.salida || "").trim()}`);
-    return r.codigo === 0;
-  }
-  const actual = await ejecutar("crontab", ["-l"]);
-  const lineas = (actual.codigo === 0 ? actual.salida : "").split("\n").filter((l) => l.trim() && !/# agente-puente/.test(l));
-  const r = await escribirCrontab(lineas.length ? lineas.join("\n") + "\n" : "", ejecutar);
-  escribir(r.codigo === 0 ? "Listo: se quitó de cron." : `No se pudo: ${r.salida}`);
-  return r.codigo === 0;
+  return sinSecretos(salida.join("\n"), secretosDe(config));
 }
 
 /* ── --estado ───────────────────────────────────────────────────────── */
@@ -759,15 +571,15 @@ export async function desinstalar({ ejecutar = ejecutarPrograma, plataforma = pr
 export function textoDelEstado(config) {
   const e = leerEstado(config);
   const l = [];
-  l.push(`Agente puente ${VERSION} · ${config.agente} · tienda ${config.url || "(sin configurar)"}`);
-  l.push(e.ultimoOk ? `Último conteo bueno: ${marcaDeTiempo(e.ultimoOk)} (${e.ultimoMensaje || `${e.filas} filas`})` : "Todavía no hay ningún conteo bueno.");
+  l.push(`Agente puente ${VERSION} · ${config.agente} · manda a: ${listaDeDestinos(config).map(nombreDelDestino).join(", ") || "(sin configurar)"}`);
+  l.push(e.ultimoOk ? `Último conteo bueno: ${marcaDeTiempo(e.ultimoOk)} (${e.ultimoMensaje || ""})` : "Todavía no hay ningún conteo bueno.");
   if (e.ultimoErrorEn && (!e.ultimoOk || e.ultimoErrorEn > e.ultimoOk)) l.push(`Último error: ${marcaDeTiempo(e.ultimoErrorEn)} — ${e.ultimoError}`);
   if (e.proximaSync) l.push(`Próximo conteo: ${marcaDeTiempo(e.proximaSync)}`);
   try {
     const registro = fs.readFileSync(rutaDe(config, "puente.log"), "utf8").trim().split("\n").slice(-15);
     l.push("", "Últimas líneas del registro (puente.log):", ...registro);
   } catch {}
-  return l.join("\n");
+  return sinSecretos(l.join("\n"), secretosDe(config));
 }
 
 /* ── Arranque ───────────────────────────────────────────────────────── */
@@ -783,7 +595,7 @@ async function principal() {
 
   if (tiene("--version")) return console.log(VERSION);
   if (tiene("--ayuda") || tiene("--help") || tiene("-h")) {
-    const cabecera = fs.readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").filter((l) => l.startsWith("//")).slice(0, 42);
+    const cabecera = fs.readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").filter((l) => l.startsWith("//"));
     return console.log(cabecera.map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
   }
   if (tiene("--configurar")) {
@@ -815,8 +627,8 @@ async function principal() {
     if (resultado.some((x) => x.ok === false)) process.exitCode = 1;
     return;
   }
+  const problemas = problemasDeConfig(config);
   if (tiene("--instalar")) {
-    const problemas = problemasDeConfig(config);
     if (problemas.length) {
       console.error(`Antes de instalar, arregla config.json:\n- ${problemas.join("\n- ")}`);
       process.exitCode = 1;
@@ -825,7 +637,6 @@ async function principal() {
     if (!(await instalar({ rutaConfig: ruta, usuario: valor("--usuario") || "" }))) process.exitCode = 1;
     return;
   }
-  const problemas = problemasDeConfig(config);
   if (problemas.length) {
     registrar(`La configuración tiene problemas: ${problemas.join(" ")}`, { error: true });
     process.exitCode = 1;
@@ -833,8 +644,7 @@ async function principal() {
   }
   if (tiene("--probar")) {
     try {
-      const c = await ciclo(config, { probar: true, registrar });
-      console.log(JSON.stringify(c.informe || c, null, 2));
+      console.log(await probar(config));
     } catch (error) {
       registrar(`❌ ${error.message}`, { error: true });
       process.exitCode = 1;

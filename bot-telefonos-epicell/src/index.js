@@ -173,7 +173,7 @@ import {
 
 // Se sube a mano en cada entrega y sale en /estado: los archivos se copian
 // a mano, así que "ya lo pegué" y "ya está desplegado" no son lo mismo.
-const VERSION = "2026-10-16 (74) · 🔌 AGENTE PUENTE v2, conectado al panel: el agente de la PC del cliente avisa cada minuto que está vivo (/api/sync/latido) y cómo le fue; en Inventario › Importar sale cada agente (Activo / Con error / Sin señal), su último conteo bueno, su último error y el botón «Sincronizar ahora» (/api/sync/orden); un error o un agente callado avisan por Slack y al panel central (alerta «puente»), una vez, y cuando vuelve también. El agente vive aparte, en la carpeta agente-puente/.";
+const VERSION = "2026-10-16 (75) · 🔌 AGENTE PUENTE ABIERTO A CUALQUIER TIENDA Y SISTEMA (en agente-puente/, v2.1): lee CSV/TXT/Excel .xlsx/JSON, el más nuevo de una carpeta o la base del sistema; reconoce las columnas solo o con «columnas»; manda a una tienda ALPHA IA, a CUALQUIER otra plataforma (webhook JSON/CSV con clave y firma, ver PROTOCOLO.md) o a una carpeta, a varios a la vez. 📷 En el inventario, el atajo «Sin foto (N)» y, en la tarjeta del agente puente, cuántos productos no tienen foto: el sistema no las trae, se suben en el panel y un conteo del sistema nunca las toca.";
 
 /* ════════════════════════════════════════════════════════════════════
    LO QUE CAMBIA SEGÚN LA TIENDA

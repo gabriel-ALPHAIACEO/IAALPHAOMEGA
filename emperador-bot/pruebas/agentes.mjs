@@ -204,6 +204,12 @@ try {
     ok(/Agente puente/.test(html) && /Profit/.test(html) && /PC Caja/.test(html), "cada agente con su sistema y su PC");
     ok(/chip mal">Con error/.test(html) && /No encuentro el archivo/.test(html), "con error: el chip rojo y el motivo", html.match(/chip [a-z]+">[^<]+/g)?.join(", "));
     ok(/Sincronizar ahora/.test(html) && /\/panel\/inventario\/conector\/sincronizar/.test(html), "y el botón «Sincronizar ahora»");
+    sql.prepare("INSERT INTO inv_productos (titulo, origen, origen_id, activo, actualizado) VALUES ('Sin Imagen', 'manual', 'm-sinimg', 1, 0)").run();
+    html = await ver();
+    ok(/no tienen? foto/.test(html) && /\/panel\/inventario\?f=sin-foto/.test(html), "dice cuántos productos no tienen foto y lleva a subirlas");
+    const lista = await atenderPanel(new Request("https://bot.test/panel/inventario?f=sin-foto", { headers: { cookie, "sec-fetch-site": "same-origin" } }), entorno, { tienda: "Prueba", rubro: "calzado", verTexto: async () => "" });
+    const htmlLista = await lista.text();
+    ok(/Sin foto \(\d+\)/.test(htmlLista) && /Sin Imagen/.test(htmlLista), "el inventario tiene el atajo «Sin foto» con los que faltan", String(lista.status));
     ok(!html.includes(CLAVE), "la clave no sale");
     // El botón.
     const pedir = await atenderPanel(new Request("https://bot.test/panel/inventario/conector/sincronizar", { method: "POST", headers: { cookie, "sec-fetch-site": "same-origin", origin: "https://bot.test" }, body: new FormData() }), entorno, { tienda: "Prueba", rubro: "calzado" });
@@ -262,8 +268,21 @@ try {
       avisos.length = 0;
       fs.rmSync(archivo);
       v = await agente.vuelta(config, { forzar: true, registrar: () => {}, esperar: async () => {} });
-      ok(!v.ok && fila("oficina").estado === "error" && /No encuentro el archivo/.test(fila("oficina").ultimo_error), "si la fuente falla, la tienda queda «Con error» con el motivo", fila("oficina").ultimo_error);
+      ok(!v.ok && fila("oficina").estado === "error" && /No encuentro/.test(fila("oficina").ultimo_error), "si la fuente falla, la tienda queda «Con error» con el motivo", fila("oficina").ultimo_error);
       ok(avisos.some((x) => x.a === "slack" && /SistemaX \(PC Oficina\)/.test(x.texto)), "y llega el aviso");
+
+      // LAS FOTOS (dueño, 16-oct-2026: "en caso de que el sistema no contenga
+      // imágenes, nosotros tendríamos que cargarlas"): lo que llega sin foto
+      // sale en «Sin foto», se le sube en el panel y el sistema no la toca.
+      const bota = sql.prepare("SELECT id FROM inv_productos WHERE titulo = 'Bota Puente'").get().id;
+      const sinFoto = await inv.listarProductos(DB, { sinFoto: true });
+      ok(sinFoto.some((p) => p.id === bota) && (await inv.contarSinFoto(DB)) >= 1, "lo que llegó del sistema sin imagen sale en «Sin foto»");
+      sql.prepare("INSERT INTO inv_fotos (producto_id, url, orden) VALUES (?, 'https://bot.test/tienda/img/1.jpg', 0)").run(bota);
+      fs.writeFileSync(archivo, "Código;Descripción;Talla;Existencia;Precio\nPZ1;Bota Puente;40;9;55\n");
+      v = await agente.vuelta(config, { forzar: true, registrar: () => {}, esperar: async () => {} });
+      const fotos = sql.prepare("SELECT url FROM inv_fotos WHERE producto_id = ?").all(bota);
+      ok(v.ok && fotos.length === 1 && fotos[0].url.endsWith("/1.jpg"), "la foto subida en el panel sigue ahí después de otro conteo del sistema", JSON.stringify(fotos));
+      ok(!(await inv.listarProductos(DB, { sinFoto: true })).some((p) => p.id === bota), "y ya no sale en «Sin foto»");
     } finally {
       servidor.close();
       fs.rmSync(carpeta, { recursive: true, force: true });

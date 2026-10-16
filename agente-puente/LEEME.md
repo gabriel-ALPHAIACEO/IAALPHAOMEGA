@@ -1,69 +1,55 @@
-# AGENTE PUENTE v2 — conectar el bot con un sistema de inventario CERRADO (sin API)
+# AGENTE PUENTE v2.1: el inventario de CUALQUIER sistema, a CUALQUIER tienda
 
-**Esta carpeta funciona sola, aparte de todo.** No se despliega en Cloudflare y no necesita ningún archivo de los bots: se copia tal cual a la PC o al servidor del cliente, junto a su sistema, y con **Node.js 18 o más** ya corre.
+**Funciona solo, aparte de todo.** No se despliega en Cloudflare y no necesita ningún archivo de los bots: esta carpeta se copia a la PC o al servidor donde está el sistema de inventario y, con **Node.js 18 o más**, corre.
 
-## En una frase
-
-El sistema cerrado no tiene API, pero casi todos pueden **sacar un Excel/CSV** y casi todos viven sobre **una base de datos** que se puede consultar. El agente lee esos datos y le manda el stock al bot; de vuelta, le deja las ventas en un archivo. **Y desde la v2 está conectado al panel**: cada minuto le avisa a la tienda que está vivo, el dueño ve en el panel si funciona, puede pedirle «Sincronizar ahora», y si algo falla le llega un aviso.
+**Está abierto a cualquier tienda.** Lee el stock de cualquier sistema instalado en una computadora (aunque no tenga API) y lo entrega a:
+- **una tienda con ALPHA IA** (el bot y su panel), con todo: latido, «Sincronizar ahora» desde el panel, ventas de vuelta y avisos;
+- **cualquier otra tienda o plataforma** que tenga una dirección para recibir datos: su API, WooCommerce o una página propia con un PHP chico, Zapier, Make, n8n… Recibe un JSON (o un CSV) limpio, con su clave y una firma para comprobar que viene del agente. Todo está en **`PROTOCOLO.md`**, con ejemplos que funcionan en PHP y en Node;
+- **una carpeta**: un `stock.csv` o `stock.json` limpio, siempre con el mismo formato, para un programa que importa desde ahí o para una carpeta de Google Drive, OneDrive o Dropbox que otra plataforma lee;
+- **varios a la vez** (por ejemplo, la tienda ALPHA IA y un respaldo en una carpeta): si uno falla, los demás reciben igual.
 
 ```
- Sistema cerrado ──(base de datos o CSV)──► AGENTE PUENTE ──► /api/sync/inventario ──► el bot y su panel
-                                               │  ▲
-                                   latido c/min │  │ «Sincronizar ahora» (del panel)
-                                               ▼  │
-                                         /api/sync/latido ──► Slack + panel central si falla
- Sistema cerrado ◄──(CSV de ventas)───────── AGENTE PUENTE ◄── /api/sync/ventas ◄──── (caja, tienda web)
+                                   ┌──► tienda con ALPHA IA  (/api/sync, latido, panel, ventas de vuelta)
+ Sistema de inventario ──► AGENTE ─┼──► cualquier otra plataforma  (webhook JSON/CSV, con clave y firma)
+ (archivo, Excel, carpeta,  PUENTE └──► una carpeta  (stock.csv / stock.json)
+  o su base de datos)        │
+                             └──► si falla: aviso a Slack, Teams, Google Chat o Discord
 ```
 
 ## Qué hay en esta carpeta
 
 | Archivo | Para qué |
 |---|---|
-| `agente-puente.mjs` | **El programa.** Todo está aquí (un solo archivo, sin dependencias). |
-| `instalar.bat` | **Doble clic y listo** (Windows): pide permiso de administrador, hace las preguntas, revisa todo y lo deja corriendo solo. |
-| `probar.bat` | Revisa todo (el «doctor») sin guardar nada. |
-| `sincronizar-ya.bat` | Manda el stock ahora mismo. |
-| `estado.bat` | Cómo le fue la última vez y las últimas líneas del registro. |
-| `desinstalar.bat` | Quita la tarea programada. |
-| `config.ejemplo.json` | Un ejemplo de configuración (el `--configurar` escribe la de verdad: `config.json`). |
-| `ejemplos/` | Comandos de ejemplo para SQL Server, MySQL, PostgreSQL, SQLite y ODBC (Access, DBF, Firebird…). |
-| `pruebas/agente.mjs` | Las pruebas del agente (corren solas: `node pruebas/agente.mjs`). |
+| `agente-puente.mjs` | **El programa**: junta las piezas de `lib/` y es lo que se corre. |
+| `lib/fuentes.mjs` | De dónde lee: un archivo, el más nuevo de una carpeta o un comando. |
+| `lib/tabla.mjs` · `lib/excel.mjs` | Leer CSV (con `;` `,` tab o `|`, comillas, UTF-8 o latin1) y Excel `.xlsx` sin instalar nada. |
+| `lib/columnas.mjs` | Qué es cada columna (solas o dichas en `"columnas"`). |
+| `lib/destinos.mjs` | A dónde manda: tienda ALPHA IA, webhook o carpeta. |
+| `lib/avisos.mjs` | Los avisos propios (Slack, Teams, Google Chat, Discord). |
+| `lib/secretos.mjs` · `lib/registro.mjs` · `lib/instalar.mjs` | Tapar secretos, el registro y la tarea programada. |
+| `PROTOCOLO.md` | **Para quien programa la tienda que recibe**: qué llega, qué contestar, cómo comprobar la firma. |
+| `instalar.bat` · `probar.bat` · `sincronizar-ya.bat` · `estado.bat` · `desinstalar.bat` | Doble clic (Windows). |
+| `ejemplos/sacar-stock-*.bat` | Consultas de ejemplo para SQL Server, MySQL, PostgreSQL, SQLite y ODBC. |
+| `ejemplos/configuraciones/` | Cuatro `config.json` de ejemplo: tienda ALPHA IA, otra plataforma, carpeta de Drive y varios a la vez. |
+| `ejemplos/recibir-webhook.php` · `.mjs` | Cómo recibir el stock en otra tienda (con la clave y la firma comprobadas). |
+| `pruebas/` | `node pruebas/correr.mjs`: las pruebas del agente (corren solas, sin ningún bot). |
 
-Lo que el agente escribe al correr (no se copia de una PC a otra): `config.json` (con la clave: **no se comparte**), `estado-puente.json` (cuándo fue el último conteo), `puente.log` (el registro; al pasar de 1 MB el viejo queda como `puente.log.1`) y `puente.lock` (mientras corre una vuelta).
-
-## Paso 0 (una sola vez, en cada tienda): encender la puerta
-
-La puerta está **cerrada** hasta que exista la clave. La clave es un secreto: nunca va en GitHub ni en el chat.
-
-1. Inventa una clave larga. En PowerShell:
-   ```powershell
-   [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
-   ```
-2. Cárgala en la tienda, **desde la carpeta de esa tienda** (te la pide al escribirla):
-   ```powershell
-   npx.cmd wrangler secret put SYNC_CLAVE
-   ```
-3. Despliega: `npx.cmd wrangler deploy`.
-4. En el panel: **Inventario › Importar** dice «Conectar con tu sistema de inventario · encendida» y, debajo, «Agente puente: ningún agente se ha conectado todavía».
-
-Cada tienda tiene **su propia clave** (nunca la misma en dos).
+Lo que el agente escribe al correr (no se copia de una PC a otra): `config.json` (con las claves: **no se comparte**), `estado-puente.json`, `puente.log` (al pasar de 1 MB el viejo queda como `puente.log.1`) y `puente.lock`.
 
 ## Instalar en la PC del cliente (Windows), en 5 minutos
 
 1. Instala **Node.js** (la versión LTS) desde https://nodejs.org si no lo tiene.
 2. Copia esta carpeta a `C:\agente-puente` (una ruta corta y sin espacios).
 3. **Doble clic en `instalar.bat`** y acepta el permiso de administrador. Te pregunta:
-   1. la dirección del bot (`https://<tienda>.<tu-cuenta>.workers.dev`),
-   2. la clave del paso 0,
-   3. el nombre del sistema (sale en los movimientos: «Sistema: Profit»),
-   4. el nombre de esa PC (para reconocerla en el panel),
-   5. la sede (vacío = la principal),
-   6. de dónde sale el stock: **1** un archivo que exporta el sistema, **2** un comando o consulta (ver `ejemplos/`),
-   7. cada cuántos minutos se manda (15),
-   8. si quieres las ventas de la tienda en una carpeta.
+   1. **a dónde va el stock**: una tienda con ALPHA IA (su dirección y su clave), **otra plataforma** (la dirección que recibe los datos, su clave y, si quieres, una clave para firmar) o **una carpeta**,
+   2. el nombre del sistema y de esa PC,
+   3. **de dónde sale el stock**: un archivo (CSV, TXT, Excel o JSON; de un Excel, qué hoja), la carpeta donde el sistema deja uno nuevo cada vez, o un comando que consulta su base (ver `ejemplos/`),
+   4. **lee el stock una vez y te enseña cómo entendió cada columna** («cantidad ← Existencia, código ← Ref…»); si alguna está mal, la corriges ahí mismo,
+   5. cada cuántos minutos se manda (15),
+   6. con ALPHA IA: si quieres las ventas de la tienda en una carpeta; con otra plataforma: a qué Slack, Teams o Discord avisar si falla.
 4. Después corre solo el **doctor**, que revisa una por una: Node, la configuración, que la tienda conteste y la clave sea la buena, que el stock se pueda leer (y las columnas y las tildes), y **una prueba completa sin guardar nada**. Si algo sale con ❌, dice qué arreglar y no instala.
 5. Si todo sale bien, crea la tarea **«Agente puente»** en el Programador de tareas: **cada minuto, como SYSTEM** (corre aunque nadie inicie sesión y vuelve sola tras reiniciar), sin pararse con la batería, una sola a la vez y cortada si se cuelga más de 30 minutos.
-6. En el panel de la tienda, **Inventario › Importar**, en menos de un minuto sale el agente como **Activo**.
+6. Con una tienda ALPHA IA: en su panel, **Inventario › Importar**, en menos de un minuto sale el agente como **Activo**. Con otra plataforma: `estado.bat` dice cómo le fue.
 
 **¿Cada minuto? ¿No es mucho?** Cada minuto solo **avisa** (un mensaje chiquito). El stock se manda cada `cadaMinutos` (15) o cuando lo pides desde el panel. Y como cada vuelta es un programa que arranca y termina, si algo se traba la siguiente vuelta empieza limpia.
 
@@ -77,7 +63,7 @@ Cada tienda tiene **su propia clave** (nunca la misma en dos).
 |---|---|
 | `node agente-puente.mjs --configurar` | Las preguntas; escribe `config.json` (Enter deja lo que ya estaba). |
 | `node agente-puente.mjs --doctor` | Revisa todo y dice qué falla y cómo arreglarlo (sale con 1 si hay alguna ❌). |
-| `node agente-puente.mjs --probar` | Manda con `?probar=1`: la tienda dice qué haría, **sin guardar nada**. |
+| `node agente-puente.mjs --probar` | Dice qué mandaría a cada destino (y enseña el primer producto), **sin mandar ni guardar nada**. A una tienda ALPHA IA le pregunta con `?probar=1`. |
 | `node agente-puente.mjs --instalar [--usuario X]` | Lo deja corriendo solo (Programador de tareas / cron). |
 | `node agente-puente.mjs --desinstalar` | Lo quita. |
 | `node agente-puente.mjs --una-vez` | Sincroniza **ya** y sale (con 1 si falló). |
@@ -86,61 +72,44 @@ Cada tienda tiene **su propia clave** (nunca la misma en dos).
 | `node agente-puente.mjs` | Corre para siempre en esta ventana (Ctrl+C para parar). |
 | `--config otra.json` | Con otra configuración (dos sistemas en la misma PC: dos carpetas es más simple). |
 
-## Qué pasa en cada vuelta
+## A dónde manda (destinos)
 
-1. **Latido**: le dice a la tienda «estoy vivo» (nombre, PC, versión) y pregunta si desde el panel pidieron «Sincronizar ahora».
-2. **¿Toca?** Si pasaron `cadaMinutos` desde el último conteo, o se lo pidieron, saca el stock; si no, termina ahí.
-3. **El stock**: lee el archivo o corre el comando, y lo manda. Si es grande, pide las tandas hasta que termine. Si hay otro conteo a medias en la tienda, espera.
-4. **Las ventas** (si las activaste): las deja en la carpeta.
-5. **El resultado**: otro latido, «ok» (cuántas filas, cuántas sin cambios) o «error» con el motivo. Tras un error vuelve a intentar a los **5 minutos** (no cada minuto).
+Con una sola tienda ALPHA IA basta con `"url"` y `"clave"` arriba del todo, como siempre. Para cualquier otra cosa, `"destinos"`, una lista:
 
-## Lo que ve el dueño en el panel (Inventario › Importar › Agente puente)
-
-- Cada agente con su sistema y su PC, y un chip: **Activo** (verde), **Sincronizando**, **Con error** (rojo, con el motivo) o **Sin señal** (amarillo, con qué revisar).
-- Cuándo avisó por última vez, su **último conteo bueno** (filas y cuántas sin cambios), cada cuánto corre y su versión.
-- Sus últimos 5 hechos (se encendió, conteo correcto, error, dejó de dar señal, volvió, sincronizó por orden del panel).
-- El botón **«Sincronizar ahora»**: la tienda no puede entrar a la PC del cliente, así que deja la orden y el agente la recoge en su próximo latido (en menos de un minuto). Es la **única** orden que existe: el agente no acepta comandos de afuera.
-
-## Los avisos
-
-Por **Slack** (el `SLACK_WEBHOOK` de la tienda) y al **panel central** (alerta 🔌 «Agente puente con problemas» / ✅ «El agente puente volvió»):
-
-| Cuándo | Aviso |
-|---|---|
-| Un conteo falla | «🔌 El puente de inventario de Profit (PC Caja) tiene un error: <motivo>». El **mismo** error se recuerda a las 6 horas, no cada minuto; uno **distinto** se avisa enseguida. |
-| No da señal | Si corre cada minuto: a los **10 min**. Si corre por su cuenta cada N min (`--una-vez` programado): a las 3 vueltas, y nunca antes de 45 min. Se cambia con `AGENTE_SILENCIO_MIN` en el `wrangler.toml` de la tienda. Un solo aviso hasta que vuelva. |
-| Vuelve | «✅ … volvió a funcionar» (tras un error) o «… volvió a dar señal» (tras el silencio). |
-
-El aviso de silencio lo da el **cron** de la tienda (cada 15 min): **Invictus, El Emperador y Rodrigo**. **EPICCELL no tiene cron**: allá el panel igual lo enseña «Sin señal», pero no llega el aviso.
-
-Mientras el agente falle o esté callado, **el bot sigue con el último stock que recibió** (no se borra nada).
-
-### Las columnas que se reconocen (en cualquier orden, con o sin tildes)
-
-| Dato | Nombres que entiende |
-|---|---|
-| Código | código, cod, sku, barras, ean, referencia, ref |
-| Producto | producto, modelo, título, nombre, descripción, artículo |
-| Talla / capacidad | talla, opción, capacidad, tamaño, medida, size |
-| Color | color |
-| **Cantidad (obligatoria)** | cantidad, stock, existencia, unidades, inventario, cant |
-| Precio de venta | precio, pvp, precio de venta, valor |
-| Costo | costo, precio de costo, precio de compra |
-| Marca | marca, fabricante |
-| Sede | sede, local, tienda, almacén, sucursal |
-
-Hace falta **la cantidad** y **el producto o el código**. Si el sistema usa otros nombres, en la consulta SQL se renombran con `AS` (ver ejemplos).
-
-### Fuente «archivo» (el sistema exporta un CSV)
 ```json
-"fuente": { "tipo": "archivo", "ruta": "C:\\exportes\\stock.csv", "codificacion": "latin1", "maximoMinutos": 180 }
+"destinos": [
+  { "tipo": "alpha" },
+  { "tipo": "webhook", "url": "https://mi-tienda.com/api/stock", "formato": "json",
+    "cabeceras": { "X-Api-Key": "${ENV:CLAVE_DE_MI_TIENDA}" }, "secretoFirma": "${ENV:FIRMA}", "lote": 1000 },
+  { "tipo": "carpeta", "carpeta": "G:\\Mi unidad\\stock", "formato": "csv" }
+]
 ```
-- `codificacion`: `utf8` (por defecto), `latin1` (la mayoría de sistemas viejos en Windows), `utf16le` (algunos Excel «Unicode»). Si ves letras raras (`Ã³`, `�`), prueba otra.
-- `maximoMinutos`: si el archivo es más viejo que eso, **no se manda** (así un sistema que dejó de exportar no hace creer al bot que el stock sigue igual). Recomendado.
 
-### Fuente «comando» (se consulta la base)
+| Destino | Opciones |
+|---|---|
+| `alpha` | `url`, `clave` (si no, las de arriba), `sede`, `precios: false` (no tocar los precios), `ventas` |
+| `webhook` | `url` (https), `formato` (`json` o `csv`), `metodo` (`POST`), `cabeceras` (la clave de esa plataforma), `secretoFirma`, `lote` (productos por envío), `incluirCosto` (por defecto el costo **no** sale de la PC), `timeoutSegundos` |
+| `carpeta` | `carpeta`, `formato` (`csv` o `json`), `archivo` (`stock.csv`), `separador` (`;`), `incluirCosto` |
+
+Ejemplos completos en `ejemplos/configuraciones/`.
+
+## De dónde lee (fuente)
+
+| Fuente | Cuándo | Ejemplo |
+|---|---|---|
+| `archivo` | El sistema exporta un archivo, a mano o programado | `{ "tipo": "archivo", "ruta": "C:\\exportes\\stock.xlsx", "hoja": "Stock", "maximoMinutos": 180 }` |
+| `carpeta` | Deja uno **nuevo** cada vez (con la fecha en el nombre) | `{ "tipo": "carpeta", "carpeta": "C:\\exportes", "patron": "stock_*.csv" }`: toma el **más nuevo** |
+| `comando` | Se puede consultar su base de datos | `{ "tipo": "comando", "comando": "C:\\agente-puente\\ejemplos\\sacar-stock-sqlserver.bat" }` |
+
+- **Formatos**: CSV y TXT (separados por `;` `,` tab o `|`, el agente lo adivina), **Excel `.xlsx`** (sin instalar nada; `"hoja"` para elegir una, si no la primera) y **JSON** (una lista de productos, o `{ "productos": [...] }`). Los `.xls` viejos (de antes de 2007) no: en el sistema se guardan como `.xlsx` o `.csv`.
+- **`codificacion`**: `auto` (por defecto: UTF-8 si lo es, si no el latin1 de Windows), `utf8`, `latin1` o `utf16le`. Si ves letras raras (`Ã³`, `�`), fíjala.
+- **`maximoMinutos`**: si el archivo es más viejo que eso, **no se manda** (un sistema que dejó de exportar no hace creer que el stock sigue igual).
+- Si el sistema está escribiendo el archivo justo cuando el agente lo lee, el agente espera y lo vuelve a leer: nunca manda uno a medias.
+
+### Fuente «comando»: consultar la base del sistema
+
 ```json
-"fuente": { "tipo": "comando", "comando": "…lo que escribe el stock por pantalla…", "codificacion": "latin1" }
+"fuente": { "tipo": "comando", "comando": "…lo que escribe el stock por pantalla…", "timeoutSegundos": 120 }
 ```
 El agente quita solo las rayas de `sqlcmd` y el «(123 filas afectadas)». **Los nombres de tablas y columnas de abajo son de ejemplo: cada sistema tiene los suyos** (pídeselos al proveedor, o míralos con el explorador de la base). Siempre con un usuario de **solo lectura**.
 
@@ -169,11 +138,91 @@ sqlite3 -header -csv C:\datos\sistema.db "SELECT codigo, nombre AS producto, exi
 ```
 powershell -NoProfile -Command "$c = New-Object System.Data.Odbc.OdbcConnection('DSN=MiSistema'); $c.Open(); $cmd = $c.CreateCommand(); $cmd.CommandText = 'SELECT codigo, nombre AS producto, existencia AS cantidad, precio FROM productos'; $t = New-Object System.Data.DataTable; $t.Load($cmd.ExecuteReader()); $c.Close(); $t | ConvertTo-Csv -NoTypeInformation"
 ```
-(En JSON, las comillas dobles y las barras del comando se escriben con `\"` y `\\`. Si se vuelve incómodo, guarda el comando en un `.bat` y pon `"comando": "C:\\agente-puente\\ejemplos\\sacar-stock-sqlserver.bat"`.)
+(En JSON, las comillas dobles y las barras del comando se escriben con `\"` y `\\`. Por eso es mejor copiar uno de los `.bat` de `ejemplos/`, cambiarle la consulta y poner su ruta: `"comando": "C:\\agente-puente\\ejemplos\\sacar-stock-sqlserver.bat"`.)
 
 > La clave de la base va dentro del comando, así que **la PC donde corre el agente debe ser de confianza** y el usuario de la base, de solo lectura.
 
-### Las ventas de vuelta (opcional)
+## Qué es cada columna
+
+Se reconocen **solas**, en español o en inglés, con o sin tildes y mayúsculas:
+
+| Campo | Nombres que entiende solo |
+|---|---|
+| `codigo` | código, cod, sku, barras, ean, upc, referencia, ref, code, barcode, id |
+| `producto` | producto, modelo, título, nombre, descripción, artículo, item, name, title, description |
+| `talla` | talla, opción, capacidad, tamaño, medida, size, variante |
+| `color` | color, colour |
+| **`cantidad`** (obligatoria) | cantidad, stock, existencia(s), unidades, inventario, cant, qty, quantity, disponible, saldo |
+| `precio` | precio, pvp, precio de venta, valor, price |
+| `costo` | costo, precio de costo, precio de compra, cost (va antes que el precio: «Precio de compra» es costo) |
+| `marca` | marca, fabricante, brand |
+| `sede` | sede, local, tienda, almacén, sucursal, depósito, bodega, warehouse |
+| `categoria` | categoría, departamento, línea, grupo, familia, rubro, category |
+| `foto` | foto, imagen, image, photo |
+
+Hace falta **la cantidad** y **el código o el nombre**. Si el sistema usa nombres raros (Profit, por ejemplo, `CO_ART`, `ART_DES`, `STOCK_ACT`), se dicen en `config.json`:
+
+```json
+"columnas": { "codigo": "CO_ART", "producto": "ART_DES", "cantidad": "STOCK_ACT", "precio": "PREC_VTA1" }
+```
+`"precio": ""` = no usar esa columna aunque se reconozca sola. El `--doctor` y el `--configurar` dicen cómo entendieron cada una («cantidad ← «Existencia»…»).
+
+**Los números** se entienden en cualquier formato: `1.234,50`, `1,234.50`, `$ 45`, `Bs. 1.000.000`. Un solo punto con tres cifras detrás es de miles (`12.500` = 12500).
+
+## Las fotos
+
+Casi ningún sistema cerrado tiene fotos. **Con una tienda ALPHA IA, las fotos se suben en su panel**: en **Inventario** hay un atajo **«Sin foto (N)»** con los productos que llegaron sin imagen, y la tarjeta del agente puente dice cuántos faltan. **Un conteo del sistema nunca borra ni cambia una foto subida en el panel**: el sistema manda las cantidades (y los precios), y las fotos quedan como el dueño las dejó. El `--doctor` lo recuerda cuando el sistema no trae ninguna columna de fotos.
+
+Si el sistema sí tiene la dirección de cada foto (una columna «foto» o «imagen» con `https://…`), a otra plataforma le llega en el campo `foto`.
+
+## Los avisos propios (cuando el stock va a otra plataforma)
+
+Una tienda ALPHA IA avisa sola (ver más abajo). Si el stock va a otra plataforma, el agente puede avisar **él mismo**:
+
+```json
+"avisos": { "webhook": "${ENV:SLACK_WEBHOOK}", "formato": "slack" }
+```
+`formato`: `slack` (también Google Chat y Mattermost), `teams`, `discord` o `json`. Igual que en la tienda: un error se avisa **una vez** (el mismo, a las 6 horas; uno distinto, enseguida) y cuando vuelve a funcionar, también. Un agente **apagado** no puede avisar de sí mismo: el «no da señal» solo lo ve una tienda con ALPHA IA, porque nota que no le llega el latido.
+
+## Si el stock va a una tienda con ALPHA IA: encender la puerta (una vez por tienda)
+
+La puerta está **cerrada** hasta que exista la clave. La clave es un secreto: nunca va en GitHub ni en el chat.
+
+1. Inventa una clave larga. En PowerShell:
+   ```powershell
+   [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
+   ```
+2. Cárgala en la tienda, **desde la carpeta de esa tienda** (te la pide al escribirla):
+   ```powershell
+   npx.cmd wrangler secret put SYNC_CLAVE
+   ```
+3. Despliega: `npx.cmd wrangler deploy`.
+4. En el panel: **Inventario › Importar** dice «Conectar con tu sistema de inventario · encendida» y, debajo, «Agente puente: ningún agente se ha conectado todavía».
+
+Cada tienda tiene **su propia clave** (nunca la misma en dos).
+
+## Con una tienda ALPHA IA: lo que ve el dueño en su panel (Inventario › Importar › Agente puente)
+
+- Cada agente con su sistema y su PC, y un chip: **Activo** (verde), **Sincronizando**, **Con error** (rojo, con el motivo) o **Sin señal** (amarillo, con qué revisar).
+- Cuándo avisó por última vez, su **último conteo bueno** (filas y cuántas sin cambios), cada cuánto corre y su versión.
+- Sus últimos 5 hechos (se encendió, conteo correcto, error, dejó de dar señal, volvió, sincronizó por orden del panel).
+- El botón **«Sincronizar ahora»**: la tienda no puede entrar a la PC del cliente, así que deja la orden y el agente la recoge en su próximo latido (en menos de un minuto). Es la **única** orden que existe: el agente no acepta comandos de afuera.
+
+## Con una tienda ALPHA IA: los avisos de la tienda
+
+Por **Slack** (el `SLACK_WEBHOOK` de la tienda) y al **panel central** (alerta 🔌 «Agente puente con problemas» / ✅ «El agente puente volvió»):
+
+| Cuándo | Aviso |
+|---|---|
+| Un conteo falla | «🔌 El puente de inventario de Profit (PC Caja) tiene un error: <motivo>». El **mismo** error se recuerda a las 6 horas, no cada minuto; uno **distinto** se avisa enseguida. |
+| No da señal | Si corre cada minuto: a los **10 min**. Si corre por su cuenta cada N min (`--una-vez` programado): a las 3 vueltas, y nunca antes de 45 min. Se cambia con `AGENTE_SILENCIO_MIN` en el `wrangler.toml` de la tienda. Un solo aviso hasta que vuelva. |
+| Vuelve | «✅ … volvió a funcionar» (tras un error) o «… volvió a dar señal» (tras el silencio). |
+
+El aviso de silencio lo da el **cron** de la tienda (cada 15 min): **Invictus, El Emperador y Rodrigo**. **EPICCELL no tiene cron**: allá el panel igual lo enseña «Sin señal», pero no llega el aviso.
+
+Mientras el agente falle o esté callado, **el bot sigue con el último stock que recibió** (no se borra nada).
+
+### Las ventas de vuelta (solo con una tienda ALPHA IA, opcional)
 ```json
 "ventas": { "activar": true, "carpeta": "C:\\ventas-de-la-tienda" }
 ```
@@ -183,14 +232,7 @@ En cada vuelta el agente deja en esa carpeta:
 
 Cada fila es un producto vendido: `venta, id, fecha, sede, codigo, codigo_modelo, producto, marca, talla, color, cantidad, precio_unitario, total_linea, metodo_pago, cliente, telefono, fiado, anulada, nota`. **El costo nunca sale.** `codigo_modelo` es el código que el sistema de afuera mandó en su conteo; `codigo` es el de barras/fábrica de esa talla. Se cargan en el sistema con **su propio importador de Excel**, o a mano si son pocas.
 
-## Ventaja de un `.bat` para el comando
-
-En vez de escribir el comando dentro de `config.json` (con sus `\"` y `\\`), copia el ejemplo de `ejemplos/`, cámbiale la consulta y pon su ruta:
-```json
-"fuente": { "tipo": "comando", "comando": "C:\\agente-puente\\ejemplos\\sacar-stock-sqlserver.bat", "codificacion": "latin1" }
-```
-
-## Camino C: el Worker lee una dirección solo (sin instalar nada en el cliente)
+## Sin instalar nada: la tienda ALPHA IA lee una dirección sola
 
 Si el sistema (o alguien) deja el CSV en una dirección que se pueda descargar directo, se lo pones al bot en `wrangler.toml` (en `[vars]`) y el cron (cada 15 minutos) lo lee:
 
@@ -204,7 +246,7 @@ y, si la dirección pide clave: `npx.cmd wrangler secret put CONECTOR_CLAVE` (se
 
 Funciona en **Invictus, El Emperador y Rodrigo** (tienen cron). **EPICCELL no tiene cron**: allá usa el agente puente.
 
-## Camino «lo empujo yo» (para quien tenga un script, Zapier, Make, etc.)
+## Mandarle a una tienda ALPHA IA sin el agente (un script, Zapier, Make…)
 
 ```
 POST https://tu-worker.workers.dev/api/sync/inventario?origen=Profit&generado=2026-10-15T10:30:00Z
@@ -227,7 +269,7 @@ Respuestas: `200` terminó · `202` está en marcha (pide `POST /api/sync/avanza
 
 Otras rutas (todas con la clave): `GET /api/sync/estado` (productos y últimos conteos) y `GET /api/sync/ventas?desde=AAAA-MM-DD | desde_id=N | formato=json`.
 
-## Cómo se comporta (las reglas)
+## Cómo se comporta una tienda ALPHA IA con lo que recibe (las reglas)
 
 1. **La cantidad de cada fila es la que contó el sistema.** Queda tal cual, con su movimiento («Carga inicial» la primera vez, «Ajuste» si cambia), a nombre de «Sistema: <origen>». Repetir el mismo archivo no duplica nada.
 2. **Lo vendido en la caja después de que el sistema leyó su stock se tiene en cuenta.** Por eso importa `generado`: el agente manda la hora en que leyó la base (o la fecha del archivo). Si el sistema leyó 7 unidades y después la caja vendió 2, queda 5, no 7. Cuando el sistema recibe esas ventas (se cargan allá) y reporta 5, sigue 5.
@@ -240,17 +282,18 @@ Otras rutas (todas con la clave): `GET /api/sync/estado` (productos y últimos c
 
 ## Seguridad
 
-- La clave solo en el secreto del Worker y en el `config.json` de la PC del cliente; **nunca en GitHub ni en el chat**. Si prefieres, déjala vacía en `config.json` y ponla en la variable de entorno `SYNC_CLAVE` de esa PC.
-- **Nada de lo que escribe el agente lleva secretos**: ni la pantalla, ni `puente.log`, ni el latido. Tapa la clave y también las contraseñas del comando (`-P`, `-p…`, `password=`, `pwd=`), y un error nunca repite el comando entero. La tienda los vuelve a tapar al guardarlos, por si acaso.
-- La dirección del bot tiene que ser `https://` (el agente no acepta otra, salvo pruebas en la propia PC).
+- **Las claves, mejor en variables de entorno de la PC**: en `config.json` cualquier valor puede ser `"${ENV:NOMBRE}"` (la clave de la tienda, la de otra plataforma, la firma, la dirección de Slack), y así no quedan escritas en el archivo. Si quedan en `config.json`, ese archivo **no se comparte**. **Nunca en GitHub ni en el chat.**
+- **Nada de lo que escribe el agente lleva secretos**: ni la pantalla, ni `puente.log`, ni el latido, ni los avisos. Tapa las claves, la dirección de Slack/Teams y las contraseñas del comando (`-P`, `-p…`, `password=`, `pwd=`), y un error nunca repite el comando entero.
+- Todo viaja por `https://` (el agente no acepta otra cosa, salvo pruebas en la propia PC). A otra plataforma, con la **firma** HMAC-SHA256 (ver `PROTOCOLO.md`) puede comprobar que viene del agente y que nadie lo cambió.
+- El **costo** no sale de la PC hacia otras plataformas salvo que se pida (`incluirCosto`).
 - Usuario de **solo lectura** en la base del cliente. El agente solo lee: no escribe ni borra nada en su sistema.
-- La única orden que acepta de la tienda es «sincronizar». No corre nada que venga de afuera.
-- Cada tienda con su clave. Si una se filtra: `npx.cmd wrangler secret put SYNC_CLAVE` con otra, y cámbiala con `--configurar`.
+- La única orden que acepta de afuera es «sincronizar» (de una tienda ALPHA IA). No corre nada que venga de afuera.
 
 ## Lo que no hace (todavía)
 
-- No escribe en el sistema cerrado: las ventas se entregan en archivo.
-- No maneja una talla con precio distinto dentro del mismo modelo (el precio es del modelo).
-- No lee fotos del sistema (las fotos se suben en el panel).
-- No borra productos que desaparecen del archivo.
-- No se actualiza solo: una versión nueva se copia encima de `agente-puente.mjs` (el panel enseña qué versión tiene cada PC).
+- No escribe en el sistema cerrado: las ventas de una tienda ALPHA IA se entregan en archivo.
+- No lee los `.xls` viejos (binarios), ni fechas de Excel como fechas.
+- No baja ventas de otras plataformas (solo de las tiendas ALPHA IA).
+- No borra en el destino los productos que desaparecen del sistema: si se acaba, el sistema tiene que mandarlo con cantidad 0.
+- No sube fotos desde el sistema a una tienda ALPHA IA (se suben en el panel).
+- No se actualiza solo: una versión nueva se copia encima (la carpeta entera menos `config.json`). El panel de una tienda ALPHA IA enseña qué versión tiene cada PC.
