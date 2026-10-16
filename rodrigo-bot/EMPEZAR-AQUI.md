@@ -107,7 +107,7 @@ no debe atender clientes de verdad hasta rellenar lo de abajo.
 | `/probar-imagen?url=...` | Probar la visión completa con una foto |
 | `/indexar-catalogo` | Llenar el índice del catálogo (por tandas) |
 | `/probar-aviso` | Mandar un aviso de prueba a Slack |
-| `/api/sync/...` | Conectar un sistema de inventario cerrado (ver `conector-puente/LEEME.md`) |
+| `/api/sync/...` | Conectar un sistema de inventario cerrado (ver `agente-puente/LEEME.md`) |
 
 ## Lo que NUNCA se cruza entre tiendas
 

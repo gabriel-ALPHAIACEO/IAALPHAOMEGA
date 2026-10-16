@@ -344,7 +344,7 @@ titulo("CONECTOR_URL: el Worker lee el archivo del sistema, solo");
 
 /* ── El agente puente, de punta a punta ─────────────────────────────── */
 
-titulo("el AGENTE PUENTE (conector-puente/): archivo y comando, contra la puerta de verdad");
+titulo("el AGENTE PUENTE (agente-puente/): archivo y comando, contra la puerta de verdad");
 {
   // Lo que quedó a medias de antes se termina primero.
   for (let i = 0; i < 60; i++) if ((await llamar("/api/sync/avanzar", { metodo: "POST" })).cuerpo?.estado !== "trabajando") break;
@@ -353,7 +353,7 @@ titulo("el AGENTE PUENTE (conector-puente/): archivo y comando, contra la puerta
   const os = await import("node:os");
   const path = await import("node:path");
   const { pathToFileURL } = await import("node:url");
-  const agente = await import(pathToFileURL(path.resolve(import.meta.dirname, "../../conector-puente/agente-puente.mjs")).href);
+  const agente = await import(pathToFileURL(path.resolve(import.meta.dirname, "../../agente-puente/agente-puente.mjs")).href);
   const servidor = http.createServer(async (req, res) => {
     const trozos = [];
     for await (const t of req) trozos.push(t);

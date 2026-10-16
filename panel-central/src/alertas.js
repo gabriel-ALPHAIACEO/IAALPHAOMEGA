@@ -26,6 +26,9 @@ export const TIPOS = {
   // La IA aprende sola sus errores (ver lecciones.js de la tienda); esto
   // llega solo cuando una regla no basta y hay que tocar el código.
   codigo: { simbolo: "🛠️", nombre: "Hay que ponerlo en el código", avisar: true },
+  // El agente puente de una tienda (agentes.js): un error o sin señal, y su vuelta.
+  puente: { simbolo: "🔌", nombre: "Agente puente con problemas", avisar: true },
+  puenteok: { simbolo: "✅", nombre: "El agente puente volvió", avisar: true },
 };
 
 const CREAR = `

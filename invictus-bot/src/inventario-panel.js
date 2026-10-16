@@ -82,6 +82,7 @@ import { iconoDeMetodo, enlaceWhatsapp } from "./negocio-panel.js";
 import { aCsv, respuestaCsv } from "./alpha.js";
 import { archivosDelFormulario, subirFotos, quitarFoto, hacerPrincipal, FOTOS_POR_PRODUCTO } from "./fotos.js";
 import { iconoSuelto } from "./iconos.js";
+import { listarAgentes, eventosDelAgente, ordenPendiente, pedirSincronizacion, haceCuanto, TIPOS_DE_EVENTO } from "./agentes.js";
 import {
   esc,
   plata,
@@ -931,8 +932,12 @@ async function tarjetaDeLaConexion(env, url) {
   const direccion = `${url.origin}/api/sync/inventario`;
   if (!env.SYNC_CLAVE) {
     return `<section class="panel-tarjeta"><h2>${insignia("enlace", "marca", "chica")}Conectar con tu sistema de inventario</h2>
-<p>Para que otro sistema (uno cerrado, sin API) le pase su stock a esta tienda, hay que encender la conexión: carga una clave con <code>npx.cmd wrangler secret put SYNC_CLAVE</code> y vuelve a desplegar. Las instrucciones paso a paso están en la carpeta <b>conector-puente</b>.</p></section>`;
+<p>Para que otro sistema (uno cerrado, sin API) le pase su stock a esta tienda, hay que encender la conexión: carga una clave con <code>npx.cmd wrangler secret put SYNC_CLAVE</code> y vuelve a desplegar. Las instrucciones paso a paso están en la carpeta <b>agente-puente</b>.</p></section>`;
   }
+  const agentes = await tarjetaDeLosAgentes(env).catch((error) => {
+    console.error("PUENTE (panel):", error.message);
+    return "";
+  });
   let ultimo = null;
   try {
     ultimo = await env.DB.prepare("SELECT estado, total, hechos, creado, json_extract(opciones, '$.quien') AS origen FROM inv_trabajos WHERE tipo = 'csv' AND json_extract(opciones, '$.quien') LIKE 'Sistema%' ORDER BY id DESC LIMIT 1").first();
@@ -943,7 +948,53 @@ async function tarjetaDeLaConexion(env, url) {
     : "Todavía no ha llegado ningún conteo de un sistema de afuera.";
   return `<section class="panel-tarjeta"><h2>${insignia("enlace", "marca", "chica")}Conectar con tu sistema de inventario <span class="chip marca">encendida</span></h2>
 <p>${estado}</p>
-<p style="font-size:13px;margin:10px 0 0">Dirección para mandar el stock (CSV o JSON, con tu clave): <code>${esc(direccion)}</code><br>Las ventas para cargarlas en el otro sistema: <code>${esc(`${url.origin}/api/sync/ventas`)}</code></p></section>`;
+<p style="font-size:13px;margin:10px 0 0">Dirección para mandar el stock (CSV o JSON, con tu clave): <code>${esc(direccion)}</code><br>Las ventas para cargarlas en el otro sistema: <code>${esc(`${url.origin}/api/sync/ventas`)}</code></p></section>${agentes}`;
+}
+
+// EL AGENTE PUENTE (16-oct-2026, ver agentes.js): cada programa instalado en
+// una PC del cliente, con su estado, su último conteo bueno, su último error y
+// el botón «Sincronizar ahora». La clave nunca sale.
+const CHIP_DEL_AGENTE = { activo: "bien", trabajando: "marca", error: "mal", sin_senal: "aviso" };
+function cuandoFue(ms) {
+  return ms ? new Date(Number(ms)).toLocaleString("es-VE", { timeZone: "America/Caracas", dateStyle: "short", timeStyle: "short" }) : "";
+}
+async function tarjetaDeLosAgentes(env) {
+  const ahora = Date.now();
+  const [lista, orden] = await Promise.all([listarAgentes(env.DB, ahora, env), ordenPendiente(env.DB)]);
+  if (!lista.length) {
+    return `<section class="panel-tarjeta"><h2>${insignia("enlace", "marca", "chica")}Agente puente</h2>
+<p>Ningún agente puente se ha conectado todavía. Es el programa que se instala en la PC donde está tu sistema de inventario y le pasa el stock al bot cada pocos minutos. Cuando esté instalado, aquí vas a ver si está activo, su último conteo y cualquier error.</p></section>`;
+  }
+  const filas = [];
+  for (const a of lista) {
+    const e = a.estadoActual;
+    const eventos = await eventosDelAgente(env.DB, a.id, 5);
+    const resumen = [
+      `Último aviso: <b>${esc(haceCuanto(a.ultimo_latido, ahora))}</b>`,
+      a.ultimo_ok ? `último conteo bueno: <b>${esc(cuandoFue(a.ultimo_ok))}</b>${a.filas ? ` (${Number(a.filas)} filas${a.sin_cambios ? `, ${Number(a.sin_cambios)} sin cambios` : ""})` : ""}` : "todavía sin ningún conteo bueno",
+      a.modo === "continuo" ? `avisa cada minuto, manda el stock cada ${Number(a.cada_min) || 15} min` : `corre cada ${Number(a.cada_min) || 15} min`,
+      a.version ? `versión ${esc(a.version)}` : "",
+    ].filter(Boolean);
+    const error =
+      e.clave === "error" && a.ultimo_error
+        ? `<p style="font-size:13px;display:flex;gap:6px;align-items:flex-start;color:var(--mal);margin:8px 0 0">${icono("alerta")}${esc(a.ultimo_error)}</p>`
+        : e.clave === "sin_senal"
+        ? `<p style="font-size:13px;display:flex;gap:6px;align-items:flex-start;color:var(--aviso);margin:8px 0 0">${icono("alerta")}No da señal desde ${esc(haceCuanto(a.ultimo_latido, ahora))}. Revisa que la PC esté encendida, con internet, y que el agente siga corriendo. Mientras tanto el bot usa el último stock que recibió.</p>`
+        : "";
+    const hechos = eventos.length
+      ? `<ul style="margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--suave)">${eventos
+          .map((v) => `<li>${esc(cuandoFue(v.creado))} · ${esc(TIPOS_DE_EVENTO[v.tipo] || v.tipo)}${v.mensaje ? ` — ${esc(v.mensaje)}` : ""}</li>`)
+          .join("")}</ul>`
+      : "";
+    filas.push(`<div style="padding:12px 0;border-top:1px solid var(--borde)"><b>${esc(a.origen || a.id)}</b>${a.equipo ? ` <span style="color:var(--suave)">· ${esc(a.equipo)}</span>` : ""} <span class="chip ${CHIP_DEL_AGENTE[e.clave] || "aviso"}">${esc(e.etiqueta)}</span>
+<p style="font-size:13px;margin:6px 0 0">${resumen.join(" · ")}.</p>${error}${hechos}</div>`);
+  }
+  const pedida = orden
+    ? `<p style="font-size:13px;display:flex;gap:6px;align-items:flex-start;margin:10px 0 0">${icono("reloj")}Sincronización pedida ${esc(haceCuanto(orden, ahora))}: el agente la hace en su próximo aviso (en menos de un minuto si se instaló con instalar.bat; si lo programaron cada tantos minutos, en su próxima vuelta).</p>`
+    : "";
+  return `<section class="panel-tarjeta"><h2>${insignia("enlace", "marca", "chica")}Agente puente</h2>
+${filas.join("")}${pedida}
+<form method="post" action="/panel/inventario/conector/sincronizar" class="opciones" data-una-vez style="margin-top:12px"><button class="principal">${icono("subir")}Sincronizar ahora</button></form></section>`;
 }
 
 async function paginaDeImportar(env, url, opciones = {}) {
@@ -1729,6 +1780,14 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
       console.error("INVENTARIO: tanda de la importación:", error.message);
       return json({ ok: false, error: "Esta parte no se pudo pasar; se intenta otra vez." }, 500);
     }
+  }
+
+  if (ruta === "/panel/inventario/conector/sincronizar") {
+    // No le manda nada a la PC del cliente: deja la orden y el agente la ve en
+    // su próximo latido (ver agentes.js).
+    if (!env.SYNC_CLAVE) return redirigir(conAviso("/panel/inventario/importar", { error: "La conexión está apagada: falta SYNC_CLAVE." }));
+    await pedirSincronizacion(env.DB);
+    return redirigir(conAviso("/panel/inventario/importar", { ok: "Listo: el agente puente sincroniza en cuanto vuelva a avisar." }));
   }
 
   if (ruta === "/panel/inventario/importar/detener") {

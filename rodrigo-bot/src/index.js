@@ -145,7 +145,7 @@ import {
 // muy concreta: los archivos se copian a mano a la carpeta de despliegue,
 // así que "ya lo pegué" y "ya está desplegado" no son lo mismo. Con esto se
 // comprueba en diez segundos cuál de las dos cosas pasó.
-const VERSION = "2026-10-15 (1) · 🆕 TIENDA NUEVA: RODRIGO (zapatos). Hecha desde la plantilla de El Emperador (DeepSeek; catálogo de Shopify o de Drive), con SOLO calzado, sin datos de otra tienda: horario, envíos, delivery, empleo, métodos de pago, dirección, calidad y Cashea van vacíos y los contesta un asesor hasta que el dueño los dé. Sin catálogo ni claves cargados todavía (ver EMPEZAR-AQUI.md)";
+const VERSION = "2026-10-16 (2) · 🔌 AGENTE PUENTE v2, conectado al panel: el agente de la PC del cliente avisa cada minuto que está vivo (/api/sync/latido) y cómo le fue; en Inventario › Importar sale cada agente (Activo / Con error / Sin señal), su último conteo bueno, su último error y el botón «Sincronizar ahora» (/api/sync/orden); un error o un agente callado avisan por Slack y al panel central (alerta «puente»), una vez, y cuando vuelve también. El agente vive aparte, en la carpeta agente-puente/.";
 
 // Lo que se dice cuando la búsqueda no devuelve nada. No afirma que el
 // producto no exista ni promete reposición: eso era lo que hacía el módulo

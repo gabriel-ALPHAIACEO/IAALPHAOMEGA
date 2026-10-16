@@ -1,71 +1,119 @@
-# Conectar el bot con un sistema de inventario CERRADO (sin API)
+# AGENTE PUENTE v2 — conectar el bot con un sistema de inventario CERRADO (sin API)
 
-Esta carpeta **no se despliega en Cloudflare**. Es para la PC o el servidor del cliente, junto a su sistema.
+**Esta carpeta funciona sola, aparte de todo.** No se despliega en Cloudflare y no necesita ningún archivo de los bots: se copia tal cual a la PC o al servidor del cliente, junto a su sistema, y con **Node.js 18 o más** ya corre.
 
 ## En una frase
 
-El sistema cerrado no tiene API, pero casi todos pueden **sacar un Excel/CSV** y casi todos viven sobre **una base de datos** que se puede consultar. El **agente puente** (`agente-puente.mjs`) lee esos datos y le manda el stock al bot cada 15 minutos. De vuelta, el bot le entrega las ventas en un archivo para cargarlas en el sistema.
+El sistema cerrado no tiene API, pero casi todos pueden **sacar un Excel/CSV** y casi todos viven sobre **una base de datos** que se puede consultar. El agente lee esos datos y le manda el stock al bot; de vuelta, le deja las ventas en un archivo. **Y desde la v2 está conectado al panel**: cada minuto le avisa a la tienda que está vivo, el dueño ve en el panel si funciona, puede pedirle «Sincronizar ahora», y si algo falla le llega un aviso.
 
 ```
- Sistema cerrado ──(base de datos o Excel/CSV)──► AGENTE PUENTE ──► /api/sync/inventario ──► el bot y su panel
- Sistema cerrado ◄──(Excel/CSV de ventas)───────── AGENTE PUENTE ◄── /api/sync/ventas ◄────── (caja, tienda web)
+ Sistema cerrado ──(base de datos o CSV)──► AGENTE PUENTE ──► /api/sync/inventario ──► el bot y su panel
+                                               │  ▲
+                                   latido c/min │  │ «Sincronizar ahora» (del panel)
+                                               ▼  │
+                                         /api/sync/latido ──► Slack + panel central si falla
+ Sistema cerrado ◄──(CSV de ventas)───────── AGENTE PUENTE ◄── /api/sync/ventas ◄──── (caja, tienda web)
 ```
 
-## Qué camino elegir
+## Qué hay en esta carpeta
 
-| El sistema… | Camino | Qué hace falta |
-|---|---|---|
-| Solo permite exportar a Excel, y alguien lo hace a mano | **A. Subir el Excel en el panel** (ya existe: Inventario › Importar) | Nada nuevo |
-| Exporta solo a una carpeta (programado) | **B. Agente puente, fuente «archivo»** | El agente en esa PC |
-| Está en un servidor/PC con base de datos (SQL Server, MySQL, PostgreSQL, Access, SQLite, Firebird…) | **B. Agente puente, fuente «comando»** con una consulta de solo lectura | El agente + un usuario de solo lectura |
-| Exporta el CSV a una carpeta compartida de Drive/OneDrive/Dropbox | **C. El Worker lo lee solo** (`CONECTOR_URL`) | Un enlace de descarga directa |
-| Tiene API | **C.** si devuelve CSV o JSON simple; si no, un script propio que lo empuje con el formato de abajo | Su documentación |
-| Nada de lo anterior | Cambiar de sistema, o usar el inventario de la tienda como principal (caja incluida) | — |
+| Archivo | Para qué |
+|---|---|
+| `agente-puente.mjs` | **El programa.** Todo está aquí (un solo archivo, sin dependencias). |
+| `instalar.bat` | **Doble clic y listo** (Windows): pide permiso de administrador, hace las preguntas, revisa todo y lo deja corriendo solo. |
+| `probar.bat` | Revisa todo (el «doctor») sin guardar nada. |
+| `sincronizar-ya.bat` | Manda el stock ahora mismo. |
+| `estado.bat` | Cómo le fue la última vez y las últimas líneas del registro. |
+| `desinstalar.bat` | Quita la tarea programada. |
+| `config.ejemplo.json` | Un ejemplo de configuración (el `--configurar` escribe la de verdad: `config.json`). |
+| `ejemplos/` | Comandos de ejemplo para SQL Server, MySQL, PostgreSQL, SQLite y ODBC (Access, DBF, Firebird…). |
+| `pruebas/agente.mjs` | Las pruebas del agente (corren solas: `node pruebas/agente.mjs`). |
+
+Lo que el agente escribe al correr (no se copia de una PC a otra): `config.json` (con la clave: **no se comparte**), `estado-puente.json` (cuándo fue el último conteo), `puente.log` (el registro; al pasar de 1 MB el viejo queda como `puente.log.1`) y `puente.lock` (mientras corre una vuelta).
 
 ## Paso 0 (una sola vez, en cada tienda): encender la puerta
 
-La puerta está **cerrada** hasta que exista la clave. La clave es un secreto: nunca va en un archivo.
+La puerta está **cerrada** hasta que exista la clave. La clave es un secreto: nunca va en GitHub ni en el chat.
 
 1. Inventa una clave larga. En PowerShell:
    ```powershell
    [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
    ```
-2. Cárgala en la tienda (te la pide al escribirla):
+2. Cárgala en la tienda, **desde la carpeta de esa tienda** (te la pide al escribirla):
    ```powershell
    npx.cmd wrangler secret put SYNC_CLAVE
    ```
 3. Despliega: `npx.cmd wrangler deploy`.
-4. Comprueba en el panel: **Inventario › Importar** debe decir «Conectar con tu sistema de inventario · encendida» y enseñar la dirección.
+4. En el panel: **Inventario › Importar** dice «Conectar con tu sistema de inventario · encendida» y, debajo, «Agente puente: ningún agente se ha conectado todavía».
 
 Cada tienda tiene **su propia clave** (nunca la misma en dos).
 
-## Camino B: el agente puente
+## Instalar en la PC del cliente (Windows), en 5 minutos
 
-### Requisitos
-- Una PC o servidor del cliente que esté prendido (de preferencia el mismo donde corre el sistema) con **Node.js 18 o más** (https://nodejs.org).
-- Que el cliente (y el proveedor de su sistema, si la licencia lo pide) **autorice** leer sus datos. Se hace con un usuario de **solo lectura**: el agente solo hace `SELECT`, nunca escribe en el sistema.
+1. Instala **Node.js** (la versión LTS) desde https://nodejs.org si no lo tiene.
+2. Copia esta carpeta a `C:\agente-puente` (una ruta corta y sin espacios).
+3. **Doble clic en `instalar.bat`** y acepta el permiso de administrador. Te pregunta:
+   1. la dirección del bot (`https://<tienda>.<tu-cuenta>.workers.dev`),
+   2. la clave del paso 0,
+   3. el nombre del sistema (sale en los movimientos: «Sistema: Profit»),
+   4. el nombre de esa PC (para reconocerla en el panel),
+   5. la sede (vacío = la principal),
+   6. de dónde sale el stock: **1** un archivo que exporta el sistema, **2** un comando o consulta (ver `ejemplos/`),
+   7. cada cuántos minutos se manda (15),
+   8. si quieres las ventas de la tienda en una carpeta.
+4. Después corre solo el **doctor**, que revisa una por una: Node, la configuración, que la tienda conteste y la clave sea la buena, que el stock se pueda leer (y las columnas y las tildes), y **una prueba completa sin guardar nada**. Si algo sale con ❌, dice qué arreglar y no instala.
+5. Si todo sale bien, crea la tarea **«Agente puente»** en el Programador de tareas: **cada minuto, como SYSTEM** (corre aunque nadie inicie sesión y vuelve sola tras reiniciar), sin pararse con la batería, una sola a la vez y cortada si se cuelga más de 30 minutos.
+6. En el panel de la tienda, **Inventario › Importar**, en menos de un minuto sale el agente como **Activo**.
 
-### Instalar
-1. Copia esta carpeta (`conector-puente`) a la PC, por ejemplo `C:\conector-puente`.
-2. Copia `config.ejemplo.json` como `config.json` y complétalo:
+**¿Cada minuto? ¿No es mucho?** Cada minuto solo **avisa** (un mensaje chiquito). El stock se manda cada `cadaMinutos` (15) o cuando lo pides desde el panel. Y como cada vuelta es un programa que arranca y termina, si algo se traba la siguiente vuelta empieza limpia.
 
-   | Campo | Qué poner |
-   |---|---|
-   | `url` | La dirección del bot, sin barra al final: `https://tu-worker.workers.dev` |
-   | `clave` | La clave del paso 0 (o déjalo vacío y usa la variable de entorno `SYNC_CLAVE`) |
-   | `origen` | El nombre del sistema (sale en el historial de movimientos: «Sistema: Profit») |
-   | `sede` | Vacío = la sede principal; o el nombre exacto de una sede ya creada en el panel |
-   | `cadaMinutos` | Cada cuánto (15 por defecto) |
-   | `fuente` | De dónde sale el stock (ver abajo) |
-   | `ventas` | Opcional: dónde dejar las ventas de la tienda (ver abajo) |
+**Unidades de red:** como SYSTEM, la tarea **no ve las letras** (`Z:\…`). Usa la ruta `\\servidor\carpeta\stock.csv`, o instala con una cuenta: `node agente-puente.mjs --instalar --usuario OFICINA\ana` (te pide su contraseña de Windows). Lo mismo si la base usa la seguridad de Windows (`sqlcmd -E`).
 
-3. **Prueba primero** sin guardar nada:
-   ```powershell
-   node agente-puente.mjs --una-vez --probar
-   ```
-   Te dice cuántas filas lee y qué haría. Si algo no se entiende, lo dice (por ejemplo, que no encuentra la columna de la cantidad).
-4. Corre de verdad una vez: `node agente-puente.mjs --una-vez`.
-5. Déjalo programado (ver «Que corra solo»).
+**Linux o Mac:** `node agente-puente.mjs --configurar`, `--doctor` y `--instalar` (queda en `cron`, cada minuto).
+
+## Todo lo que sabe hacer
+
+| Comando | Qué hace |
+|---|---|
+| `node agente-puente.mjs --configurar` | Las preguntas; escribe `config.json` (Enter deja lo que ya estaba). |
+| `node agente-puente.mjs --doctor` | Revisa todo y dice qué falla y cómo arreglarlo (sale con 1 si hay alguna ❌). |
+| `node agente-puente.mjs --probar` | Manda con `?probar=1`: la tienda dice qué haría, **sin guardar nada**. |
+| `node agente-puente.mjs --instalar [--usuario X]` | Lo deja corriendo solo (Programador de tareas / cron). |
+| `node agente-puente.mjs --desinstalar` | Lo quita. |
+| `node agente-puente.mjs --una-vez` | Sincroniza **ya** y sale (con 1 si falló). |
+| `node agente-puente.mjs --vuelta` | Una vuelta normal: lo que corre la tarea cada minuto. |
+| `node agente-puente.mjs --estado` | El último conteo bueno, el último error, el próximo conteo y las últimas líneas del registro. |
+| `node agente-puente.mjs` | Corre para siempre en esta ventana (Ctrl+C para parar). |
+| `--config otra.json` | Con otra configuración (dos sistemas en la misma PC: dos carpetas es más simple). |
+
+## Qué pasa en cada vuelta
+
+1. **Latido**: le dice a la tienda «estoy vivo» (nombre, PC, versión) y pregunta si desde el panel pidieron «Sincronizar ahora».
+2. **¿Toca?** Si pasaron `cadaMinutos` desde el último conteo, o se lo pidieron, saca el stock; si no, termina ahí.
+3. **El stock**: lee el archivo o corre el comando, y lo manda. Si es grande, pide las tandas hasta que termine. Si hay otro conteo a medias en la tienda, espera.
+4. **Las ventas** (si las activaste): las deja en la carpeta.
+5. **El resultado**: otro latido, «ok» (cuántas filas, cuántas sin cambios) o «error» con el motivo. Tras un error vuelve a intentar a los **5 minutos** (no cada minuto).
+
+## Lo que ve el dueño en el panel (Inventario › Importar › Agente puente)
+
+- Cada agente con su sistema y su PC, y un chip: **Activo** (verde), **Sincronizando**, **Con error** (rojo, con el motivo) o **Sin señal** (amarillo, con qué revisar).
+- Cuándo avisó por última vez, su **último conteo bueno** (filas y cuántas sin cambios), cada cuánto corre y su versión.
+- Sus últimos 5 hechos (se encendió, conteo correcto, error, dejó de dar señal, volvió, sincronizó por orden del panel).
+- El botón **«Sincronizar ahora»**: la tienda no puede entrar a la PC del cliente, así que deja la orden y el agente la recoge en su próximo latido (en menos de un minuto). Es la **única** orden que existe: el agente no acepta comandos de afuera.
+
+## Los avisos
+
+Por **Slack** (el `SLACK_WEBHOOK` de la tienda) y al **panel central** (alerta 🔌 «Agente puente con problemas» / ✅ «El agente puente volvió»):
+
+| Cuándo | Aviso |
+|---|---|
+| Un conteo falla | «🔌 El puente de inventario de Profit (PC Caja) tiene un error: <motivo>». El **mismo** error se recuerda a las 6 horas, no cada minuto; uno **distinto** se avisa enseguida. |
+| No da señal | Si corre cada minuto: a los **10 min**. Si corre por su cuenta cada N min (`--una-vez` programado): a las 3 vueltas, y nunca antes de 45 min. Se cambia con `AGENTE_SILENCIO_MIN` en el `wrangler.toml` de la tienda. Un solo aviso hasta que vuelva. |
+| Vuelve | «✅ … volvió a funcionar» (tras un error) o «… volvió a dar señal» (tras el silencio). |
+
+El aviso de silencio lo da el **cron** de la tienda (cada 15 min): **Invictus, El Emperador y Rodrigo**. **EPICCELL no tiene cron**: allá el panel igual lo enseña «Sin señal», pero no llega el aviso.
+
+Mientras el agente falle o esté callado, **el bot sigue con el último stock que recibió** (no se borra nada).
 
 ### Las columnas que se reconocen (en cualquier orden, con o sin tildes)
 
@@ -121,7 +169,7 @@ sqlite3 -header -csv C:\datos\sistema.db "SELECT codigo, nombre AS producto, exi
 ```
 powershell -NoProfile -Command "$c = New-Object System.Data.Odbc.OdbcConnection('DSN=MiSistema'); $c.Open(); $cmd = $c.CreateCommand(); $cmd.CommandText = 'SELECT codigo, nombre AS producto, existencia AS cantidad, precio FROM productos'; $t = New-Object System.Data.DataTable; $t.Load($cmd.ExecuteReader()); $c.Close(); $t | ConvertTo-Csv -NoTypeInformation"
 ```
-(En JSON, las comillas dobles y las barras del comando se escriben con `\"` y `\\`. Si se vuelve incómodo, guarda el comando en un `.bat` y pon `"comando": "C:\\conector-puente\\sacar-stock.bat"`.)
+(En JSON, las comillas dobles y las barras del comando se escriben con `\"` y `\\`. Si se vuelve incómodo, guarda el comando en un `.bat` y pon `"comando": "C:\\agente-puente\\ejemplos\\sacar-stock-sqlserver.bat"`.)
 
 > La clave de la base va dentro del comando, así que **la PC donde corre el agente debe ser de confianza** y el usuario de la base, de solo lectura.
 
@@ -135,12 +183,12 @@ En cada vuelta el agente deja en esa carpeta:
 
 Cada fila es un producto vendido: `venta, id, fecha, sede, codigo, codigo_modelo, producto, marca, talla, color, cantidad, precio_unitario, total_linea, metodo_pago, cliente, telefono, fiado, anulada, nota`. **El costo nunca sale.** `codigo_modelo` es el código que el sistema de afuera mandó en su conteo; `codigo` es el de barras/fábrica de esa talla. Se cargan en el sistema con **su propio importador de Excel**, o a mano si son pocas.
 
-### Que corra solo (Windows)
-Programador de tareas, una vez por vuelta, aunque no haya nadie con la sesión abierta:
-```powershell
-schtasks /Create /TN "Puente del bot" /SC MINUTE /MO 15 /RU SYSTEM /TR "cmd /c cd /d C:\conector-puente && node agente-puente.mjs --una-vez >> puente.log 2>&1"
+## Ventaja de un `.bat` para el comando
+
+En vez de escribir el comando dentro de `config.json` (con sus `\"` y `\\`), copia el ejemplo de `ejemplos/`, cámbiale la consulta y pon su ruta:
+```json
+"fuente": { "tipo": "comando", "comando": "C:\\agente-puente\\ejemplos\\sacar-stock-sqlserver.bat", "codificacion": "latin1" }
 ```
-Mira `puente.log` si algo falla. También puedes dejar una ventana con `node agente-puente.mjs` (sin `--una-vez`) y se repite sola.
 
 ## Camino C: el Worker lee una dirección solo (sin instalar nada en el cliente)
 
@@ -154,7 +202,7 @@ CONECTOR_ORIGEN = "Profit"                  # cómo se llama el sistema
 ```
 y, si la dirección pide clave: `npx.cmd wrangler secret put CONECTOR_CLAVE` (se manda como `Bearer <clave>`).
 
-Funciona en **Invictus y El Emperador** (tienen cron). **EPICCELL no tiene cron**: allá usa el agente puente.
+Funciona en **Invictus, El Emperador y Rodrigo** (tienen cron). **EPICCELL no tiene cron**: allá usa el agente puente.
 
 ## Camino «lo empujo yo» (para quien tenga un script, Zapier, Make, etc.)
 
@@ -191,13 +239,18 @@ Otras rutas (todas con la clave): `GET /api/sync/estado` (productos y últimos c
 8. **Si el sistema se cae**, el bot sigue con lo último que tiene. Un archivo viejo (`maximoMinutos`) no se manda.
 
 ## Seguridad
-- La clave solo en el secreto del Worker y en la PC del cliente; **nunca en GitHub ni en el chat**.
-- Usuario de **solo lectura** en la base del cliente.
-- Cada tienda con su clave. Si una clave se filtra: `npx.cmd wrangler secret put SYNC_CLAVE` con otra y cámbiala en el agente.
-- Sin `SYNC_CLAVE`, la puerta está cerrada (503).
+
+- La clave solo en el secreto del Worker y en el `config.json` de la PC del cliente; **nunca en GitHub ni en el chat**. Si prefieres, déjala vacía en `config.json` y ponla en la variable de entorno `SYNC_CLAVE` de esa PC.
+- **Nada de lo que escribe el agente lleva secretos**: ni la pantalla, ni `puente.log`, ni el latido. Tapa la clave y también las contraseñas del comando (`-P`, `-p…`, `password=`, `pwd=`), y un error nunca repite el comando entero. La tienda los vuelve a tapar al guardarlos, por si acaso.
+- La dirección del bot tiene que ser `https://` (el agente no acepta otra, salvo pruebas en la propia PC).
+- Usuario de **solo lectura** en la base del cliente. El agente solo lee: no escribe ni borra nada en su sistema.
+- La única orden que acepta de la tienda es «sincronizar». No corre nada que venga de afuera.
+- Cada tienda con su clave. Si una se filtra: `npx.cmd wrangler secret put SYNC_CLAVE` con otra, y cámbiala con `--configurar`.
 
 ## Lo que no hace (todavía)
+
 - No escribe en el sistema cerrado: las ventas se entregan en archivo.
 - No maneja una talla con precio distinto dentro del mismo modelo (el precio es del modelo).
 - No lee fotos del sistema (las fotos se suben en el panel).
 - No borra productos que desaparecen del archivo.
+- No se actualiza solo: una versión nueva se copia encima de `agente-puente.mjs` (el panel enseña qué versión tiene cada PC).

@@ -41,6 +41,7 @@ import {
   seguirImportacion,
   FILAS_POR_PAQUETE,
 } from "./inventario.js";
+import { recibirLatido, vigilarAgentes, listarAgentes, ordenPendiente, pedirSincronizacion, MAXIMO_DEL_LATIDO } from "./agentes.js";
 
 const MAXIMO_BYTES = 2 * 1024 * 1024;
 const MAXIMO_FILAS = 20000;
@@ -402,6 +403,8 @@ export async function ventasParaElSistema(db, { desde = 0, desdeId = 0 } = {}) {
 //   POST /api/sync/avanzar      pasa otra tanda de lo que quedó a medias (?trabajo=)
 //   GET  /api/sync/estado       cómo va lo último
 //   GET  /api/sync/ventas       ?desde=AAAA-MM-DD | ?desde_id=N | ?formato=json
+//   POST /api/sync/latido       el agente puente dice «estoy vivo» (agentes.js)
+//   POST /api/sync/orden        pide que el agente sincronice ya (lo mismo que el botón del panel)
 export async function atenderSync(request, env, url, ctx = null) {
   if (!url.pathname.startsWith("/api/sync/") && url.pathname !== "/api/sync") return null;
   if (!env.SYNC_CLAVE) {
@@ -462,7 +465,38 @@ export async function atenderSync(request, env, url, ctx = null) {
         ultimosTrabajos(db),
         db.prepare("SELECT (SELECT COUNT(*) FROM inv_productos WHERE activo = 1) AS productos, (SELECT COUNT(*) FROM inv_variantes) AS variantes").first(),
       ]);
-      return json({ ok: true, productos: Number(cuenta?.productos) || 0, variantes: Number(cuenta?.variantes) || 0, enCurso: enCurso.length, ultimos });
+      const ahora = Date.now();
+      const agentes = (await listarAgentes(db, ahora, env)).map((a) => ({
+        agente: a.id,
+        origen: a.origen,
+        equipo: a.equipo,
+        version: a.version,
+        estado: a.estadoActual.clave,
+        ultimoLatido: a.ultimo_latido,
+        ultimoOk: a.ultimo_ok || null,
+        ultimoError: a.ultimo_error || null,
+      }));
+      return json({ ok: true, productos: Number(cuenta?.productos) || 0, variantes: Number(cuenta?.variantes) || 0, enCurso: enCurso.length, ultimos, agentes, ordenPendiente: Boolean(await ordenPendiente(db)) });
+    }
+
+    if (ruta === "/api/sync/latido") {
+      if (request.method !== "POST") return json({ ok: false, error: "Esta ruta es POST." }, 405);
+      const crudo = await request.text();
+      if (crudo.length > MAXIMO_DEL_LATIDO) return json({ ok: false, error: "El latido es demasiado largo." }, 413);
+      let cuerpo;
+      try {
+        cuerpo = JSON.parse(crudo || "{}");
+      } catch {
+        return json({ ok: false, error: "El JSON no se entiende." }, 400);
+      }
+      const r = await recibirLatido(env, cuerpo);
+      return json(r.cuerpo, r.estado);
+    }
+
+    if (ruta === "/api/sync/orden") {
+      if (request.method !== "POST") return json({ ok: false, error: "Esta ruta es POST." }, 405);
+      const marca = await pedirSincronizacion(db);
+      return json({ ok: true, orden: "sincronizar", ordenEn: marca });
     }
 
     if (ruta === "/api/sync/ventas") {
@@ -529,9 +563,11 @@ export async function sincronizarDelSistema(env) {
   return { hizo: Boolean(r.cuerpo?.ok), ...r.cuerpo };
 }
 
-// El cron lo llama: lee la dirección (si hay) y avanza lo que quedó a medias.
+// El cron lo llama: lee la dirección (si hay), avanza lo que quedó a medias y
+// avisa si algún agente puente dejó de dar señal.
 export async function trabajoDelConector(env) {
   if (!env.DB) return;
   await sincronizarDelSistema(env).catch((error) => console.error(`CONECTOR: ${error.message}`));
   await avanzarImportacionesSolas(env.DB, { cuantos: 15, consultas: CONSULTAS_DE_UNA_PASADA }).catch(() => {});
+  await vigilarAgentes(env).catch((error) => console.error(`PUENTE: ${error.message}`));
 }

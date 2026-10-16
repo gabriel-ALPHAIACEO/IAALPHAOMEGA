@@ -259,7 +259,7 @@ APRENDER = "si"
 # ------------------------------------------------------------------------
 
 # CONECTAR CON UN SISTEMA DE INVENTARIO CERRADO (15-oct-2026; ver
-# conector-puente/LEEME.md). Todo opcional y apagado por defecto.
+# agente-puente/LEEME.md). Todo opcional y apagado por defecto.
 #   SYNC_CLAVE (secreto, NO aquí): enciende la puerta /api/sync/*.
 #       npx.cmd wrangler secret put SYNC_CLAVE
 #   Para que el Worker lea solo un CSV/JSON de una dirección (cada 15 min,
