@@ -35,6 +35,8 @@
 | `ejemplos/recibir-webhook.php` · `.mjs` | Cómo recibir el stock en otra tienda (con la clave y la firma comprobadas). |
 | `pruebas/` | `node pruebas/correr.mjs`: las pruebas del agente (corren solas, sin ningún bot). |
 
+**Sistemas ya preparados:** `sistemas/solventas/` (Solventas / Sotecsis, SQL Server): diagnóstico, reparación de la base y la consulta de stock lista. Ver su `LEEME.md`.
+
 Lo que el agente escribe al correr (no se copia de una PC a otra): `config.json` (con las claves: **no se comparte**), `estado-puente.json`, `fotos-enviadas.json`, `puente.log` (al pasar de 1 MB el viejo queda como `puente.log.1`) y `puente.lock`.
 
 ## Instalar en la PC del cliente (Windows), en 5 minutos
