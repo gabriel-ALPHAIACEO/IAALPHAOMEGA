@@ -70,7 +70,16 @@ $claveEnv = [Environment]::GetEnvironmentVariable("SOLVENTAS_CLAVE")
 
 if ($Base -notmatch '^[A-Za-z0-9_]+$') { Decir "El nombre de la base solo puede llevar letras, numeros y _ ($Base)."; exit 1 }
 if (-not $Respaldo) { Decir "Falta -Respaldo (la ruta del archivo .bak)."; exit 1 }
-if (-not (Test-Path -LiteralPath $Respaldo)) { Decir "No existe el archivo: $Respaldo"; exit 1 }
+if (-not (Test-Path -LiteralPath $Respaldo)) { Decir "No existe: $Respaldo"; exit 1 }
+if (Test-Path -LiteralPath $Respaldo -PathType Container) {
+  # Escribieron una carpeta en vez del archivo: se usa el .bak mas reciente que haya dentro.
+  $candidatos = @(Get-ChildItem -LiteralPath $Respaldo -Filter "*.bak" -File | Sort-Object LastWriteTime -Descending)
+  if ($candidatos.Count -eq 0) { Decir "En la carpeta $Respaldo no hay ningun archivo .bak."; exit 1 }
+  $Respaldo = $candidatos[0].FullName
+  Decir "Escribiste una carpeta: se usa el respaldo mas reciente que hay dentro:"
+  Decir "   $Respaldo  (modificado $($candidatos[0].LastWriteTime.ToString('yyyy-MM-dd HH:mm')))"
+  if ($candidatos.Count -gt 1) { Decir "   (hay $($candidatos.Count) archivos .bak en esa carpeta; si querias otro, repite escribiendo la ruta de ese archivo)" }
+}
 
 Decir "=== 1. CONECTANDO A $Servidor ==="
 try { $cn = Abrir "master" $usuario $claveEnv }

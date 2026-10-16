@@ -20,7 +20,7 @@ if errorlevel 1 (
 )
 
 set "BAK=%~1"
-if "%BAK%"=="" set /p BAK=Ruta del archivo .bak (por ejemplo C:\SSCA\RRVS2013CA-hoy.bak): 
+if "%BAK%"=="" set /p BAK=Ruta del archivo .bak (el ARCHIVO, por ejemplo C:\SSCA\RRVS2013CA-hoy.bak): 
 set BAK=%BAK:"=%
 if not exist "%BAK%" (
   echo No existe el archivo "%BAK%".
