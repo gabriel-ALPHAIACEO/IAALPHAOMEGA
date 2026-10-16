@@ -77,6 +77,10 @@ El agente puente (`agente-puente.mjs`, en la misma PC) lee el stock de Solventas
 - El `.bak` es de **SQL Server 2005**: guardarlo fuera de la tienda es guardar todos los clientes y facturas.
 - Respaldos: copiar `C:\SSCA\respaldos` a un disco externo o a la nube cada semana. Un único disco en la tienda no es respaldo.
 
+## Vendedores (herramienta aparte, 16-oct-2026)
+
+Solventas no trae como eliminar vendedores (tabla `Vendedor`, 10 filas, sin llaves ni triggers). `vendedores.bat` (como administrador, Solventas cerrado) permite **ver, eliminar, agregar y deshacer**: respaldo antes de eliminar, no deja eliminar al ultimo, guarda lo eliminado en `puente_vendedores_borrados` y las facturas viejas no cambian (cada una guarda el nombre de su vendedor). Efecto: un vendedor eliminado ya no sale para facturar, y `generacomision` (INNER JOIN con `Vendedor`) deja de generarle comisiones sobre facturas aun no procesadas. Probado sobre una copia de la base real; no se puede agregar un boton al programa (sin codigo fuente).
+
 ## Archivos
 
 | Archivo | Para qué |
