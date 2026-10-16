@@ -68,7 +68,7 @@ function ConBarra([string]$ruta) {
 $usuario = [Environment]::GetEnvironmentVariable("SOLVENTAS_USUARIO")
 $claveEnv = [Environment]::GetEnvironmentVariable("SOLVENTAS_CLAVE")
 
-Decir "restaurar-base v3 (16-oct-2026)"
+Decir "restaurar-base v4 (16-oct-2026)"
 if ($Base -notmatch '^[A-Za-z0-9_]+$') { Decir "El nombre de la base solo puede llevar letras, numeros y _ ($Base)."; exit 1 }
 if (-not $Respaldo) { Decir "Falta -Respaldo (la ruta del archivo .bak)."; exit 1 }
 if (-not (Test-Path -LiteralPath $Respaldo)) { Decir "No existe: $Respaldo"; exit 1 }
@@ -184,7 +184,8 @@ $runner = Join-Path $PSScriptRoot "ejecutar-sql.ps1"
 $repara = Join-Path $PSScriptRoot "reparar-base.sql"
 if ((Test-Path -LiteralPath $runner) -and (Test-Path -LiteralPath $repara)) {
   $yo = (Get-Process -Id $PID).Path
-  $dirRespHijo = $dirResp
+  # sin barra final: una ruta con espacios que termina en \ rompe el argumento en Windows ("...\" escapa la comilla)
+  $dirRespHijo = $dirResp.TrimEnd('\', '/')
   & $yo -NoProfile -ExecutionPolicy Bypass -File $runner -Servidor $Servidor -Archivo $repara "BASE=$Base" "RESPALDO=$dirRespHijo" | ForEach-Object { Decir ("   " + $_) }
   if ($LASTEXITCODE -ne 0) { Decir "   (los indices no se pudieron crear; la base esta restaurada. Corre reparar-base.bat despues.)" }
 } else {
