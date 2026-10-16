@@ -19,6 +19,16 @@ Nada de esta carpeta se despliega en un Worker ni se mezcla con los bots. Va en 
 | **Claves de los usuarios del programa guardadas en texto** (tabla `usuarios`) | Cualquiera con acceso a la base las lee. | Solo Sotecsis puede cifrarlas. Mientras: cambiar las claves y no reutilizarlas |
 | SQL Server **Express**: tope de **4 GB** por base | Al llegar, deja de guardar y «se cuelga». | `diagnostico.bat` muestra el tamaño; se corrige con respaldos y limpieza de históricos |
 
+## Lo que se vio en la base REAL (respaldo del 16-oct-2026, servidor `USER\SQLEXPRESS`, Windows 8.1)
+
+- La base de producción vive en la **PC con Windows 8.1** (la misma máquina, en otro disco/arranque). La PC con Windows 11 solo tiene una copia del programa: sin SQL Server ni base.
+- Es chica: **11 MB** (SQL Server 2005 Express). La lentitud no viene del tamaño.
+- **Confirmado:** `AUTO_CLOSE = ON`, `AUTO_SHRINK = ON` y `TORN_PAGE_DETECTION`; 96 de 100 tablas sin índice. `reparar-base.sql` se probó sobre una copia restaurada de esta base real: 25 índices, sin errores.
+- **Inventario:** solo 4 productos (creados el 15-oct-2026, existencia 0, `PVP1Prod` = 75 y 80, en dólares). 2 204 modelos viejos están en la tabla `eliminados` (precios en bolívares de 2019). 5 725 renglones de facturas viejas apuntan a códigos que ya no existen.
+- **Ventas:** 639 facturas desde 2019; casi ninguna desde 2023 (una en oct-2025, una en oct-2026; la última el 14-oct-2026). Última compra: ene-2025. O sea: la tienda está **retomando** Solventas y todavía no ha cargado el stock.
+- Usuario `TIENDA` con clave muy corta (menos de 6 caracteres).
+- **El agente puente necesita Node 18, que no corre en Windows 8.1.** Para conectar el stock con el bot desde esa PC hay que usar un envío en PowerShell (pendiente) o mudar Solventas a otra PC.
+
 ## Cómo se usa (en la PC del servidor, con Solventas cerrado en todas las PC)
 
 1. Copiar esta carpeta (`sistemas\solventas`) a la PC del servidor.
