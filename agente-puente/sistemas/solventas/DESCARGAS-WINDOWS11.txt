@@ -10,15 +10,16 @@ buscarlo, no un enlace.
 ----------------------------------------------------------------------------
 A. OBLIGATORIO (bajalo en el Windows 11)
 ----------------------------------------------------------------------------
-1) SQL Server 2019 Express  (Microsoft, gratis)
-   - Que buscar: "SQL Server 2019 Express descargar" en el Centro de descargas
-     de Microsoft (microsoft.com). El archivo se llama algo como
-     SQL2019-SSEI-Expr.exe (pesa poco; baja el resto al instalar, unos 250 MB).
-   - IMPORTANTE: la version 2019. En la pagina principal de SQL Server a veces
-     solo aparece la 2022: no la uses todavia. Yo probe tu base en 2019. Si no
-     encuentras la 2019, avisame antes de instalar otra.
+1) SQL Server 2022 Express  (Microsoft, gratis)  <- LA QUE SE USA
+   - La 2019 Express ya no se puede descargar. La 2022 funciona igual con la
+     base de Solventas (el servidor lo probe con tu respaldo).
+   - Que buscar: "SQL Server 2022 Express" en la pagina de descargas de
+     SQL Server de Microsoft (microsoft.com/sql-server). El archivo se llama
+     algo como SQL2022-SSEI-Expr.exe (baja el resto al instalar).
    - Al instalar elige el tipo "Basica". Deja el nombre de instancia como esta
-     (SQLEXPRESS).
+     (SQLEXPRESS). No hace falta instalar SSMS.
+   - Despues de instalar, el paquete trae habilitar-red-sql.bat, que enciende
+     lo que el conector viejo de Solventas necesita.
 
 2) El paquete de traslado que te mande (solventas-traslado-windows11.zip)
    Trae los scripts para restaurar la base y dejarla lista. Descomprimelo en
@@ -68,14 +69,14 @@ D. OPCIONAL (comodidad, no hace falta)
 ----------------------------------------------------------------------------
 LO QUE NO DEBES DESCARGAR
 ----------------------------------------------------------------------------
-  - SQL Server 2022 (por ahora), ni versiones "Developer" o "Standard".
+  - SQL Server versiones "Developer" o "Standard".
   - "Reparadores", "optimizadores" ni "drivers automaticos" de terceros.
   - Cracks o parches de Solventas.
 
 ----------------------------------------------------------------------------
 RESUMEN RAPIDO
 ----------------------------------------------------------------------------
-  Descargar en Windows 11:   SQL Server 2019 Express
+  Descargar en Windows 11:   SQL Server 2022 Express
   Traer del 8.1:             carpeta C:\SSCA, respaldo .bak, drivers de la
                              impresora (y la carpeta BDE por si acaso)
   Mi paquete:                solventas-traslado-windows11.zip

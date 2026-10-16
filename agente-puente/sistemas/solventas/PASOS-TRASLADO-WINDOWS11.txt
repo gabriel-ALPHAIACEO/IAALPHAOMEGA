@@ -11,21 +11,22 @@ Los comandos que empiezan con ">" se copian SIN el ">" y se pegan en el CMD
 ----------------------------------------------------------------------------
 PARTE 1 - PRUEBA (sin riesgo, con el respaldo de hoy)
 ----------------------------------------------------------------------------
-PASO 1. En Windows 11 instala SQL Server 2019 Express (ver
-        DESCARGAS-WINDOWS11.txt). Tipo "Basica". Al terminar, comprueba:
+PASO 1. En Windows 11 instala SQL Server 2022 Express (la 2019 ya no se
+        puede descargar; la 2022 funciona igual con esta base). Tipo "Basica".
+        Al terminar, comprueba:
 > sc query "MSSQL$SQLEXPRESS"
         Debe decir RUNNING.
 
-PASO 2. Copia a C:\SSCA (Windows 11):
+PASO 2. Copia a la carpeta de Solventas de Windows 11 (C:\SSCA o E:\SSCA):
           - la carpeta completa C:\SSCA del Windows 8.1 (reemplaza la que hay)
-          - el contenido de solventas-traslado-windows11.zip (los .bat, .ps1 y
-            reparar-base.sql en la MISMA carpeta C:\SSCA)
-          - el respaldo RRVS2013CA-hoy.bak
+          - el contenido del zip del paquete de traslado (la VERSION MAS NUEVA:
+            .bat, .ps1 y reparar-base.sql en la MISMA carpeta)
+          - el respaldo RRVS2013CA-hoy.bak (o su carpeta)
 
 PASO 3. Restaurar la base. Clic derecho en C:\SSCA\restaurar-base.bat,
-        "Ejecutar como administrador". Pega la ruta del .bak, por ejemplo:
-          C:\SSCA\RRVS2013CA-hoy.bak
-        Escribe SI. El programa:
+        "Ejecutar como administrador". Pega la ruta del .bak (el archivo) o de la carpeta donde esta, por
+        ejemplo:  C:\SSCA\RRVS2013CA-hoy.bak   o   C:\respaldo-solventas
+        Escribe SI. Arriba debe decir "restaurar-base v4" (o mas nuevo). El programa:
           - restaura la base como RRVS2013CA
           - apaga AUTO_CLOSE y AUTO_SHRINK, y revisa que no haya paginas danadas
           - crea los indices
@@ -35,8 +36,9 @@ PASO 3. Restaurar la base. Clic derecho en C:\SSCA\restaurar-base.bat,
         Al final debe decir:
           COMPRUEBA: entrando como sa a RRVS2013CA: 4 productos, ultima venta 2026-10-14
           Usuario sa: listo y comprobado
-        Si dice que no comprobo, copiame lo que salio (queda en
-        C:\SSCA\restaurar-base-resultado.txt, sin claves).
+        Si la base ya existe, pregunta si la reemplaza: escribe exactamente SI
+        (antes guarda una copia). Si dice que no comprobo, copiame lo que salio
+        (queda en restaurar-base-resultado.txt, sin claves).
 
 PASO 4. Apuntar Solventas a este SQL Server. Clic derecho en
         C:\SSCA\ajustar-modoc.bat, "Ejecutar como administrador". Deja la
