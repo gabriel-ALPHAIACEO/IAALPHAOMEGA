@@ -47,6 +47,18 @@ PASO 5. Registrar el componente VMAX.ocx. Clic derecho en
         C:\SSCA\registrar-vmax.bat, "Ejecutar como administrador". Debe decir
         "Registrado".
 
+PASO 5B. Encender la "red" de SQL Server (MUY probable que haga falta).
+        Solventas usa un conector viejo (SQLOLEDB) que NO puede hablar con
+        SQL Server 2022 si estan apagados Named Pipes, TCP/IP y el servicio
+        "SQL Server Browser" (asi vienen tras la instalacion Basica). Sintoma:
+        "[DBNETLIB][ConnectionOpen (Connect()).] No existe el servidor SQL
+        Server o se ha denegado el acceso al mismo".
+        Clic derecho en habilitar-red-sql.bat, "Ejecutar como administrador".
+        Despues, para comprobar igual que lo hace Solventas, ejecuta
+        probar-conexion.bat (te pide la clave de sa) y debe decir
+        "CONECTO BIEN. Productos en la base: 4".
+        Si no conecta, copiame el "Error exacto" que muestra.
+
 PASO 6. Abrir Solventas (C:\SSCA\Solventas.exe). Si no abre bien:
           - Clic derecho en Solventas.exe > Propiedades > Compatibilidad:
             marca "Ejecutar este programa como administrador" y prueba con
