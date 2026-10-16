@@ -68,6 +68,7 @@ function ConBarra([string]$ruta) {
 $usuario = [Environment]::GetEnvironmentVariable("SOLVENTAS_USUARIO")
 $claveEnv = [Environment]::GetEnvironmentVariable("SOLVENTAS_CLAVE")
 
+Decir "restaurar-base v3 (16-oct-2026)"
 if ($Base -notmatch '^[A-Za-z0-9_]+$') { Decir "El nombre de la base solo puede llevar letras, numeros y _ ($Base)."; exit 1 }
 if (-not $Respaldo) { Decir "Falta -Respaldo (la ruta del archivo .bak)."; exit 1 }
 if (-not (Test-Path -LiteralPath $Respaldo)) { Decir "No existe: $Respaldo"; exit 1 }
@@ -125,11 +126,27 @@ try {
   if (-not $NoCopiar) {
     $archivo = $dirResp + "RRVS_traslado_" + (Get-Date).ToString("yyyyMMdd_HHmmss") + ".bak"
     Copy-Item -LiteralPath $Respaldo -Destination $archivo -Force
+    if (-not (Test-Path -LiteralPath $archivo -PathType Leaf)) { Decir "La copia no es un archivo: $archivo"; exit 1 }
     Decir "   El respaldo se copio a: $archivo"
+    # el servicio de SQL Server tiene que poder LEER el archivo: se le da permiso explicito
+    try {
+      $instServ = $null
+      if ($Servidor -match '\\(.+)$') { $instServ = $Matches[1] }
+      $cuenta = if ($instServ) { 'NT SERVICE\MSSQL$' + $instServ } else { 'NT SERVICE\MSSQLSERVER' }
+      & icacls.exe $archivo /grant ($cuenta + ':(R)') | Out-Null
+      Decir "   Permiso de lectura dado a $cuenta"
+    } catch { Decir "   (no se pudo ajustar el permiso del archivo: $($_.Exception.Message))" }
   }
 
   Decir "=== 2. RESTAURANDO ==="
-  $lista = Tabla $cn ("RESTORE FILELISTONLY FROM DISK = N'" + (Q $archivo) + "'")
+  try {
+    $lista = Tabla $cn ("RESTORE FILELISTONLY FROM DISK = N'" + (Q $archivo) + "'")
+  } catch {
+    Decir ("SQL Server no pudo abrir el respaldo: " + $_.Exception.Message)
+    Decir "Causas: el archivo no es un .bak (por ejemplo, es una carpeta), esta danado, o el servicio de SQL Server no tiene permiso para leerlo."
+    Decir "Archivo usado: $archivo"
+    exit 1
+  }
   if ($lista.Rows.Count -eq 0) { Decir "El archivo no parece un respaldo de SQL Server."; exit 1 }
   $mueve = @(); $nd = 0; $nl = 0
   foreach ($f in $lista.Rows) {
