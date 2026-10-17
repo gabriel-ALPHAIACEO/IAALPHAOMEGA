@@ -923,6 +923,7 @@ const ESTILO = (color) => `
 :root[data-tema="claro"]{color-scheme:light;--fondo:#f3f5fa;--tarjeta:#fff;--tarjeta-s:#fff;--texto:#0d1526;--suave:#5a6479;--tenue:#8a93a7;
 --borde:rgba(15,23,42,.09);--borde-f:rgba(15,23,42,.17);--rejilla:rgba(15,23,42,.045);--marca:color-mix(in srgb,${color} 88%,#000);--cian:${color};--bien:#0f8a55;--aviso:#b45309;--mal:#d92d2d;
 --sombra:0 1px 2px rgba(15,23,42,.04),0 12px 32px -20px rgba(15,23,42,.25)}
+select option,select optgroup{background-color:var(--tarjeta-s);color:var(--texto)}
 [hidden]{display:none!important}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent;scroll-behavior:smooth}
 html.sin-scroll{overflow:hidden}

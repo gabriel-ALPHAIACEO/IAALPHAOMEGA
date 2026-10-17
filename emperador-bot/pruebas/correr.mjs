@@ -55,6 +55,7 @@ const SUITES = [
   ["tandas.mjs", "Traer ahora, el Excel y el Excel del inventario por tandas: ninguna pasada llega al tope de Cloudflare y queda igual que de una vez"],
   ["conectores.mjs", "conectar con un sistema cerrado: stock por CSV/JSON con clave, lo vendido en medio, por tandas, solo lo que cambió, el agente puente, las ventas de vuelta sin costos"],
   ["agentes.mjs", "el agente puente visto desde la tienda: latido, «Sincronizar ahora», alertas de error y de silencio, la tarjeta del panel"],
+  ["selects.mjs", "las listas desplegables del panel y de la tienda web se leen en el tema oscuro (opciones con fondo sólido; bug de «Cómo se pagó», 17-oct)"],
   ["cantidades-y-dias.mjs", "la cantidad escrita por talla (al crear, al añadir y en la ficha, por diferencia: Deshacer y reintentos no duplican) y las ventas de otro día (caja y «Vendí»), con el aviso del conteo"],
   ["asistente.mjs", "el asistente del panel: contesta, se ve en todas las páginas, conoce el panel y el stock, y no registra nada solo"],
 ];

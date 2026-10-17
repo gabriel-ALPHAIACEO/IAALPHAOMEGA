@@ -372,6 +372,9 @@ background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/sv
 input::placeholder,textarea::placeholder{color:var(--tenue)}
 input:hover,select:hover,textarea:hover{border-color:rgba(148,163,194,.4)}
 input:focus,textarea:focus,select:focus{outline:none;border-color:var(--marca);background-color:rgba(61,134,255,.06);box-shadow:0 0 0 4px rgba(61,134,255,.18)}
+/* La lista desplegable de un select: el fondo del select es translucido (cristal) y el navegador pinta la lista sobre BLANCO,
+   con la letra clara del tema oscuro = ilegible. Las opciones llevan fondo SOLIDO del tema y su propia letra. */
+select option,select optgroup{background-color:var(--tarjeta-solida);color:var(--texto)}
 input[type=checkbox],input[type=radio]{min-height:0;width:18px;height:18px;padding:0;accent-color:var(--marca);vertical-align:-3px}
 input[type=file]{padding:9px 12px;cursor:pointer}
 input[type=file]::file-selector-button{font:inherit;font-weight:700;font-size:13px;color:var(--texto);background:rgba(255,255,255,.08);border:0;border-radius:999px;padding:6px 14px;margin-right:12px;cursor:pointer}
