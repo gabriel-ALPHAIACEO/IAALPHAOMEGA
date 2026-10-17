@@ -258,11 +258,22 @@ export function serialDe(nota) {
   return m ? `IMEI/serial: ${m[1].trim()}` : "";
 }
 
+// La cuenta de Cashea que la caja deja en la nota de la venta (sale en el recibo).
+export function casheaDe(nota) {
+  const m = String(nota || "").match(/Cashea (?:nivel \d+|inicial libre):[^\n]*/i);
+  return m ? m[0].trim() : "";
+}
+
+// Talla y color de una línea, tal como salen en los recibos.
+export function detalleDeLinea(l) {
+  return [l.opcion && l.opcion !== "única" ? l.opcion : "", l.color || ""].filter(Boolean).join(" · ");
+}
+
 // El recibo como texto, para mandarlo por WhatsApp.
 export function textoDelRecibo(venta, tienda = "La tienda") {
   const plata = (n) => (n === null || n === undefined ? "" : `$${redondo(n)}`);
   const lineas = [
-    ...venta.lineas.map((l) => `• ${l.cantidad} × ${l.titulo}${l.opcion && l.opcion !== "única" ? ` (${l.opcion})` : ""}${l.precio !== null ? ` — ${plata(l.precio * l.cantidad)}` : ""}`),
+    ...venta.lineas.map((l) => `• ${l.cantidad} × ${l.titulo}${detalleDeLinea(l) ? ` (${detalleDeLinea(l)})` : ""}${l.precio !== null ? ` — ${plata(l.precio * l.cantidad)}` : ""}`),
     ...venta.libres.map((l) => `• ${l.cantidad} × ${l.descripcion} — ${plata(l.precio * l.cantidad)}`),
   ];
   return [
@@ -272,6 +283,7 @@ export function textoDelRecibo(venta, tienda = "La tienda") {
     "",
     ...lineas,
     serialDe(venta.nota),
+    casheaDe(venta.nota),
     "",
     `*Total: ${venta.total === null ? "por confirmar" : plata(venta.total)}*`,
     venta.fiado ? `Abonado: ${plata(venta.abonado)} · Pendiente: ${plata(venta.saldo)}` : venta.metodo_pago ? `Pago: ${venta.metodo_pago}` : "",
@@ -354,6 +366,45 @@ export async function abonar(db, { clave, monto, metodo = "", quien = "", nota =
 
 export const SIN_CATEGORIA = "Sin categoría";
 export const COBROS_SIN_INVENTARIO = "Cobros sin inventario";
+
+/* ── Cashea: lo cobrado de inicial y lo financiado ───────────────────────
+ * Cada venta con Cashea guarda en sus columnas cashea_* la cuenta que la caja
+ * hizo al cobrar (inicial = porcentaje del total; financiado = el resto, que
+ * paga Cashea en cuotas). De ahí sale el reporte. Las anuladas no cuentan.
+ */
+export async function casheaDelPeriodo(db, { desde, hasta }, { detalle = false } = {}) {
+  await asegurarNegocio(db);
+  const donde = "anulada = 0 AND cashea_nivel <> '' AND creado >= ? AND creado < ?";
+  const t = await db
+    .prepare(`SELECT COUNT(*) AS ventas, COALESCE(SUM(total), 0) AS total, COALESCE(SUM(cashea_inicial), 0) AS inicial, COALESCE(SUM(cashea_financiado), 0) AS financiado FROM inv_ventas WHERE ${donde}`)
+    .bind(desde, hasta)
+    .first();
+  const { results: porMetodo } = await db
+    .prepare(`SELECT CASE WHEN cashea_inicial_por = '' THEN 'Sin decir' ELSE cashea_inicial_por END AS metodo, COUNT(*) AS cantidad, COALESCE(SUM(cashea_inicial), 0) AS monto FROM inv_ventas WHERE ${donde} AND cashea_inicial > 0 GROUP BY 1 ORDER BY monto DESC`)
+    .bind(desde, hasta)
+    .all();
+  const { results: porNivel } = await db
+    .prepare(`SELECT cashea_nivel AS nivel, COUNT(*) AS cantidad, COALESCE(SUM(total), 0) AS total, COALESCE(SUM(cashea_inicial), 0) AS inicial, COALESCE(SUM(cashea_financiado), 0) AS financiado FROM inv_ventas WHERE ${donde} GROUP BY 1 ORDER BY CASE WHEN cashea_nivel = 'libre' THEN 99 ELSE CAST(cashea_nivel AS INTEGER) END`)
+    .bind(desde, hasta)
+    .all();
+  let ventas = [];
+  if (detalle) {
+    const { results } = await db
+      .prepare(`SELECT id, creado, cliente, total, cashea_nivel AS nivel, cashea_pct AS pct, cashea_inicial AS inicial, cashea_financiado AS financiado, cashea_cuotas AS cuotas, cashea_inicial_por AS inicial_por FROM inv_ventas WHERE ${donde} ORDER BY creado DESC, id DESC LIMIT 500`)
+      .bind(desde, hasta)
+      .all();
+    ventas = (results || []).map((v) => ({ ...v, total: redondo(v.total), inicial: redondo(v.inicial), financiado: redondo(v.financiado) }));
+  }
+  return {
+    ventas: Number(t.ventas) || 0,
+    total: redondo(t.total),
+    inicial: redondo(t.inicial),
+    financiado: redondo(t.financiado),
+    porMetodo: (porMetodo || []).map((m) => ({ ...m, monto: redondo(m.monto) })),
+    porNivel: (porNivel || []).map((n) => ({ ...n, total: redondo(n.total), inicial: redondo(n.inicial), financiado: redondo(n.financiado) })),
+    lista: ventas,
+  };
+}
 
 export async function resumen(db, { desde, hasta }) {
   await asegurarNegocio(db);
@@ -498,8 +549,103 @@ export async function resumen(db, { desde, hasta }) {
     porMetodo: (porMetodo || []).map((m) => ({ ...m, total: redondo(m.total) })),
     masVendidos: (masVendidos || []).map((m) => ({ ...m, monto: redondo(m.monto) })),
     porCategoria,
+    cashea: await casheaDelPeriodo(db, { desde, hasta }),
     dias: dias.map((d) => ({ ...d, ventas: redondo(d.ventas), gastos: redondo(d.gastos) })),
   };
+}
+
+/* ── GANANCIAS (17-oct-2026, pedido del dueño) ────────────────────────────
+ * Ganancia = precio − costo de cada producto vendido, solo de los que tienen
+ * costo cargado (lo demás se cuenta aparte, sin inventar). Sin las anuladas.
+ */
+export async function gananciasDelPeriodo(db, { desde, hasta }) {
+  await asegurarNegocio(db);
+  const { results: porVenta } = await db
+    .prepare(
+      `SELECT ve.id, ve.creado, ve.cliente, ve.total, ve.metodo_pago, ve.fiado,
+              COALESCE(SUM(CASE WHEN m.costo IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - m.costo) ELSE 0 END), 0) AS ganancia,
+              COALESCE(SUM(CASE WHEN m.id IS NOT NULL AND (m.costo IS NULL OR m.precio IS NULL) THEN 1 ELSE 0 END), 0) AS sin_costo,
+              COALESCE(SUM(CASE WHEN m.id IS NOT NULL THEN -m.delta ELSE 0 END), 0) AS unidades
+         FROM inv_ventas ve LEFT JOIN inv_movimientos m ON m.venta_id = ve.id AND m.tipo = 'venta'
+        WHERE ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?
+        GROUP BY ve.id ORDER BY ve.creado DESC, ve.id DESC LIMIT 500`
+    )
+    .bind(desde, hasta)
+    .all();
+  const { results: porProducto } = await db
+    .prepare(
+      `SELECT p.id, p.titulo, SUM(-m.delta) AS unidades,
+              COALESCE(SUM(CASE WHEN m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido,
+              COALESCE(SUM(CASE WHEN m.costo IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - m.costo) ELSE 0 END), 0) AS ganancia,
+              SUM(CASE WHEN m.costo IS NULL THEN 1 ELSE 0 END) AS sin_costo
+         FROM inv_movimientos m JOIN inv_ventas ve ON ve.id = m.venta_id
+         JOIN inv_variantes v ON v.id = m.variante_id JOIN inv_productos p ON p.id = v.producto_id
+        WHERE m.tipo = 'venta' AND ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?
+        GROUP BY p.id ORDER BY ganancia DESC, unidades DESC LIMIT 50`
+    )
+    .bind(desde, hasta)
+    .all();
+  const t = await db
+    .prepare(
+      `SELECT COALESCE(SUM(CASE WHEN m.costo IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - m.costo) ELSE 0 END), 0) AS ganancia,
+              COALESCE(SUM(CASE WHEN m.costo IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido_con_costo,
+              COALESCE(SUM(CASE WHEN m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido,
+              COALESCE(SUM(CASE WHEN m.costo IS NULL OR m.precio IS NULL THEN 1 ELSE 0 END), 0) AS sin_costo
+         FROM inv_movimientos m JOIN inv_ventas ve ON ve.id = m.venta_id
+        WHERE m.tipo = 'venta' AND ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?`
+    )
+    .bind(desde, hasta)
+    .first();
+  const ganancia = redondo(t.ganancia);
+  const conCosto = Number(t.vendido_con_costo) || 0;
+  return {
+    ganancia,
+    vendido: redondo(t.vendido),
+    vendidoConCosto: redondo(conCosto),
+    // Sobre lo vendido que tiene costo: de cada $100 con costo, cuánto es ganancia.
+    margen: conCosto > 0 ? Math.round((ganancia / conCosto) * 1000) / 10 : 0,
+    cobertura: Number(t.vendido) > 0 ? Math.round((conCosto / Number(t.vendido)) * 100) : 0,
+    lineasSinCosto: Number(t.sin_costo) || 0,
+    ventas: (porVenta || []).map((v) => ({ ...v, total: v.total === null ? null : redondo(v.total), ganancia: redondo(v.ganancia), sin_costo: Number(v.sin_costo) || 0, unidades: Number(v.unidades) || 0 })),
+    productos: (porProducto || []).map((p) => ({ ...p, vendido: redondo(p.vendido), ganancia: redondo(p.ganancia), unidades: Number(p.unidades) || 0, sin_costo: Number(p.sin_costo) || 0 })),
+  };
+}
+
+// El reporte de un período (por defecto, el del día): lo de siempre más la
+// parte de Cashea con sus ventas una por una.
+export async function reporteDelPeriodo(db, periodo) {
+  const r = await resumen(db, periodo);
+  r.cashea = await casheaDelPeriodo(db, periodo, { detalle: true });
+  return r;
+}
+
+// El reporte como texto, para copiar o mandar por WhatsApp.
+export function textoDelReporte(r, { tienda = "La tienda", nombre = "hoy", fechas = "" } = {}) {
+  const plata = (n) => `$${redondo(n)}`;
+  const c = r.cashea || { ventas: 0, porMetodo: [] };
+  const lineas = [
+    `*${tienda}* — Reporte de ${nombre}${fechas ? ` (${fechas})` : ""}`,
+    "",
+    `Ventas: ${r.ventas.cantidad} · ${plata(r.ventas.total)}`,
+    ...(r.porMetodo || []).map((m) => `  • ${m.metodo}: ${plata(m.total)} (${m.cantidad})`),
+    r.ventas.fiado > 0 ? `Fiado: ${plata(r.ventas.fiado)}` : "",
+    r.abonos > 0 ? `Abonos cobrados: ${plata(r.abonos)}` : "",
+    "",
+    "*Cashea*",
+    c.ventas
+      ? [
+          `Ventas con Cashea: ${c.ventas} · ${plata(c.total)}`,
+          `Inicial cobrada: ${plata(c.inicial)}`,
+          ...c.porMetodo.map((m) => `  • ${m.metodo}: ${plata(m.monto)} (${m.cantidad})`),
+          `Monto financiado: ${plata(c.financiado)}`,
+        ].join("\n")
+      : "Sin ventas con Cashea.",
+    "",
+    `Ganancia: ${plata(r.ganancia.monto)}`,
+    `Gastos: ${plata(r.gastos.total)}`,
+    `Balance (cobrado − gastos): ${plata(r.balance)}`,
+  ];
+  return lineas.filter((x, i, a) => x !== "" || (a[i - 1] !== "" && i > 0)).join("\n");
 }
 
 // Lo que se está acabando: tallas con 2 o menos (en todas las sedes) que

@@ -46,6 +46,8 @@ export const PANTALLAS = {
   inicio: ["/panel/inicio", "Inicio"],
   caja: ["/panel/caja", "Caja"],
   ventas: ["/panel/ventas", "Ventas"],
+  reportes: ["/panel/reportes", "Reportes"],
+  ganancias: ["/panel/ganancias", "Ganancias"],
   pedidos: ["/panel/pedidos", "Pedidos web"],
   pagos: ["/panel/pedidos/pagos", "Métodos de pago"],
   inventario: ["/panel/inventario", "Inventario"],
@@ -114,7 +116,15 @@ TU NEGOCIO
   venta queda en ese día (en Ventas, en Inicio y en el balance) y se marca
   "anotada después"; el stock baja en el momento en que se anota. La
   elección se queda mientras se cargan varias seguidas. (En "Vendí" de un
-  producto también se puede poner el día.)${tarifaDeCaja === "cashea" ? `
+  producto también se puede poner el día.)
+  Al tocar un producto que tiene colores, la caja pregunta primero el COLOR
+  y después la ${v}; el stock baja de esa ${v} y de ninguna otra. CASHEA: al
+  elegir "Cashea" aparece el nivel del cliente (cada nivel con su porcentaje
+  de inicial, como en Cashea) o "Inicial libre" para escribir el porcentaje
+  que se quiera; la caja muestra la INICIAL y el MONTO FINANCIADO (con sus
+  cuotas) y pide con qué se pagó la inicial: Pago móvil, Transferencia,
+  Punto de venta, Divisas o Zelle. Los porcentajes por nivel se cambian en
+  Caja › Tabla de Cashea.${tarifaDeCaja === "cashea" ? `
   En esta tienda la caja cobra el PRECIO CASHEA; el precio en dólares solo
   si el cliente paga con "Divisas (efectivo)".` : ""}
 · Ventas (/panel/ventas): todo lo cobrado, por día, con las ventas por
@@ -122,6 +132,16 @@ TU NEGOCIO
   recibo: imprimir, mandarlo por WhatsApp o ANULAR (si se cobró mal: el
   stock vuelve y la venta queda marcada como anulada, no se borra). Se baja
   a Excel.
+· Reportes (/panel/reportes): el reporte del día (o de hoy, ayer, 7 días, el
+  mes, fechas a medida) para cerrar la caja: vendido, cobrado, gastos y
+  balance, cómo se pagó y CASHEA (ventas con Cashea, inicial cobrada y con
+  qué se pagó, monto financiado, por nivel y cada venta). Se imprime, se
+  manda por WhatsApp o se baja a Excel.
+· Ganancias (/panel/ganancias): lo que se ganó (precio de venta menos costo)
+  venta por venta, por día y por producto, con el margen. Solo cuenta los
+  productos que tienen el costo cargado (Inventario › Editar); avisa cuántos
+  faltan. Al cobrar en la Caja, la pantalla de "Venta registrada" muestra la
+  ganancia de esa venta y el botón "Ver todas las ganancias".
 · Inventario (/panel/inventario): los productos con cuántos quedan. Buscador
   y filtros (con stock, por reponer, agotados) y, debajo, atajos por
   categoría (y «Sin categoría» para ver a cuáles les falta). Al abrir un producto se ven sus ${vs}, el
@@ -217,6 +237,8 @@ const SUGERENCIAS = {
   inicio: ["¿Cuánto vendí esta semana?", "¿Qué se está acabando?", "Dame una idea para vender más"],
   caja: ["¿Cómo cobro con la cámara?", "¿Cómo cobro al fiado?", "¿Cómo anulo una venta?"],
   ventas: ["¿Cuánto vendí hoy?", "¿Cómo anulo una venta?", "¿Cómo mando el recibo por WhatsApp?"],
+  ganancias: ["¿Cuánto gané hoy?", "¿Qué producto me deja más ganancia?", "¿Por qué una venta sale sin ganancia?"],
+  reportes: ["¿Cuánto cobré de inicial de Cashea hoy?", "¿Cuánto se financió con Cashea?", "¿Cómo mando el reporte por WhatsApp?"],
   inventario: ["¿Cómo cargo mi inventario de Excel?", "¿Cómo imprimo las etiquetas?", "¿Qué se está acabando?"],
   gastos: ["¿En qué gasté más este mes?", "Gasté 20 en transporte", "¿Cuál es mi balance?"],
   pedidos: ["¿Cómo apruebo un pago de la web?", "¿Dónde pongo mis datos de Pago Móvil?", "¿Qué pasa si rechazo un pedido?"],

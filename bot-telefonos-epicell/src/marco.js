@@ -201,6 +201,8 @@ const NEGOCIO = [
   ["inicio", "/panel/inicio", "Inicio", "inicio"],
   ["caja", "/panel/caja", "Caja", "caja"],
   ["ventas", "/panel/ventas", "Ventas", "ventas"],
+  ["reportes", "/panel/reportes", "Reportes", "recibo"],
+  ["ganancias", "/panel/ganancias", "Ganancias", "sube"],
   ["pedidos", "/panel/pedidos", "Pedidos web", "carrito"],
   ["inventario", "/panel/inventario", "Inventario", "inventario"],
   ["gastos", "/panel/gastos", "Gastos", "gastos"],

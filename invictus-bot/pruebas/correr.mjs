@@ -43,6 +43,7 @@ const SUITES = [
   ["rafaga.mjs", "Meta repite un mensaje: se atiende una vez; mensajes seguidos del mismo cliente: una sola respuesta con todos (sin mezclar clientes); JUNTAR_MENSAJES = \"no\" lo apaga"],
   ["informe6oct.mjs", "lo que salió del informe de errores del 6-oct: el precio cuando lo pregunta, Cashea de su nivel, OpenAI sin saldo"],
   ["aprende.mjs", "la IA aprende sola: el revisor (que piensa) escribe la regla, la IA de texto o de imágenes la recibe, y solo avisa 🛠️ cuando hay que tocar el código"],
+  ["caja-cashea-variantes.mjs", "la caja vende con color y talla (descuenta en ESA talla) y con Cashea: nivel o «Inicial libre» en porcentaje, con qué se pagó la inicial, inicial y monto financiado, el recibo y el reporte del día"],
   ["selects.mjs", "las listas desplegables del panel y de la tienda web se leen en el tema oscuro (opciones con fondo sólido; bug de «Cómo se pagó», 17-oct)"],
   ["tienda.mjs", "el panel /panel: la clave, los mensajes, lo que pensó la IA, pausar y devolver"],
   ["instagram.mjs", "/probar-instagram: en qué paso se corta (token, suscripción, firma, envío)"],

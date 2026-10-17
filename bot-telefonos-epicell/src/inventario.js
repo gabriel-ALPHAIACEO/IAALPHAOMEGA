@@ -187,6 +187,14 @@ const COLUMNAS_NUEVAS = [
   // cuentan Ventas, el balance y lo más vendido); "registrada" es cuándo se
   // anotó de verdad. Vacía en las ventas de siempre.
   ["inv_ventas", "registrada", "INTEGER"],
+  // CASHEA EN LA CAJA (17-oct-2026): lo que la caja calculó al cobrar con Cashea,
+  // para el reporte (inicial cobrada y monto financiado). Vacías en las demás ventas.
+  ["inv_ventas", "cashea_nivel", "TEXT NOT NULL DEFAULT ''"],
+  ["inv_ventas", "cashea_pct", "REAL"],
+  ["inv_ventas", "cashea_inicial", "REAL"],
+  ["inv_ventas", "cashea_financiado", "REAL"],
+  ["inv_ventas", "cashea_cuotas", "INTEGER"],
+  ["inv_ventas", "cashea_inicial_por", "TEXT NOT NULL DEFAULT ''"],
   // LA FILA ENTERA DE LA HOJA EN SU VARIANTE (EPICCELL, 7-oct-2026): cada
   // capacidad tiene su precio en Bs, su foto y sus columnas (RAM, estado…),
   // y "oculta" es el Activo = NO de la hoja: está en el inventario, pero
@@ -1198,7 +1206,33 @@ export function momentoDeLaVenta(dia, ahora = Date.now()) {
 // el panel). Para fiar hace falta saber a quién.
 // tarifa: "cashea" cobra el precio Cashea de cada producto (si lo tiene; si
 // no, el normal). Lo decide la caja de la tienda (ver inventario-panel.js).
-export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = [], libres = [], contactoId = null, cliente = "", telefono = "", fiado = false, nota = "", tarifa = "", fecha = "" }) {
+/* ── La cuenta de Cashea ─────────────────────────────────────────────────
+ * La inicial es un porcentaje del total (según el nivel del cliente, o el que
+ * se escriba en «Inicial libre»); lo demás es el monto financiado, que se paga
+ * en cuotas sin interés. Todo en centavos: la última cuota absorbe lo que sobra.
+ */
+export function cuentaCashea(total, porcentaje, cuotas) {
+  const t = Math.round((Number(total) || 0) * 100);
+  const inicial = Math.round((t * Number(porcentaje)) / 100);
+  const resto = t - inicial;
+  const n = Math.max(1, Math.trunc(Number(cuotas)) || 1);
+  const base = Math.floor(resto / n);
+  return { total: t / 100, inicial: inicial / 100, financiado: resto / 100, resto: resto / 100, cuotas: n, cuota: base / 100, ultimaCuota: (resto - base * (n - 1)) / 100 };
+}
+
+function dineroDeLaNota(n) {
+  const v = Number(n) || 0;
+  return `$${Math.abs(v - Math.round(v)) < 0.005 ? Math.round(v) : v.toFixed(2)}`;
+}
+
+// La línea que queda en la nota de la venta y sale en el recibo.
+export function lineaDeCashea({ nivel, porcentaje, cuenta, inicialPor }) {
+  const inicial = cuenta.inicial > 0 ? `inicial ${dineroDeLaNota(cuenta.inicial)} (${porcentaje} %)${inicialPor ? ` por ${inicialPor}` : ""}` : "sin inicial";
+  const resto = cuenta.financiado > 0 ? ` + financiado ${dineroDeLaNota(cuenta.financiado)} en ${cuenta.cuotas} ${cuenta.cuotas === 1 ? "cuota" : "cuotas"} de ${dineroDeLaNota(cuenta.cuota)}${cuenta.ultimaCuota !== cuenta.cuota ? ` (la última ${dineroDeLaNota(cuenta.ultimaCuota)})` : ""}` : "";
+  return `Cashea ${nivel === "libre" ? "inicial libre" : `nivel ${nivel}`}: ${inicial}${resto}`;
+}
+
+export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = [], libres = [], contactoId = null, cliente = "", telefono = "", fiado = false, nota = "", tarifa = "", fecha = "", cashea = null }) {
   await asegurarInventario(db);
   const sede = Number(sedeId) || (await sedes(db))[0]?.id || 0;
   if (!(await db.prepare("SELECT 1 FROM inv_locales WHERE id = ?").bind(sede).first())) throw new Error("Esa sede no existe.");
@@ -1235,6 +1269,8 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
   let total = lineasLibres.reduce((a, l) => a + l.precio * l.cantidad, 0);
   let totalConocido = true;
   let costoTotal = 0;
+  let gananciaDeLaVenta = 0;
+  let lineasSinCosto = 0;
   const faltan = [];
   const datos = new Map();
   for (const [v, n] of agrupados) {
@@ -1247,15 +1283,32 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
     else total += Number(precio) * n;
     const costo = variante.costo_producto ?? null;
     if (costo !== null) costoTotal += Number(costo) * n;
+    // La ganancia solo cuenta lo que tiene costo cargado: lo demás se dice aparte, sin inventar.
+    if (precio !== null && costo !== null) gananciaDeLaVenta += (Number(precio) - Number(costo)) * n;
+    else lineasSinCosto++;
     datos.set(v, { precio, costo, nombre: `${variante.titulo}${variante.opcion !== "única" ? ` (${variante.opcion})` : ""}` });
   }
   if (faltan.length) throw new SinStock(`No alcanza en esta sede: ${faltan.join(" · ")}`);
 
+  // Cashea: la cuenta se hace aquí, con el total REAL de la venta, y se guarda en columnas
+  // (para el reporte) y en la nota (para el recibo).
+  let cuentaDeCashea = null;
+  let casheaTexto = "";
+  let notaFinal = String(nota || "").slice(0, 300);
+  if (cashea && !fiado) {
+    if (!totalConocido) throw new Error("Para cobrar con Cashea hace falta el precio de todo lo que se vende.");
+    const pct = Number(cashea.porcentaje);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) throw new Error("El porcentaje de la inicial de Cashea va de 0 a 100.");
+    cuentaDeCashea = cuentaCashea(total, pct, cashea.cuotas);
+    casheaTexto = lineaDeCashea({ nivel: cashea.nivel, porcentaje: pct, cuenta: cuentaDeCashea, inicialPor: cashea.inicialPor });
+    if (cashea.minimo && total < Number(cashea.minimo)) casheaTexto += " (bajo la compra mínima de Cashea)";
+    notaFinal = (notaFinal ? `${notaFinal} · ${casheaTexto}` : casheaTexto).slice(0, 500);
+  }
   const ref = crypto.randomUUID();
   const sentencias = [
     db
       .prepare(
-        "INSERT INTO inv_ventas (ref, local_id, quien, metodo_pago, total, contacto_id, creado, cliente, telefono, fiado, nota, costo, tarifa, registrada) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO inv_ventas (ref, local_id, quien, metodo_pago, total, contacto_id, creado, cliente, telefono, fiado, nota, costo, tarifa, registrada, cashea_nivel, cashea_pct, cashea_inicial, cashea_financiado, cashea_cuotas, cashea_inicial_por) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       )
       .bind(
         ref,
@@ -1268,10 +1321,16 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
         nombreCliente,
         tel,
         fiado ? 1 : 0,
-        String(nota || "").slice(0, 300),
+        notaFinal,
         Math.round(costoTotal * 100) / 100,
         tarifa === "cashea" ? "cashea" : "",
-        delDia === null ? null : ahora
+        delDia === null ? null : ahora,
+        cuentaDeCashea ? String(cashea.nivel) : "",
+        cuentaDeCashea ? Number(cashea.porcentaje) : null,
+        cuentaDeCashea ? cuentaDeCashea.inicial : null,
+        cuentaDeCashea ? cuentaDeCashea.financiado : null,
+        cuentaDeCashea ? cuentaDeCashea.cuotas : null,
+        cuentaDeCashea ? String(cashea.inicialPor || "").slice(0, 40) : ""
       ),
   ];
   const notaDeCaja = (fiado ? "Caja · Fiado" : metodoPago ? `Caja · ${metodoPago}` : "Caja") + (delDia === null ? "" : " · anotada después");
@@ -1299,6 +1358,10 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
     fecha: cuando,
     deOtroDia: delDia !== null,
     contadasDespues,
+    casheaTexto,
+    cashea: cuentaDeCashea,
+    ganancia: Math.round(gananciaDeLaVenta * 100) / 100,
+    sinCosto: lineasSinCosto,
   };
 }
 

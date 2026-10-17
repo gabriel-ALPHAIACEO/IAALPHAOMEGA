@@ -74,11 +74,12 @@ import {
   ponerCategoria,
   categoriasUsadas,
   leerNumero,
+  cuentaCashea,
   FILAS_POR_PAQUETE,
   svgEan13,
   TIPOS_DE_MOVIMIENTO,
 } from "./inventario.js";
-import { verVenta, textoDelRecibo, METODOS_DE_PAGO, diaDe } from "./negocio.js";
+import { verVenta, textoDelRecibo, METODOS_DE_PAGO, diaDe, casheaDe } from "./negocio.js";
 import { iconoDeMetodo, enlaceWhatsapp } from "./negocio-panel.js";
 import { aCsv, respuestaCsv } from "./alpha.js";
 import { archivosDelFormulario, subirFotos, quitarFoto, hacerPrincipal, FOTOS_POR_PRODUCTO } from "./fotos.js";
@@ -324,6 +325,24 @@ const ESTILO = `<style>
 .resultados.tallas .resultado{align-items:center;text-align:center;padding:12px 8px}
 .resultados.tallas .resultado b{font-size:20px;font-weight:800;letter-spacing:-.02em}
 .resultado:disabled{opacity:.45}
+.resultados.colores{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.resultados.colores .resultado{align-items:center;text-align:center;padding:14px 10px}
+.resultados.colores .resultado b{font-size:15px;font-weight:800}
+.resultados-volver{grid-column:1/-1;justify-self:start;min-height:0;padding:6px 14px;font-size:12.5px;font-weight:700;border-radius:999px;background:transparent;color:var(--marca);border:1px solid var(--borde-fuerte)}
+.exito-ganancia{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:center;gap:4px 10px;margin:12px 0 0;padding:10px 14px;border-radius:16px;background:var(--velo);border:1px solid var(--borde)}
+.exito-ganancia[hidden]{display:none}
+.exito-ganancia span{font-size:12.5px;font-weight:700;color:var(--suave)}.exito-ganancia b{font-size:22px;font-weight:800;letter-spacing:-.02em;color:var(--bien);font-variant-numeric:tabular-nums}
+.exito-ganancia small{flex-basis:100%;font-size:12px;color:var(--tenue)}.exito-ganancia.sin b{color:var(--suave)}
+.cashea-bloque{margin:0 0 14px}.cashea-bloque[hidden]{display:none}
+.cashea-bloque .campo-titulo{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.cashea-bloque .opcion small{font-weight:700;color:var(--tenue);margin-left:2px}
+.cashea-libre{margin-top:10px;max-width:220px}.cashea-libre[hidden]{display:none}
+.cashea-sub{margin:12px 0 6px;font-size:12.5px;font-weight:700;color:var(--suave)}
+.cashea-cuenta{margin-top:10px;padding:12px 14px;border-radius:16px;background:var(--velo);border:1px solid var(--borde);font-size:13.5px;line-height:1.55;color:var(--suave)}
+.cashea-cuenta b{color:var(--texto);font-variant-numeric:tabular-nums}
+.cashea-cuenta .grande{font-size:19px;font-weight:800;letter-spacing:-.02em;color:var(--texto);font-variant-numeric:tabular-nums}
+.cashea-fila{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:3px 0}.cashea-pie{margin-top:4px;padding-top:6px;border-top:1px solid var(--borde);font-size:12.5px}
+.cashea-cuenta.mal{color:var(--mal)}
 @media (max-width:640px){.resultados{grid-template-columns:repeat(2,minmax(0,1fr))}.resultados.tallas{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .tarifa-nota{display:inline-flex;margin-left:8px;font-style:normal;font-size:11.5px;font-weight:800;padding:3px 9px;border-radius:999px;color:var(--violeta);background:rgba(139,124,255,.14);vertical-align:2px;transition:color .3s,background .3s}
 .tarifa-nota.divisas{color:var(--bien);background:var(--bien-fondo)}
@@ -1373,11 +1392,89 @@ ${formato === "termica" ? "@page{size:50mm 25mm;margin:0}" : "@page{size:letter;
 
 const METODOS_CORTOS = { "Divisas (efectivo)": "Divisas", "Bolívares (efectivo)": "Bolívares", "Punto de venta": "Punto" };
 
+/* ── CASHEA EN LA CAJA (17-oct-2026, pedido del dueño) ───────────────────
+ *
+ * Al cobrar con Cashea la caja pide el NIVEL del cliente y enseña la inicial
+ * (un porcentaje del total, según su nivel) y las cuotas del resto, y con qué
+ * método pagó la inicial. La tabla (porcentaje por nivel, cuántas cuotas y
+ * la compra mínima) la escribe la tienda en /panel/caja/cashea y vive en
+ * inv_ajustes ("cashea_caja"). Mientras no la escriba, la caja usa la normal
+ * de Cashea (CASHEA_NORMAL, en porcentaje) y lo dice; «Inicial libre» deja
+ * poner cualquier porcentaje a mano.
+ * La cuenta la rehace el SERVIDOR con el total real de la venta y la deja
+ * en la nota (sale en el recibo); lo que manda el navegador es solo el nivel.
+ */
+const CLAVE_CASHEA = "cashea_caja";
+const NIVELES_CASHEA = [1, 2, 3, 4, 5, 6];
+// La inicial normal de Cashea por nivel (en porcentaje del total): lo que usa la caja mientras la
+// tienda no escriba la suya en /panel/caja/cashea (las promos cambian y las pone cada tienda).
+export const CASHEA_NORMAL = { 1: 60, 2: 50, 3: 30, 4: 25, 5: 20, 6: 0 };
+// Con qué se puede pagar la inicial (lo que pidió el dueño).
+export const METODOS_DE_LA_INICIAL = ["Pago móvil", "Transferencia", "Punto de venta", "Divisas (efectivo)", "Zelle"];
+const INICIAL_CORTOS = { "Divisas (efectivo)": "Divisas", "Punto de venta": "Punto" };
+
+export async function leerCasheaDeCaja(db) {
+  let guardado = null;
+  try {
+    guardado = JSON.parse((await leerAjuste(db, CLAVE_CASHEA)) || "null");
+  } catch {}
+  const niveles = {};
+  for (const n of NIVELES_CASHEA) {
+    const crudo = guardado?.niveles?.[n];
+    if (crudo === undefined || crudo === null || crudo === "") continue;
+    const p = Number(crudo);
+    if (Number.isFinite(p) && p >= 0 && p <= 100) niveles[n] = p;
+  }
+  const cuotas = Math.min(12, Math.max(1, Math.trunc(Number(guardado?.cuotas)) || 3));
+  const minimo = Math.max(0, Number(guardado?.minimo) || 0);
+  const guardada = Object.keys(niveles).length > 0;
+  return { niveles: guardada ? niveles : { ...CASHEA_NORMAL }, cuotas, minimo, configurada: guardada, normal: !guardada };
+}
+
+async function paginaDeCashea(env, url) {
+  const c = await leerCasheaDeCaja(env.DB);
+  const aviso = c.normal ? `<p class="suave" style="margin:0 2px 12px;font-size:12.5px">Ahora se usan los porcentajes normales de Cashea. Cámbialos y guarda si tu tienda tiene otra promo.</p>` : "";
+  const filas = NIVELES_CASHEA.map(
+    (n) => `<label class="campo">Nivel ${n}<input name="nivel_${n}" inputmode="decimal" autocomplete="off" placeholder="—" value="${c.niveles[n] !== undefined ? esc(String(c.niveles[n])) : ""}"><small>% de inicial</small></label>`
+  ).join("");
+  return `${ESTILO}${tostadaDesde(url)}${cabecera({
+    volver: { href: "/panel/caja", texto: "Caja" },
+    sobre: "Caja",
+    titulo: "Cashea",
+    texto: "Lo que paga el cliente de inicial según su nivel. La caja hace la cuenta sola al cobrar con Cashea. Deja vacío un nivel que no manejes.",
+  })}
+<section class="panel-tarjeta"><h2>${insignia("recibo", "marca", "chica")}Inicial por nivel (en %)</h2>${aviso}
+<form method="post" action="/panel/caja/cashea" class="campos">${filas}
+<label class="campo">Cuotas del resto<input name="cuotas" inputmode="numeric" autocomplete="off" required value="${c.cuotas}"><small>sin interés, de 1 a 12</small></label>
+<label class="campo">Compra mínima<input name="minimo" inputmode="decimal" autocomplete="off" placeholder="0" value="${c.minimo || ""}"><small>en dólares; vacío = sin mínimo</small></label>
+<div class="campo ancho"><button class="principal">${icono("check")}Guardar</button></div></form>
+<p class="suave" style="margin:12px 2px 0;font-size:12.5px;line-height:1.5">Ejemplo: nivel 3 con 30 → en una venta de $75 la inicial es $22.50 y el resto ($52.50) se divide en las cuotas. Cada tienda pone los porcentajes que Cashea le dé a sus clientes.</p></section>`;
+}
+
+async function guardarCashea(env, datos) {
+  const niveles = {};
+  for (const n of NIVELES_CASHEA) {
+    const crudo = String(datos?.get(`nivel_${n}`) ?? "").trim().replace(",", ".").replace(/%/g, "");
+    if (crudo === "") continue;
+    const p = Number(crudo);
+    if (!Number.isFinite(p) || p < 0 || p > 100) throw new Error(`El nivel ${n}: escribe un porcentaje entre 0 y 100.`);
+    niveles[n] = Math.round(p * 100) / 100;
+  }
+  if (!Object.keys(niveles).length) throw new Error("Escribe el porcentaje de al menos un nivel.");
+  const cuotas = Math.trunc(Number(String(datos?.get("cuotas") ?? "").trim()));
+  if (!(cuotas >= 1 && cuotas <= 12)) throw new Error("Las cuotas son de 1 a 12.");
+  const minimoCrudo = String(datos?.get("minimo") ?? "").trim().replace(",", ".").replace(/[$\s]/g, "");
+  const minimo = minimoCrudo === "" ? 0 : Number(minimoCrudo);
+  if (!Number.isFinite(minimo) || minimo < 0) throw new Error("La compra mínima no es un número.");
+  await guardarAjuste(env.DB, CLAVE_CASHEA, JSON.stringify({ niveles, cuotas, minimo }));
+}
+
 async function paginaDeCaja(env, url, opciones = {}) {
   const listaDeSedes = await sedes(env.DB);
   const productos = await listarProductos(env.DB, { soloConStock: true, orden: "ventas", limite: 60 });
   const tarifa = opciones.tarifaDeCaja === "cashea" ? "cashea" : "";
   const r = rubroDe(opciones.rubro);
+  const cashea = await leerCasheaDeCaja(env.DB);
   const iconos = { mas: icono("mas", { clase: "chico" }), menos: icono("menos", { clase: "chico" }), borrar: icono("borrar", { clase: "chico" }), escanear: icono("escanear"), alerta: icono("alerta"), check: icono("check"), cerrar: icono("cerrar", { clase: "chico" }) };
   const tiles = productos
     .map((p, n) => {
@@ -1395,7 +1492,7 @@ async function paginaDeCaja(env, url, opciones = {}) {
     sobre: "Tu negocio",
     titulo: "Caja",
     texto: "Escanea con el lector o la cámara, o toca un producto. Al cobrar baja el stock de la sede.",
-    acciones: `<a class="boton suave" href="/panel/ventas?p=hoy">${icono("ventas")}Ventas de hoy</a>`,
+    acciones: `<a class="boton suave" href="/panel/caja/cashea">${icono("recibo")}Tabla de Cashea</a><a class="boton suave" href="/panel/ventas?p=hoy">${icono("ventas")}Ventas de hoy</a>`,
   })}
 <div class="pos">
 <section class="pos-izquierda">
@@ -1425,6 +1522,16 @@ ${
 <p class="fecha-aviso" id="fecha-aviso" hidden></p></div>
 <div class="campo-titulo">Cómo pagó</div>
 <div class="metodos opciones" id="metodos">${metodos}</div>
+<div class="cashea-bloque" id="cashea" hidden>
+<div class="campo-titulo">Nivel de Cashea del cliente<a class="enlace-chico" href="/panel/caja/cashea" style="margin:0">Tabla</a></div>
+<div class="opciones" id="cashea-niveles">${NIVELES_CASHEA.filter((n) => cashea.niveles[n] !== undefined)
+      .map((n) => `<label class="opcion"><input type="radio" name="nivel" value="${n}" autocomplete="off">Nivel ${n}<small>${esc(String(cashea.niveles[n]))} %</small></label>`)
+      .join("")}<label class="opcion"><input type="radio" name="nivel" value="libre" autocomplete="off">Inicial libre</label></div>
+${cashea.normal ? `<p class="suave" style="margin:8px 0 0;font-size:12.5px">Porcentajes normales de Cashea. Si hay promo, cámbialos en la <a class="enlace-chico" href="/panel/caja/cashea" style="margin:0">tabla de Cashea</a>, o usa «Inicial libre» y escribe el porcentaje.</p>` : ""}
+<div class="cashea-libre" id="cashea-libre" hidden><label class="campo">Porcentaje de inicial<div class="monto chico"><input id="cashea-pct" inputmode="decimal" autocomplete="off" placeholder="0"><span>%</span></div></label></div>
+<div class="cashea-sub" id="cashea-inicial-titulo">¿Con qué pagó la inicial?</div>
+<div class="opciones" id="cashea-metodos">${METODOS_DE_LA_INICIAL.map((m) => `<label class="opcion"><input type="radio" name="inicial_metodo" value="${esc(m)}" autocomplete="off">${icono(iconoDeMetodo(m))}${esc(INICIAL_CORTOS[m] || m)}</label>`).join("")}</div>
+<div class="cashea-cuenta" id="cashea-cuenta" aria-live="polite"></div></div>
 <div class="fiado-datos" id="fiado-datos"><label class="campo">Cliente<input id="cliente" maxlength="80" placeholder="Nombre" autocomplete="off"></label><label class="campo">Teléfono<input id="telefono" maxlength="20" inputmode="tel" placeholder="0414…" autocomplete="off"></label></div>
 ${r.conSerial ? `<label class="campo" style="margin:0 0 12px">IMEI o serial (opcional)<input id="serial" maxlength="60" inputmode="numeric" autocomplete="off" placeholder="Para la garantía: sale en el recibo"></label>` : ""}
 <button type="button" class="enlace-chico" id="btn-cliente">${icono("usuario", { clase: "chico" })}Añadir cliente al recibo</button>
@@ -1435,13 +1542,13 @@ ${r.conSerial ? `<label class="campo" style="margin:0 0 12px">IMEI o serial (opc
 <div class="pos-flotante" id="pos-flotante" hidden><span><b id="flotante-total">$0</b><small id="flotante-cuenta"></small></span><a class="boton principal" href="#ticket">${icono("recibo")}Cobrar</a></div>
 <div class="exito" id="exito" hidden><div class="exito-caja" role="dialog" aria-modal="true" aria-labelledby="exito-titulo">
 <svg class="exito-check" viewBox="0 0 88 88" aria-hidden="true"><circle class="relleno" cx="44" cy="44" r="40"/><circle cx="44" cy="44" r="40"/><path d="M28 45l11 11 21-23"/></svg>
-<h2 id="exito-titulo">Venta registrada</h2><div class="exito-total" id="exito-total"></div><p class="suave" id="exito-detalle"></p><p class="exito-avisos" id="exito-avisos" hidden></p>
-<div class="acciones"><button type="button" class="principal" id="exito-nueva">${icono("mas")}Nueva venta</button><a class="boton suave" id="exito-whatsapp" target="_blank" rel="noopener">${icono("enviar")}Mandar el recibo por WhatsApp</a><a class="boton fantasma" id="exito-recibo">${icono("recibo")}Ver el recibo</a></div>
+<h2 id="exito-titulo">Venta registrada</h2><div class="exito-total" id="exito-total"></div><p class="suave" id="exito-detalle"></p><div class="exito-ganancia" id="exito-ganancia" hidden></div><p class="exito-avisos" id="exito-avisos" hidden></p>
+<div class="acciones"><button type="button" class="principal" id="exito-nueva">${icono("mas")}Nueva venta</button><a class="boton suave" id="exito-whatsapp" target="_blank" rel="noopener">${icono("enviar")}Mandar el recibo por WhatsApp</a><a class="boton fantasma" id="exito-recibo">${icono("recibo")}Ver el recibo</a><a class="boton fantasma" href="/panel/ganancias">${icono("sube")}Ver todas las ganancias</a></div>
 </div></div>
 <script>
 (function(){
-var TARIFA=${JSON.stringify(tarifa)},LA_VARIANTE=${JSON.stringify(r.laVariante)},DIVISAS=${JSON.stringify(DIVISAS)},I=${JSON.stringify(iconos).replace(/</g, "\\u003c")};
-var lineas=[],libres=[],ocupado=false;
+var TARIFA=${JSON.stringify(tarifa)},LA_VARIANTE=${JSON.stringify(r.laVariante)},LA_V=${JSON.stringify(r.variante)},CASHEA=${JSON.stringify(cashea)},DIVISAS=${JSON.stringify(DIVISAS)},I=${JSON.stringify(iconos).replace(/</g, "\\u003c")};
+var lineas=[],libres=[],ocupado=false,totalVenta=0,sinPrecioVenta=false;
 function $(s){return document.querySelector(s)}
 // La ventana del éxito va directo en el body: dentro del contenido quedaría
 // debajo de la barra lateral.
@@ -1455,38 +1562,54 @@ function tarifa(){return TARIFA==="cashea"&&metodo()!==DIVISAS?"cashea":""}
 function precioDe(l){return tarifa()==="cashea"&&l.precioCashea!=null?l.precioCashea:l.precio}
 function pitido(ok){try{var a=new(window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();o.type="sine";o.frequency.value=ok?1046:220;g.gain.setValueAtTime(.0001,a.currentTime);g.gain.exponentialRampToValueAtTime(.18,a.currentTime+.01);g.gain.exponentialRampToValueAtTime(.0001,a.currentTime+(ok?.12:.3));o.connect(g);g.connect(a.destination);o.start();o.stop(a.currentTime+(ok?.13:.32))}catch(e){}if(navigator.vibrate)try{navigator.vibrate(ok?30:[60,40,60])}catch(e){}}
 function avisar(texto,tono){var c=document.createElement("div");c.className="tostadas";c.setAttribute("aria-live","polite");c.innerHTML='<div class="tostada tono-'+(tono||"mal")+'" role="status"><span class="insignia tono-'+(tono||"mal")+'">'+(tono==="bien"?I.check:I.alerta)+'</span><span>'+esc(texto)+'</span><button type="button" class="tostada-cerrar" aria-label="Cerrar" data-cerrar-tostada>'+I.cerrar+'</button></div>';document.querySelectorAll(".tostadas").forEach(function(v){v.remove()});document.body.appendChild(c);if(tono!=="bien")pitido(false);setTimeout(function(){var t=c.querySelector(".tostada");if(t)t.classList.add("cerrada");setTimeout(function(){c.remove()},500)},5200)}
+function detalle(l){var a=[],V=LA_V.charAt(0).toUpperCase()+LA_V.slice(1);if(l.talla)a.push(V+" "+l.talla);if(l.color)a.push("Color "+l.color);if(!a.length&&l.variante&&l.variante!=="Única")a.push(l.variante);return a.join(" · ")}
 function pintar(animar){
  var n=0,total=0,sinPrecio=false,html="";
  lineas.forEach(function(l,i){var hay=l.porSede[sede()]||0,p=precioDe(l);n+=l.cantidad;if(p==null)sinPrecio=true;else total+=p*l.cantidad;
   var falta=hay<l.cantidad;
-  html+='<div class="ticket-linea'+(l.vista?" quieta":"")+(l.destello?" destello":"")+'"><div><b>'+esc(l.titulo)+'</b><small>'+esc(l.variante!=="Única"?l.variante+" · ":"")+(p!=null?dinero(p)+" c/u":"sin precio")+'</small></div><div class="importe">'+(p!=null?dinero(p*l.cantidad):"—")+'</div><div class="control"><span class="stock '+(falta?"cero":hay-l.cantidad<=2?"poco":"hay")+'"><i></i>'+(falta?"Solo hay "+hay:"Quedan "+(hay-l.cantidad))+'</span><span class="contador"><button type="button" data-menos="'+i+'" aria-label="Uno menos">'+(l.cantidad>1?I.menos:I.borrar)+'</button><span>'+l.cantidad+'</span><button type="button" data-mas="'+i+'" aria-label="Uno más">'+I.mas+'</button></span></div></div>';
+  html+='<div class="ticket-linea'+(l.vista?" quieta":"")+(l.destello?" destello":"")+'"><div><b>'+esc(l.titulo)+'</b><small>'+esc(detalle(l)?detalle(l)+" · ":"")+(p!=null?dinero(p)+" c/u":"sin precio")+'</small></div><div class="importe">'+(p!=null?dinero(p*l.cantidad):"—")+'</div><div class="control"><span class="stock '+(falta?"cero":hay-l.cantidad<=2?"poco":"hay")+'"><i></i>'+(falta?"Solo hay "+hay:"Quedan "+(hay-l.cantidad))+'</span><span class="contador"><button type="button" data-menos="'+i+'" aria-label="Uno menos">'+(l.cantidad>1?I.menos:I.borrar)+'</button><span>'+l.cantidad+'</span><button type="button" data-mas="'+i+'" aria-label="Uno más">'+I.mas+'</button></span></div></div>';
   l.vista=true;l.destello=false});
  libres.forEach(function(l,i){n+=l.cantidad;total+=l.precio*l.cantidad;
   html+='<div class="ticket-linea'+(l.vista?" quieta":"")+'"><div><b>'+esc(l.descripcion)+'</b><small>'+dinero(l.precio)+' c/u<span class="chip">sin inventario</span></small></div><div class="importe">'+dinero(l.precio*l.cantidad)+'</div><div class="control"><span></span><span class="contador"><button type="button" data-menos-libre="'+i+'" aria-label="Uno menos">'+(l.cantidad>1?I.menos:I.borrar)+'</button><span>'+l.cantidad+'</span><button type="button" data-mas-libre="'+i+'" aria-label="Uno más">'+I.mas+'</button></span></div></div>';
   l.vista=true});
  cajaLineas.innerHTML=html||'<div class="ticket-vacio">'+I.escanear+'Escanea o toca un producto para empezar.</div>';
+ totalVenta=total;sinPrecioVenta=sinPrecio;
  var texto=dinero(total)+(sinPrecio?" +":"");
  totalEl.textContent=texto;$("#total-boton").textContent=n?texto:"";
  if(animar){totalEl.classList.remove("salta");void totalEl.offsetWidth;totalEl.classList.add("salta")}
  $("#cuenta").textContent=n;$("#vaciar").hidden=!n;
  var flo=$("#pos-flotante");flo.hidden=!n;$("#flotante-total").textContent=texto;$("#flotante-cuenta").textContent=n+(n===1?" producto":" productos");
  var nota=$("#tarifa-nota");if(TARIFA==="cashea"){var c=tarifa()==="cashea";nota.textContent=c?"Precio Cashea":"Precio en divisas";nota.classList.toggle("divisas",!c)}
+ verCashea();
  if(tiles)tiles.querySelectorAll(".precio").forEach(function(s){var p=s.getAttribute("data-precio"),c=s.getAttribute("data-cashea"),v=tarifa()==="cashea"&&c!==""?c:p;s.textContent=v===""?"Sin precio":(s.getAttribute("data-desde")?"desde ":"")+dinero(v)});
 }
 function agregar(v){
  var ya=null;lineas.forEach(function(l){if(l.id===v.id)ya=l});
  var hay=(v.porSede||{})[sede()]||0,lleva=ya?ya.cantidad:0;
  if(hay<=lleva){avisar(hay?"En esta sede solo hay "+hay+" de "+v.titulo+(v.variante!=="Única"?" ("+v.variante+")":"")+". Si llegó más, súmalo en Inventario.":v.titulo+(v.variante!=="Única"?" ("+v.variante+")":"")+" está agotado en esta sede.","mal");return}
- if(ya){ya.cantidad++;ya.porSede=v.porSede;ya.destello=true}else lineas.push({id:v.id,producto:v.producto,titulo:v.titulo,variante:v.variante,precio:v.precio,precioCashea:v.precioCashea,cantidad:1,porSede:v.porSede});
+ if(ya){ya.cantidad++;ya.porSede=v.porSede;ya.destello=true}else lineas.push({id:v.id,producto:v.producto,titulo:v.titulo,variante:v.variante,talla:v.talla||"",color:v.color||"",precio:v.precio,precioCashea:v.precioCashea,cantidad:1,porSede:v.porSede});
  resultados.innerHTML="";pintar(true);pitido(true);
 }
-function elegir(d,titulo){
- // Todas del mismo producto: solo las tallas, en botones pequeños.
- var uno=d.opciones.every(function(o){return o.titulo===d.opciones[0].titulo});
- resultados.classList.toggle("tallas",uno);
- resultados.innerHTML='<p class="resultados-titulo">'+esc(uno?"Elige "+LA_VARIANTE+" de "+d.opciones[0].titulo:titulo||"Elige cuál")+'</p>'+d.opciones.map(function(o,i){var hay=o.porSede[sede()]||0,p=tarifa()==="cashea"&&o.precioCashea!=null?o.precioCashea:o.precio;return '<button type="button" class="resultado" data-op="'+i+'"'+(hay?"":" disabled")+'><b>'+esc(uno?o.variante:o.titulo)+'</b><small>'+esc(uno?"":o.variante+" · ")+(p!=null?dinero(p):"sin precio")+'</small><span class="stock '+(hay?hay<=2?"poco":"hay":"cero")+'"><i></i>'+(hay?(uno?hay:"Hay "+hay):"Agotado")+'</span></button>'}).join("");
- resultados.onclick=function(e){var b=e.target.closest("[data-op]");if(b)agregar(d.opciones[Number(b.getAttribute("data-op"))])};
+function pasoDeEstado(o){var hay=o.porSede[sede()]||0;return hay}
+function mostrar(d,lista,uno,titulo,color,colores){
+ resultados.classList.remove("colores");resultados.classList.toggle("tallas",uno);
+ var volver=colores&&colores.length>1?'<button type="button" class="resultados-volver" data-volver>\u2039 Cambiar color</button>':"";
+ resultados.innerHTML='<p class="resultados-titulo">'+esc(uno?"Elige "+LA_VARIANTE+" de "+lista[0].titulo+(color?" \u00b7 "+color:""):titulo||"Elige cu\u00e1l")+'</p>'+volver+lista.map(function(o,i){var hay=o.porSede[sede()]||0,p=tarifa()==="cashea"&&o.precioCashea!=null?o.precioCashea:o.precio;return '<button type="button" class="resultado" data-op="'+i+'"'+(hay?"":" disabled")+'><b>'+esc(uno?(o.talla||o.color||o.variante):o.titulo)+'</b><small>'+esc(uno?"":o.variante+" \u00b7 ")+(p!=null?dinero(p):"sin precio")+'</small><span class="stock '+(hay?hay<=2?"poco":"hay":"cero")+'"><i></i>'+(hay?(uno?hay:"Hay "+hay):"Agotado")+'</span></button>'}).join("");
+ resultados.onclick=function(e){if(e.target.closest("[data-volver]"))return elegirColor(d,colores);var b=e.target.closest("[data-op]");if(b)agregar(lista[Number(b.getAttribute("data-op"))])};
  resultados.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+function elegirColor(d,colores){
+ resultados.classList.remove("tallas");resultados.classList.add("colores");
+ resultados.innerHTML='<p class="resultados-titulo">'+esc("Elige el color de "+d.opciones[0].titulo)+'</p>'+colores.map(function(c,i){var hay=0;d.opciones.forEach(function(o){if((o.color||"")===c)hay+=o.porSede[sede()]||0});return '<button type="button" class="resultado" data-color="'+i+'"'+(hay?"":" disabled")+'><b>'+esc(c||"Sin color")+'</b><span class="stock '+(hay?hay<=2?"poco":"hay":"cero")+'"><i></i>'+(hay?hay+" en stock":"Agotado")+'</span></button>'}).join("");
+ resultados.onclick=function(e){var b=e.target.closest("[data-color]");if(!b)return;var c=colores[Number(b.getAttribute("data-color"))];mostrar(d,d.opciones.filter(function(o){return(o.color||"")===c}),true,"",c,colores)};
+ resultados.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+function elegir(d,titulo){
+ // Un solo producto: si tiene varios colores se elige primero el color y despu\u00e9s la talla; si no, solo las tallas.
+ var uno=d.opciones.every(function(o){return o.titulo===d.opciones[0].titulo});
+ var colores=[];d.opciones.forEach(function(o){var c=o.color||"";if(colores.indexOf(c)<0)colores.push(c)});
+ if(uno&&colores.length>1)return elegirColor(d,colores);
+ mostrar(d,d.opciones,uno,titulo,uno&&colores.length===1?colores[0]:"",colores);
 }
 function buscar(q,titulo){
  return fetch("/panel/caja/buscar?"+q,{credentials:"same-origin",headers:{accept:"application/json"}}).then(function(r){return r.json()}).then(function(d){
@@ -1510,6 +1633,28 @@ cajaLineas.addEventListener("click",function(e){var b=e.target.closest("button")
 $("#vaciar").onclick=function(){lineas=[];libres=[];pintar(true);lector.focus()};
 var sedeSel=$("#sede");if(sedeSel.tagName==="SELECT")sedeSel.onchange=function(){pintar()};
 var metodosEl=$("#metodos"),fiadoDatos=$("#fiado-datos"),conCliente=false;
+function nivelCashea(){var r=document.querySelector('input[name="nivel"]:checked');return r?r.value:""}
+function pctCashea(n){if(n==="libre"){var t=String($("#cashea-pct").value||"").trim().replace(",",".").replace("%","");if(t==="")return null;var x=Number(t);return isFinite(x)&&x>=0&&x<=100?x:null}return n?CASHEA.niveles[n]:null}
+function inicialPor(){var r=document.querySelector('input[name="inicial_metodo"]:checked');return r?r.value:""}
+function cuentaCashea(t,p,k){t=Math.round(t*100);var i=Math.round(t*p/100),r=t-i,b=Math.floor(r/k);return{inicial:i/100,resto:r/100,cuotas:k,cuota:b/100,ultima:(r-b*(k-1))/100}}
+function verCashea(){
+ var el=$("#cashea");if(!el)return;
+ var si=metodo()==="Cashea";el.hidden=!si;if(!si)return;
+ var c=$("#cashea-cuenta"),n=nivelCashea();c.classList.remove("mal");
+ $("#cashea-libre").hidden=n!=="libre";
+ var ini=$("#cashea-inicial-titulo"),mm=$("#cashea-metodos");
+ if(!n){c.textContent="Elige el nivel del cliente, o Inicial libre, para ver la inicial.";ini.hidden=true;mm.hidden=true;return}
+ var p=pctCashea(n);
+ if(p===null){c.textContent=n==="libre"?"Escribe el porcentaje de inicial (de 0 a 100).":"";ini.hidden=true;mm.hidden=true;return}
+ if(!totalVenta){c.textContent="Agrega productos para ver la inicial.";ini.hidden=true;mm.hidden=true;return}
+ if(sinPrecioVenta){c.textContent="Hay productos sin precio: la cuenta de Cashea no se puede hacer.";c.classList.add("mal");return}
+ if(CASHEA.minimo&&totalVenta<CASHEA.minimo){c.innerHTML="Cashea pide una compra desde <b>"+dinero(CASHEA.minimo)+"</b> (llevas "+dinero(totalVenta)+").";c.classList.add("mal");return}
+ var cu=cuentaCashea(totalVenta,p,CASHEA.cuotas);
+ ini.hidden=cu.inicial<=0;mm.hidden=cu.inicial<=0;
+ c.innerHTML='<div class="cashea-fila"><span>Inicial'+(n==="libre"?"":" (Nivel "+n+")")+' \u00b7 '+p+' %</span><b class="grande">'+dinero(cu.inicial)+'</b></div><div class="cashea-fila"><span>Monto financiado</span><b class="grande">'+dinero(cu.resto)+'</b></div>'+(cu.resto>0?'<div class="cashea-pie">'+cu.cuotas+(cu.cuotas===1?" cuota":" cuotas")+' sin inter\u00e9s de <b>'+dinero(cu.cuota)+'</b>'+(cu.ultima!==cu.cuota?" (la \u00faltima "+dinero(cu.ultima)+")":"")+' \u00b7 total '+dinero(totalVenta)+'</div>':'<div class="cashea-pie">Se paga todo hoy \u00b7 total '+dinero(totalVenta)+'</div>');
+}
+var nivelesEl=$("#cashea-niveles");if(nivelesEl)nivelesEl.addEventListener("change",verCashea);
+var pctEl=$("#cashea-pct");if(pctEl)pctEl.addEventListener("input",verCashea);
 function verCliente(){var f=metodo()==="Fiado";fiadoDatos.classList.toggle("visible",f||conCliente);$("#btn-cliente").hidden=f||conCliente}
 metodosEl.addEventListener("change",function(){verCliente();pintar(true);if(metodo()==="Fiado")setTimeout(function(){$("#cliente").focus()},250)});
 $("#btn-cliente").onclick=function(){conCliente=true;verCliente();setTimeout(function(){$("#cliente").focus()},250)};
@@ -1547,21 +1692,34 @@ function cobrarYa(){
  var dia=fechaVenta();
  if(modoDia()==="otro"&&!dia){sacudir($("#fecha-venta"));$("#fecha-otro").focus();return avisar("Elige el día de la venta.","mal")}
  var m=metodo();if(!m){sacudir(metodosEl);return avisar("Elige cómo pagó el cliente.","mal")}
+ var cashea=null;
+ if(m==="Cashea"){
+  var nv=nivelCashea();
+  if(!nv){sacudir($("#cashea"));return avisar("Elige el nivel de Cashea del cliente, o Inicial libre.","mal")}
+  var pc=pctCashea(nv);
+  if(pc===null){sacudir($("#cashea"));if(nv==="libre")$("#cashea-pct").focus();return avisar("Escribe el porcentaje de inicial (de 0 a 100).","mal")}
+  if(CASHEA.minimo&&totalVenta<CASHEA.minimo)return avisar("Cashea pide una compra desde "+dinero(CASHEA.minimo)+".","mal");
+  var inicialMonto=Math.round(totalVenta*pc)/100;
+  if(inicialMonto>0&&!inicialPor()){sacudir($("#cashea-metodos"));return avisar("Elige con qu\u00e9 pag\u00f3 la inicial de Cashea.","mal")}
+  cashea={nivel:nv,porcentaje:nv==="libre"?pc:null,inicialPor:inicialMonto>0?inicialPor():""};
+ }
  var fiado=m==="Fiado",cliente=$("#cliente").value.trim(),telefono=$("#telefono").value.trim();
  if(fiado&&!cliente){sacudir(fiadoDatos);$("#cliente").focus();return avisar("Para fiar hace falta el nombre del cliente.","mal")}
  var b=$("#cobrar");ocupado=true;b.classList.add("cargando");
- fetch("/panel/caja/cobrar",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify({sede:sede(),fecha:dia,quien:($("#quien")||{}).value||"",nota:$("#serial")&&$("#serial").value.trim()?"IMEI/serial: "+$("#serial").value.trim():"",metodo:fiado?"":m,fiado:fiado,cliente:cliente,telefono:telefono,items:lineas.map(function(l){return{variante:l.id,cantidad:l.cantidad}}),libres:libres.map(function(l){return{descripcion:l.descripcion,precio:l.precio,cantidad:l.cantidad}})})})
+ fetch("/panel/caja/cobrar",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify({sede:sede(),fecha:dia,quien:($("#quien")||{}).value||"",nota:$("#serial")&&$("#serial").value.trim()?"IMEI/serial: "+$("#serial").value.trim():"",metodo:fiado?"":m,cashea:cashea,fiado:fiado,cliente:cliente,telefono:telefono,items:lineas.map(function(l){return{variante:l.id,cantidad:l.cantidad}}),libres:libres.map(function(l){return{descripcion:l.descripcion,precio:l.precio,cantidad:l.cantidad}})})})
  .then(function(r){return r.json()}).then(function(d){ocupado=false;b.classList.remove("cargando");
   if(!d.ok)return avisar(d.error||"No se pudo cobrar.","mal");
   if(tiles)lineas.forEach(function(l){var t=tiles.querySelector('[data-producto="'+l.producto+'"] [data-cuantos]');if(t){var q=Math.max(0,(Number(t.getAttribute("data-cuantos"))||0)-l.cantidad);t.setAttribute("data-cuantos",q);t.textContent=q;t.classList.toggle("poco",q<=2)}});
   $("#exito-total").textContent=d.total!=null?dinero(d.total):"";
   $("#exito-titulo").textContent="Venta #"+d.ventaId;
-  $("#exito-detalle").textContent=d.unidades+(d.unidades===1?" producto":" productos")+" · "+(fiado?"Fiado a "+cliente:m)+(d.tarifa==="cashea"?" · precio Cashea":"")+(d.deOtroDia?" · del "+d.fechaTexto:"");
+  var gan=$("#exito-ganancia");
+  if(typeof d.ganancia==="number"){gan.hidden=false;gan.classList.toggle("sin",d.ganancia<=0&&d.sinCosto>0);gan.innerHTML=d.sinCosto&&d.ganancia===0?'<span>Ganancia</span><b>\u2014</b><small>Falta el costo de '+(d.sinCosto===1?"un producto":d.sinCosto+" productos")+' (Inventario \u203a Editar)</small>':'<span>Ganancia de esta venta</span><b>'+dinero(d.ganancia)+'</b>'+(d.sinCosto?'<small>Sin contar '+d.sinCosto+(d.sinCosto===1?" producto sin costo":" productos sin costo")+'</small>':"")}else gan.hidden=true;
+  $("#exito-detalle").textContent=d.unidades+(d.unidades===1?" producto":" productos")+" · "+(fiado?"Fiado a "+cliente:m)+(d.tarifa==="cashea"?" · precio Cashea":"")+(d.deOtroDia?" · del "+d.fechaTexto:"")+(d.casheaTexto?" · "+d.casheaTexto:"");
   var av=$("#exito-avisos");av.hidden=!(d.avisos&&d.avisos.length);av.textContent=(d.avisos||[]).join(" ");
   $("#exito-recibo").href=d.recibo;var w=$("#exito-whatsapp");w.href=d.whatsapp||"#";w.hidden=!d.whatsapp;
   document.querySelectorAll(".tostadas").forEach(function(v){v.remove()});
   $("#exito").hidden=false;pitido(true);setTimeout(function(){$("#exito-nueva").focus()},60);
-  lineas=[];libres=[];conCliente=false;$("#cliente").value="";if($("#serial"))$("#serial").value="";$("#telefono").value="";var r=document.querySelector('input[name="metodo"]:checked');if(r)r.checked=false;verCliente();pintar();
+  lineas=[];libres=[];conCliente=false;$("#cliente").value="";if($("#serial"))$("#serial").value="";$("#telefono").value="";var r=document.querySelector('input[name="metodo"]:checked');if(r)r.checked=false;document.querySelectorAll('input[name="nivel"],input[name="inicial_metodo"]').forEach(function(x){x.checked=false});verCliente();pintar();
  }).catch(function(){ocupado=false;b.classList.remove("cargando");avisar("Sin conexión: no se cobró nada ni se descontó stock.","mal")});
 }
 $("#cobrar").onclick=cobrarYa;
@@ -1659,6 +1817,7 @@ export async function atenderInventario(request, env, url, helpers, opciones = {
     return pagina("Etiquetas", html);
   }
   if (ruta === "/panel/caja") return pagina("Caja", await paginaDeCaja(env, url, opciones), "caja");
+  if (ruta === "/panel/caja/cashea") return pagina("Cashea", await paginaDeCashea(env, url), "caja");
   if (ruta === "/panel/caja/buscar") return json(await buscarParaCaja(env, url.searchParams.get("q"), url.searchParams.get("producto")));
   return redirigir("/panel/inventario");
 }
@@ -1669,6 +1828,8 @@ function paraCaja(v) {
     producto: v.producto_id,
     titulo: v.titulo,
     variante: nombreDeVariante(v),
+    talla: v.opcion && v.opcion !== "única" ? v.opcion : "",
+    color: v.color || "",
     precio: v.precioFinal ?? v.precio ?? v.precio_producto ?? null,
     precioCashea: v.precioCashea ?? v.precio_cashea ?? v.precio_cashea_producto ?? null,
     porSede: v.porSede || {},
@@ -1706,6 +1867,16 @@ async function buscarParaCaja(env, texto, productoId) {
 async function atenderPost(request, env, url, { redirigir, pagina, opciones, tienda }) {
   const ruta = url.pathname;
 
+  if (ruta === "/panel/caja/cashea") {
+    const formulario = await request.formData().catch(() => null);
+    try {
+      await guardarCashea(env, formulario);
+      return redirigir(conAviso("/panel/caja/cashea", { ok: "Tabla de Cashea guardada." }));
+    } catch (error) {
+      return redirigir(conAviso("/panel/caja/cashea", { error: error.message }));
+    }
+  }
+
   if (ruta === "/panel/caja/cobrar") {
     let datos = {};
     try {
@@ -1715,6 +1886,31 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
     }
     const metodo = String(datos.metodo || "");
     const tarifa = tarifaDeLaVenta(opciones.tarifaDeCaja, datos.fiado ? "Fiado" : metodo);
+    // Cashea: con la tabla puesta, la venta lleva el nivel del cliente (y, si hay inicial, con qué se pagó).
+    let casheaPedida = null;
+    if (metodo === "Cashea" && !datos.fiado) {
+      const cfg = await leerCasheaDeCaja(env.DB);
+      const pedido = datos.cashea;
+      {
+        let nivel = "";
+        let porcentaje = null;
+        if (String(pedido?.nivel) === "libre") {
+          // «Inicial libre»: el porcentaje lo escribe quien cobra, de 0 a 100.
+          nivel = "libre";
+          porcentaje = Number(String(pedido?.porcentaje ?? "").replace(",", "."));
+          if (pedido?.porcentaje === null || pedido?.porcentaje === "" || !Number.isFinite(porcentaje) || porcentaje < 0 || porcentaje > 100) return json({ ok: false, error: "El porcentaje de la inicial libre va de 0 a 100." }, 400);
+          porcentaje = Math.round(porcentaje * 100) / 100;
+        } else {
+          const n = Math.trunc(Number(pedido?.nivel));
+          if (!(n in cfg.niveles)) return json({ ok: false, error: "Elige el nivel de Cashea del cliente, o Inicial libre." }, 400);
+          nivel = n;
+          porcentaje = cfg.niveles[n];
+        }
+        const inicialPor = String(pedido?.inicialPor || "");
+        if (porcentaje > 0 && !METODOS_DE_LA_INICIAL.includes(inicialPor)) return json({ ok: false, error: "Elige con qué pagó la inicial de Cashea." }, 400);
+        casheaPedida = { nivel, porcentaje, cuotas: cfg.cuotas, minimo: cfg.minimo, inicialPor: porcentaje > 0 ? inicialPor : "" };
+      }
+    }
     try {
       const items = (datos.items || []).map((i) => ({ varianteId: i.variante, cantidad: i.cantidad }));
       const r = await cobrar(env.DB, {
@@ -1729,14 +1925,16 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
         nota: datos.nota || "",
         tarifa,
         fecha: datos.fecha || "",
+        cashea: casheaPedida,
       });
+      const casheaTexto = r.casheaTexto || "";
       console.log(`CAJA: venta ${r.ventaId} (${r.unidades} u) por ${datos.quien || "—"}${tarifa ? ` · ${tarifa}` : ""}${r.deOtroDia ? ` · del ${diaDe(r.fecha)}` : ""}`);
       const venta = await verVenta(env.DB, r.ventaId).catch(() => null);
       const whatsapp = venta ? enlaceWhatsapp(datos.telefono, textoDelRecibo(venta, tienda)) : "";
       const cantidades = new Map();
       for (const i of items) cantidades.set(Number(i.varianteId), (cantidades.get(Number(i.varianteId)) || 0) + (Math.trunc(Number(i.cantidad)) || 0));
-      const { contadasDespues, ...resto } = r;
-      return json({ ok: true, ...resto, tarifa, recibo: `/panel/ventas/${r.ventaId}`, whatsapp, fechaTexto: diaCorto(r.fecha), avisos: avisosDeContadas(contadasDespues, cantidades) });
+      const { contadasDespues, cashea: _cuenta, ...resto } = r;
+      return json({ ok: true, ...resto, tarifa, casheaTexto, recibo: `/panel/ventas/${r.ventaId}`, whatsapp, fechaTexto: diaCorto(r.fecha), avisos: avisosDeContadas(contadasDespues, cantidades) });
     } catch (error) {
       return json({ ok: false, error: error.message }, error.name === "SinStock" ? 409 : 400);
     }

@@ -28,9 +28,14 @@ import {
   anotadaDespues,
   textoDelRecibo,
   serialDe,
+  casheaDe,
+  detalleDeLinea,
   listarFiados,
   abonar,
   resumen,
+  reporteDelPeriodo,
+  gananciasDelPeriodo,
+  textoDelReporte,
   seEstanAcabando,
   consejos,
   asistenteActivo,
@@ -208,6 +213,98 @@ function reparto(filas, { nombre, valor, ico, max = null }) {
     .join("")}</div>`;
 }
 
+// Cashea del período: ventas, inicial cobrada (y con qué se pagó) y monto financiado.
+// Sale en Inicio, Ventas y Reportes cuando hubo ventas con Cashea.
+function tarjetaDeCashea(c, { enlace = true } = {}) {
+  if (!c || !c.ventas) return "";
+  const metodos = c.porMetodo.length
+    ? `<div class="filas" style="margin-top:10px">${c.porMetodo.map((m) => `<div class="fila">${insignia(iconoDeMetodo(m.metodo), "neutro", "chica")}<div class="fila-centro"><div class="fila-titulo">Inicial por ${esc(m.metodo)}</div><div class="fila-sub">${numero(m.cantidad)} ${m.cantidad === 1 ? "venta" : "ventas"}</div></div><b>${esc(plata(m.monto, { siempre: true }))}</b></div>`).join("")}</div>`
+    : "";
+  return `<section class="panel-tarjeta cashea-tarjeta" style="margin:18px 0"><div class="seccion"><h2>${insignia("calendario", "marca", "chica")}Cashea</h2>${enlace ? `<a href="/panel/reportes">Reporte${icono("adelante", { clase: "chico" })}</a>` : ""}</div>
+<div class="mosaico"><div class="dato"><div class="dato-cima"><span class="dato-nombre">Ventas con Cashea</span></div><div class="dato-valor">${cifra(c.total)}</div><div class="dato-pie">${numero(c.ventas)} ${c.ventas === 1 ? "venta" : "ventas"}</div></div><div class="dato"><div class="dato-cima"><span class="dato-nombre">Inicial cobrada</span></div><div class="dato-valor">${cifra(c.inicial)}</div></div><div class="dato"><div class="dato-cima"><span class="dato-nombre">Monto financiado</span></div><div class="dato-valor">${cifra(c.financiado)}</div><div class="dato-pie">lo paga Cashea en cuotas</div></div></div>${metodos}</section>`;
+}
+
+/* ── REPORTES ────────────────────────────────────────────────────────── */
+
+async function paginaDeReporte(env, url, { tienda }) {
+  const periodo = periodoDe(url.searchParams);
+  const r = await reporteDelPeriodo(env.DB, periodo);
+  const hoy = diaDe(Date.now());
+  const fechas = periodo.desdeDia === periodo.hastaDia ? diaBonito(periodo.desdeDia, hoy) : `${periodo.desdeDia} al ${periodo.hastaDia}`;
+  const texto = textoDelReporte(r, { tienda, nombre: periodo.nombre, fechas: periodo.desdeDia === periodo.hastaDia ? periodo.desdeDia : fechas });
+  const dato = (nombre, valor, ico, tono = "marca", pie = "") => `<div class="dato"><div class="dato-cima"><span class="dato-nombre">${esc(nombre)}</span>${insignia(ico, tono, "chica")}</div><div class="dato-valor">${valor}</div>${pie ? `<div class="dato-pie">${pie}</div>` : ""}</div>`;
+  const consulta = new URLSearchParams({ ...Object.fromEntries(url.searchParams) });
+  consulta.delete("ok");
+  consulta.delete("error");
+  const metodos = r.porMetodo.length
+    ? `<div class="filas">${r.porMetodo.map((m) => `<div class="fila">${insignia(iconoDeMetodo(m.metodo), "neutro", "chica")}<div class="fila-centro"><div class="fila-titulo">${esc(m.metodo)}</div><div class="fila-sub">${numero(m.cantidad)} ${m.cantidad === 1 ? "venta" : "ventas"}</div></div><b>${esc(plata(m.total, { siempre: true }))}</b></div>`).join("")}</div>`
+    : '<p class="suave" style="margin:0">Sin ventas en este período.</p>';
+  const c = r.cashea;
+  const niveles = c.porNivel.length
+    ? `<div class="tabla-envoltura"><table class="tabla"><thead><tr><th>Nivel</th><th>Ventas</th><th>Vendido</th><th>Inicial</th><th>Financiado</th></tr></thead><tbody>${c.porNivel.map((n) => `<tr><td>${n.nivel === "libre" ? "Inicial libre" : `Nivel ${esc(n.nivel)}`}</td><td>${numero(n.cantidad)}</td><td>${esc(plata(n.total, { siempre: true }))}</td><td>${esc(plata(n.inicial, { siempre: true }))}</td><td>${esc(plata(n.financiado, { siempre: true }))}</td></tr>`).join("")}</tbody></table></div>`
+    : "";
+  const lista = c.lista.length
+    ? `<div class="filas" style="margin-top:12px">${c.lista.map((v) => `<a class="fila" href="/panel/ventas/${v.id}">${insignia("calendario", "marca")}<div class="fila-centro"><div class="fila-titulo">#${v.id} · ${esc(v.cliente || "Sin nombre")}</div><div class="fila-sub" style="white-space:normal">${esc(horaCorta(v.creado))} · ${v.nivel === "libre" ? "inicial libre" : `nivel ${esc(v.nivel)}`} (${esc(String(v.pct))} %) · inicial ${esc(plata(v.inicial, { siempre: true }))}${v.inicial_por ? ` por ${esc(v.inicial_por)}` : ""} · financiado ${esc(plata(v.financiado, { siempre: true }))}</div></div><b>${esc(plata(v.total, { siempre: true }))}</b></a>`).join("")}</div>`
+    : "";
+  return `${tostadaDesde(url)}${cabecera({
+    sobre: "Tu negocio",
+    titulo: "Reportes",
+    texto: `El reporte de ${esc(periodo.nombre)} para cerrar la caja: ventas, cómo se pagó, Cashea (inicial cobrada y monto financiado), gastos y balance.`,
+    acciones: `<div class="no-imprimir" style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" onclick="print()">${icono("imprimir")}Imprimir</button><a class="boton" href="${esc(enlaceWhatsapp("", texto))}" target="_blank" rel="noopener">${icono("enviar")}WhatsApp</a><a class="boton suave" href="/panel/reportes.csv?${esc(consulta.toString())}">${icono("bajar")}Excel</a></div>`,
+  })}
+<div class="herramientas no-imprimir">${selectorDePeriodo("/panel/reportes", periodo)}</div>
+<div class="mosaico">${dato("Vendido", cifra(r.ventas.total), "ventas", "marca", `${numero(r.ventas.cantidad)} ${r.ventas.cantidad === 1 ? "venta" : "ventas"}`)}${dato("Cobrado", cifra(r.cobrado), "efectivo", "bien", [r.abonos ? `incluye ${esc(plata(r.abonos))} de abonos` : "de contado", r.cashea.financiado ? `y ${esc(plata(r.cashea.financiado))} financiados por Cashea` : ""].filter(Boolean).join(" · "))}${dato("Ganancia", cifra(r.ganancia.monto), "sube", "bien", `<a href="/panel/ganancias">Ver todas las ganancias</a>`)}${dato("Gastos", cifra(r.gastos.total), "gastos", "aviso")}${dato("Balance", cifra(r.balance), "grafica", r.balance >= 0 ? "bien" : "mal", "cobrado − gastos")}</div>
+<section class="panel-tarjeta" style="margin:18px 0"><h2>${insignia("recibo", "marca", "chica")}Cómo se pagó</h2>${metodos}</section>
+<section class="panel-tarjeta cashea-tarjeta" style="margin:18px 0"><h2>${insignia("calendario", "marca", "chica")}Cashea</h2>${
+    c.ventas
+      ? `<div class="mosaico">${dato("Ventas con Cashea", cifra(c.total), "ventas", "marca", `${numero(c.ventas)} ${c.ventas === 1 ? "venta" : "ventas"}`)}${dato("Inicial cobrada", cifra(c.inicial), "efectivo", "bien")}${dato("Monto financiado", cifra(c.financiado), "calendario", "aviso", "lo paga Cashea en cuotas")}</div>${
+          c.porMetodo.length ? `<h3 style="margin:16px 0 6px;font-size:14px">Con qué se pagó la inicial</h3><div class="filas">${c.porMetodo.map((m) => `<div class="fila">${insignia(iconoDeMetodo(m.metodo), "neutro", "chica")}<div class="fila-centro"><div class="fila-titulo">${esc(m.metodo)}</div><div class="fila-sub">${numero(m.cantidad)} ${m.cantidad === 1 ? "venta" : "ventas"}</div></div><b>${esc(plata(m.monto, { siempre: true }))}</b></div>`).join("")}</div>` : ""
+        }<h3 style="margin:16px 0 6px;font-size:14px">Por nivel</h3>${niveles}<h3 style="margin:16px 0 0;font-size:14px">Cada venta</h3>${lista}`
+      : '<p class="suave" style="margin:0">Sin ventas con Cashea en este período. Cuando cobres con Cashea en la Caja, aquí verás la inicial cobrada y el monto financiado.</p>'
+  }</section>
+<section class="panel-tarjeta no-imprimir" style="margin:18px 0"><div class="seccion"><h2>${insignia("enviar", "neutro", "chica")}El reporte en texto</h2><button type="button" onclick="navigator.clipboard&amp;&amp;navigator.clipboard.writeText(document.getElementById('reporte-texto').textContent).then(function(){this.textContent='Copiado'}.bind(this))">Copiar</button></div><pre id="reporte-texto" style="white-space:pre-wrap;margin:0;font:inherit;font-size:13.5px;line-height:1.55">${esc(texto)}</pre></section>`;
+}
+
+/* ── GANANCIAS ───────────────────────────────────────────────────────── */
+
+async function paginaDeGanancias(env, url) {
+  const periodo = periodoDe(url.searchParams);
+  const g = await gananciasDelPeriodo(env.DB, periodo);
+  const hoy = diaDe(Date.now());
+  const dato = (nombre, valor, ico, tono = "marca", pie = "") => `<div class="dato"><div class="dato-cima"><span class="dato-nombre">${esc(nombre)}</span>${insignia(ico, tono, "chica")}</div><div class="dato-valor">${valor}</div>${pie ? `<div class="dato-pie">${pie}</div>` : ""}</div>`;
+  const consulta = new URLSearchParams({ ...Object.fromEntries(url.searchParams) });
+  consulta.delete("ok");
+  consulta.delete("error");
+  const aviso = g.lineasSinCosto
+    ? `<div class="aviso-grande aviso">${insignia("alerta", "aviso")}<div><b>Hay ventas sin costo cargado</b><p>${numero(g.lineasSinCosto)} ${g.lineasSinCosto === 1 ? "producto vendido no tiene" : "productos vendidos no tienen"} costo, así que su ganancia no se cuenta (solo se cuenta el ${g.cobertura} % de lo vendido). Ponle el costo en Inventario › Editar.</p></div></div>`
+    : "";
+  const porDia = new Map();
+  for (const v of g.ventas) {
+    const d = diaDe(v.creado);
+    if (!porDia.has(d)) porDia.set(d, []);
+    porDia.get(d).push(v);
+  }
+  const fila = (v) => `<a class="fila" href="/panel/ventas/${v.id}">${insignia("sube", v.ganancia > 0 ? "bien" : "neutro")}<div class="fila-centro"><div class="fila-titulo">Venta #${v.id}${v.cliente ? ` · ${esc(v.cliente)}` : ""}</div><div class="fila-sub" style="white-space:normal">${esc(horaCorta(v.creado))} · ${numero(v.unidades)} ${v.unidades === 1 ? "unidad" : "unidades"} · vendida por ${v.total === null ? "—" : esc(plata(v.total, { siempre: true }))}${v.sin_costo ? " · sin costo cargado" : ""}</div></div><b class="${v.ganancia > 0 ? "bien" : ""}">${v.sin_costo && !v.ganancia ? "—" : esc(plata(v.ganancia, { siempre: true }))}</b></a>`;
+  const lista = g.ventas.length
+    ? [...porDia.entries()]
+        .map(([dia, ventas]) => `<div class="dia-titulo"><b>${esc(diaBonito(dia, hoy))}</b><span>${esc(plata(ventas.reduce((a, v) => a + v.ganancia, 0), { siempre: true }))} de ganancia · ${ventas.length} ${ventas.length === 1 ? "venta" : "ventas"}</span></div><div class="filas">${ventas.map(fila).join("")}</div>`)
+        .join("")
+    : vacio({ icono: "sube", titulo: `Sin ventas ${periodo.nombre}`, texto: "Cada venta que cobres en la Caja aparece aquí con lo que ganaste.", acciones: `<a class="boton principal" href="/panel/caja">${icono("caja")}Abrir la caja</a>` });
+  const productos = g.productos.length
+    ? `<section class="panel-tarjeta" style="margin:18px 0"><h2>${insignia("etiqueta", "marca", "chica")}Lo que más ganancia deja</h2>${reparto(g.productos.slice(0, 8), { nombre: (p) => `${p.titulo} · ${numero(p.unidades)} ${p.unidades === 1 ? "unidad" : "unidades"}${p.sin_costo ? " (sin costo)" : ""}`, valor: (p) => Math.max(0, p.ganancia), ico: () => "sube" })}</section>`
+    : "";
+  return `${tostadaDesde(url)}${cabecera({
+    volver: { href: "/panel/reportes", texto: "Reportes" },
+    sobre: "Tu negocio",
+    titulo: "Ganancias",
+    texto: `Lo que ganaste ${esc(periodo.nombre)}: el precio de venta menos el costo de cada producto, venta por venta.`,
+    acciones: `<a class="boton suave" href="/panel/ganancias.csv?${esc(consulta.toString())}">${icono("bajar")}Excel</a>`,
+  })}
+<div class="herramientas">${selectorDePeriodo("/panel/ganancias", periodo)}</div>
+<div class="mosaico">${dato("Ganancia", cifra(g.ganancia), "sube", "bien", `${numero(g.ventas.length)} ${g.ventas.length === 1 ? "venta" : "ventas"}`)}${dato("Vendido", cifra(g.vendido), "ventas", "marca")}${dato("Margen", `${esc(String(g.margen).replace(".", ","))} %`, "porcentaje", "marca", "ganancia sobre lo vendido con costo")}</div>
+${aviso}${productos}${lista}`;
+}
+
 /* ── INICIO ──────────────────────────────────────────────────────────── */
 
 async function primerosPasos(db) {
@@ -333,7 +430,7 @@ ${
 ${heroe}
 ${datos}
 ${rapidos}
-<div class="dos" style="margin-top:22px"><div>${bienvenida}${asistente}${recomendaciones}</div><div>${masVendidos}${tarjetaDeCategorias(actual.porCategoria)}${seAcaba}${metodos}</div></div>`;
+<div class="dos" style="margin-top:22px"><div>${bienvenida}${asistente}${recomendaciones}</div><div>${masVendidos}${tarjetaDeCategorias(actual.porCategoria)}${tarjetaDeCashea(actual.cashea)}${seAcaba}${metodos}</div></div>`;
 }
 
 // EL ASISTENTE en la página: la charla y su script viven en asistente.js
@@ -393,7 +490,7 @@ async function paginaDeVentas(env, url) {
   })}
 <div class="herramientas">${selectorDePeriodo("/panel/ventas", periodo, extra)}</div>
 <div class="mosaico">${dato("Vendido", cifra(r.ventas.total), "ventas", "marca", `${numero(r.ventas.cantidad)} ${r.ventas.cantidad === 1 ? "venta" : "ventas"}`)}${dato("Cobrado", cifra(r.cobrado), "efectivo", "bien", r.abonos ? `incluye ${esc(plata(r.abonos))} de abonos` : "de contado")}${dato("Ticket promedio", cifra(r.ventas.ticketPromedio), "recibo")}${dato("Fiado", cifra(r.ventas.fiado), "fiados", "aviso", "vendido a crédito")}</div>
-${q ? "" : tarjetaDeCategorias(r.porCategoria, { conPista: true })}
+${q ? "" : tarjetaDeCategorias(r.porCategoria, { conPista: true })}${q ? "" : tarjetaDeCashea(r.cashea)}
 <form class="herramientas" method="get" action="/panel/ventas"><input type="hidden" name="p" value="${esc(periodo.clave === "a-medida" ? "hoy" : periodo.clave)}">${periodo.clave === "a-medida" ? `<input type="hidden" name="desde" value="${esc(periodo.desdeDia)}"><input type="hidden" name="hasta" value="${esc(periodo.hastaDia)}">` : ""}<label class="buscador">${icono("buscar")}<input name="q" value="${esc(q)}" placeholder="Cliente, teléfono o número de venta"></label><button>Buscar</button></form>
 ${lista}`;
 }
@@ -403,7 +500,7 @@ async function paginaDeRecibo(env, id, url, { tienda }) {
   if (!venta) return null;
   const texto = textoDelRecibo(venta, tienda);
   const lineas = [
-    ...venta.lineas.map((l) => `<div class="linea"><div><b>${esc(l.titulo)}</b><small>${numero(l.cantidad)} × ${l.precio === null ? "sin precio" : esc(plata(l.precio))}${l.opcion && l.opcion !== "única" ? ` · ${esc(l.opcion)}` : ""}</small></div><b>${l.precio === null ? "—" : esc(plata(l.precio * l.cantidad))}</b></div>`),
+    ...venta.lineas.map((l) => `<div class="linea"><div><b>${esc(l.titulo)}</b><small>${numero(l.cantidad)} × ${l.precio === null ? "sin precio" : esc(plata(l.precio))}${detalleDeLinea(l) ? ` · ${esc(detalleDeLinea(l))}` : ""}</small></div><b>${l.precio === null ? "—" : esc(plata(l.precio * l.cantidad))}</b></div>`),
     ...venta.libres.map((l) => `<div class="linea"><div><b>${esc(l.descripcion)}</b><small>${numero(l.cantidad)} × ${esc(plata(l.precio))} · sin inventario</small></div><b>${esc(plata(l.precio * l.cantidad))}</b></div>`),
   ].join("");
   const recibo = `<div class="recibo" id="recibo">${venta.anulada ? '<div class="anulada-sello">ANULADA</div>' : ""}
@@ -412,7 +509,7 @@ ${lineas || '<p class="recibo-sub">Sin productos.</p>'}
 <div class="total"><span>Total</span><span>${venta.total === null ? "por confirmar" : esc(plata(venta.total, { siempre: true }))}</span></div>
 ${venta.tarifa === "cashea" ? '<div class="recibo-sub" style="margin:6px 0 0;text-align:right">Precio Cashea</div>' : ""}
 ${venta.fiado ? `<div class="linea" style="border:0"><span>Abonado</span><b>${esc(plata(venta.abonado, { siempre: true }))}</b></div><div class="linea" style="border:0"><span>Pendiente</span><b>${esc(plata(venta.saldo, { siempre: true }))}</b></div>` : ""}
-<div class="pie">${serialDe(venta.nota) ? `${esc(serialDe(venta.nota))}<br>` : ""}${venta.fiado ? "Fiado" : esc(venta.metodo_pago || "")}${venta.sede ? ` · ${esc(venta.sede)}` : ""}<br>¡Gracias por tu compra!</div></div>`;
+<div class="pie">${serialDe(venta.nota) ? `${esc(serialDe(venta.nota))}<br>` : ""}${casheaDe(venta.nota) ? `${esc(casheaDe(venta.nota))}<br>` : ""}${venta.fiado ? "Fiado" : esc(venta.metodo_pago || "")}${venta.sede ? ` · ${esc(venta.sede)}` : ""}<br>¡Gracias por tu compra!</div></div>`;
 
   const idAnular = "anular-venta";
   const anular = venta.anulada
@@ -564,6 +661,10 @@ export function esRutaDeNegocio(url) {
     r === "/panel/ventas" ||
     r.startsWith("/panel/ventas/") ||
     r === "/panel/ventas.csv" ||
+    r === "/panel/reportes" ||
+    r === "/panel/ganancias" ||
+    r === "/panel/ganancias.csv" ||
+    r === "/panel/reportes.csv" ||
     r === "/panel/gastos" ||
     r.startsWith("/panel/gastos/") ||
     r === "/panel/gastos.csv" ||
@@ -592,6 +693,8 @@ export async function atenderNegocio(request, env, url, helpers, opciones = {}) 
     const cuerpo = await paginaDeRecibo(env, r.slice("/panel/ventas/".length), url, { tienda });
     return cuerpo ? pagina("Recibo", cuerpo, { ruta: "ventas" }) : redirigir(conAviso("/panel/ventas", { error: "Esa venta no existe." }));
   }
+  if (r === "/panel/ganancias") return pagina("Ganancias", await paginaDeGanancias(env, url), { ruta: "ganancias" });
+  if (r === "/panel/reportes") return pagina("Reportes", await paginaDeReporte(env, url, { tienda }), { ruta: "reportes" });
   if (r === "/panel/gastos") return pagina("Gastos", await paginaDeGastos(env, url), { ruta: "gastos" });
   if (r === "/panel/fiados") return pagina("Fiados", await paginaDeFiados(env, url, { tienda }), { ruta: "fiados" });
 
@@ -620,6 +723,34 @@ export async function atenderNegocio(request, env, url, helpers, opciones = {}) 
           v.quien,
         ])
       )
+    );
+  }
+  if (r === "/panel/ganancias.csv") {
+    const periodo = periodoDe(url.searchParams);
+    const g = await gananciasDelPeriodo(env.DB, periodo);
+    return respuestaCsv(
+      `ganancias-${periodo.desdeDia}-a-${periodo.hastaDia}.csv`,
+      aCsv(["Venta", "Fecha", "Hora", "Cliente", "Unidades", "Vendido", "Ganancia", "Productos sin costo"], g.ventas.map((v) => [v.id, diaDe(v.creado), horaCorta(v.creado), v.cliente, v.unidades, v.total ?? "", v.ganancia, v.sin_costo]))
+    );
+  }
+  if (r === "/panel/reportes.csv") {
+    const periodo = periodoDe(url.searchParams);
+    const rep = await reporteDelPeriodo(env.DB, periodo);
+    const filas = [
+      ["Ventas", rep.ventas.cantidad, rep.ventas.total],
+      ["Cobrado", "", rep.cobrado],
+      ["Gastos", "", rep.gastos.total],
+      ["Balance", "", rep.balance],
+      ...rep.porMetodo.map((m) => [`Pago: ${m.metodo}`, m.cantidad, m.total]),
+      ["Cashea: ventas", rep.cashea.ventas, rep.cashea.total],
+      ["Cashea: inicial cobrada", "", rep.cashea.inicial],
+      ...rep.cashea.porMetodo.map((m) => [`Cashea inicial por ${m.metodo}`, m.cantidad, m.monto]),
+      ["Cashea: monto financiado", "", rep.cashea.financiado],
+    ];
+    const ventasCashea = rep.cashea.lista.map((v) => [`Venta #${v.id}`, diaDe(v.creado), v.cliente, v.nivel === "libre" ? "Inicial libre" : `Nivel ${v.nivel}`, v.pct, v.total, v.inicial, v.inicial_por, v.financiado, v.cuotas]);
+    return respuestaCsv(
+      `reporte-${periodo.desdeDia}-a-${periodo.hastaDia}.csv`,
+      aCsv(["Concepto", "Cantidad", "Monto"], filas) + "\r\n" + aCsv(["Venta con Cashea", "Fecha", "Cliente", "Nivel", "% inicial", "Total", "Inicial cobrada", "Inicial pagada con", "Monto financiado", "Cuotas"], ventasCashea).replace("\uFEFF", "")
     );
   }
   if (r === "/panel/gastos.csv") {
