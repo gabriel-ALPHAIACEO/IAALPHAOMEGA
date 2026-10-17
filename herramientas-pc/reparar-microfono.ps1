@@ -102,13 +102,25 @@ try {
   }
 } catch { Decir ("   (no se pudo leer la lista de dispositivos: " + $_.Exception.Message + ")") }
 try {
-  $tarjetas = @(Get-PnpDevice -Class MEDIA -ErrorAction Stop | Where-Object { $_.FriendlyName -notmatch "virtual|nvidia|intel.*display|hdmi|amd.*(high|streaming)" -or $_.Status -ne "OK" })
-  foreach ($t in $tarjetas) {
-    Decir ("   - Controlador: " + $t.FriendlyName + "  [estado: " + $t.Status + "]")
-    if ($t.Status -ne "OK") { Problema ("El controlador '" + $t.FriendlyName + "' no esta bien (estado " + $t.Status + "). Prueba -Agresivo o reinstala el controlador del fabricante.") }
+  # "Unknown" = dispositivo virtual o que ahora no esta conectado (es NORMAL que haya muchos): se ignora.
+  $todos = @(Get-PnpDevice -Class MEDIA -ErrorAction Stop)
+  $presentes = @($todos | Where-Object { $_.Status -in @("OK", "Error", "Degraded") })
+  $reales = @()
+  foreach ($t in $presentes) {
+    $prov = "?"
+    try { $prov = [string](Get-PnpDeviceProperty -InstanceId $t.InstanceId -KeyName "DEVPKEY_Device_DriverProvider" -ErrorAction Stop).Data } catch { }
+    Decir ("   - Controlador: " + $t.FriendlyName + "  [estado: " + $t.Status + ", proveedor: " + $prov + "]")
+    if ($t.Status -ne "OK") { Problema ("El controlador '" + $t.FriendlyName + "' esta en estado " + $t.Status + ". Prueba -Agresivo o reinstala el controlador del fabricante.") }
+    if ($t.FriendlyName -match "high definition|realtek|smart sound|intel|conexant|idt|audio" -and $t.FriendlyName -notmatch "virtual|wo mic|nvidia|hdmi|amd streaming|streaming") {
+      $reales += ,@($t, $prov)
+    }
+  }
+  if ($reales.Count -gt 0 -and -not ($reales | Where-Object { $_[1] -match "realtek|intel|conexant|idt|waves|amd|dolby|cirrus|nahimic" })) {
+    Decir "   [AVISO]     Tu sonido usa el controlador GENERICO de Microsoft. Si el microfono no capta nada, instala el controlador de AUDIO del fabricante de tu PC (Realtek u otro)."
   }
   if ($Agresivo -and -not $SoloDiagnostico -and $esAdmin) {
-    foreach ($t in ($tarjetas | Where-Object { $_.FriendlyName -notmatch "virtual" })) {
+    foreach ($par in $reales) {
+      $t = $par[0]
       try {
         Decir ("   Reiniciando el controlador '" + $t.FriendlyName + "' (el sonido se corta unos segundos)...")
         Disable-PnpDevice -InstanceId $t.InstanceId -Confirm:$false -ErrorAction Stop
