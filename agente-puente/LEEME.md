@@ -257,7 +257,7 @@ En cada vuelta el agente deja en esa carpeta:
 - `ventas-nuevas-<n>.csv`: solo lo vendido desde la última vez que bajó (para cargarlo una vez).
 - `ventas-ultimos-3-dias.csv`: los últimos 3 días completos; ahí se ven también las **anuladas** (columna `anulada = si`).
 
-Cada fila es un producto vendido: `venta, id, fecha, sede, codigo, codigo_modelo, producto, marca, talla, color, cantidad, precio_unitario, total_linea, metodo_pago, cliente, telefono, fiado, anulada, nota`. **El costo nunca sale.** `codigo_modelo` es el código que el sistema de afuera mandó en su conteo; `codigo` es el de barras/fábrica de esa talla. Se cargan en el sistema con **su propio importador de Excel**, o a mano si son pocas.
+Cada fila es un producto vendido: `venta, id, fecha, sede, codigo, codigo_modelo, producto, marca, talla, color, cantidad, precio_unitario, total_linea, metodo_pago, cliente, telefono, anulada, nota`. **El costo nunca sale.** `codigo_modelo` es el código que el sistema de afuera mandó en su conteo; `codigo` es el de barras/fábrica de esa talla. Se cargan en el sistema con **su propio importador de Excel**, o a mano si son pocas.
 
 ## Sin instalar nada: la tienda ALPHA IA lee una dirección sola
 

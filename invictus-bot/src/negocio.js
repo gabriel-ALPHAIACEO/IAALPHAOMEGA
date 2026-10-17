@@ -38,19 +38,9 @@ const TABLAS_NEGOCIO = [
     borrado     INTEGER NOT NULL DEFAULT 0,
     creado      INTEGER NOT NULL
   )`,
-  // (Heredada: los fiados se eliminaron el 17-oct-2026; la tabla se queda sin usarse.)
-  `CREATE TABLE IF NOT EXISTS neg_abonos (
-    id       INTEGER PRIMARY KEY AUTOINCREMENT,
-    venta_id INTEGER NOT NULL,
-    monto    REAL NOT NULL CHECK (monto > 0),
-    metodo   TEXT NOT NULL DEFAULT '',
-    quien    TEXT NOT NULL DEFAULT '',
-    nota     TEXT NOT NULL DEFAULT '',
-    creado   INTEGER NOT NULL
-  )`,
   "CREATE INDEX IF NOT EXISTS neg_gastos_fecha ON neg_gastos (fecha)",
-  "CREATE INDEX IF NOT EXISTS neg_abonos_venta ON neg_abonos (venta_id)",
-  "CREATE INDEX IF NOT EXISTS neg_abonos_creado ON neg_abonos (creado)",
+  // La tabla de los abonos de fiados ya no existe en la tienda: se borra de las bases que la tenían.
+  "DROP TABLE IF EXISTS neg_abonos",
 ];
 
 export const CATEGORIAS_DE_GASTO = [

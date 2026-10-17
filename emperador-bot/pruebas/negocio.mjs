@@ -5,7 +5,7 @@
 //
 // Lo que no se puede romper:
 //   · anular una venta devuelve el stock y la saca del balance (no se borra);
-//   · NO hay fiados (eliminados el 17-oct-2026): todo se cobra en el momento;
+//   · todo se cobra en el momento (no hay ventas a crédito);
 //   · en la caja de EPICCELL se cobra el precio Cashea, salvo en divisas en
 //     efectivo (regla del dueño, 7-oct);
 //   · "Dejar la sesión abierta": sí = 90 días y se renueva sola; no = se
@@ -83,7 +83,7 @@ const f2 = await inv.cobrar(DB, { sedeId: sede.id, metodoPago: "Pago móvil", cl
 ok(f1.total === 50 && f2.total === 100, "dos ventas más, cobradas en el momento");
 
 let balance = await neg.resumen(DB, hoy());
-ok(balance.ventas.cantidad === 3 && balance.ventas.total === 216 && balance.ventas.contado === 216 && balance.ventas.fiado === undefined, "el balance: 3 ventas por $216, todas cobradas (sin fiados)", JSON.stringify(balance.ventas));
+ok(balance.ventas.cantidad === 3 && balance.ventas.total === 216 && balance.ventas.contado === 216, "el balance: 3 ventas por $216, todas cobradas", JSON.stringify(balance.ventas));
 ok(balance.cobrado === 216 && balance.gastos.total === 15.5 && balance.balance === 200.5, "cobrado − gastos", JSON.stringify([balance.cobrado, balance.gastos.total, balance.balance]));
 ok(balance.ganancia.monto === 80 && balance.ganancia.cobertura === 100, "la ganancia sale del costo: 4 × ($50 − $30)", JSON.stringify(balance.ganancia));
 const r1 = await inv.anularVenta(DB, v1.ventaId, { quien: "Ana", motivo: "se cobró dos veces" });
@@ -237,11 +237,25 @@ await inv.ajustarStock(DB, { varianteId: gb128, sedeId: sede.id, cantidad: 2 });
 caja = await cobrarEnCaja({ sede: sede.id, metodo: "Divisas (efectivo)", items: [{ variante: gb128, cantidad: 1 }] }, { rubro: "telefonos", tarifaDeCaja: "cashea" });
 ok(caja.ok && caja.total === 800 && caja.tarifa === "", "EPICCELL en divisas en efectivo: el precio en dólares", JSON.stringify(caja).slice(0, 120));
 html = await (await pedir("/panel/caja")).text();
-ok(!/value="Fiado"/.test(html) && !/Fiado/.test(html), "la caja ya no ofrece «Fiado»");
-ok(!/\/panel\/fiados/.test(html), "y el menú ya no tiene Fiados");
-const rf = await pedir("/panel/fiados");
-const cuerpoFiados = await rf.text();
-ok(!/Nadie te debe|Cobrar un fiado|Registrar abono/.test(cuerpoFiados), "/panel/fiados ya no es una pantalla de fiados");
+ok(!/fiad/i.test(html), "en la caja no queda nada de ventas a crédito");
+const columnas = sql.prepare("SELECT name FROM pragma_table_info('inv_ventas')").all().map((c) => c.name);
+ok(!columnas.includes("fiado"), "la tabla de ventas no tiene esa columna", columnas.join());
+ok(!sql.prepare("SELECT name FROM sqlite_master WHERE name = 'neg_abonos'").get(), "y la tabla de abonos no existe");
+{
+  // Una base vieja (con la columna y la tabla de abonos) queda limpia al arrancar.
+  const vieja = baseDeMentira();
+  vieja.sql.exec("CREATE TABLE inv_ventas (id INTEGER PRIMARY KEY AUTOINCREMENT, ref TEXT UNIQUE, local_id INTEGER, quien TEXT NOT NULL DEFAULT '', metodo_pago TEXT NOT NULL DEFAULT '', total REAL, contacto_id TEXT, creado INTEGER NOT NULL, cliente TEXT NOT NULL DEFAULT '', telefono TEXT NOT NULL DEFAULT '', fiado INTEGER NOT NULL DEFAULT 0, anulada INTEGER NOT NULL DEFAULT 0, nota TEXT NOT NULL DEFAULT '', costo REAL)");
+  vieja.sql.exec("INSERT INTO inv_ventas (ref, creado, total, fiado) VALUES ('x', 1, 30, 1)");
+  vieja.sql.exec("CREATE TABLE neg_abonos (id INTEGER PRIMARY KEY, venta_id INTEGER, monto REAL)");
+  inv.olvidarQueEstaListo();
+  neg.olvidarQueNegocioEstaListo();
+  await neg.asegurarNegocio(vieja.DB);
+  const cols = vieja.sql.prepare("SELECT name FROM pragma_table_info('inv_ventas')").all().map((c) => c.name);
+  ok(!cols.includes("fiado") && vieja.sql.prepare("SELECT total FROM inv_ventas").get().total === 30, "en una base vieja se quita la columna y la venta se queda", cols.join());
+  ok(!vieja.sql.prepare("SELECT name FROM sqlite_master WHERE name = 'neg_abonos'").get(), "y se borra la tabla de abonos");
+  inv.olvidarQueEstaListo();
+  neg.olvidarQueNegocioEstaListo();
+}
 
 titulo("las páginas del negocio abren");
 for (const ruta of ["/panel/inicio", "/panel/ventas", `/panel/ventas/${f1.ventaId}`, "/panel/gastos", "/panel/reportes", "/panel/ganancias", "/panel/ventas.csv", "/panel/gastos.csv"]) {
@@ -249,7 +263,7 @@ for (const ruta of ["/panel/inicio", "/panel/ventas", `/panel/ventas/${f1.ventaI
   ok(r.status === 200, `${ruta} abre`, String(r.status));
 }
 html = await (await pedir(`/panel/ventas/${f1.ventaId}`)).text();
-ok(/Luisa Gómez/.test(html) && /Zelle/.test(html) && !/Abonos|Pendiente/.test(html), "el recibo dice a quién y cómo pagó, sin abonos");
+ok(/Luisa Gómez/.test(html) && /Zelle/.test(html) && !/Pendiente/.test(html), "el recibo dice a quién y cómo pagó");
 
 titulo("¿dejar la sesión abierta?");
 ok(/; Max-Age=7776000/.test(galleta) && /SameSite=Lax/.test(galleta) && /HttpOnly/.test(galleta), "sí: dura 90 días aunque cierre el navegador", galleta.replace(/=[^;]+/, "=…"));

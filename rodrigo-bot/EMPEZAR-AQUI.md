@@ -4,7 +4,7 @@
 la plantilla de El Emperador (la que ya está limpia de datos de Invictus):
 DeepSeek para la IA, memoria en D1, pausa cuando habla un asesor, cotejo
 visual de fotos, panel (`/panel`) con chats, CRM, métricas, inventario, caja,
-gastos, fiados y tienda web (`/tienda`), WhatsApp, comentarios de Instagram y
+gastos, reportes, ganancias y tienda web (`/tienda`), WhatsApp, comentarios de Instagram y
 la puerta para conectar un sistema de inventario cerrado (`/api/sync`).
 
 **Lo que cambia respecto a las otras tiendas:** Rodrigo vende **solo

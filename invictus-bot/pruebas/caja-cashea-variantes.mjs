@@ -264,7 +264,7 @@ titulo("el reporte se imprime como factura fiscal, tipo carta");
   ok(/↳ CASHEA nivel 3 \(30 %\): inicial \$22,50 por Pago móvil · financiado \$52,50/.test(html), "y bajo cada venta con Cashea, su inicial y su monto financiado");
   ok(/Taxi al almacén/.test(html) && /Elaborado por/.test(html) && /Revisado por/.test(html) && /No sustituye una factura fiscal/.test(html), "con los gastos, las firmas y la aclaración de que no es fiscal");
   ok(/\.reporte-pantalla\{display:none!important\}/.test(html), "al imprimir, la pantalla normal no sale");
-  ok(!/al fiado|Abonos cobrados/.test(html), "y sin fiados");
+  ok(!/fiad/i.test(html), "y nada de ventas a crédito");
 }
 
 src.limpiar();

@@ -91,7 +91,6 @@ const TABLAS_INVENTARIO = [
     creado      INTEGER NOT NULL,
     cliente     TEXT NOT NULL DEFAULT '',
     telefono    TEXT NOT NULL DEFAULT '',
-    fiado       INTEGER NOT NULL DEFAULT 0,
     anulada     INTEGER NOT NULL DEFAULT 0,
     nota        TEXT NOT NULL DEFAULT '',
     costo       REAL
@@ -175,7 +174,6 @@ const COLUMNAS_NUEVAS = [
   ["inv_productos", "costo", "REAL"],
   ["inv_ventas", "cliente", "TEXT NOT NULL DEFAULT ''"],
   ["inv_ventas", "telefono", "TEXT NOT NULL DEFAULT ''"],
-  ["inv_ventas", "fiado", "INTEGER NOT NULL DEFAULT 0"],
   ["inv_ventas", "anulada", "INTEGER NOT NULL DEFAULT 0"],
   ["inv_ventas", "nota", "TEXT NOT NULL DEFAULT ''"],
   ["inv_ventas", "costo", "REAL"],
@@ -218,6 +216,8 @@ export const TIPOS_DE_MOVIMIENTO = {
 
 let listo = false;
 
+const COLUMNAS_QUITADAS = [["inv_ventas", "fiado"]];
+
 export async function asegurarInventario(db) {
   if (listo) return;
   for (const sentencia of TABLAS_INVENTARIO) await db.prepare(sentencia).run();
@@ -229,6 +229,15 @@ export async function asegurarInventario(db) {
   const tiene = new Set((hay || []).map((c) => `${c.t}.${c.name}`));
   for (const [tabla, columna, tipo] of COLUMNAS_NUEVAS) {
     if (!tiene.has(`${tabla}.${columna}`)) await db.prepare(`ALTER TABLE ${tabla} ADD COLUMN ${columna} ${tipo}`).run();
+  }
+  // Columnas que ya no existen en la tienda: se quitan de las bases que las tenían.
+  for (const [tabla, columna] of COLUMNAS_QUITADAS) {
+    if (!tiene.has(`${tabla}.${columna}`)) continue;
+    try {
+      await db.prepare(`ALTER TABLE ${tabla} DROP COLUMN ${columna}`).run();
+    } catch (error) {
+      console.error(`INVENTARIO: no se pudo quitar ${tabla}.${columna}:`, error.message);
+    }
   }
   // Toda tienda tiene al menos una sede. Las demás se añaden en el panel.
   await db
@@ -1212,7 +1221,7 @@ export function momentoDeLaVenta(dia, ahora = Date.now()) {
 
 // Además de los productos del inventario, una venta puede llevar "libres"
 // ([{ descripcion, precio, cantidad }]: un servicio, algo que no se lleva en
-// stock). (Los fiados se eliminaron el 17-oct-2026: todo se cobra en el momento.)
+// stock).
 // tarifa: "cashea" cobra el precio Cashea de cada producto (si lo tiene; si
 // no, el normal). Lo decide la caja de la tienda (ver inventario-panel.js).
 /* ── La cuenta de Cashea ─────────────────────────────────────────────────
@@ -1316,7 +1325,7 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
   const sentencias = [
     db
       .prepare(
-        "INSERT INTO inv_ventas (ref, local_id, quien, metodo_pago, total, contacto_id, creado, cliente, telefono, fiado, nota, costo, tarifa, registrada, cashea_nivel, cashea_pct, cashea_inicial, cashea_financiado, cashea_cuotas, cashea_inicial_por) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO inv_ventas (ref, local_id, quien, metodo_pago, total, contacto_id, creado, cliente, telefono, nota, costo, tarifa, registrada, cashea_nivel, cashea_pct, cashea_inicial, cashea_financiado, cashea_cuotas, cashea_inicial_por) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       )
       .bind(
         ref,
@@ -1328,7 +1337,6 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
         cuando,
         nombreCliente,
         tel,
-        0,
         notaFinal,
         Math.round(costoTotal * 100) / 100,
         tarifa === "cashea" ? "cashea" : "",

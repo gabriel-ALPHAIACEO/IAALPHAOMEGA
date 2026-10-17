@@ -109,8 +109,8 @@ TU NEGOCIO
   escribiendo el nombre y tocándolo. Se elige ${v}, cantidad, cómo pagó
   (los métodos de pago de la lista) y se toca Cobrar. Al cobrar baja el
   stock y queda la venta con su recibo.${palabras.conSerial ? ` Para teléfonos pide el IMEI o serial, que sale en el recibo.` : ""}
-  También cobra cosas que no están en el inventario (un servicio). Todo se
-  cobra en el momento: no hay ventas al fiado. Si se olvidó anotar las ventas de
+  También cobra cosas que no están en el inventario (un servicio). Si se
+  olvidó anotar las ventas de
   un día, arriba de "Cómo pagó" está "Venta de": Hoy, Ayer u Otro día. La
   venta queda en ese día (en Ventas, en Inicio y en el balance) y se marca
   "anotada después"; el stock baja en el momento en que se anota. La

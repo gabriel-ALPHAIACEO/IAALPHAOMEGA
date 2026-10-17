@@ -319,7 +319,7 @@ function desdeMs(valor, ahora = Date.now()) {
   return ahora - 3 * DIA_MS;
 }
 
-export const COLUMNAS_DE_VENTAS = ["venta", "id", "fecha", "sede", "codigo", "codigo_modelo", "producto", "marca", "talla", "color", "cantidad", "precio_unitario", "total_linea", "metodo_pago", "cliente", "telefono", "fiado", "anulada", "nota"];
+export const COLUMNAS_DE_VENTAS = ["venta", "id", "fecha", "sede", "codigo", "codigo_modelo", "producto", "marca", "talla", "color", "cantidad", "precio_unitario", "total_linea", "metodo_pago", "cliente", "telefono", "anulada", "nota"];
 
 // Una fila por producto vendido (y por cobro sin inventario). Sin costos.
 export async function ventasParaElSistema(db, { desde = 0, desdeId = 0 } = {}) {
@@ -328,7 +328,7 @@ export async function ventasParaElSistema(db, { desde = 0, desdeId = 0 } = {}) {
   const dato = desdeId ? Number(desdeId) : Number(desde);
   const { results: lineas } = await db
     .prepare(
-      `SELECT ve.id, ve.ref, ve.creado, ve.metodo_pago, ve.cliente, ve.telefono, ve.fiado, ve.anulada, ve.nota, l.nombre AS sede,
+      `SELECT ve.id, ve.ref, ve.creado, ve.metodo_pago, ve.cliente, ve.telefono, ve.anulada, ve.nota, l.nombre AS sede,
               -m.delta AS cantidad, m.precio AS precio, v.opcion, v.color, v.codigo_barras, v.codigo_fabricante, p.titulo, p.marca, p.origen, p.origen_id
          FROM inv_ventas ve
          LEFT JOIN inv_locales l ON l.id = ve.local_id
@@ -341,7 +341,7 @@ export async function ventasParaElSistema(db, { desde = 0, desdeId = 0 } = {}) {
     .all();
   const { results: libres } = await db
     .prepare(
-      `SELECT ve.id, ve.ref, ve.creado, ve.metodo_pago, ve.cliente, ve.telefono, ve.fiado, ve.anulada, ve.nota, l.nombre AS sede,
+      `SELECT ve.id, ve.ref, ve.creado, ve.metodo_pago, ve.cliente, ve.telefono, ve.anulada, ve.nota, l.nombre AS sede,
               vl.descripcion, vl.cantidad, vl.precio
          FROM inv_venta_libre vl JOIN inv_ventas ve ON ve.id = vl.venta_id LEFT JOIN inv_locales l ON l.id = ve.local_id
         WHERE ${filtro} ORDER BY ve.id, vl.id LIMIT 2000`
@@ -356,7 +356,6 @@ export async function ventasParaElSistema(db, { desde = 0, desdeId = 0 } = {}) {
     metodo_pago: f.metodo_pago || "",
     cliente: f.cliente || "",
     telefono: f.telefono || "",
-    fiado: f.fiado ? "si" : "no",
     anulada: f.anulada ? "si" : "no",
     nota: f.nota || "",
   });

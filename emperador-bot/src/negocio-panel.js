@@ -467,7 +467,7 @@ ${dato("Ganancia", cifra(actual.ganancia.monto), "ver todas las ganancias", "sub
 
   const sugerencias = ["¿Cuánto vendí esta semana?", "¿Qué se está acabando?", "¿Quién me debe más?", "Dame una idea para vender más"];
   const asistente = `<section class="ia-tarjeta" id="asistente">
-<div class="ia-cabeza"><span class="ia-marca">${icono("ia")}</span><div><h2>Pregúntale a tu negocio</h2><p>Lee tus números de verdad y sabe cómo se hace todo en el panel. Si le pides anotar un gasto o un abono, te lo deja listo para que lo confirmes. También lo tienes en el botón <b>Asistente</b> de cada pantalla.</p></div></div>
+<div class="ia-cabeza"><span class="ia-marca">${icono("ia")}</span><div><h2>Pregúntale a tu negocio</h2><p>Lee tus números de verdad y sabe cómo se hace todo en el panel. Si le pides anotar un gasto, te lo deja listo para que lo confirmes. También lo tienes en el botón <b>Asistente</b> de cada pantalla.</p></div></div>
 <div class="ia-charla" id="ia-charla" data-ia-charla aria-live="polite"></div>
 ${
   asistenteActivo(env)

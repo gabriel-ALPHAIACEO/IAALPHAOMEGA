@@ -1196,7 +1196,7 @@ async function atenderPanelSinRed(request, env, { verTexto, tienda = "La tienda"
   const ayudas = { pagina: (titulo, cuerpo, extra = {}) => pagina(titulo, cuerpo, { tienda, conAnuncios, ...extra }), vieneDelPanel, redirigir };
   if (esRutaDeInventario(url)) return atenderInventario(request, env, url, ayudas, { tienda, traerCatalogo, nombreDelCatalogo, tarifaDeCaja, rubro, botLeeInventario, seSigueSola });
 
-  // EL NEGOCIO: inicio, ventas, gastos, fiados y el asistente (negocio-panel.js).
+  // EL NEGOCIO: inicio, ventas, reportes, ganancias, gastos y el asistente (negocio-panel.js).
   if (esRutaDeNegocio(url)) return atenderNegocio(request, env, url, ayudas, { tienda, tarifaDeCaja, rubro, conAnuncios });
 
   // LOS PEDIDOS DE LA TIENDA WEB, pagados con comprobante (pedidos-panel.js).
