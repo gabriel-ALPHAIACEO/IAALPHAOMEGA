@@ -56,7 +56,7 @@ console.log = log;
 const s = todo.find((p) => p.titulo === "Samsung Galaxy S25 FE");
 comprobar("sin SHEET_ID, el bot lee el inventario: 2 productos (la capacidad agotada no)", todo.map((p) => `${p.titulo} ${p.capacidad}`.trim()).sort(), ["Samsung Galaxy S25 FE 128GB", "Xiaomi Redmi Watch 5"]);
 comprobar("con la foto subida en el panel", s?.imagen, "https://bot.workers.dev/tienda/img/1.jpg");
-comprobar("con su precio en divisas y en Bs", /\$520/.test(s?.precio || "") && /26\.000/.test(s?.precio || ""), true);
+comprobar("con su precio en divisas y sin bolívares (se eliminaron, 17-oct)", /\$520/.test(s?.precio || "") && !/26\.000|Bs/.test(s?.precio || ""), true);
 comprobar("el precio Cashea llega tal cual", s?.precioCashea, "598");
 console.log = () => {};
 const r1 = (await buscarProductos(env, "relojes")).productos.map((p) => p.titulo);

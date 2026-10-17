@@ -1250,9 +1250,9 @@ function ubicarColumnas(fila) {
 // El precio en divisas: si la hoja trae una segunda moneda, se muestran las
 // dos juntas, separadas por " · ". No se les añade ningún símbolo: lo que
 // escribas en la celda —"$150", "150 USD", "Bs 5.400"— sale tal cual.
-function combinarPrecio(principal, local) {
-  if (principal && local) return `${principal} · ${local}`;
-  return principal || local || "";
+function combinarPrecio(principal) {
+  // 17-oct-2026, dueño: el precio en bolívares se eliminó de todas partes; solo va el de divisas.
+  return principal || "";
 }
 
 // La columna "imagen" con fotos de Google Drive.

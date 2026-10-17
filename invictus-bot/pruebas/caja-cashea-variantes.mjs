@@ -225,5 +225,33 @@ titulo("un costo puesto después también cuenta");
   ok(/Ganancia total/.test(pagina) && /poner el costo/.test(pagina) && /href="\/panel\/inventario\/p\/\d+"/.test(pagina), "la página dice la ganancia total y enlaza a cada producto sin costo");
 }
 
+titulo("el costo de cada modelo (y sin precio en bolívares)");
+{
+  const tel = await inv.guardarProducto(DB, { origen: "manual", titulo: "Poco M8", precio: 400, costo: 250 });
+  const v128 = await inv.guardarVariante(DB, tel, { opcion: "128GB" });
+  const v256 = await inv.guardarVariante(DB, tel, { opcion: "256GB" });
+  for (const id of [v128, v256]) await inv.ajustarStock(DB, { varianteId: id, sedeId: sede.id, cantidad: 5, quien: "Carga", tipo: "carga" });
+  await inv.editarVariante(DB, v256, { precio: 500, costo: "320,50" });
+  const ficha = await inv.verProducto(DB, tel);
+  ok(ficha.variantes.find((x) => x.id === v256).costo === 320.5 && ficha.variantes.find((x) => x.id === v128).costo === null, "cada modelo guarda su costo (vacío = el del producto)");
+  const a = await cobrar({ metodo: "Zelle", items: [{ variante: v256, cantidad: 1 }] });
+  ok(a.ganancia === 179.5, "vender la de 256GB gana (500 − 320,50) con SU costo", String(a.ganancia));
+  const b = await cobrar({ metodo: "Zelle", items: [{ variante: v128, cantidad: 1 }] });
+  ok(b.ganancia === 150, "la de 128GB, sin costo propio, usa el del producto (400 − 250)", String(b.ganancia));
+  let error = null;
+  try { await inv.editarVariante(DB, v128, { costo: "mucho" }); } catch (e) { error = e; }
+  ok(error && /costo/i.test(error.message), "un costo que no es número no pasa");
+  await inv.editarVariante(DB, v128, { costo: "" });
+  ok((await inv.verProducto(DB, tel)).variantes.find((x) => x.id === v128).costo === null, "vaciarlo vuelve al del producto");
+  const html = await (await pedir(`/panel/inventario/p/${tel}`)).text();
+  ok(/name="costo"/.test(html) && /Te costó \(a ti\)/.test(html), "en «Editar» de cada modelo está el costo");
+  ok(/Costo \$320[,.]50/.test(html), "y la fila del modelo dice cuánto le costó");
+  ok(!/Precio en Bs|precio_local/.test(html), "no hay precio en bolívares en la ficha");
+  const g = await neg.gananciasDelPeriodo(DB, neg.periodoDe(new URLSearchParams("p=hoy")));
+  ok(g.productos.some((x) => x.titulo === "Poco M8" && Math.abs(x.ganancia - 329.5) < 0.01), "Ganancias suma cada venta con el costo de su modelo", JSON.stringify(g.productos.find((x) => x.titulo === "Poco M8")));
+  const nuevo = await (await pedir("/panel/inventario/nuevo")).text();
+  ok(!/Precio en Bs/.test(nuevo), "ni en «Nuevo producto»");
+}
+
 src.limpiar();
 terminar();

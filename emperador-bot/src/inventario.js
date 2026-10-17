@@ -200,6 +200,9 @@ const COLUMNAS_NUEVAS = [
   // y "oculta" es el Activo = NO de la hoja: está en el inventario, pero
   // el bot no la ofrece.
   ["inv_variantes", "precio_local", "REAL"],
+  // EL COSTO DE CADA MODELO (17-oct-2026, pedido del dueño): lo que le costó a la tienda esa
+  // capacidad/talla. Vacío = vale el costo del producto.
+  ["inv_variantes", "costo", "REAL"],
   ["inv_variantes", "foto", "TEXT NOT NULL DEFAULT ''"],
   ["inv_variantes", "extras", "TEXT NOT NULL DEFAULT '{}'"],
   ["inv_variantes", "oculta", "INTEGER NOT NULL DEFAULT 0"],
@@ -436,8 +439,8 @@ export async function contarProductos(db) {
                       COALESCE(SUM(s.cantidad), 0) AS total,
                       COUNT(s.variante_id) AS contadas,
                       COALESCE(SUM(s.cantidad * COALESCE(v.precio, p.precio, 0)), 0) AS valor,
-                      COALESCE(SUM(s.cantidad * p.costo), 0) AS costo,
-                      p.costo IS NOT NULL AS con_costo
+                      COALESCE(SUM(s.cantidad * COALESCE(v.costo, p.costo)), 0) AS costo,
+                      (p.costo IS NOT NULL OR COALESCE(MAX(v.costo IS NOT NULL), 0) = 1) AS con_costo
                  FROM inv_productos p
                  LEFT JOIN inv_variantes v ON v.producto_id = p.id
                  LEFT JOIN inv_stock s ON s.variante_id = v.id
@@ -668,7 +671,7 @@ export async function editarProducto(db, id, cambios) {
   await asegurarInventario(db);
   await db
     .prepare(
-      `UPDATE inv_productos SET titulo = ?, marca = ?, gama = ?, precio = ?, precio_local = ?, precio_cashea = ?, costo = ?, actualizado = ?
+      `UPDATE inv_productos SET titulo = ?, marca = ?, gama = ?, precio = ?, precio_cashea = ?, costo = ?, actualizado = ?
         WHERE id = ?`
     )
     .bind(
@@ -676,7 +679,6 @@ export async function editarProducto(db, id, cambios) {
       String(cambios.marca || "").trim().slice(0, 80),
       String(cambios.gama || "").trim().slice(0, 20),
       numero(cambios.precio),
-      numero(cambios.precio_local),
       numero(cambios.precio_cashea),
       numero(cambios.costo),
       Date.now(),
@@ -893,6 +895,14 @@ function fotoValida(url) {
 // EDITAR UNA VARIANTE desde el panel: su precio (vacío = el del modelo), su
 // Cashea, su precio en Bs, su foto, su código de fábrica y si el bot la
 // ofrece. La opción y el color no se cambian aquí (son su nombre).
+// El costo de una variante: vacío = el del producto; no puede ser negativo ni un texto.
+function costoValido(valor) {
+  const n = numero(valor);
+  if (String(valor ?? "").trim() !== "" && n === null) throw new Error("El costo tiene que ser un número (por ejemplo 300 o 299,50).");
+  if (n !== null && n < 0) throw new Error("El costo no puede ser negativo.");
+  return n;
+}
+
 export async function editarVariante(db, id, cambios = {}) {
   await asegurarInventario(db);
   const variante = await db.prepare("SELECT id FROM inv_variantes WHERE id = ?").bind(Number(id) || 0).first();
@@ -904,11 +914,11 @@ export async function editarVariante(db, id, cambios = {}) {
     throw new Error(`El código ${fab} ya es de otro producto.`);
   }
   await db
-    .prepare("UPDATE inv_variantes SET precio = ?, precio_cashea = ?, precio_local = ?, foto = ?, codigo_fabricante = ?, oculta = COALESCE(?, oculta) WHERE id = ?")
+    .prepare("UPDATE inv_variantes SET precio = ?, precio_cashea = ?, costo = ?, foto = ?, codigo_fabricante = ?, oculta = COALESCE(?, oculta) WHERE id = ?")
     .bind(
       numero(cambios.precio),
       numero(cambios.precio_cashea),
-      numero(cambios.precio_local),
+      costoValido(cambios.costo),
       fotoValida(foto),
       fab || null,
       // Sin decir nada (una tienda cuyo bot no lee el inventario), se queda como está.
@@ -1281,7 +1291,7 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
     const precio = tarifa === "cashea" ? variante.precioCashea ?? variante.precioFinal ?? null : variante.precioFinal ?? null;
     if (precio === null) totalConocido = false;
     else total += Number(precio) * n;
-    const costo = variante.costo_producto ?? null;
+    const costo = variante.costo ?? variante.costo_producto ?? null;
     if (costo !== null) costoTotal += Number(costo) * n;
     // La ganancia solo cuenta lo que tiene costo cargado: lo demás se dice aparte, sin inventar.
     if (precio !== null && costo !== null) gananciaDeLaVenta += (Number(precio) - Number(costo)) * n;

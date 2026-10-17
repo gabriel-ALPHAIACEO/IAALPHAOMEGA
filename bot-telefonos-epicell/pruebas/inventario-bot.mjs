@@ -84,7 +84,7 @@ comprobar("desde el inventario: los mismos equipos, con los mismos precios, foto
 const buscadoConInventario = await callado(() => buscarProductos(env, "iphone 256"));
 comprobar("y la búsqueda encuentra lo mismo", buscadoConInventario.productos.map(forma), buscadoConHoja.productos.map(forma));
 comprobar("también por una columna de la hoja (RAM)", (await callado(() => buscarProductos(env, "samsung 6gb"))).productos.map((p) => p.titulo), ["Samsung A17"]);
-comprobar("el precio en Bs sale como en la hoja", conElInventario[0].precio, "$420 · Bs 15.000");
+comprobar("el precio sale solo en divisas (el de bolívares se eliminó, 17-oct)", conElInventario[0].precio, "$420");
 comprobar("la foto de Drive, ya lista para la ficha", conElInventario[0].imagen, "https://lh3.googleusercontent.com/d/1AbCdEfGhIJKlmNoPQrsTUV=w1000");
 
 // 4. Lo que se vende deja de ofrecerse.

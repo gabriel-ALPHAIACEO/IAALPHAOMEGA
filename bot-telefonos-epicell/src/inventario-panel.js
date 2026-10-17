@@ -575,16 +575,26 @@ async function paginaDeProducto(env, id, url, opciones = {}) {
   const precioTexto = precios.length ? precioDeLista(Math.min(...precios), Math.max(...precios)) : "";
   const cashea = p.variantes.map((v) => v.precioCashea).filter((x) => x !== null && x !== undefined);
   const casheaTexto = cashea.length ? precioDeLista(Math.min(...cashea), Math.max(...cashea)) : "";
-  const margen = p.costo !== null && p.costo !== undefined && precios.length ? Math.min(...precios) - Number(p.costo) : null;
+  // Cada modelo (capacidad, talla…) puede tener su propio costo; el del producto vale para los que no lo tienen.
+  const costoDe = (v) => (v.costo !== null && v.costo !== undefined ? Number(v.costo) : p.costo !== null && p.costo !== undefined ? Number(p.costo) : null);
+  const costos = p.variantes.map(costoDe).filter((x) => x !== null);
+  const costoTexto = costos.length ? precioDeLista(Math.min(...costos), Math.max(...costos)) : "";
+  const margenes = p.variantes.map((v) => {
+    const precio = v.precio ?? p.precio;
+    const costo = costoDe(v);
+    return precio !== null && precio !== undefined && costo !== null ? Number(precio) - costo : null;
+  }).filter((x) => x !== null);
+  const margen = margenes.length ? Math.min(...margenes) : null;
+  const margenTexto = margenes.length ? precioDeLista(Math.min(...margenes), Math.max(...margenes)) : "";
 
   const fotos = p.fotos.slice(0, 8);
   // Las miniaturas están en «Fotos» (debajo): tocar una la enseña aquí.
   const galeria = `<div class="ficha-foto" id="foto-grande">${fotoDe(fotos[0]?.url, p.titulo)}</div>`;
 
   const cuadros = [
-    `<span>Precio</span><b>${precioTexto ? esc(precioTexto) : "—"}</b>${p.precio_local ? `<small>Bs ${esc(numero(p.precio_local))}</small>` : ""}`,
+    `<span>Precio</span><b>${precioTexto ? esc(precioTexto) : "—"}</b>`,
     casheaTexto ? `<span>Precio Cashea</span><b>${esc(casheaTexto)}</b>` : "",
-    `<span>Te costó</span><b>${p.costo !== null && p.costo !== undefined ? esc(plata(p.costo, { siempre: true })) : "—"}</b>${margen !== null ? `<small>ganas ${esc(plata(margen, { siempre: true }))} por unidad</small>` : "<small>ponlo en Editar para ver la ganancia</small>"}`,
+    `<span>Te costó</span><b>${costoTexto ? esc(costoTexto) : "—"}</b>${margen !== null ? `<small>ganas ${esc(margenTexto)} por unidad</small>` : "<small>ponlo en Editar para ver la ganancia</small>"}`,
     p.variantes.length && !p.variantes.some((v) => v.contada)
       ? `<span>Quedan</span><b data-n-todas>—</b><small data-sin-contar>sin contar: escribe cuántas hay abajo</small>`
       : `<span>Quedan</span><b data-n-todas>${esc(numero(total))}</b><small>${listaDeSedes.length > 1 ? "entre todas las sedes" : esc(nombreSede)}</small>`,
@@ -611,10 +621,10 @@ ${cuadros.map((c, i) => `<div${cuadros.length % 2 && i === cuadros.length - 1 ? 
         .filter((s) => s.id !== sedeElegida && v.porSede[s.id])
         .map((s) => `${s.nombre}: ${v.porSede[s.id]}`)
         .join(" · ");
-      const sub = [v.codigo_fabricante ? `Fábrica ${v.codigo_fabricante}` : "", v.precio !== null && v.precio !== undefined && v.precio !== p.precio ? plata(v.precio, { siempre: true }) : "", otras].filter(Boolean).join(" · ");
+      const sub = [v.codigo_fabricante ? `Fábrica ${v.codigo_fabricante}` : "", v.precio !== null && v.precio !== undefined && v.precio !== p.precio ? plata(v.precio, { siempre: true }) : "", v.costo !== null && v.costo !== undefined ? `Costo ${plata(v.costo, { siempre: true })}` : "", otras].filter(Boolean).join(" · ");
       const datosMover = esc(JSON.stringify({ id: v.id, nombre: nombreDeVariante(v), hay: aqui }));
       const datosEditar = esc(
-        JSON.stringify({ id: v.id, nombre: nombreDeVariante(v), precio: v.precio ?? "", precio_cashea: v.precio_cashea ?? "", precio_local: v.precio_local ?? "", foto: v.foto || "", codigo_fabricante: v.codigo_fabricante || "", al_bot: !v.oculta })
+        JSON.stringify({ id: v.id, nombre: nombreDeVariante(v), precio: v.precio ?? "", precio_cashea: v.precio_cashea ?? "", costo: v.costo ?? "", foto: v.foto || "", codigo_fabricante: v.codigo_fabricante || "", al_bot: !v.oculta })
       );
       const marcas = [
         opciones.botLeeInventario && v.oculta ? `<span class="chip aviso">${icono("ojo", { clase: "chico" })}El bot no la ofrece</span>` : "",
@@ -652,7 +662,6 @@ ${campoDeCategoria(r, usadas, p.extras?.categoria || "")}
 ${r.gama ? `<label class="campo">${esc(r.gama)}<input name="gama" value="${esc(p.gama)}" placeholder="${esc(r.ejemploGama)}" maxlength="20"></label>` : `<input type="hidden" name="gama" value="${esc(p.gama)}">`}
 <label class="campo">Precio (divisas)<input name="precio" value="${esc(p.precio ?? "")}" inputmode="decimal"></label>
 <label class="campo">Precio Cashea<input name="precio_cashea" value="${esc(p.precio_cashea ?? "")}" inputmode="decimal" required placeholder="Obligatorio"></label>
-<label class="campo">Precio en Bs<input name="precio_local" value="${esc(p.precio_local ?? "")}" inputmode="decimal"></label>
 <label class="campo">Te costó<input name="costo" value="${esc(p.costo ?? "")}" inputmode="decimal" placeholder="Para saber cuánto ganas"></label></div>
 <div class="acciones">${botonCerrarVentana("editar")}<button class="principal">${icono("check")}Guardar cambios</button></div></form>
 <form method="post" action="/panel/inventario/archivar" data-confirmar="¿Quitar «${esc(p.titulo)}» del inventario? Su historial y sus ventas se guardan, y volver a traer el catálogo no lo revive." data-confirmar-boton="Quitar" data-peligro style="margin-top:4px"><input type="hidden" name="producto" value="${p.id}"><button class="fantasma peligro chico">${icono("archivar")}Quitar del inventario</button></form>`;
@@ -661,11 +670,11 @@ ${r.gama ? `<label class="campo">${esc(r.gama)}<input name="gama" value="${esc(p
   const formVariante = `<form method="post" action="/panel/inventario/variante/editar" id="variante-form"><input type="hidden" name="producto" value="${p.id}"><input type="hidden" name="variante" value="">
 <div class="campos"><label class="campo">Precio (divisas)<input name="precio" inputmode="decimal" placeholder="${esc(delModelo(p.precio))}"></label>
 <label class="campo">Precio Cashea<input name="precio_cashea" inputmode="decimal" placeholder="${esc(delModelo(p.precio_cashea) || "El del modelo")}"></label>
-<label class="campo">Precio en Bs<input name="precio_local" inputmode="decimal" placeholder="Opcional"></label>
-<label class="campo">Código de fábrica<input name="codigo_fabricante" maxlength="40" placeholder="El que trae la caja"></label>
+<label class="campo">Te costó (a ti)<input name="costo" inputmode="decimal" placeholder="${esc(p.costo !== null && p.costo !== undefined ? `El del modelo: ${plata(p.costo, { siempre: true })}` : "Para saber cuánto ganas")}"></label>
+<label class="campo ancho">Código de fábrica<input name="codigo_fabricante" maxlength="40" placeholder="El que trae la caja"></label>
 <label class="campo ancho">Foto<input name="foto" inputmode="url" maxlength="500" placeholder="https://… (vacío: la del modelo)"></label></div>
 ${opciones.botLeeInventario ? `<input type="hidden" name="con_bot" value="1"><label class="interruptor" style="margin:4px 0 14px"><input type="checkbox" name="al_bot" value="si">El bot la ofrece a los clientes</label>` : ""}
-<p class="suave" style="font-size:13px;margin:0 0 12px">Sin precio, usa los del modelo (también su Cashea y sus Bs).${opciones.botLeeInventario ? " El bot nunca ofrece lo que está en 0." : ""}</p>
+<p class="suave" style="font-size:13px;margin:0 0 12px">Sin precio ni costo, usa los del modelo (también su Cashea). El costo es lo que te costó a ti cada una: con él se calcula cuánto ganas al venderla.${opciones.botLeeInventario ? " El bot nunca ofrece lo que está en 0." : ""}</p>
 <div class="acciones">${botonCerrarVentana("editar-variante")}<button class="principal">${icono("check")}Guardar</button></div></form>`;
 
   const movimientos = await movimientosRecientes(env.DB, { productoId: p.id, limite: 15 });
@@ -703,7 +712,7 @@ var grande=document.getElementById("foto-grande");
 document.querySelectorAll("[data-foto]").forEach(function(b){b.addEventListener("click",function(){var img=grande.querySelector("img");if(!img)return;img.style.opacity=0;setTimeout(function(){img.src=b.getAttribute("data-foto");img.style.opacity=1},160);document.querySelectorAll("[data-foto]").forEach(function(o){o.classList.toggle("activa",o===b)})})});
 var fv=document.getElementById("variante-form");
 document.addEventListener("click",function(e){var b=e.target.closest("[data-variante]");if(!b||!fv)return;var d={};try{d=JSON.parse(b.getAttribute("data-variante"))}catch(x){}
- ["variante","precio","precio_cashea","precio_local","foto","codigo_fabricante"].forEach(function(k){var i=fv.querySelector('[name="'+k+'"]');if(i)i.value=k==="variante"?d.id:(d[k]===null||d[k]===undefined?"":d[k])});
+ ["variante","precio","precio_cashea","costo","foto","codigo_fabricante"].forEach(function(k){var i=fv.querySelector('[name="'+k+'"]');if(i)i.value=k==="variante"?d.id:(d[k]===null||d[k]===undefined?"":d[k])});
  var ab=fv.querySelector('[name="al_bot"]');if(ab)ab.checked=!!d.al_bot;
  document.querySelector("#editar-variante h3").textContent=d.nombre&&d.nombre!=="Única"?"Editar "+d.nombre:"Editar";});
 // LA CANTIDAD SE ESCRIBE Y SE GUARDA SOLA (9-oct-2026): sin abrir Mover ni
@@ -2136,7 +2145,7 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
   if (ruta === "/panel/inventario/variante/editar") {
     try {
       await editarVariante(env.DB, datos.get("variante"), {
-        ...Object.fromEntries(["precio", "precio_cashea", "precio_local", "foto", "codigo_fabricante"].map((k) => [k, datos.get(k)])),
+        ...Object.fromEntries(["precio", "precio_cashea", "costo", "foto", "codigo_fabricante"].map((k) => [k, datos.get(k)])),
         oculta: datos.get("con_bot") ? datos.get("al_bot") !== "si" : undefined,
       });
       return redirigir(conAviso(alProducto, { ok: "Guardado." }));
@@ -2156,7 +2165,7 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
   if (ruta === "/panel/inventario/editar") {
     try {
       const precioCashea = leerCashea(datos);
-      await editarProducto(env.DB, productoId, { ...Object.fromEntries(["titulo", "marca", "gama", "precio", "precio_local", "costo"].map((k) => [k, datos.get(k)])), precio_cashea: precioCashea });
+      await editarProducto(env.DB, productoId, { ...Object.fromEntries(["titulo", "marca", "gama", "precio", "costo"].map((k) => [k, datos.get(k)])), precio_cashea: precioCashea });
       if (datos.has("categoria")) await ponerCategoria(env.DB, productoId, datos.get("categoria"));
       return redirigir(conAviso(alProducto, { ok: "Guardado." }));
     } catch (error) {
