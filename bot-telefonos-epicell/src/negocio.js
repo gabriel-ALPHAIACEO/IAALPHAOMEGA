@@ -1,4 +1,4 @@
-// LA GESTIÓN DEL NEGOCIO (fase 2, 7-oct-2026): ventas, gastos, fiados,
+// LA GESTIÓN DEL NEGOCIO (fase 2, 7-oct-2026): ventas, gastos,
 // balance y la IA que acompaña al dueño.
 //
 // QUÉ SE PEDÍA. El dueño: "un sistema completo, en la misma app, donde los
@@ -7,8 +7,6 @@
 // aquí está lo demás de un negocio:
 //
 //   · GASTOS: lo que sale (alquiler, sueldos, mercancía…), por categoría.
-//   · FIADOS: lo que se vendió a crédito y cuánto debe cada cliente, con
-//     sus abonos.
 //   · EL BALANCE: lo que entró, lo que salió y lo que se ganó, por día,
 //     semana o mes, con lo más vendido y lo que se está acabando.
 //   · LA IA: consejos que salen de los números (sin gastar nada) y un
@@ -40,7 +38,7 @@ const TABLAS_NEGOCIO = [
     borrado     INTEGER NOT NULL DEFAULT 0,
     creado      INTEGER NOT NULL
   )`,
-  // Lo que un cliente va pagando de una venta fiada.
+  // (Heredada: los fiados se eliminaron el 17-oct-2026; la tabla se queda sin usarse.)
   `CREATE TABLE IF NOT EXISTS neg_abonos (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
     venta_id INTEGER NOT NULL,
@@ -191,8 +189,7 @@ export async function listarVentas(db, { desde, hasta, q = "", limite = 300 } = 
     .prepare(
       `SELECT ve.*, l.nombre AS sede,
               COALESCE((SELECT SUM(-delta) FROM inv_movimientos m WHERE m.venta_id = ve.id AND m.tipo = 'venta'), 0)
-                + COALESCE((SELECT SUM(cantidad) FROM inv_venta_libre x WHERE x.venta_id = ve.id), 0) AS unidades,
-              COALESCE((SELECT SUM(monto) FROM neg_abonos a WHERE a.venta_id = ve.id), 0) AS abonado
+                + COALESCE((SELECT SUM(cantidad) FROM inv_venta_libre x WHERE x.venta_id = ve.id), 0) AS unidades
          FROM inv_ventas ve LEFT JOIN inv_locales l ON l.id = ve.local_id
         WHERE ve.creado >= ? AND ve.creado < ? ${filtro}
         ORDER BY ve.creado DESC, ve.id DESC LIMIT ?`
@@ -207,19 +204,23 @@ export async function listarVentas(db, { desde, hasta, q = "", limite = 300 } = 
   const max = Math.max(...ventas.map((v) => v.id));
   const { results: lineas } = await db
     .prepare(
-      `SELECT m.venta_id, p.titulo, v.opcion, SUM(-m.delta) AS cantidad FROM inv_movimientos m
+      `SELECT m.venta_id, p.titulo, v.opcion, v.color, m.precio, SUM(-m.delta) AS cantidad FROM inv_movimientos m
          JOIN inv_variantes v ON v.id = m.variante_id JOIN inv_productos p ON p.id = v.producto_id
         WHERE m.tipo = 'venta' AND m.venta_id BETWEEN ? AND ? GROUP BY m.venta_id, m.variante_id ORDER BY MIN(m.id)`
     )
     .bind(min, max)
     .all();
-  const { results: libres } = await db.prepare("SELECT venta_id, descripcion AS titulo, cantidad FROM inv_venta_libre WHERE venta_id BETWEEN ? AND ? ORDER BY id").bind(min, max).all();
+  const { results: libres } = await db.prepare("SELECT venta_id, descripcion AS titulo, cantidad, precio FROM inv_venta_libre WHERE venta_id BETWEEN ? AND ? ORDER BY id").bind(min, max).all();
   const detalle = new Map();
+  const items = new Map();
   for (const l of [...(lineas || []), ...(libres || [])]) {
     if (!detalle.has(l.venta_id)) detalle.set(l.venta_id, []);
+    if (!items.has(l.venta_id)) items.set(l.venta_id, []);
     detalle.get(l.venta_id).push(`${Number(l.cantidad) > 1 ? `${l.cantidad} × ` : ""}${l.titulo}${l.opcion && l.opcion !== "única" ? ` (${l.opcion})` : ""}`);
+    // Cada producto con su talla/color y su precio (el reporte impreso los detalla).
+    items.get(l.venta_id).push({ cantidad: Number(l.cantidad) || 0, titulo: l.titulo, opcion: l.opcion && l.opcion !== "única" ? l.opcion : "", color: l.color || "", precio: l.precio === null || l.precio === undefined ? null : Number(l.precio) });
   }
-  return ventas.map((v) => ({ ...v, detalle: (detalle.get(v.id) || []).join(" · ") }));
+  return ventas.map((v) => ({ ...v, detalle: (detalle.get(v.id) || []).join(" · "), items: items.get(v.id) || [] }));
 }
 
 export async function verVenta(db, id) {
@@ -239,15 +240,10 @@ export async function verVenta(db, id) {
     .bind(venta.id)
     .all();
   const { results: libres } = await db.prepare("SELECT descripcion, cantidad, precio FROM inv_venta_libre WHERE venta_id = ? ORDER BY id").bind(venta.id).all();
-  const { results: abonos } = await db.prepare("SELECT * FROM neg_abonos WHERE venta_id = ? ORDER BY id").bind(venta.id).all();
-  const abonado = (abonos || []).reduce((a, x) => a + Number(x.monto), 0);
   return {
     ...venta,
     lineas: lineas || [],
     libres: libres || [],
-    abonos: abonos || [],
-    abonado: redondo(abonado),
-    saldo: venta.fiado && !venta.anulada ? redondo(Math.max(0, (Number(venta.total) || 0) - abonado)) : 0,
   };
 }
 
@@ -286,7 +282,7 @@ export function textoDelRecibo(venta, tienda = "La tienda") {
     casheaDe(venta.nota),
     "",
     `*Total: ${venta.total === null ? "por confirmar" : plata(venta.total)}*`,
-    venta.fiado ? `Abonado: ${plata(venta.abonado)} · Pendiente: ${plata(venta.saldo)}` : venta.metodo_pago ? `Pago: ${venta.metodo_pago}` : "",
+    venta.metodo_pago ? `Pago: ${venta.metodo_pago}` : "",
     venta.anulada ? "VENTA ANULADA" : "",
     "",
     "¡Gracias por tu compra!",
@@ -294,72 +290,6 @@ export function textoDelRecibo(venta, tienda = "La tienda") {
     .filter((x, i, a) => x !== "" || (a[i - 1] !== "" && i > 0))
     .join("\n")
     .trim();
-}
-
-/* ── Fiados ──────────────────────────────────────────────────────────── */
-//
-// Un cliente se reconoce por su teléfono, o por su nombre si no dejó
-// teléfono. Su deuda es la suma de lo que le falta pagar de cada venta
-// fiada (no anulada).
-
-export function claveDeCliente(nombre, telefono) {
-  const tel = String(telefono || "").replace(/\D/g, "");
-  if (tel.length >= 7) return `t:${tel.slice(-10)}`;
-  return `n:${String(nombre || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim()}`;
-}
-
-export async function listarFiados(db, { incluirPagados = false } = {}) {
-  await asegurarNegocio(db);
-  const { results } = await db
-    .prepare(
-      `SELECT ve.id, ve.cliente, ve.telefono, ve.total, ve.creado,
-              COALESCE((SELECT SUM(monto) FROM neg_abonos a WHERE a.venta_id = ve.id), 0) AS abonado
-         FROM inv_ventas ve WHERE ve.fiado = 1 AND ve.anulada = 0 ORDER BY ve.creado`
-    )
-    .all();
-  const porCliente = new Map();
-  for (const v of results || []) {
-    const clave = claveDeCliente(v.cliente, v.telefono);
-    if (!porCliente.has(clave)) porCliente.set(clave, { clave, cliente: v.cliente, telefono: v.telefono, total: 0, abonado: 0, saldo: 0, ventas: [], desde: null, ultima: 0 });
-    const c = porCliente.get(clave);
-    const saldo = Math.max(0, (Number(v.total) || 0) - Number(v.abonado));
-    c.total += Number(v.total) || 0;
-    c.abonado += Number(v.abonado);
-    c.saldo += saldo;
-    if (v.telefono && !c.telefono) c.telefono = v.telefono;
-    c.ultima = Math.max(c.ultima, v.creado);
-    if (saldo > 0.009 && !c.desde) c.desde = v.creado;
-    c.ventas.push({ ...v, saldo: redondo(saldo) });
-  }
-  return [...porCliente.values()]
-    .map((c) => ({ ...c, total: redondo(c.total), abonado: redondo(c.abonado), saldo: redondo(c.saldo) }))
-    .filter((c) => incluirPagados || c.saldo > 0.009)
-    .sort((a, b) => b.saldo - a.saldo);
-}
-
-// Un abono de un cliente se reparte entre sus ventas fiadas, de la más
-// vieja a la más nueva. No se acepta más de lo que debe.
-export async function abonar(db, { clave, monto, metodo = "", quien = "", nota = "" }) {
-  await asegurarNegocio(db);
-  const m = numero(monto);
-  if (m === null || m <= 0) throw new Error("El abono tiene que ser mayor que cero.");
-  const cliente = (await listarFiados(db)).find((c) => c.clave === clave);
-  if (!cliente) throw new Error("Ese cliente no debe nada.");
-  if (m > cliente.saldo + 0.009) throw new Error(`Debe ${cliente.saldo}: el abono no puede ser mayor.`);
-  let resta = redondo(m);
-  const ahora = Date.now();
-  const sentencias = [];
-  for (const v of cliente.ventas) {
-    if (resta <= 0) break;
-    if (v.saldo <= 0) continue;
-    const parte = redondo(Math.min(resta, v.saldo));
-    sentencias.push(
-      db.prepare("INSERT INTO neg_abonos (venta_id, monto, metodo, quien, nota, creado) VALUES (?, ?, ?, ?, ?, ?)").bind(v.id, parte, String(metodo).slice(0, 40), String(quien).slice(0, 60), String(nota).slice(0, 200), ahora)
-    );
-    resta = redondo(resta - parte);
-  }
-  await db.batch(sentencias);
-  return { cliente: cliente.cliente, abonado: redondo(m), queda: redondo(cliente.saldo - m) };
 }
 
 /* ── El balance ──────────────────────────────────────────────────────── */
@@ -411,8 +341,7 @@ export async function resumen(db, { desde, hasta }) {
   const ventas = await db
     .prepare(
       `SELECT COUNT(*) AS cantidad, COALESCE(SUM(total), 0) AS total, SUM(CASE WHEN total IS NULL THEN 1 ELSE 0 END) AS sin_precio,
-              COALESCE(SUM(CASE WHEN fiado = 0 THEN total ELSE 0 END), 0) AS contado,
-              COALESCE(SUM(CASE WHEN fiado = 1 THEN total ELSE 0 END), 0) AS fiado
+              COALESCE(SUM(total), 0) AS contado
          FROM inv_ventas WHERE anulada = 0 AND creado >= ? AND creado < ?`
     )
     .bind(desde, hasta)
@@ -436,10 +365,6 @@ export async function resumen(db, { desde, hasta }) {
       `SELECT COALESCE(SUM(x.cantidad), 0) AS unidades FROM inv_venta_libre x JOIN inv_ventas ve ON ve.id = x.venta_id
         WHERE ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?`
     )
-    .bind(desde, hasta)
-    .first();
-  const abonos = await db
-    .prepare("SELECT COALESCE(SUM(a.monto), 0) AS total FROM neg_abonos a JOIN inv_ventas ve ON ve.id = a.venta_id WHERE ve.anulada = 0 AND a.creado >= ? AND a.creado < ?")
     .bind(desde, hasta)
     .first();
   const { results: gastosPorCategoria } = await db
@@ -527,18 +452,16 @@ export async function resumen(db, { desde, hasta }) {
   }
 
   const totalGastos = (gastosPorCategoria || []).reduce((a, g) => a + Number(g.total), 0);
-  const cobrado = Number(ventas.contado) + Number(abonos.total);
+  const cobrado = Number(ventas.contado);
   return {
     ventas: {
       cantidad: Number(ventas.cantidad) || 0,
       total: redondo(ventas.total),
       contado: redondo(ventas.contado),
-      fiado: redondo(ventas.fiado),
       sinPrecio: Number(ventas.sin_precio) || 0,
       unidades: (Number(margen.unidades) || 0) + (Number(libres.unidades) || 0),
       ticketPromedio: Number(ventas.cantidad) ? redondo(Number(ventas.total) / Number(ventas.cantidad)) : 0,
     },
-    abonos: redondo(abonos.total),
     cobrado: redondo(cobrado),
     gastos: { total: redondo(totalGastos), porCategoria: (gastosPorCategoria || []).map((g) => ({ ...g, total: redondo(g.total) })) },
     balance: redondo(cobrado - totalGastos),
@@ -565,7 +488,7 @@ export async function gananciasDelPeriodo(db, { desde, hasta }) {
   await asegurarNegocio(db);
   const { results: porVenta } = await db
     .prepare(
-      `SELECT ve.id, ve.creado, ve.cliente, ve.total, ve.metodo_pago, ve.fiado,
+      `SELECT ve.id, ve.creado, ve.cliente, ve.total, ve.metodo_pago,
               COALESCE(SUM(CASE WHEN COALESCE(m.costo, v.costo, p.costo) IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - COALESCE(m.costo, v.costo, p.costo)) ELSE 0 END), 0) AS ganancia,
               COALESCE(SUM(CASE WHEN m.id IS NOT NULL AND (COALESCE(m.costo, v.costo, p.costo) IS NULL OR m.precio IS NULL) THEN 1 ELSE 0 END), 0) AS sin_costo,
               COALESCE(SUM(CASE WHEN m.id IS NOT NULL THEN -m.delta ELSE 0 END), 0) AS unidades
@@ -633,8 +556,6 @@ export function textoDelReporte(r, { tienda = "La tienda", nombre = "hoy", fecha
     "",
     `Ventas: ${r.ventas.cantidad} · ${plata(r.ventas.total)}`,
     ...(r.porMetodo || []).map((m) => `  • ${m.metodo}: ${plata(m.total)} (${m.cantidad})`),
-    r.ventas.fiado > 0 ? `Fiado: ${plata(r.ventas.fiado)}` : "",
-    r.abonos > 0 ? `Abonos cobrados: ${plata(r.abonos)}` : "",
     "",
     "*Cashea*",
     c.ventas
@@ -678,7 +599,7 @@ export async function seEstanAcabando(db, { umbral = 2, limite = 12 } = {}) {
 // lleva a la pantalla donde se arregla. icono y tono son de marco.js
 // (iconos.js): nada de emojis.
 
-export function consejos({ actual, anterior, acabando = [], fiados = [], periodo }) {
+export function consejos({ actual, anterior, acabando = [], periodo }) {
   const lista = [];
   const plata = (n) => `$${redondo(n)}`;
   if (actual.ventas.cantidad === 0 && periodo.clave === "hoy") {
@@ -692,11 +613,6 @@ export function consejos({ actual, anterior, acabando = [], fiados = [], periodo
   if (acabando.length) {
     const nombres = acabando.slice(0, 3).map((a) => `${a.titulo}${a.opcion !== "única" ? ` (${a.opcion})` : ""}: ${a.quedan}`).join(" · ");
     lista.push({ icono: "inventario", tono: "aviso", texto: `Se está acabando lo que más se vende: ${nombres}. Conviene reponer.`, enlace: "/panel/inventario?f=pocos" });
-  }
-  const viejos = fiados.filter((f) => f.desde && Date.now() - f.desde > 15 * DIA_MS);
-  if (viejos.length) {
-    const total = viejos.reduce((a, f) => a + f.saldo, 0);
-    lista.push({ icono: "fiados", tono: "aviso", texto: `${viejos.length} ${viejos.length === 1 ? "cliente debe" : "clientes deben"} desde hace más de 15 días (${plata(total)}). Mándales un recordatorio por WhatsApp.`, enlace: "/panel/fiados" });
   }
   if (actual.gastos.total > 0 && actual.cobrado > 0 && actual.gastos.total > actual.cobrado) {
     lista.push({ icono: "alerta", tono: "mal", texto: `Salió más de lo que entró: ${plata(actual.gastos.total)} en gastos contra ${plata(actual.cobrado)} cobrado.`, enlace: "/panel/gastos" });
@@ -745,12 +661,10 @@ vender más o gastar menos, siempre basadas en los datos.
 ejemplo "/panel/inventario/etiquetas") y saldrá un botón para abrirla. Si no,
 null. Nunca la pantalla en la que ya está.
 
-Si te piden REGISTRAR algo (un gasto o un abono de un cliente que debe), NO lo registras tú:
+Si te piden REGISTRAR algo (un gasto), NO lo registras tú:
 lo dejas preparado en "accion" para que una persona lo confirme con un botón.
   · Gasto: {"tipo":"gasto","monto":20,"categoria":"Transporte","descripcion":"taxi"}
     categoria es una de: ${CATEGORIAS_DE_GASTO.join(", ")}.
-  · Abono: {"tipo":"abono","clave":"<la clave del cliente en fiados>","cliente":"<nombre>","monto":10}
-    Solo si el cliente está en la lista de fiados; si no, explícalo.
 Si no hay nada que registrar, "accion" es null. Cualquier otra cosa (mover
 stock, cobrar, anular, pausar el bot) la hace una persona en su pantalla: di
 cómo y pon "ir".
@@ -860,7 +774,6 @@ export async function datosParaElAsistente(db, ahora = Date.now()) {
       ventasPorCategoria: r.porCategoria.map((c) => ({ categoria: c.categoria, unidades: c.unidades, monto: c.monto, ventas: c.ventas })),
     };
   }
-  const fiados = (await listarFiados(db)).slice(0, 30).map((f) => ({ clave: f.clave, cliente: f.cliente, saldo: f.saldo, debeDesde: f.desde ? diaDe(f.desde) : null }));
   const acabando = (await seEstanAcabando(db)).map((a) => ({ titulo: a.titulo, talla: a.opcion, quedan: a.quedan, vendidasEn30Dias: a.vendidas }));
   const inventario = await db
     .prepare(
@@ -870,7 +783,7 @@ export async function datosParaElAsistente(db, ahora = Date.now()) {
               (SELECT COALESCE(SUM(s.cantidad * p.costo), 0) FROM inv_stock s JOIN inv_variantes v ON v.id = s.variante_id JOIN inv_productos p ON p.id = v.producto_id WHERE p.costo IS NOT NULL) AS valor_al_costo`
     )
     .first();
-  return { hoy: diaDe(ahora), sedes: (await sedes(db)).map((s) => s.nombre), periodos, fiados, seEstanAcabando: acabando, inventario, chat: await resumenDelChat(db, ahora) };
+  return { hoy: diaDe(ahora), sedes: (await sedes(db)).map((s) => s.nombre), periodos, seEstanAcabando: acabando, inventario, chat: await resumenDelChat(db, ahora) };
 }
 
 const RUBRO_EN_PALABRAS = { calzado: "zapatería (cada modelo con sus tallas)", moda: "tienda de calzado, bolsos, camisas, pantalones y gorras (por tallas)", telefonos: "tienda de teléfonos (por capacidad y color; precio en divisas y precio Cashea)" };
@@ -942,11 +855,6 @@ function accionValida(accion, datos) {
       categoria: CATEGORIAS_DE_GASTO.includes(accion.categoria) ? accion.categoria : "Otros",
       descripcion: String(accion.descripcion || "").slice(0, 200),
     };
-  }
-  if (accion.tipo === "abono") {
-    const cliente = datos.fiados.find((f) => f.clave === accion.clave) || datos.fiados.find((f) => f.cliente && f.cliente.toLowerCase() === String(accion.cliente || "").toLowerCase());
-    if (!cliente) return null;
-    return { tipo: "abono", clave: cliente.clave, cliente: cliente.cliente, monto: redondo(Math.min(monto, cliente.saldo)) };
   }
   return null;
 }

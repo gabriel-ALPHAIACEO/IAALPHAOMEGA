@@ -253,5 +253,19 @@ titulo("el costo de cada modelo (y sin precio en bolívares)");
   ok(!/Precio en Bs/.test(nuevo), "ni en «Nuevo producto»");
 }
 
+titulo("el reporte se imprime como factura fiscal, tipo carta");
+{
+  await neg.registrarGasto(DB, { categoria: "Transporte", descripcion: "Taxi al almacén", monto: "12,5", metodo: "Efectivo", quien: "Ana" });
+  const html = await (await pedir("/panel/reportes")).text();
+  ok(/class="doc-fiscal"/.test(html) && /@page\{size:letter/.test(html), "trae el documento para imprimir, en hoja carta");
+  ok(/REPORTE DE VENTAS Y MOVIMIENTOS/.test(html) && /Período: /.test(html) && /Emitido: /.test(html), "con su encabezado: tienda, período y fecha de emisión");
+  ok(/I\. Detalle de ventas/.test(html) && /II\. Detalle de Cashea/.test(html) && /III\. Detalle de gastos/.test(html) && /IV\. Resumen por método de pago/.test(html) && /V\. Totales/.test(html), "con cada sección: ventas, Cashea, gastos, métodos y totales");
+  ok(/1 × Samba OG · 40 · Negro @ \$75/.test(html), "cada venta con su producto, talla, color y precio");
+  ok(/↳ CASHEA nivel 3 \(30 %\): inicial \$22,50 por Pago móvil · financiado \$52,50/.test(html), "y bajo cada venta con Cashea, su inicial y su monto financiado");
+  ok(/Taxi al almacén/.test(html) && /Elaborado por/.test(html) && /Revisado por/.test(html) && /No sustituye una factura fiscal/.test(html), "con los gastos, las firmas y la aclaración de que no es fiscal");
+  ok(/\.reporte-pantalla\{display:none!important\}/.test(html), "al imprimir, la pantalla normal no sale");
+  ok(!/al fiado|Abonos cobrados/.test(html), "y sin fiados");
+}
+
 src.limpiar();
 terminar();

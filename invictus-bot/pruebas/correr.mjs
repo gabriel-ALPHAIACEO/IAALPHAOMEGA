@@ -49,7 +49,7 @@ const SUITES = [
   ["instagram.mjs", "/probar-instagram: en qué paso se corta (token, suscripción, firma, envío)"],
   ["cupo.mjs", "que sin cupo de OpenAI no se cuente como \"miré y no está\""],
   ["inventario.mjs", "el inventario y la caja: stock que nunca baja de 0, códigos de barras, importar sin duplicar"],
-  ["negocio.mjs", "gastos, fiados, anular, el balance, Cashea en la caja, cada tienda con su negocio y la sesión abierta"],
+  ["negocio.mjs", "gastos, anular, el balance, sin fiados, Cashea en la caja, cada tienda con su negocio y la sesión abierta"],
   ["tandas.mjs", "Traer ahora, el Excel y el Excel del inventario por tandas: ninguna pasada llega al tope de Cloudflare y queda igual que de una vez"],
   ["conectores.mjs", "conectar con un sistema cerrado: stock por CSV/JSON con clave, lo vendido en medio, por tandas, solo lo que cambió, el agente puente, las ventas de vuelta sin costos"],
   ["agentes.mjs", "el agente puente visto desde la tienda: latido, «Sincronizar ahora», alertas de error y de silencio, la tarjeta del panel"],

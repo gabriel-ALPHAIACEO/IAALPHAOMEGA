@@ -206,7 +206,6 @@ const NEGOCIO = [
   ["pedidos", "/panel/pedidos", "Pedidos web", "carrito"],
   ["inventario", "/panel/inventario", "Inventario", "inventario"],
   ["gastos", "/panel/gastos", "Gastos", "gastos"],
-  ["fiados", "/panel/fiados", "Fiados", "fiados"],
 ];
 
 function conIa(conAnuncios) {
@@ -266,7 +265,7 @@ function pestanas({ ruta, conAnuncios }) {
 const FUENTES = '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&display=swap">';
 
 // ruta: qué sección está activa (inicio, caja, ventas, pedidos, inventario, gastos,
-// fiados, chats, clientes, metricas, ganadores, errores, anuncios).
+// chats, clientes, metricas, ganadores, errores, anuncios).
 export function documento({ titulo, cuerpo, tienda = "La tienda", ruta = "", conAnuncios = true, enVivo = false, entrada = false, extraCabeza = "" }) {
   const vivo = enVivo ? '<span class="en-vivo" title="Se pone al día sola en cuanto llega un mensaje"><i></i>en vivo</span>' : "";
   const html = entrada
@@ -455,10 +454,8 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 40px 80px -40px rgba(10,92,245,
 .heroe-cifra.negativo{background:linear-gradient(180deg,#ffd0d0 20%,#ff8f8f);-webkit-background-clip:text;background-clip:text}
 .heroe-pista{justify-self:end;align-self:center;display:flex;align-items:flex-start;gap:10px;max-width:380px;padding:14px 16px;border-radius:18px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);font-size:13.5px;line-height:1.5;color:rgba(255,255,255,.78);backdrop-filter:blur(8px)}
 .heroe-pista .ico{flex:none;width:20px;height:20px;color:#ffd27a;--ico-opacidad:.3}.heroe-pista b{color:#fff}
-.abono-fila{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:12px;align-items:end;margin-top:16px}
-.abono-fila>button{min-height:50px}
 .monto.chico input{min-height:50px;font-size:20px}.monto.chico span{font-size:18px}
-@media (max-width:640px){.abono-fila{grid-template-columns:1fr 1fr}.abono-fila>button{grid-column:1/-1}.heroe-pista{justify-self:stretch;max-width:none}}
+@media (max-width:640px){.heroe-pista{justify-self:stretch;max-width:none}}
 .heroe-nota{font-size:13.5px;color:var(--suave);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .heroe-datos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin-top:24px;padding-top:18px;border-top:1px solid rgba(255,255,255,.1)}
 .heroe-datos>div{padding:0 16px;min-width:0}.heroe-datos>div:first-child{padding-left:0}.heroe-datos>div+div{border-left:1px solid rgba(255,255,255,.1)}
@@ -686,8 +683,8 @@ a.consejo:hover{color:var(--texto);border-color:rgba(61,134,255,.4);transform:tr
 .metodos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:6px 0 12px}
 .metodos .opcion{flex-direction:column;justify-content:center;gap:6px;padding:12px 6px;border-radius:16px;font-size:12px;text-align:center;line-height:1.2}
 .metodos .opcion .ico{width:22px;height:22px}
-.fiado-datos{display:grid;grid-template-columns:1fr 1fr;gap:10px;overflow:hidden;max-height:0;opacity:0;transition:max-height .6s var(--salida),opacity .4s,margin .4s;margin:0}
-.fiado-datos.visible{max-height:200px;opacity:1;margin:0 0 12px}
+.cliente-datos{display:grid;grid-template-columns:1fr 1fr;gap:10px;overflow:hidden;max-height:0;opacity:0;transition:max-height .6s var(--salida),opacity .4s,margin .4s;margin:0}
+.cliente-datos.visible{max-height:200px;opacity:1;margin:0 0 12px}
 .boton-cobrar{width:100%;min-height:62px;font-size:17px;border-radius:20px;letter-spacing:-.01em}
 .boton-cobrar .ico{width:22px;height:22px}
 .pos-arriba{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
@@ -752,12 +749,6 @@ a.consejo:hover{color:var(--texto);border-color:rgba(61,134,255,.4);transform:tr
 .periodo-app{display:flex;align-items:center;gap:8px;max-width:100%;min-width:0}
 .periodo-app .segmento{flex:0 1 auto;min-width:0}
 .periodo-app>button.icono{width:44px;height:44px;flex:none}
-/* Fiados */
-details.fiado>summary::before{display:none}
-details.fiado>summary{cursor:pointer;display:flex}
-details.fiado>summary:hover{background:none}
-details.fiado[open]>summary .fila-titulo{color:var(--cian)}
-.fiado-cuerpo{animation:entrar .5s var(--salida) both}
 .fila-fin b.mal{color:var(--mal)}.fila-fin b.bien{color:var(--bien)}
 /* El login */
 body.pantalla-entrada{display:block}

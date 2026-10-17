@@ -1,13 +1,11 @@
-// EL NEGOCIO (7-oct-2026): gastos, fiados, ventas anuladas, el balance, la
+// EL NEGOCIO (7-oct-2026): gastos, ventas anuladas, el balance, la
 // caja con Cashea, cada tienda con las palabras de su negocio y la sesión
 // que se queda abierta. negocio.js, negocio-panel.js, inventario-panel.js
 // y la parte de la sesión de panel.js.
 //
 // Lo que no se puede romper:
 //   · anular una venta devuelve el stock y la saca del balance (no se borra);
-//   · un abono no puede ser mayor que lo que se debe, y se reparte de la
-//     venta fiada más vieja a la más nueva;
-//   · fiar sin el nombre del cliente no se puede;
+//   · NO hay fiados (eliminados el 17-oct-2026): todo se cobra en el momento;
 //   · en la caja de EPICCELL se cobra el precio Cashea, salvo en divisas en
 //     efectivo (regla del dueño, 7-oct);
 //   · "Dejar la sesión abierta": sí = 90 días y se renueva sola; no = se
@@ -69,7 +67,7 @@ await neg.borrarGasto(DB, gastos.find((g) => g.monto === 5).id);
 gastos = await neg.listarGastos(DB, { desde: 0, hasta: Date.now() + 1000 });
 ok(gastos.length === 1 && sql.prepare("SELECT COUNT(*) AS n FROM neg_gastos").get().n === 2, "borrar lo saca de la lista, pero queda marcado en la base");
 
-titulo("ventas: con libres, fiadas y anuladas");
+titulo("ventas: con libres y anuladas");
 const v1 = await inv.cobrar(DB, { sedeId: sede.id, quien: "Ana", metodoPago: "Pago móvil", items: [{ varianteId: talla, cantidad: 1 }], libres: [{ descripcion: "Limpieza", precio: 8, cantidad: 2 }] });
 ok(v1.total === 66 && v1.unidades === 3, "1 zapato de $50 + 2 limpiezas de $8 = $66", JSON.stringify(v1));
 ok((await inv.verVariante(DB, talla)).porSede[sede.id] === 9, "lo libre no toca el stock");
@@ -80,39 +78,18 @@ try {
   error = e;
 }
 ok(/descripción/.test(error?.message || "") && (await inv.verVariante(DB, talla)).porSede[sede.id] === 9, "un cobro libre sin descripción no deja cobrar nada", error?.message);
-error = null;
-try {
-  await inv.cobrar(DB, { sedeId: sede.id, fiado: true, items: [{ varianteId: talla, cantidad: 1 }] });
-} catch (e) {
-  error = e;
-}
-ok(/nombre del cliente/.test(error?.message || ""), "fiar sin el nombre del cliente no se puede", error?.message);
-const f1 = await inv.cobrar(DB, { sedeId: sede.id, fiado: true, cliente: "Luisa Gómez", telefono: "0414-555-1234", items: [{ varianteId: talla, cantidad: 1 }] });
-const f2 = await inv.cobrar(DB, { sedeId: sede.id, fiado: true, cliente: "luisa gomez", telefono: "+58 414 555 1234", items: [{ varianteId: talla, cantidad: 2 }] });
-let fiados = await neg.listarFiados(DB);
-ok(fiados.length === 1 && fiados[0].saldo === 150 && fiados[0].ventas.length === 2, "las dos ventas fiadas de la misma persona son UN fiado de $150", JSON.stringify(fiados.map((f) => [f.cliente, f.saldo])));
-error = null;
-try {
-  await neg.abonar(DB, { clave: fiados[0].clave, monto: 151 });
-} catch (e) {
-  error = e;
-}
-ok(/no puede ser mayor/.test(error?.message || ""), "no se abona más de lo que debe", error?.message);
-const a = await neg.abonar(DB, { clave: fiados[0].clave, monto: 60, metodo: "Pago móvil", quien: "Ana" });
-ok(a.queda === 90, "abona $60 y quedan $90", JSON.stringify(a));
-const abonos = sql.prepare("SELECT venta_id, monto FROM neg_abonos ORDER BY id").all();
-ok(abonos.length === 2 && abonos[0].venta_id === f1.ventaId && abonos[0].monto === 50 && abonos[1].monto === 10, "se paga primero la venta más vieja", JSON.stringify(abonos));
-await neg.abonar(DB, { clave: fiados[0].clave, monto: 90 });
-ok((await neg.listarFiados(DB)).length === 0 && (await neg.listarFiados(DB, { incluirPagados: true })).length === 1, "pagado todo, sale de la lista (y vuelve con «Incluir pagados»)");
+const f1 = await inv.cobrar(DB, { sedeId: sede.id, metodoPago: "Zelle", cliente: "Luisa Gómez", telefono: "0414-555-1234", items: [{ varianteId: talla, cantidad: 1 }] });
+const f2 = await inv.cobrar(DB, { sedeId: sede.id, metodoPago: "Pago móvil", cliente: "Luisa Gómez", telefono: "0414-555-1234", items: [{ varianteId: talla, cantidad: 2 }] });
+ok(f1.total === 50 && f2.total === 100, "dos ventas más, cobradas en el momento");
 
 let balance = await neg.resumen(DB, hoy());
-ok(balance.ventas.cantidad === 3 && balance.ventas.total === 216 && balance.ventas.fiado === 150 && balance.ventas.contado === 66, "el balance: 3 ventas por $216, de ellas $150 fiadas", JSON.stringify(balance.ventas));
-ok(balance.cobrado === 216 && balance.gastos.total === 15.5 && balance.balance === 200.5, "cobrado = contado + abonos, menos gastos", JSON.stringify([balance.cobrado, balance.gastos.total, balance.balance]));
+ok(balance.ventas.cantidad === 3 && balance.ventas.total === 216 && balance.ventas.contado === 216 && balance.ventas.fiado === undefined, "el balance: 3 ventas por $216, todas cobradas (sin fiados)", JSON.stringify(balance.ventas));
+ok(balance.cobrado === 216 && balance.gastos.total === 15.5 && balance.balance === 200.5, "cobrado − gastos", JSON.stringify([balance.cobrado, balance.gastos.total, balance.balance]));
 ok(balance.ganancia.monto === 80 && balance.ganancia.cobertura === 100, "la ganancia sale del costo: 4 × ($50 − $30)", JSON.stringify(balance.ganancia));
 const r1 = await inv.anularVenta(DB, v1.ventaId, { quien: "Ana", motivo: "se cobró dos veces" });
 ok(r1.devueltas === 1 && (await inv.verVariante(DB, talla)).porSede[sede.id] === 7, "anular devuelve el zapato al stock", JSON.stringify(r1));
 balance = await neg.resumen(DB, hoy());
-ok(balance.ventas.cantidad === 2 && balance.ventas.contado === 0, "y la venta anulada sale del balance");
+ok(balance.ventas.cantidad === 2 && balance.ventas.contado === 150, "y la venta anulada sale del balance");
 ok(sql.prepare("SELECT anulada FROM inv_ventas WHERE id = ?").get(v1.ventaId).anulada === 1, "…pero no se borra");
 error = null;
 try {
@@ -259,16 +236,20 @@ ok(caja.whatsapp?.startsWith("https://wa.me/") && caja.recibo === `/panel/ventas
 await inv.ajustarStock(DB, { varianteId: gb128, sedeId: sede.id, cantidad: 2 });
 caja = await cobrarEnCaja({ sede: sede.id, metodo: "Divisas (efectivo)", items: [{ variante: gb128, cantidad: 1 }] }, { rubro: "telefonos", tarifaDeCaja: "cashea" });
 ok(caja.ok && caja.total === 800 && caja.tarifa === "", "EPICCELL en divisas en efectivo: el precio en dólares", JSON.stringify(caja).slice(0, 120));
-caja = await cobrarEnCaja({ sede: sede.id, fiado: true, items: [{ variante: gb128, cantidad: 1 }] }, {});
-ok(!caja.ok && /nombre del cliente/.test(caja.error || ""), "fiar sin nombre: lo dice y no cobra", JSON.stringify(caja));
+html = await (await pedir("/panel/caja")).text();
+ok(!/value="Fiado"/.test(html) && !/Fiado/.test(html), "la caja ya no ofrece «Fiado»");
+ok(!/\/panel\/fiados/.test(html), "y el menú ya no tiene Fiados");
+const rf = await pedir("/panel/fiados");
+const cuerpoFiados = await rf.text();
+ok(!/Nadie te debe|Cobrar un fiado|Registrar abono/.test(cuerpoFiados), "/panel/fiados ya no es una pantalla de fiados");
 
 titulo("las páginas del negocio abren");
-for (const ruta of ["/panel/inicio", "/panel/ventas", `/panel/ventas/${f1.ventaId}`, "/panel/gastos", "/panel/fiados?pagados=1", "/panel/ventas.csv", "/panel/gastos.csv", "/panel/fiados.csv"]) {
+for (const ruta of ["/panel/inicio", "/panel/ventas", `/panel/ventas/${f1.ventaId}`, "/panel/gastos", "/panel/reportes", "/panel/ganancias", "/panel/ventas.csv", "/panel/gastos.csv"]) {
   const r = await pedir(ruta);
   ok(r.status === 200, `${ruta} abre`, String(r.status));
 }
 html = await (await pedir(`/panel/ventas/${f1.ventaId}`)).text();
-ok(/Luisa Gómez/.test(html) && /Fiado/.test(html), "el recibo de una venta fiada dice a quién");
+ok(/Luisa Gómez/.test(html) && /Zelle/.test(html) && !/Abonos|Pendiente/.test(html), "el recibo dice a quién y cómo pagó, sin abonos");
 
 titulo("¿dejar la sesión abierta?");
 ok(/; Max-Age=7776000/.test(galleta) && /SameSite=Lax/.test(galleta) && /HttpOnly/.test(galleta), "sí: dura 90 días aunque cierre el navegador", galleta.replace(/=[^;]+/, "=…"));

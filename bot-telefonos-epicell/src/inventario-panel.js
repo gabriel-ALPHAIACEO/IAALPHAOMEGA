@@ -363,7 +363,7 @@ const ESTILO = `<style>
 .libre-form[hidden]{display:none}
 .libre-form .acciones{grid-column:1/-1;margin:0;justify-content:flex-end}
 .pos-nota{font-size:12.5px;margin:12px 2px 0;line-height:1.5}
-.metodos.sacude,.fiado-datos.sacude{animation:sacudir .45s}
+.metodos.sacude,.cliente-datos.sacude{animation:sacudir .45s}
 .camara-marco{display:none;position:relative;margin-top:12px;border-radius:22px;overflow:hidden;background:#000}
 .camara-marco.encendida{display:block;animation:crecer-suave .5s var(--resorte)}
 .camara-marco.encendida #camara{display:block;margin:0;border-radius:0}
@@ -1494,7 +1494,7 @@ async function paginaDeCaja(env, url, opciones = {}) {
       return `<button type="button" class="pos-producto" data-producto="${p.id}" data-buscar="${esc(`${p.titulo} ${p.marca || ""}`.toLowerCase())}" style="--n:${Math.min(n, 30)}"><span class="pos-foto">${fotoDe(p.foto, p.titulo)}<span class="pos-cuantos${total <= 2 ? " poco" : ""}" data-cuantos="${total}">${total}</span></span><span class="pos-info"><b>${esc(p.titulo)}</b><span class="precio" data-precio="${precio ?? ""}" data-cashea="${cashea ?? ""}" data-desde="${desde}">${precio !== null && precio !== undefined ? esc(`${desde ? "desde " : ""}${plata(precio, { siempre: true })}`) : "Sin precio"}</span></span></button>`;
     })
     .join("");
-  const metodos = [...METODOS_DE_PAGO, "Fiado"]
+  const metodos = [...METODOS_DE_PAGO]
     .map((m) => `<label class="opcion"><input type="radio" name="metodo" value="${esc(m)}">${icono(iconoDeMetodo(m))}${esc(METODOS_CORTOS[m] || m)}</label>`)
     .join("");
   return `${ESTILO}${tostadaDesde(url)}${cabecera({
@@ -1541,7 +1541,7 @@ ${cashea.normal ? `<p class="suave" style="margin:8px 0 0;font-size:12.5px">Porc
 <div class="cashea-sub" id="cashea-inicial-titulo">¿Con qué pagó la inicial?</div>
 <div class="opciones" id="cashea-metodos">${METODOS_DE_LA_INICIAL.map((m) => `<label class="opcion"><input type="radio" name="inicial_metodo" value="${esc(m)}" autocomplete="off">${icono(iconoDeMetodo(m))}${esc(INICIAL_CORTOS[m] || m)}</label>`).join("")}</div>
 <div class="cashea-cuenta" id="cashea-cuenta" aria-live="polite"></div></div>
-<div class="fiado-datos" id="fiado-datos"><label class="campo">Cliente<input id="cliente" maxlength="80" placeholder="Nombre" autocomplete="off"></label><label class="campo">Teléfono<input id="telefono" maxlength="20" inputmode="tel" placeholder="0414…" autocomplete="off"></label></div>
+<div class="cliente-datos" id="cliente-datos"><label class="campo">Cliente<input id="cliente" maxlength="80" placeholder="Nombre" autocomplete="off"></label><label class="campo">Teléfono<input id="telefono" maxlength="20" inputmode="tel" placeholder="0414…" autocomplete="off"></label></div>
 ${r.conSerial ? `<label class="campo" style="margin:0 0 12px">IMEI o serial (opcional)<input id="serial" maxlength="60" inputmode="numeric" autocomplete="off" placeholder="Para la garantía: sale en el recibo"></label>` : ""}
 <button type="button" class="enlace-chico" id="btn-cliente">${icono("usuario", { clase: "chico" })}Añadir cliente al recibo</button>
 <button type="button" class="principal boton-cobrar" id="cobrar" title="Cobrar (F9)">${icono("check")}<span id="cobrar-texto">Cobrar</span><b id="total-boton"></b></button>
@@ -1641,7 +1641,7 @@ cajaLineas.addEventListener("click",function(e){var b=e.target.closest("button")
  pintar(true)});
 $("#vaciar").onclick=function(){lineas=[];libres=[];pintar(true);lector.focus()};
 var sedeSel=$("#sede");if(sedeSel.tagName==="SELECT")sedeSel.onchange=function(){pintar()};
-var metodosEl=$("#metodos"),fiadoDatos=$("#fiado-datos"),conCliente=false;
+var metodosEl=$("#metodos"),clienteDatos=$("#cliente-datos"),conCliente=false;
 function nivelCashea(){var r=document.querySelector('input[name="nivel"]:checked');return r?r.value:""}
 function pctCashea(n){if(n==="libre"){var t=String($("#cashea-pct").value||"").trim().replace(",",".").replace("%","");if(t==="")return null;var x=Number(t);return isFinite(x)&&x>=0&&x<=100?x:null}return n?CASHEA.niveles[n]:null}
 function inicialPor(){var r=document.querySelector('input[name="inicial_metodo"]:checked');return r?r.value:""}
@@ -1664,8 +1664,8 @@ function verCashea(){
 }
 var nivelesEl=$("#cashea-niveles");if(nivelesEl)nivelesEl.addEventListener("change",verCashea);
 var pctEl=$("#cashea-pct");if(pctEl)pctEl.addEventListener("input",verCashea);
-function verCliente(){var f=metodo()==="Fiado";fiadoDatos.classList.toggle("visible",f||conCliente);$("#btn-cliente").hidden=f||conCliente}
-metodosEl.addEventListener("change",function(){verCliente();pintar(true);if(metodo()==="Fiado")setTimeout(function(){$("#cliente").focus()},250)});
+function verCliente(){clienteDatos.classList.toggle("visible",conCliente);$("#btn-cliente").hidden=conCliente}
+metodosEl.addEventListener("change",function(){verCliente();pintar(true)});
 $("#btn-cliente").onclick=function(){conCliente=true;verCliente();setTimeout(function(){$("#cliente").focus()},250)};
 var libreForm=$("#libre-form");
 $("#btn-libre").onclick=function(){libreForm.hidden=false;$("#ticket").scrollIntoView({behavior:"smooth",block:"nearest"});setTimeout(function(){$("#libre-que").focus()},200)};
@@ -1712,10 +1712,9 @@ function cobrarYa(){
   if(inicialMonto>0&&!inicialPor()){sacudir($("#cashea-metodos"));return avisar("Elige con qu\u00e9 pag\u00f3 la inicial de Cashea.","mal")}
   cashea={nivel:nv,porcentaje:nv==="libre"?pc:null,inicialPor:inicialMonto>0?inicialPor():""};
  }
- var fiado=m==="Fiado",cliente=$("#cliente").value.trim(),telefono=$("#telefono").value.trim();
- if(fiado&&!cliente){sacudir(fiadoDatos);$("#cliente").focus();return avisar("Para fiar hace falta el nombre del cliente.","mal")}
+ var cliente=$("#cliente").value.trim(),telefono=$("#telefono").value.trim();
  var b=$("#cobrar");ocupado=true;b.classList.add("cargando");
- fetch("/panel/caja/cobrar",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify({sede:sede(),fecha:dia,quien:($("#quien")||{}).value||"",nota:$("#serial")&&$("#serial").value.trim()?"IMEI/serial: "+$("#serial").value.trim():"",metodo:fiado?"":m,cashea:cashea,fiado:fiado,cliente:cliente,telefono:telefono,items:lineas.map(function(l){return{variante:l.id,cantidad:l.cantidad}}),libres:libres.map(function(l){return{descripcion:l.descripcion,precio:l.precio,cantidad:l.cantidad}})})})
+ fetch("/panel/caja/cobrar",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify({sede:sede(),fecha:dia,quien:($("#quien")||{}).value||"",nota:$("#serial")&&$("#serial").value.trim()?"IMEI/serial: "+$("#serial").value.trim():"",metodo:m,cashea:cashea,cliente:cliente,telefono:telefono,items:lineas.map(function(l){return{variante:l.id,cantidad:l.cantidad}}),libres:libres.map(function(l){return{descripcion:l.descripcion,precio:l.precio,cantidad:l.cantidad}})})})
  .then(function(r){return r.json()}).then(function(d){ocupado=false;b.classList.remove("cargando");
   if(!d.ok)return avisar(d.error||"No se pudo cobrar.","mal");
   if(tiles)lineas.forEach(function(l){var t=tiles.querySelector('[data-producto="'+l.producto+'"] [data-cuantos]');if(t){var q=Math.max(0,(Number(t.getAttribute("data-cuantos"))||0)-l.cantidad);t.setAttribute("data-cuantos",q);t.textContent=q;t.classList.toggle("poco",q<=2)}});
@@ -1723,7 +1722,7 @@ function cobrarYa(){
   $("#exito-titulo").textContent="Venta #"+d.ventaId;
   var gan=$("#exito-ganancia");
   if(typeof d.ganancia==="number"){gan.hidden=false;gan.classList.toggle("sin",d.ganancia<=0&&d.sinCosto>0);gan.innerHTML=d.sinCosto&&d.ganancia===0?'<span>Ganancia</span><b>\u2014</b><small>Falta el costo de '+(d.sinCosto===1?"un producto":d.sinCosto+" productos")+' (Inventario \u203a Editar)</small>':'<span>Ganancia de esta venta</span><b>'+dinero(d.ganancia)+'</b>'+(d.sinCosto?'<small>Sin contar '+d.sinCosto+(d.sinCosto===1?" producto sin costo":" productos sin costo")+'</small>':"")}else gan.hidden=true;
-  $("#exito-detalle").textContent=d.unidades+(d.unidades===1?" producto":" productos")+" · "+(fiado?"Fiado a "+cliente:m)+(d.tarifa==="cashea"?" · precio Cashea":"")+(d.deOtroDia?" · del "+d.fechaTexto:"")+(d.casheaTexto?" · "+d.casheaTexto:"");
+  $("#exito-detalle").textContent=d.unidades+(d.unidades===1?" producto":" productos")+" · "+(cliente?m+" · "+cliente:m)+(d.tarifa==="cashea"?" · precio Cashea":"")+(d.deOtroDia?" · del "+d.fechaTexto:"")+(d.casheaTexto?" · "+d.casheaTexto:"");
   var av=$("#exito-avisos");av.hidden=!(d.avisos&&d.avisos.length);av.textContent=(d.avisos||[]).join(" ");
   $("#exito-recibo").href=d.recibo;var w=$("#exito-whatsapp");w.href=d.whatsapp||"#";w.hidden=!d.whatsapp;
   document.querySelectorAll(".tostadas").forEach(function(v){v.remove()});
@@ -1894,10 +1893,10 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
       return json({ ok: false, error: "Pedido inválido." }, 400);
     }
     const metodo = String(datos.metodo || "");
-    const tarifa = tarifaDeLaVenta(opciones.tarifaDeCaja, datos.fiado ? "Fiado" : metodo);
+    const tarifa = tarifaDeLaVenta(opciones.tarifaDeCaja, metodo);
     // Cashea: con la tabla puesta, la venta lleva el nivel del cliente (y, si hay inicial, con qué se pagó).
     let casheaPedida = null;
-    if (metodo === "Cashea" && !datos.fiado) {
+    if (metodo === "Cashea") {
       const cfg = await leerCasheaDeCaja(env.DB);
       const pedido = datos.cashea;
       {
@@ -1928,7 +1927,6 @@ async function atenderPost(request, env, url, { redirigir, pagina, opciones, tie
         metodoPago: metodo,
         items,
         libres: Array.isArray(datos.libres) ? datos.libres : [],
-        fiado: Boolean(datos.fiado),
         cliente: datos.cliente || "",
         telefono: datos.telefono || "",
         nota: datos.nota || "",

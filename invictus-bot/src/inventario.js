@@ -1212,8 +1212,7 @@ export function momentoDeLaVenta(dia, ahora = Date.now()) {
 
 // Además de los productos del inventario, una venta puede llevar "libres"
 // ([{ descripcion, precio, cantidad }]: un servicio, algo que no se lleva en
-// stock). Fiado: el cliente se lleva el producto y paga después (Fiados en
-// el panel). Para fiar hace falta saber a quién.
+// stock). (Los fiados se eliminaron el 17-oct-2026: todo se cobra en el momento.)
 // tarifa: "cashea" cobra el precio Cashea de cada producto (si lo tiene; si
 // no, el normal). Lo decide la caja de la tienda (ver inventario-panel.js).
 /* ── La cuenta de Cashea ─────────────────────────────────────────────────
@@ -1242,13 +1241,12 @@ export function lineaDeCashea({ nivel, porcentaje, cuenta, inicialPor }) {
   return `Cashea ${nivel === "libre" ? "inicial libre" : `nivel ${nivel}`}: ${inicial}${resto}`;
 }
 
-export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = [], libres = [], contactoId = null, cliente = "", telefono = "", fiado = false, nota = "", tarifa = "", fecha = "", cashea = null }) {
+export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = [], libres = [], contactoId = null, cliente = "", telefono = "", nota = "", tarifa = "", fecha = "", cashea = null }) {
   await asegurarInventario(db);
   const sede = Number(sedeId) || (await sedes(db))[0]?.id || 0;
   if (!(await db.prepare("SELECT 1 FROM inv_locales WHERE id = ?").bind(sede).first())) throw new Error("Esa sede no existe.");
   const nombreCliente = String(cliente || "").trim().slice(0, 80);
   const tel = String(telefono || "").replace(/[^\d+]/g, "").slice(0, 20);
-  if (fiado && !nombreCliente) throw new Error("Para fiar hace falta el nombre del cliente.");
   const ahora = Date.now();
   // De otro día: cuenta en ese día; "registrada" guarda cuándo se anotó.
   const delDia = momentoDeLaVenta(fecha, ahora);
@@ -1305,7 +1303,7 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
   let cuentaDeCashea = null;
   let casheaTexto = "";
   let notaFinal = String(nota || "").slice(0, 300);
-  if (cashea && !fiado) {
+  if (cashea) {
     if (!totalConocido) throw new Error("Para cobrar con Cashea hace falta el precio de todo lo que se vende.");
     const pct = Number(cashea.porcentaje);
     if (!Number.isFinite(pct) || pct < 0 || pct > 100) throw new Error("El porcentaje de la inicial de Cashea va de 0 a 100.");
@@ -1324,13 +1322,13 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
         ref,
         sede,
         String(quien).slice(0, 60),
-        fiado ? "Fiado" : String(metodoPago).slice(0, 40),
+        String(metodoPago).slice(0, 40),
         totalConocido ? Math.round(total * 100) / 100 : null,
         contactoId,
         cuando,
         nombreCliente,
         tel,
-        fiado ? 1 : 0,
+        0,
         notaFinal,
         Math.round(costoTotal * 100) / 100,
         tarifa === "cashea" ? "cashea" : "",
@@ -1343,7 +1341,7 @@ export async function cobrar(db, { sedeId, quien = "", metodoPago = "", items = 
         cuentaDeCashea ? String(cashea.inicialPor || "").slice(0, 40) : ""
       ),
   ];
-  const notaDeCaja = (fiado ? "Caja · Fiado" : metodoPago ? `Caja · ${metodoPago}` : "Caja") + (delDia === null ? "" : " · anotada después");
+  const notaDeCaja = (metodoPago ? `Caja · ${metodoPago}` : "Caja") + (delDia === null ? "" : " · anotada después");
   for (const [v, n] of agrupados) {
     const { precio, costo } = datos.get(v);
     sentencias.push(...sentenciasDeMovimiento(db, { variante: v, sede, tipo: "venta", delta: -n, quien, nota: notaDeCaja, contacto: contactoId, ventaRef: ref, ahora, dia: cuando, precio, costo }));

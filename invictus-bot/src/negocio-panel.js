@@ -1,5 +1,5 @@
 // LAS PANTALLAS DEL NEGOCIO (fase 2, 7-oct-2026): Inicio, Ventas, Gastos,
-// Fiados y el asistente. Los números y las reglas viven en negocio.js; aquí
+// Reportes, Ganancias y el asistente. Los números y las reglas viven en negocio.js; aquí
 // solo se pintan y se reciben los formularios.
 //
 //   /panel/inicio            cómo va el negocio hoy (o el período elegido),
@@ -7,9 +7,8 @@
 //   /panel/ventas            todo lo cobrado, por día, con su recibo
 //   /panel/ventas/<id>       el recibo: imprimir, WhatsApp, anular
 //   /panel/gastos            lo que sale, por categoría
-//   /panel/fiados            lo que deben los clientes y sus abonos
 //   /panel/asistente         (POST) la pregunta al asistente
-//   /panel/ventas.csv, /panel/gastos.csv, /panel/fiados.csv   para Excel
+//   /panel/ventas.csv, /panel/gastos.csv,  para Excel
 //
 // ESTE ARCHIVO ES IGUAL EN LAS TRES TIENDAS. panel.js lo llama con la sesión
 // ya comprobada.
@@ -30,8 +29,6 @@ import {
   serialDe,
   casheaDe,
   detalleDeLinea,
-  listarFiados,
-  abonar,
   resumen,
   reporteDelPeriodo,
   gananciasDelPeriodo,
@@ -40,7 +37,6 @@ import {
   consejos,
   asistenteActivo,
   preguntarAlAsistente,
-  claveDeCliente,
 } from "./negocio.js";
 import { anularVenta } from "./inventario.js";
 import { aCsv, respuestaCsv } from "./alpha.js";
@@ -85,7 +81,7 @@ function conAviso(ruta, { ok = "", error = "" } = {}) {
 
 function volverSeguro(valor, porDefecto) {
   const v = String(valor || "");
-  return /^\/panel\/(inicio|ventas|gastos|fiados)(\/|\?|#|$)/.test(v) && !v.startsWith("//") ? v : porDefecto;
+  return /^\/panel\/(inicio|ventas|gastos|reportes|ganancias)(\/|\?|#|$)/.test(v) && !v.startsWith("//") ? v : porDefecto;
 }
 
 // 0414-123.45.67 → 584141234567 (para wa.me). Vacío si no parece teléfono.
@@ -119,7 +115,6 @@ const ICONO_DE_CATEGORIA = {
 
 export function iconoDeMetodo(metodo) {
   const m = String(metodo || "").toLowerCase();
-  if (m === "fiado") return "fiados";
   if (m.includes("efectivo")) return "efectivo";
   if (m.includes("móvil") || m.includes("movil")) return "telefono";
   if (m.includes("transferencia")) return "banco";
@@ -225,10 +220,100 @@ function tarjetaDeCashea(c, { enlace = true } = {}) {
 }
 
 /* ── REPORTES ────────────────────────────────────────────────────────── */
+// EL REPORTE IMPRESO (17-oct-2026, pedido del dueño: "estilo factura fiscal, tipo carta, donde
+// especifica cada movimiento"): una hoja carta en blanco y negro con el encabezado de la tienda,
+// cada venta con sus productos (talla y color), cada gasto, el detalle de Cashea, los totales y
+// las firmas. En pantalla no se ve; al imprimir es lo único que sale. Es un documento de control
+// interno: no sustituye una factura fiscal.
+const ESTILO_DOCUMENTO = `<style>
+.doc-fiscal{display:none}
+@media print{
+ @page{size:letter portrait;margin:12mm 12mm 14mm}
+ .reporte-pantalla{display:none!important}
+ .doc-fiscal{display:block!important;color:#000;background:#fff;font:11px/1.35 "Courier New",Courier,monospace;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+ .doc-fiscal *{color:#000!important;background:none!important;box-shadow:none!important;text-shadow:none!important;animation:none!important}
+ .doc-fiscal h1{margin:0;font:700 17px/1.2 "Courier New",monospace;text-align:center;letter-spacing:.04em;text-transform:uppercase}
+ .doc-fiscal h2{margin:14px 0 4px;padding:3px 0;font:700 11.5px "Courier New",monospace;text-transform:uppercase;border-top:2px solid #000;border-bottom:1px solid #000}
+ .doc-fiscal .centro{text-align:center}.doc-fiscal .der{text-align:right}
+ .doc-fiscal .caja-datos{margin:8px 0;padding:6px 8px;border:1px solid #000;display:grid;grid-template-columns:1fr 1fr;gap:2px 18px}
+ .doc-fiscal .caja-datos div{display:flex;justify-content:space-between;gap:8px}
+ .doc-fiscal table{width:100%;border-collapse:collapse;margin:0}
+ .doc-fiscal th{padding:3px 4px;text-align:left;font-weight:700;border-bottom:1px solid #000;font-size:10px;text-transform:uppercase}
+ .doc-fiscal td{padding:3px 4px;vertical-align:top;border-bottom:1px dotted #777}
+ .doc-fiscal td.num,.doc-fiscal th.num{text-align:right;white-space:nowrap}
+ .doc-fiscal tr{break-inside:avoid}
+ .doc-fiscal .sub td{padding-top:0;font-size:10px}
+ .doc-fiscal .anulada td{text-decoration:line-through}
+ .doc-fiscal .totales{margin:8px 0 0 auto;width:62%}
+ .doc-fiscal .totales div{display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px dotted #777}
+ .doc-fiscal .totales .gran{margin-top:3px;padding:4px 0;font-weight:700;font-size:13px;border-top:2px solid #000;border-bottom:2px solid #000}
+ .doc-fiscal .firmas{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:46px;break-inside:avoid}
+ .doc-fiscal .firmas div{padding-top:4px;text-align:center;border-top:1px solid #000}
+ .doc-fiscal .nota{margin-top:14px;font-size:9.5px;text-align:center}
+}
+</style>`;
+
+function documentoFiscal({ r, ventas, gastos, periodo, tienda }) {
+  const m = (n) => esc(plata(n, { siempre: true }));
+  const emitido = `${diaDe(Date.now())} ${horaCorta(Date.now())}`;
+  const rango = periodo.desdeDia === periodo.hastaDia ? periodo.desdeDia : `${periodo.desdeDia} al ${periodo.hastaDia}`;
+  const vigentes = ventas.filter((v) => !v.anulada);
+  const anuladas = ventas.length - vigentes.length;
+  const lineasDeVenta = (v) =>
+    (v.items || []).length
+      ? v.items.map((i) => `${numero(i.cantidad)} × ${esc(i.titulo)}${i.opcion ? ` · ${esc(i.opcion)}` : ""}${i.color ? ` · ${esc(i.color)}` : ""}${i.precio !== null ? ` @ ${m(i.precio)}` : ""}`).join("<br>")
+      : esc(v.detalle || "—");
+  const filaVenta = (v) => {
+    const casheaV = v.cashea_nivel
+      ? `<tr class="sub${v.anulada ? " anulada" : ""}"><td></td><td colspan="5">&nbsp;&nbsp;↳ CASHEA ${v.cashea_nivel === "libre" ? "inicial libre" : `nivel ${esc(v.cashea_nivel)}`} (${esc(String(v.cashea_pct))} %): inicial ${m(v.cashea_inicial)}${v.cashea_inicial_por ? ` por ${esc(v.cashea_inicial_por)}` : ""} · financiado ${m(v.cashea_financiado)} en ${esc(String(v.cashea_cuotas))} ${v.cashea_cuotas === 1 ? "cuota" : "cuotas"}</td></tr>`
+      : "";
+    return `<tr class="${v.anulada ? "anulada" : ""}"><td>${v.id}</td><td>${esc(diaDe(v.creado))}<br>${esc(horaCorta(v.creado))}</td><td>${esc(v.cliente || "—")}</td><td>${lineasDeVenta(v)}${v.anulada ? "<br>(ANULADA)" : ""}</td><td>${esc(v.metodo_pago || "—")}</td><td class="num">${v.total === null ? "—" : m(v.total)}</td></tr>${casheaV}`;
+  };
+  const ventasTabla = ventas.length
+    ? `<table><thead><tr><th>N°</th><th>Fecha / hora</th><th>Cliente</th><th>Descripción</th><th>Pago</th><th class="num">Total</th></tr></thead><tbody>${ventas.map(filaVenta).join("")}</tbody></table>`
+    : '<p class="centro">Sin ventas en este período.</p>';
+  const c = r.cashea;
+  const casheaSeccion = c.ventas
+    ? `<table><thead><tr><th>N°</th><th>Cliente</th><th>Nivel</th><th class="num">%</th><th class="num">Total</th><th class="num">Inicial</th><th>Pagó con</th><th class="num">Financiado</th><th class="num">Cuotas</th></tr></thead><tbody>${c.lista.map((v) => `<tr><td>${v.id}</td><td>${esc(v.cliente || "—")}</td><td>${v.nivel === "libre" ? "Libre" : esc(v.nivel)}</td><td class="num">${esc(String(v.pct))}</td><td class="num">${m(v.total)}</td><td class="num">${m(v.inicial)}</td><td>${esc(v.inicial_por || "—")}</td><td class="num">${m(v.financiado)}</td><td class="num">${esc(String(v.cuotas))}</td></tr>`).join("")}<tr><td colspan="4"><b>TOTAL CASHEA (${numero(c.ventas)})</b></td><td class="num"><b>${m(c.total)}</b></td><td class="num"><b>${m(c.inicial)}</b></td><td></td><td class="num"><b>${m(c.financiado)}</b></td><td></td></tr></tbody></table>`
+    : '<p class="centro">Sin ventas con Cashea en este período.</p>';
+  const gastosSeccion = gastos.length
+    ? `<table><thead><tr><th>Fecha</th><th>Categoría</th><th>Detalle</th><th>Método</th><th class="num">Monto</th></tr></thead><tbody>${gastos.map((g) => `<tr><td>${esc(diaDe(g.fecha))}</td><td>${esc(g.categoria)}</td><td>${esc(g.descripcion || "—")}</td><td>${esc(g.metodo || "—")}</td><td class="num">${m(g.monto)}</td></tr>`).join("")}</tbody></table>`
+    : '<p class="centro">Sin gastos en este período.</p>';
+  const metodos = r.porMetodo.length
+    ? `<table><thead><tr><th>Método de pago</th><th class="num">Ventas</th><th class="num">Monto</th></tr></thead><tbody>${r.porMetodo.map((x) => `<tr><td>${esc(x.metodo)}</td><td class="num">${numero(x.cantidad)}</td><td class="num">${m(x.total)}</td></tr>`).join("")}</tbody></table>`
+    : "";
+  return `${ESTILO_DOCUMENTO}<div class="doc-fiscal" aria-hidden="true">
+<h1>${esc(tienda)}</h1>
+<div class="centro"><b>REPORTE DE VENTAS Y MOVIMIENTOS</b></div>
+<div class="centro">Período: ${esc(rango)} (${esc(periodo.nombre)}) · Emitido: ${esc(emitido)}</div>
+<div class="caja-datos"><div><span>Ventas registradas</span><b>${numero(vigentes.length)}</b></div><div><span>Ventas anuladas</span><b>${numero(anuladas)}</b></div><div><span>Total vendido</span><b>${m(r.ventas.total)}</b></div><div><span>Ganancia</span><b>${m(r.ganancia.monto)}</b></div></div>
+<h2>I. Detalle de ventas</h2>${ventasTabla}
+<h2>II. Detalle de Cashea (inicial cobrada y monto financiado)</h2>${casheaSeccion}
+<h2>III. Detalle de gastos</h2>${gastosSeccion}
+<h2>IV. Resumen por método de pago</h2>${metodos}
+<h2>V. Totales</h2>
+<div class="totales">
+<div><span>Total vendido (${numero(vigentes.length)} ventas)</span><b>${m(r.ventas.total)}</b></div>
+<div><span>Cashea: inicial cobrada</span><span>${m(c.inicial)}</span></div>
+<div><span>Cashea: monto financiado</span><span>${m(c.financiado)}</span></div>
+<div><span>Cobrado</span><b>${m(r.cobrado)}</b></div>
+<div><span>Gastos</span><span>${m(r.gastos.total)}</span></div>
+<div><span>Ganancia (productos con costo)</span><span>${m(r.ganancia.monto)}</span></div>
+<div class="gran"><span>BALANCE (cobrado − gastos)</span><span>${m(r.balance)}</span></div>
+</div>
+<div class="firmas"><div>Elaborado por</div><div>Revisado por</div></div>
+<p class="nota">Documento de control interno generado por ALPHA IA. No sustituye una factura fiscal.</p>
+</div>`;
+}
+
 
 async function paginaDeReporte(env, url, { tienda }) {
   const periodo = periodoDe(url.searchParams);
-  const r = await reporteDelPeriodo(env.DB, periodo);
+  const [r, ventasDelPeriodo, gastosDelPeriodo] = await Promise.all([
+    reporteDelPeriodo(env.DB, periodo),
+    listarVentas(env.DB, { ...periodo, limite: 2000 }),
+    listarGastos(env.DB, { ...periodo, limite: 2000 }),
+  ]);
   const hoy = diaDe(Date.now());
   const fechas = periodo.desdeDia === periodo.hastaDia ? diaBonito(periodo.desdeDia, hoy) : `${periodo.desdeDia} al ${periodo.hastaDia}`;
   const texto = textoDelReporte(r, { tienda, nombre: periodo.nombre, fechas: periodo.desdeDia === periodo.hastaDia ? periodo.desdeDia : fechas });
@@ -246,14 +331,15 @@ async function paginaDeReporte(env, url, { tienda }) {
   const lista = c.lista.length
     ? `<div class="filas" style="margin-top:12px">${c.lista.map((v) => `<a class="fila" href="/panel/ventas/${v.id}">${insignia("calendario", "marca")}<div class="fila-centro"><div class="fila-titulo">#${v.id} · ${esc(v.cliente || "Sin nombre")}</div><div class="fila-sub" style="white-space:normal">${esc(horaCorta(v.creado))} · ${v.nivel === "libre" ? "inicial libre" : `nivel ${esc(v.nivel)}`} (${esc(String(v.pct))} %) · inicial ${esc(plata(v.inicial, { siempre: true }))}${v.inicial_por ? ` por ${esc(v.inicial_por)}` : ""} · financiado ${esc(plata(v.financiado, { siempre: true }))}</div></div><b>${esc(plata(v.total, { siempre: true }))}</b></a>`).join("")}</div>`
     : "";
-  return `${tostadaDesde(url)}${cabecera({
+  const documento = documentoFiscal({ r, ventas: ventasDelPeriodo, gastos: gastosDelPeriodo, periodo, tienda });
+  return `${tostadaDesde(url)}<div class="reporte-pantalla">${cabecera({
     sobre: "Tu negocio",
     titulo: "Reportes",
     texto: `El reporte de ${esc(periodo.nombre)} para cerrar la caja: ventas, cómo se pagó, Cashea (inicial cobrada y monto financiado), gastos y balance.`,
     acciones: `<div class="no-imprimir" style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" onclick="print()">${icono("imprimir")}Imprimir</button><a class="boton" href="${esc(enlaceWhatsapp("", texto))}" target="_blank" rel="noopener">${icono("enviar")}WhatsApp</a><a class="boton suave" href="/panel/reportes.csv?${esc(consulta.toString())}">${icono("bajar")}Excel</a></div>`,
   })}
 <div class="herramientas no-imprimir">${selectorDePeriodo("/panel/reportes", periodo)}</div>
-<div class="mosaico">${dato("Vendido", cifra(r.ventas.total), "ventas", "marca", `${numero(r.ventas.cantidad)} ${r.ventas.cantidad === 1 ? "venta" : "ventas"}`)}${dato("Cobrado", cifra(r.cobrado), "efectivo", "bien", [r.abonos ? `incluye ${esc(plata(r.abonos))} de abonos` : "de contado", r.cashea.financiado ? `y ${esc(plata(r.cashea.financiado))} financiados por Cashea` : ""].filter(Boolean).join(" · "))}${dato("Ganancia", cifra(r.ganancia.monto), "sube", "bien", `<a href="/panel/ganancias">Ver todas las ganancias</a>`)}${dato("Gastos", cifra(r.gastos.total), "gastos", "aviso")}${dato("Balance", cifra(r.balance), "grafica", r.balance >= 0 ? "bien" : "mal", "cobrado − gastos")}</div>
+<div class="mosaico">${dato("Vendido", cifra(r.ventas.total), "ventas", "marca", `${numero(r.ventas.cantidad)} ${r.ventas.cantidad === 1 ? "venta" : "ventas"}`)}${dato("Cobrado", cifra(r.cobrado), "efectivo", "bien", ["de contado", r.cashea.financiado ? `y ${esc(plata(r.cashea.financiado))} financiados por Cashea` : ""].filter(Boolean).join(" · "))}${dato("Ganancia", cifra(r.ganancia.monto), "sube", "bien", `<a href="/panel/ganancias">Ver todas las ganancias</a>`)}${dato("Gastos", cifra(r.gastos.total), "gastos", "aviso")}${dato("Balance", cifra(r.balance), "grafica", r.balance >= 0 ? "bien" : "mal", "cobrado − gastos")}</div>
 <section class="panel-tarjeta" style="margin:18px 0"><h2>${insignia("recibo", "marca", "chica")}Cómo se pagó</h2>${metodos}</section>
 <section class="panel-tarjeta cashea-tarjeta" style="margin:18px 0"><h2>${insignia("calendario", "marca", "chica")}Cashea</h2>${
     c.ventas
@@ -262,7 +348,7 @@ async function paginaDeReporte(env, url, { tienda }) {
         }<h3 style="margin:16px 0 6px;font-size:14px">Por nivel</h3>${niveles}<h3 style="margin:16px 0 0;font-size:14px">Cada venta</h3>${lista}`
       : '<p class="suave" style="margin:0">Sin ventas con Cashea en este período. Cuando cobres con Cashea en la Caja, aquí verás la inicial cobrada y el monto financiado.</p>'
   }</section>
-<section class="panel-tarjeta no-imprimir" style="margin:18px 0"><div class="seccion"><h2>${insignia("enviar", "neutro", "chica")}El reporte en texto</h2><button type="button" onclick="navigator.clipboard&amp;&amp;navigator.clipboard.writeText(document.getElementById('reporte-texto').textContent).then(function(){this.textContent='Copiado'}.bind(this))">Copiar</button></div><pre id="reporte-texto" style="white-space:pre-wrap;margin:0;font:inherit;font-size:13.5px;line-height:1.55">${esc(texto)}</pre></section>`;
+<section class="panel-tarjeta no-imprimir" style="margin:18px 0"><div class="seccion"><h2>${insignia("enviar", "neutro", "chica")}El reporte en texto</h2><button type="button" onclick="navigator.clipboard&amp;&amp;navigator.clipboard.writeText(document.getElementById('reporte-texto').textContent).then(function(){this.textContent='Copiado'}.bind(this))">Copiar</button></div><pre id="reporte-texto" style="white-space:pre-wrap;margin:0;font:inherit;font-size:13.5px;line-height:1.55">${esc(texto)}</pre></section></div>${documento}`;
 }
 
 /* ── GANANCIAS ───────────────────────────────────────────────────────── */
@@ -326,15 +412,13 @@ async function paginaDeInicio(env, url, { tienda }) {
   await asegurarNegocio(env.DB);
   const periodo = periodoDe(url.searchParams);
   const hoy = diaDe(Date.now());
-  const [actual, anterior, acabando, fiados, pasos] = await Promise.all([
+  const [actual, anterior, acabando, pasos] = await Promise.all([
     resumen(env.DB, periodo),
     resumen(env.DB, anteriorDe(periodo)),
     seEstanAcabando(env.DB),
-    listarFiados(env.DB),
     primerosPasos(env.DB),
   ]);
-  const deben = fiados.reduce((a, f) => a + f.saldo, 0);
-  const lista = consejos({ actual, anterior, acabando, fiados, periodo });
+  const lista = consejos({ actual, anterior, acabando, periodo });
 
   const variosDias = periodo.dias > 1;
   const derechaDelHeroe = variosDias
@@ -360,13 +444,13 @@ async function paginaDeInicio(env, url, { tienda }) {
 ${dato("Ventas", cifra(actual.ventas.cantidad, { tipo: "numero" }), `${esc(plata(actual.ventas.total, { siempre: true }))} vendido`, "ventas", "marca", `/panel/ventas?p=${periodo.clave === "a-medida" ? "hoy" : periodo.clave}`)}
 ${dato("Ticket promedio", cifra(actual.ventas.ticketPromedio), "por venta", "recibo")}
 ${dato("Unidades", cifra(actual.ventas.unidades, { tipo: "numero" }), "productos que salieron", "inventario")}
-${dato("Te deben", cifra(deben), fiados.length ? `${fiados.length} ${fiados.length === 1 ? "cliente" : "clientes"}` : "nadie te debe", "fiados", deben > 0 ? "aviso" : "bien", "/panel/fiados")}
+${dato("Ganancia", cifra(actual.ganancia.monto), "ver todas las ganancias", "sube", "bien", "/panel/ganancias")}
 </div>`;
 
   const rapidos = `<div class="rapidos">
 <a class="rapido principal" href="/panel/caja">${insignia("caja")}<span><b>Nueva venta</b><small>Cobrar en la caja</small></span></a>
 <a class="rapido" href="/panel/gastos#nuevo">${insignia("gastos", "mal")}<span><b>Registrar gasto</b><small>Lo que salió hoy</small></span></a>
-<a class="rapido" href="/panel/fiados">${insignia("fiados", "aviso")}<span><b>Cobrar un fiado</b><small>Anotar un abono</small></span></a>
+<a class="rapido" href="/panel/reportes">${insignia("recibo", "aviso")}<span><b>Reporte del día</b><small>Para cerrar la caja</small></span></a>
 <a class="rapido" href="/panel/inventario/nuevo">${insignia("inventario", "bien")}<span><b>Nuevo producto</b><small>Con su código</small></span></a>
 </div>`;
 
@@ -444,17 +528,10 @@ ${rapidos}
 /* ── VENTAS ──────────────────────────────────────────────────────────── */
 
 function filaDeVenta(v) {
-  const metodo = v.fiado ? "Fiado" : v.metodo_pago || "Sin decir";
-  const saldo = v.fiado && !v.anulada ? Math.max(0, (Number(v.total) || 0) - Number(v.abonado || 0)) : 0;
-  const estado = v.anulada
-    ? '<span class="chip mal">Anulada</span>'
-    : v.fiado
-      ? saldo > 0.009
-        ? `<span class="chip aviso">Debe ${esc(plata(saldo))}</span>`
-        : '<span class="chip bien">Fiado pagado</span>'
-      : "";
+  const metodo = v.metodo_pago || "Sin decir";
+  const estado = v.anulada ? '<span class="chip mal">Anulada</span>' : "";
   const sub = [`#${v.id}`, horaCorta(v.creado), anotadaDespues(v) ? "anotada después" : "", metodo, v.cliente].filter(Boolean).map(esc).join(" · ");
-  return `<a class="fila${v.anulada ? " tachada" : ""}" href="/panel/ventas/${v.id}">${insignia(iconoDeMetodo(metodo), v.anulada ? "neutro" : v.fiado ? "aviso" : "marca")}<div class="fila-centro"><div class="fila-titulo">${esc(v.detalle || `Venta #${v.id}`)}</div><div class="fila-sub">${sub}</div></div><div class="fila-fin"><b>${v.total === null ? "—" : esc(plata(v.total, { siempre: true }))}</b>${estado ? `<small>${estado}</small>` : ""}</div></a>`;
+  return `<a class="fila${v.anulada ? " tachada" : ""}" href="/panel/ventas/${v.id}">${insignia(iconoDeMetodo(metodo), v.anulada ? "neutro" : "marca")}<div class="fila-centro"><div class="fila-titulo">${esc(v.detalle || `Venta #${v.id}`)}</div><div class="fila-sub">${sub}</div></div><div class="fila-fin"><b>${v.total === null ? "—" : esc(plata(v.total, { siempre: true }))}</b>${estado ? `<small>${estado}</small>` : ""}</div></a>`;
 }
 
 async function paginaDeVentas(env, url) {
@@ -493,7 +570,7 @@ async function paginaDeVentas(env, url) {
     acciones: `<a class="boton suave" href="/panel/ventas.csv?${esc(consulta.toString())}">${icono("bajar")}Excel</a><a class="boton principal" href="/panel/caja">${icono("mas")}Nueva venta</a>`,
   })}
 <div class="herramientas">${selectorDePeriodo("/panel/ventas", periodo, extra)}</div>
-<div class="mosaico">${dato("Vendido", cifra(r.ventas.total), "ventas", "marca", `${numero(r.ventas.cantidad)} ${r.ventas.cantidad === 1 ? "venta" : "ventas"}`)}${dato("Cobrado", cifra(r.cobrado), "efectivo", "bien", r.abonos ? `incluye ${esc(plata(r.abonos))} de abonos` : "de contado")}${dato("Ticket promedio", cifra(r.ventas.ticketPromedio), "recibo")}${dato("Fiado", cifra(r.ventas.fiado), "fiados", "aviso", "vendido a crédito")}</div>
+<div class="mosaico">${dato("Vendido", cifra(r.ventas.total), "ventas", "marca", `${numero(r.ventas.cantidad)} ${r.ventas.cantidad === 1 ? "venta" : "ventas"}`)}${dato("Cobrado", cifra(r.cobrado), "efectivo", "bien", "de contado")}${dato("Ticket promedio", cifra(r.ventas.ticketPromedio), "recibo")}</div>
 ${q ? "" : tarjetaDeCategorias(r.porCategoria, { conPista: true })}${q ? "" : tarjetaDeCashea(r.cashea)}
 <form class="herramientas" method="get" action="/panel/ventas"><input type="hidden" name="p" value="${esc(periodo.clave === "a-medida" ? "hoy" : periodo.clave)}">${periodo.clave === "a-medida" ? `<input type="hidden" name="desde" value="${esc(periodo.desdeDia)}"><input type="hidden" name="hasta" value="${esc(periodo.hastaDia)}">` : ""}<label class="buscador">${icono("buscar")}<input name="q" value="${esc(q)}" placeholder="Cliente, teléfono o número de venta"></label><button>Buscar</button></form>
 ${lista}`;
@@ -512,8 +589,7 @@ async function paginaDeRecibo(env, id, url, { tienda }) {
 ${lineas || '<p class="recibo-sub">Sin productos.</p>'}
 <div class="total"><span>Total</span><span>${venta.total === null ? "por confirmar" : esc(plata(venta.total, { siempre: true }))}</span></div>
 ${venta.tarifa === "cashea" ? '<div class="recibo-sub" style="margin:6px 0 0;text-align:right">Precio Cashea</div>' : ""}
-${venta.fiado ? `<div class="linea" style="border:0"><span>Abonado</span><b>${esc(plata(venta.abonado, { siempre: true }))}</b></div><div class="linea" style="border:0"><span>Pendiente</span><b>${esc(plata(venta.saldo, { siempre: true }))}</b></div>` : ""}
-<div class="pie">${serialDe(venta.nota) ? `${esc(serialDe(venta.nota))}<br>` : ""}${casheaDe(venta.nota) ? `${esc(casheaDe(venta.nota))}<br>` : ""}${venta.fiado ? "Fiado" : esc(venta.metodo_pago || "")}${venta.sede ? ` · ${esc(venta.sede)}` : ""}<br>¡Gracias por tu compra!</div></div>`;
+<div class="pie">${serialDe(venta.nota) ? `${esc(serialDe(venta.nota))}<br>` : ""}${casheaDe(venta.nota) ? `${esc(casheaDe(venta.nota))}<br>` : ""}${esc(venta.metodo_pago || "")}${venta.sede ? ` · ${esc(venta.sede)}` : ""}<br>¡Gracias por tu compra!</div></div>`;
 
   const idAnular = "anular-venta";
   const anular = venta.anulada
@@ -526,23 +602,13 @@ ${venta.fiado ? `<div class="linea" style="border:0"><span>Abonado</span><b>${es
         cuerpo: `<form method="post" action="/panel/ventas/anular" data-quien><input type="hidden" name="venta" value="${venta.id}"><label class="campo" style="margin-top:14px">Motivo (opcional)<input name="motivo" maxlength="200" placeholder="Se cobró dos veces, devolvió todo…"></label><div class="acciones">${botonCerrarVentana(idAnular)}<button class="peligro">${icono("deshacer")}Anular venta</button></div></form>`,
       });
 
-  const clave = venta.fiado ? claveDeCliente(venta.cliente, venta.telefono) : "";
   const detalles = `<section class="panel-tarjeta"><h2>${insignia("recibo", "marca", "chica")}Detalles</h2><div class="filas">
-<div class="fila">${insignia(iconoDeMetodo(venta.fiado ? "Fiado" : venta.metodo_pago), "neutro", "chica")}<div class="fila-centro"><div class="fila-sub">Pago</div><div class="fila-titulo">${esc(venta.fiado ? "Fiado" : venta.metodo_pago || "Sin decir")}</div></div></div>
+<div class="fila">${insignia(iconoDeMetodo(venta.metodo_pago), "neutro", "chica")}<div class="fila-centro"><div class="fila-sub">Pago</div><div class="fila-titulo">${esc(venta.metodo_pago || "Sin decir")}</div></div></div>
 ${venta.cliente || venta.telefono ? `<div class="fila">${avatar(venta.cliente || venta.telefono, { clase: "chico" })}<div class="fila-centro"><div class="fila-sub">Cliente</div><div class="fila-titulo">${esc(venta.cliente || "—")}${venta.telefono ? ` <span class="suave">${esc(venta.telefono)}</span>` : ""}</div></div></div>` : ""}
 <div class="fila">${insignia("sede", "neutro", "chica")}<div class="fila-centro"><div class="fila-sub">Sede</div><div class="fila-titulo">${esc(venta.sede || "—")}</div></div></div>
 ${venta.quien ? `<div class="fila">${insignia("usuario", "neutro", "chica")}<div class="fila-centro"><div class="fila-sub">Cobró</div><div class="fila-titulo">${esc(venta.quien)}</div></div></div>` : ""}
 ${venta.nota ? `<div class="fila">${insignia("editar", "neutro", "chica")}<div class="fila-centro"><div class="fila-sub">Nota</div><div class="fila-titulo" style="white-space:normal">${esc(venta.nota)}</div></div></div>` : ""}
-</div></section>
-${
-  venta.fiado && !venta.anulada
-    ? `<section class="panel-tarjeta"><h2>${insignia("fiados", "aviso", "chica")}Abonos</h2>${
-        venta.abonos.length
-          ? `<div class="filas">${venta.abonos.map((a) => `<div class="fila"><div class="fila-centro"><div class="fila-titulo">${esc(plata(a.monto))}</div><div class="fila-sub">${esc(fechaHora(a.creado))}${a.metodo ? ` · ${esc(a.metodo)}` : ""}${a.quien ? ` · ${esc(a.quien)}` : ""}</div></div></div>`).join("")}</div>`
-          : '<p class="suave">Todavía no ha abonado nada.</p>'
-      }${venta.saldo > 0.009 ? formularioDeAbono({ clave, saldo: venta.saldo, volver: `/panel/ventas/${venta.id}` }) : '<p class="bien" style="margin:10px 0 0;font-weight:700">Pagada completa.</p>'}</section>`
-    : ""
-}`;
+</div></section>`;
 
   return `${tostadaDesde(url)}${cabecera({
     volver: { href: "/panel/ventas", texto: "Ventas" },
@@ -551,13 +617,6 @@ ${
     acciones: `<div class="no-imprimir" style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" onclick="print()">${icono("imprimir")}Imprimir</button><a class="boton" href="${esc(enlaceWhatsapp(venta.telefono, texto))}" target="_blank" rel="noopener">${icono("enviar")}WhatsApp</a>${venta.anulada ? "" : `<button type="button" class="peligro" popovertarget="${idAnular}">${icono("deshacer")}Anular</button>`}</div>`,
   })}
 <div class="dos"><div>${recibo}</div><div class="no-imprimir">${detalles}</div></div>${anular}`;
-}
-
-function formularioDeAbono({ clave, saldo, volver }) {
-  return `<form method="post" action="/panel/fiados/abonar" class="abono-fila" data-quien><input type="hidden" name="clave" value="${esc(clave)}"><input type="hidden" name="volver" value="${esc(volver)}">
-<label class="campo">Abona<div class="monto chico"><span>$</span><input name="monto" inputmode="decimal" value="${esc(String(saldo).replace(".", ","))}" required></div></label>
-<label class="campo">Cómo pagó<select name="metodo">${METODOS_DE_PAGO.map((m) => `<option>${esc(m)}</option>`).join("")}</select></label>
-<button class="principal">${icono("check")}Registrar abono</button></form>`;
 }
 
 /* ── GASTOS ──────────────────────────────────────────────────────────── */
@@ -618,46 +677,6 @@ ${r.gastos.porCategoria.length ? reparto(r.gastos.porCategoria, { nombre: (g) =>
 ${lista}`;
 }
 
-/* ── FIADOS ──────────────────────────────────────────────────────────── */
-
-async function paginaDeFiados(env, url, { tienda }) {
-  const todos = url.searchParams.get("ver") === "todos";
-  const fiados = await listarFiados(env.DB, { incluirPagados: todos });
-  const deben = fiados.filter((f) => f.saldo > 0.009);
-  const total = deben.reduce((a, f) => a + f.saldo, 0);
-  const masViejo = deben.reduce((a, f) => (f.desde && (!a || f.desde < a) ? f.desde : a), 0);
-  const ahora = Date.now();
-
-  const tarjetas = fiados
-    .map((f) => {
-      const dias = f.desde ? Math.floor((ahora - f.desde) / DIA_MS) : 0;
-      const recordatorio = `Hola${f.cliente ? ` ${f.cliente}` : ""}, te escribimos de ${tienda}. Te recordamos que tienes un saldo pendiente de ${plata(f.saldo)}. ¡Gracias!`;
-      const pagado = f.saldo <= 0.009;
-      return `<details class="panel-tarjeta fiado"${fiados.length === 1 ? " open" : ""}><summary class="fila" style="padding:0;list-style:none">${avatar(f.cliente || f.telefono)}<div class="fila-centro"><div class="fila-titulo">${esc(f.cliente || "Sin nombre")}</div><div class="fila-sub">${f.telefono ? `${esc(f.telefono)} · ` : ""}${pagado ? "Pagó todo" : `debe desde ${esc(fechaHora(f.desde).replace(/,.*$/, ""))}${dias ? ` · hace ${dias} ${dias === 1 ? "día" : "días"}` : ""}`}</div></div><div class="fila-fin"><b class="${pagado ? "bien" : dias > 15 ? "mal" : ""}">${esc(plata(f.saldo, { siempre: true }))}</b><small>de ${esc(plata(f.total, { siempre: true }))}</small></div></summary>
-<div class="fiado-cuerpo">
-<div class="filas" style="margin-top:14px">${f.ventas
-        .map((v) => `<a class="fila" href="/panel/ventas/${v.id}">${insignia("recibo", "neutro", "chica")}<div class="fila-centro"><div class="fila-titulo">Venta #${v.id}</div><div class="fila-sub">${esc(fechaHora(v.creado))}</div></div><div class="fila-fin"><b>${esc(plata(v.total, { siempre: true }))}</b><small>${v.saldo > 0.009 ? `debe ${esc(plata(v.saldo))}` : "pagada"}</small></div></a>`)
-        .join("")}</div>
-${pagado ? "" : formularioDeAbono({ clave: f.clave, saldo: f.saldo, volver: `/panel/fiados${todos ? "?ver=todos" : ""}` })}
-${pagado ? "" : `<div class="acciones"><a class="boton suave" href="${esc(enlaceWhatsapp(f.telefono, recordatorio))}" target="_blank" rel="noopener">${icono("enviar")}Recordarle por WhatsApp</a>${f.telefono ? "" : '<span class="suave">Sin teléfono: elige el contacto en WhatsApp.</span>'}</div>`}
-</div></details>`;
-    })
-    .join("");
-
-  return `${tostadaDesde(url)}${cabecera({
-    sobre: "Tu negocio",
-    titulo: "Fiados",
-    texto: "Lo que te deben tus clientes. Anota cada abono y mándales un recordatorio por WhatsApp con un toque.",
-    acciones: `<a class="boton suave" href="/panel/fiados.csv">${icono("bajar")}Excel</a><a class="boton suave" href="/panel/fiados${todos ? "" : "?ver=todos"}">${icono(todos ? "filtro" : "lista")}${todos ? "Solo los que deben" : "Incluir pagados"}</a>`,
-  })}
-<section class="heroe" style="margin-bottom:20px"><div class="heroe-fila"><div><div class="sobre">Te deben</div><div class="heroe-cifra">${cifra(total)}</div>
-<div class="heroe-nota"><span>${deben.length ? `${deben.length} ${deben.length === 1 ? "cliente" : "clientes"}${masViejo ? ` · el más antiguo desde ${esc(fechaHora(masViejo).replace(/,.*$/, ""))}` : ""}` : "Nadie te debe nada."}</span></div></div>
-<div class="heroe-pista">${icono("idea")}<span>Para fiar, en la Caja elige <b>Fiado</b> y escribe el nombre del cliente. Aquí lo verás al momento.</span></div></div></section>
-${fiados.length ? `<div class="lista-fiados">${tarjetas}</div>` : vacio({ icono: "fiados", titulo: "Nadie te debe", texto: "Cuando vendas fiado en la Caja, aquí verás cuánto debe cada cliente y podrás anotar sus abonos.", acciones: `<a class="boton principal" href="/panel/caja">${icono("caja")}Abrir la caja</a>` })}`;
-}
-
-/* ── Las rutas ───────────────────────────────────────────────────────── */
-
 export function esRutaDeNegocio(url) {
   const r = url.pathname;
   return (
@@ -672,9 +691,6 @@ export function esRutaDeNegocio(url) {
     r === "/panel/gastos" ||
     r.startsWith("/panel/gastos/") ||
     r === "/panel/gastos.csv" ||
-    r === "/panel/fiados" ||
-    r.startsWith("/panel/fiados/") ||
-    r === "/panel/fiados.csv" ||
     r === "/panel/asistente"
   );
 }
@@ -700,7 +716,6 @@ export async function atenderNegocio(request, env, url, helpers, opciones = {}) 
   if (r === "/panel/ganancias") return pagina("Ganancias", await paginaDeGanancias(env, url), { ruta: "ganancias" });
   if (r === "/panel/reportes") return pagina("Reportes", await paginaDeReporte(env, url, { tienda }), { ruta: "reportes" });
   if (r === "/panel/gastos") return pagina("Gastos", await paginaDeGastos(env, url), { ruta: "gastos" });
-  if (r === "/panel/fiados") return pagina("Fiados", await paginaDeFiados(env, url, { tienda }), { ruta: "fiados" });
 
   const fecha = diaDe(Date.now());
   if (r === "/panel/ventas.csv") {
@@ -709,7 +724,7 @@ export async function atenderNegocio(request, env, url, helpers, opciones = {}) 
     return respuestaCsv(
       `ventas-${periodo.desdeDia}-a-${periodo.hastaDia}.csv`,
       aCsv(
-        ["Venta", "Fecha", "Hora", "Cliente", "Teléfono", "Productos", "Método de pago", "Total", "Fiado", "Abonado", "Debe", "Anulada", "Sede", "Cobró"],
+        ["Venta", "Fecha", "Hora", "Cliente", "Teléfono", "Productos", "Método de pago", "Total", "Anulada", "Sede", "Cobró"],
         ventas.map((v) => [
           v.id,
           diaDe(v.creado),
@@ -717,11 +732,8 @@ export async function atenderNegocio(request, env, url, helpers, opciones = {}) 
           v.cliente,
           v.telefono,
           v.detalle,
-          v.fiado ? "Fiado" : v.metodo_pago,
+          v.metodo_pago,
           v.total ?? "",
-          v.fiado ? "sí" : "no",
-          v.abonado || 0,
-          v.fiado && !v.anulada ? Math.max(0, (Number(v.total) || 0) - Number(v.abonado || 0)) : 0,
           v.anulada ? "sí" : "no",
           v.sede || "",
           v.quien,
@@ -763,13 +775,6 @@ export async function atenderNegocio(request, env, url, helpers, opciones = {}) 
     return respuestaCsv(
       `gastos-${periodo.desdeDia}-a-${periodo.hastaDia}.csv`,
       aCsv(["Fecha", "Categoría", "Detalle", "Método", "Monto", "Quién"], gastos.map((g) => [diaDe(g.fecha), g.categoria, g.descripcion, g.metodo, g.monto, g.quien]))
-    );
-  }
-  if (r === "/panel/fiados.csv") {
-    const fiados = await listarFiados(env.DB, { incluirPagados: true });
-    return respuestaCsv(
-      `fiados-${fecha}.csv`,
-      aCsv(["Cliente", "Teléfono", "Debe", "Total fiado", "Abonado", "Debe desde"], fiados.map((f) => [f.cliente, f.telefono, f.saldo, f.total, f.abonado, f.desde ? diaDe(f.desde) : ""]))
     );
   }
   return redirigir("/panel/inicio");
@@ -826,17 +831,6 @@ async function atenderPost(request, env, url, { redirigir, tienda, rubro = "", t
     const volver = volverSeguro(datos.get("volver"), "/panel/gastos");
     await borrarGasto(env.DB, datos.get("id"));
     return responder(volver, { ok: "Gasto borrado" });
-  }
-
-  if (r === "/panel/fiados/abonar") {
-    const volver = volverSeguro(datos.get("volver"), "/panel/fiados");
-    try {
-      const a = await abonar(env.DB, { clave: String(datos.get("clave") || ""), monto: datos.get("monto"), metodo: String(datos.get("metodo") || ""), quien, nota: String(datos.get("nota") || "") });
-      console.log(`NEGOCIO: abono de ${a.abonado} de ${a.cliente} por ${quien || "—"}`);
-      return responder(volver, { ok: `Abono de ${plata(a.abonado)} de ${a.cliente || "el cliente"} registrado${a.queda > 0.009 ? `. Todavía debe ${plata(a.queda)}` : ". Ya no debe nada"}` });
-    } catch (error) {
-      return responder(volver, { error: error.message });
-    }
   }
 
   if (r === "/panel/ventas/anular") {

@@ -9,7 +9,7 @@
 //   · una cantidad mal escrita no deja un producto a medias;
 //   · escribir una cantidad aplica la DIFERENCIA sobre lo que haya: una venta
 //     que cayó mientras tanto no se pierde, y nunca queda una venta falsa;
-//   · una venta de ayer cuenta en AYER (Ventas, balance, fiados), baja el
+//   · una venta de ayer cuenta en AYER (Ventas, balance), baja el
 //     stock de hoy, queda marcada como anotada después, y no se puede poner
 //     en el futuro ni en una fecha que no existe;
 //   · si un producto se contó después de esa fecha, la caja avisa que el
@@ -331,11 +331,6 @@ for (const [fecha, regex] of [[neg.diaDe(Date.now() + 2 * DIA), /todavía no lle
 }
 const sinStockAyer = await falla(inv.cobrar(DB, { sedeId: sede.id, metodoPago: "Efectivo", items: [{ varianteId: cl, cantidad: 99 }], fecha: ayer }));
 ok(sinStockAyer?.name === "SinStock", "y una de ayer también respeta que no se puede vender lo que no hay");
-
-titulo("el fiado de anteayer debe desde anteayer");
-await inv.cobrar(DB, { sedeId: sede.id, fiado: true, cliente: "Pepe Prueba", telefono: "0414-555-0000", items: [{ varianteId: cl, cantidad: 1 }], fecha: anteayer });
-const fiado = (await neg.listarFiados(DB)).find((f) => f.cliente === "Pepe Prueba");
-ok(fiado && neg.diaDe(fiado.desde) === anteayer, "«debe desde» es el día de la venta, no el día en que se anotó", fiado ? neg.diaDe(fiado.desde) : "sin fiado");
 
 titulo("anular una venta de ayer");
 const stockAntesDeAnular = stockDe(cm);

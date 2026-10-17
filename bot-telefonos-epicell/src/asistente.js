@@ -22,7 +22,7 @@
 //   · Puede proponer "Abrir Inventario" (u otra pantalla) como botón. Solo
 //     rutas de esta lista: nunca un enlace inventado.
 //   · Las reglas de siempre siguen: no inventa cifras, y si le piden anotar
-//     un gasto o un abono lo deja listo para que una persona lo confirme.
+//     un gasto lo deja listo para que una persona lo confirme.
 //
 // ESTE ARCHIVO ES IGUAL EN LAS TRES TIENDAS. marco.js pinta el botón;
 // negocio.js usa la guía para preguntarle a la IA.
@@ -57,7 +57,6 @@ export const PANTALLAS = {
   sedes: ["/panel/inventario/sedes", "Sedes"],
   movimientos: ["/panel/inventario/movimientos", "Movimientos"],
   gastos: ["/panel/gastos", "Gastos"],
-  fiados: ["/panel/fiados", "Fiados"],
   chats: ["/panel", "Chats"],
   clientes: ["/panel/clientes", "Clientes"],
   metricas: ["/panel/metricas", "Métricas"],
@@ -110,8 +109,8 @@ TU NEGOCIO
   escribiendo el nombre y tocándolo. Se elige ${v}, cantidad, cómo pagó
   (los métodos de pago de la lista) y se toca Cobrar. Al cobrar baja el
   stock y queda la venta con su recibo.${palabras.conSerial ? ` Para teléfonos pide el IMEI o serial, que sale en el recibo.` : ""}
-  También cobra cosas que no están en el inventario (un servicio) y ventas
-  al fiado (pide el nombre del cliente). Si se olvidó anotar las ventas de
+  También cobra cosas que no están en el inventario (un servicio). Todo se
+  cobra en el momento: no hay ventas al fiado. Si se olvidó anotar las ventas de
   un día, arriba de "Cómo pagó" está "Venta de": Hoy, Ayer u Otro día. La
   venta queda en ese día (en Ventas, en Inicio y en el balance) y se marca
   "anotada después"; el stock baja en el momento en que se anota. La
@@ -189,9 +188,6 @@ TU NEGOCIO
     la web solo pide por WhatsApp.
 · Gastos (/panel/gastos): anotar lo que sale (monto, categoría, método,
   fecha). Se puede borrar uno mal puesto. Suma en el balance.
-· Fiados (/panel/fiados): quién debe y cuánto. Se registran abonos (no más
-  de lo que debe; se descuenta de la deuda más vieja primero) y se le puede
-  recordar por WhatsApp.
 
 VENTAS CON IA (el bot que atiende Instagram, y WhatsApp donde esté encendido)
 · Chats (/panel): las conversaciones en vivo, con filtros (con problemas,
@@ -235,14 +231,13 @@ distintos, y guardar ventas sin internet.`;
 
 const SUGERENCIAS = {
   inicio: ["¿Cuánto vendí esta semana?", "¿Qué se está acabando?", "Dame una idea para vender más"],
-  caja: ["¿Cómo cobro con la cámara?", "¿Cómo cobro al fiado?", "¿Cómo anulo una venta?"],
+  caja: ["¿Cómo cobro con la cámara?", "¿Cómo cobro con Cashea?", "¿Cómo anulo una venta?"],
   ventas: ["¿Cuánto vendí hoy?", "¿Cómo anulo una venta?", "¿Cómo mando el recibo por WhatsApp?"],
   ganancias: ["¿Cuánto gané hoy?", "¿Qué producto me deja más ganancia?", "¿Por qué una venta sale sin ganancia?"],
   reportes: ["¿Cuánto cobré de inicial de Cashea hoy?", "¿Cuánto se financió con Cashea?", "¿Cómo mando el reporte por WhatsApp?"],
   inventario: ["¿Cómo cargo mi inventario de Excel?", "¿Cómo imprimo las etiquetas?", "¿Qué se está acabando?"],
   gastos: ["¿En qué gasté más este mes?", "Gasté 20 en transporte", "¿Cuál es mi balance?"],
   pedidos: ["¿Cómo apruebo un pago de la web?", "¿Dónde pongo mis datos de Pago Móvil?", "¿Qué pasa si rechazo un pedido?"],
-  fiados: ["¿Quién me debe más?", "¿Cómo registro un abono?", "¿Cuánto me deben en total?"],
   chats: ["¿Cómo pauso el bot con un cliente?", "¿Cómo le escribo a un cliente?"],
   clientes: ["¿Cómo marco un cliente como vendido?", "¿Cómo bajo los clientes a Excel?"],
 };
@@ -308,13 +303,13 @@ function boton(c,ir){if(!ir||!ir.href)return;var a=document.createElement("a");a
 charlas.forEach(function(c){hist.slice(-10).forEach(function(h){burbuja(c,h.de,h.texto);if(h.ir)boton(c,h.ir)})});
 function propuesta(c,a){
  var d=document.createElement("div");d.className="ia-propuesta";
- var texto=a.tipo==="gasto"?"Registrar un gasto de <b>"+esc(plata(a.monto))+"</b> en "+esc(a.categoria)+(a.descripcion?" ("+esc(a.descripcion)+")":""):"Registrar un abono de <b>"+esc(plata(a.monto))+"</b> de "+esc(a.cliente);
+ var texto="Registrar un gasto de <b>"+esc(plata(a.monto))+"</b> en "+esc(a.categoria)+(a.descripcion?" ("+esc(a.descripcion)+")":"");
  d.innerHTML='<span>'+texto+'</span><button type="button" class="fantasma chico" data-no>No</button><button type="button" class="principal chico" data-si>Sí, registrar</button>';
  c.appendChild(d);bajar(c);
  d.querySelector("[data-no]").onclick=function(){d.remove()};
  d.querySelector("[data-si]").onclick=function(){var b=this;b.disabled=true;
-  var url=a.tipo==="gasto"?"/panel/gastos/nuevo":"/panel/fiados/abonar";
-  var datos=a.tipo==="gasto"?{monto:a.monto,categoria:a.categoria,descripcion:a.descripcion,quien:quien()}:{clave:a.clave,monto:a.monto,quien:quien()};
+  var url="/panel/gastos/nuevo";
+  var datos={monto:a.monto,categoria:a.categoria,descripcion:a.descripcion,quien:quien()};
   fetch(url,{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify(datos)}).then(function(r){return r.json()}).then(function(r){
    if(!r.ok){b.disabled=false;d.querySelector("span").textContent=r.error||"No se pudo registrar.";return}
    d.innerHTML='<span>Listo: '+esc(r.mensaje||"registrado")+'. Actualizando tus números…</span>';hist.push({de:"ella",texto:"Listo: "+(r.mensaje||"registrado")+"."});guardar();setTimeout(function(){location.reload()},1300);
