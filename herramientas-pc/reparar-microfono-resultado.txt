@@ -1,0 +1,37 @@
+Reparar microfono - 2026-10-17 01:50
+=== REPARAR EL MICROFONO ===
+(modo solo diagnostico: no se cambia nada)
+ATENCION: no eres administrador. Algunos arreglos no se podran hacer. Abre PowerShell con clic derecho > Ejecutar como administrador.
+
+--- 1. Privacidad: permiso de Windows para usar el microfono ---
+   [OK]        Todo el equipo (apps de la Tienda) : sin restricciones guardadas
+   [OK]        Todo el equipo (programas de escritorio) : sin restricciones guardadas
+   [OK]        Tu usuario (apps de la Tienda) : sin restricciones guardadas
+   [OK]        Tu usuario (programas de escritorio) : sin restricciones guardadas
+   [OK]        No hay politica que bloquee el microfono
+
+--- 2. Servicios de audio de Windows ---
+   [PROBLEMA]  No encuentro el servicio Windows Audio Endpoint Builder: The term 'Get-Service' is not recognized as a name of a cmdlet, function, script file, or executable program.
+Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+   [PROBLEMA]  No encuentro el servicio Windows Audio: The term 'Get-Service' is not recognized as a name of a cmdlet, function, script file, or executable program.
+Check the spelling of the name, or if a path was included, verify that the path is correct and try again.
+
+--- 3. Microfonos y tarjeta de sonido (Administrador de dispositivos) ---
+   (no se pudo leer la lista de dispositivos: The term 'Get-PnpDevice' is not recognized as a name of a cmdlet, function, script file, or executable program.
+Check the spelling of the name, or if a path was included, verify that the path is correct and try again.)
+   (no se pudo leer la lista de controladores: The term 'Get-PnpDevice' is not recognized as a name of a cmdlet, function, script file, or executable program.
+Check the spelling of the name, or if a path was included, verify that the path is correct and try again.)
+
+--- 4. Microfonos silenciados o con volumen en cero ---
+   (no se pudo revisar el volumen: Exception calling "Listar" with "0" argument(s): "COM is not supported")
+
+=============== RESUMEN ===============
+Arreglado: 0   Problemas encontrados: 2
+
+AHORA PRUEBA: Configuracion > Sistema > Sonido > Entrada: elige tu microfono y habla: la barra 'Probar el microfono' debe moverse.
+Si usas una app (Zoom, Teams, Chrome, WhatsApp...), cierrala por completo y vuelve a abrirla.
+
+No pude arreglar el problema solo. Siguientes pasos:
+  1) Si Windows no lista ningun microfono: revisa el cable/conector (enchufa en otro puerto) y vuelve a correr con -Agresivo.
+  2) Actualiza o reinstala el controlador de sonido desde la pagina del fabricante del equipo (Realtek, etc.).
+  3) Si es un microfono USB o Bluetooth: pruebalo en otra PC para descartar que este danado.

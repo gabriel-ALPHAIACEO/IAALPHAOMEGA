@@ -1,0 +1,124 @@
+============================================================================
+ PASAR SOLVENTAS AL WINDOWS 11 - PASO A PASO
+============================================================================
+Regla de oro: el Windows 8.1 NO se toca hasta que todo funcione en el 11. Es
+tu plan B. Mientras pruebas, sigue vendiendo en el 8.1.
+
+Los comandos que empiezan con ">" se copian SIN el ">" y se pegan en el CMD
+(administrador) con clic derecho. Los .bat se ejecutan con clic derecho,
+"Ejecutar como administrador".
+
+----------------------------------------------------------------------------
+PARTE 1 - PRUEBA (sin riesgo, con el respaldo de hoy)
+----------------------------------------------------------------------------
+PASO 1. En Windows 11 instala SQL Server 2022 Express (la 2019 ya no se
+        puede descargar; la 2022 funciona igual con esta base). Tipo "Basica".
+        Al terminar, comprueba:
+> sc query "MSSQL$SQLEXPRESS"
+        Debe decir RUNNING.
+
+PASO 2. Copia a la carpeta de Solventas de Windows 11 (C:\SSCA o E:\SSCA):
+          - la carpeta completa C:\SSCA del Windows 8.1 (reemplaza la que hay)
+          - el contenido del zip del paquete de traslado (la VERSION MAS NUEVA:
+            .bat, .ps1 y reparar-base.sql en la MISMA carpeta)
+          - el respaldo RRVS2013CA-hoy.bak (o su carpeta)
+
+PASO 3. Restaurar la base. Clic derecho en C:\SSCA\restaurar-base.bat,
+        "Ejecutar como administrador". Pega la ruta del .bak (el archivo) o de la carpeta donde esta, por
+        ejemplo:  C:\SSCA\RRVS2013CA-hoy.bak   o   C:\respaldo-solventas
+        Escribe SI. Arriba debe decir "restaurar-base v4" (o mas nuevo). El programa:
+          - restaura la base como RRVS2013CA
+          - apaga AUTO_CLOSE y AUTO_SHRINK, y revisa que no haya paginas danadas
+          - crea los indices
+          - activa el usuario "sa" y te pide LA CLAVE DE sa (la que usa
+            Solventas) dos veces. Se escribe ahi, sin que se vea, y no se guarda
+            en ningun archivo.
+        Al final debe decir:
+          COMPRUEBA: entrando como sa a RRVS2013CA: 4 productos, ultima venta 2026-10-14
+          Usuario sa: listo y comprobado
+        Si la base ya existe, pregunta si la reemplaza: escribe exactamente SI
+        (antes guarda una copia). Si dice que no comprobo, copiame lo que salio
+        (queda en restaurar-base-resultado.txt, sin claves).
+
+PASO 4. Apuntar Solventas a este SQL Server. Clic derecho en
+        C:\SSCA\ajustar-modoc.bat, "Ejecutar como administrador". Deja la
+        primera linea de modoc.ini como  .\SQLEXPRESS  (hace una copia:
+        modoc.ini.copia).
+
+PASO 5. Registrar el componente VMAX.ocx. Clic derecho en
+        C:\SSCA\registrar-vmax.bat, "Ejecutar como administrador". Debe decir
+        "Registrado".
+
+PASO 5B. Encender la "red" de SQL Server (MUY probable que haga falta).
+        Solventas usa un conector viejo (SQLOLEDB) que NO puede hablar con
+        SQL Server 2022 si estan apagados Named Pipes, TCP/IP y el servicio
+        "SQL Server Browser" (asi vienen tras la instalacion Basica). Sintoma:
+        "[DBNETLIB][ConnectionOpen (Connect()).] No existe el servidor SQL
+        Server o se ha denegado el acceso al mismo".
+        Clic derecho en habilitar-red-sql.bat, "Ejecutar como administrador".
+        Despues, para comprobar igual que lo hace Solventas, ejecuta
+        probar-conexion.bat (te pide la clave de sa) y debe decir
+        "CONECTO BIEN. Productos en la base: 4".
+        Si no conecta, copiame el "Error exacto" que muestra.
+
+PASO 6. Abrir Solventas (C:\SSCA\Solventas.exe). Si no abre bien:
+          - Clic derecho en Solventas.exe > Propiedades > Compatibilidad:
+            marca "Ejecutar este programa como administrador" y prueba con
+            "Ejecutar en modo de compatibilidad para: Windows 8".
+          - Si el error nombra BDE o IDAPI32.DLL: instalar el BDE (ver
+            DESCARGAS-WINDOWS11.txt, seccion C). Avisame y lo hacemos juntos.
+          - Si dice que no conecta: copiame el texto del error.
+
+PASO 7. Probar de verdad (con el respaldo de hoy):
+          [ ] Abre y entra con el usuario de siempre
+          [ ] Busca un producto por codigo (por ejemplo 0180001043U5)
+          [ ] Hace una venta de prueba y la anula / la ignora (en la base de
+              prueba, no importa)
+          [ ] Imprime una factura de prueba en la impresora fiscal
+          [ ] Los reportes abren
+        Cada [ ] que falle, me dices cual y el texto del error.
+
+----------------------------------------------------------------------------
+PARTE 2 - EL DIA DEL CAMBIO (cuando la prueba salio bien)
+----------------------------------------------------------------------------
+PASO 8. Al cerrar la tienda, en el Windows 8.1: cierra Solventas en TODAS las
+        computadoras y saca un respaldo NUEVO:
+> sqlcmd -S .\SQLEXPRESS -E -Q "BACKUP DATABASE [RRVS2013CA] TO DISK='C:\respaldo-solventas\RRVS2013CA-cambio.bak' WITH INIT, CHECKSUM"
+        Copia ese .bak a Windows 11 (pendrive o disco compartido).
+
+PASO 9. En Windows 11, ejecuta otra vez restaurar-base.bat con el respaldo
+        nuevo. Como la base ya existe, preguntara si la reemplaza: escribe SI
+        (antes guarda una copia de la de prueba). Vuelve a poner la clave de sa.
+
+PASO 10. Abre Solventas en Windows 11 y repite las pruebas del paso 7. Desde
+         ahora se vende en Windows 11.
+
+PASO 11. NO borres el Windows 8.1 ni su base: dejalo apagado, como plan B, al
+         menos un mes. Si hay que volver, usa el respaldo mas reciente del 11.
+
+----------------------------------------------------------------------------
+OTRAS COMPUTADORAS (cajas) QUE SE CONECTAN A ESTA
+----------------------------------------------------------------------------
+Hoy modoc.ini dice USER\SQLEXPRESS. En cada caja pon el nombre de la PC de
+Windows 11 con:
+> C:\SSCA\ajustar-modoc.bat NOMBRE-DE-LA-PC\SQLEXPRESS
+(el nombre de la PC: Configuracion > Sistema > Acerca de). En la PC servidor
+hay que activar TCP/IP en "SQL Server Configuration Manager", activar el
+servicio "SQL Server Browser" y abrir el firewall (UDP 1434 y el puerto TCP de
+la instancia). Hazlo solo si tienes mas de una PC.
+
+----------------------------------------------------------------------------
+SI ALGO FALLA - LO QUE ME TIENES QUE ENVIAR
+----------------------------------------------------------------------------
+  - El texto exacto del error (o una captura).
+  - C:\SSCA\restaurar-base-resultado.txt (no lleva claves).
+  - En que paso fue.
+
+----------------------------------------------------------------------------
+LO QUE NO PUEDO ASEGURAR SIN PROBARLO EN TU PC
+----------------------------------------------------------------------------
+  - Que Solventas (un programa Delphi viejo) abra sin ajustes en Windows 11.
+  - El BDE y el driver de la impresora fiscal en Windows 11.
+  - Que los scripts de este paquete corran en tu Windows 11 (los probe sobre una
+    copia de tu base en un SQL Server de pruebas, no en Windows).
+Por eso la prueba (parte 1) va primero y el 8.1 queda como plan B.

@@ -1,0 +1,11 @@
+{
+  "url": "https://TU-TIENDA.workers.dev",
+  "clave": "${ENV:SYNC_CLAVE}",
+  "origen": "Profit",
+  "fuente": { "tipo": "archivo", "ruta": "C:\\exportes\\stock.csv" },
+  "destinos": [
+    { "tipo": "alpha" },
+    { "tipo": "webhook", "url": "https://otra-tienda.com/api/stock", "cabeceras": { "Authorization": "Bearer ${ENV:CLAVE_OTRA}" } },
+    { "tipo": "carpeta", "carpeta": "C:\\respaldo-del-stock", "formato": "json" }
+  ]
+}

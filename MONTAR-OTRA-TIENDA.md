@@ -12,8 +12,13 @@ Lo único que cambia son dos cosas:
 
 | Archivo | Qué lleva |
 |---|---|
-| `wrangler.toml` | credenciales, dominio de Shopify, WhatsApp, y `TIENDA = "emperador"` |
-| `src/tiendas/emperador.js` | nombre, horarios, calidad, catálogo y términos de búsqueda |
+| `wrangler.toml` | credenciales, base D1, dominio de Shopify, WhatsApp |
+| `src/prompts/` | la voz de la tienda: nombre, horarios, calidad, catálogo, métodos de pago y tasa |
+
+**Cada tienda tiene su propio Worker y su propia D1.** Un despliegue malo
+tumba a una sola, y los datos de un cliente no pueden mezclarse con los de
+otro. Lo que NUNCA se copia de una tienda a otra es `wrangler.toml`,
+`src/prompts/` y los secretos.
 
 Cuando arregle un fallo, pegas los mismos archivos de `src/` en las dos
 carpetas y las dos quedan arregladas. Esa es toda la gracia de hacerlo así.
@@ -129,10 +134,11 @@ Y abre `https://emperador-bot.TU-CUENTA.workers.dev/estado`. Tiene que
 decir:
 
 ```
-TIENDA              El Emperador   (TIENDA = "emperador")
+CÓDIGO DESPLEGADO   la VERSION que acabas de pegar
 ```
 
-Si dice *Invictus Shoes*, falta `TIENDA = "emperador"` en `wrangler.toml`.
+Si no coincide con la última VERSION que pegaste, el despliegue no llegó:
+vuelve a correr `wrangler deploy`.
 Eso es grave: el bot se presentaría con el nombre del otro negocio.
 
 Con el Worker ya desplegado, vuelve al **paso 3, punto 6** y da de alta el
@@ -145,7 +151,7 @@ webhook en Meta.
 Hasta aquí el bot conversa, reconoce zapatos por foto y vende. Pero busca
 a ciegas: no sabe qué productos existen en esta tienda.
 
-En `src/tiendas/emperador.js` hay tres campos vacíos:
+En `src/prompts/` hay tres archivos que empiezan vacíos:
 
 - `catalogo` — los títulos de los productos, tal cual están en Shopify
 - `catalogoVision` — los mismos, para el prompt de las fotos
@@ -188,7 +194,8 @@ desplegada, qué secretos faltan, si la base está bien y qué conversaciones
 están pausadas.
 
 Si `/estado` ni siquiera carga, el Worker no arranca: casi siempre es un
-archivo que no se copió. Comprueba que existan `src/tienda.js` y la
-carpeta `src/tiendas/` con los dos archivos dentro.
+archivo que no se copió. Comprueba que estén los SIETE prompts que
+`src/ia.js` importa: texto, vision, cotejo, catalogo, modelos, indexar y
+pagos. Si falta uno solo, el Worker no arranca.
 
 Y si sigue sin salir, `npx.cmd wrangler tail` y mándame lo que imprima.

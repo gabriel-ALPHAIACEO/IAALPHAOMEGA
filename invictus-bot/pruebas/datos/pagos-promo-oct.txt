@@ -1,0 +1,90 @@
+# CÓMO SE PAGA EN ESTA TIENDA: los métodos y la tasa.
+#
+# Este archivo es la ÚNICA fuente. De acá sale lo que el bot le contesta al
+# cliente cuando pregunta "¿qué métodos de pago tienen?" o "¿a qué tasa
+# reciben?", y también con lo que se le corrige al modelo si intenta
+# inventar otra cosa (ver pagos.js).
+#
+# Hay tres secciones, marcadas con [CORCHETES]: los métodos, la tasa y
+# Cashea. Las líneas que empiezan con # son notas para ti y no se le mandan
+# a nadie.
+#
+# LO QUE NO VA ACÁ (importante): números de cuenta, cédulas, RIF, correos de
+# Zelle, teléfonos de pago móvil, ni el valor de la tasa del día. Esto es
+# CÓMO se paga, no los datos con los que se paga ni cuánto sale hoy — eso lo
+# da un asesor al cerrar, y el bot tiene prohibido mandarlo o pedirlo.
+# Además este archivo va dentro del código del Worker: no es sitio para
+# datos bancarios.
+
+[METODOS]
+# Un método por línea. Una línea que TERMINA EN DOS PUNTOS es el título de
+# un grupo, y los métodos que vengan debajo van dentro de ese grupo. Si no
+# quieres grupos, escribe los métodos sueltos y ya.
+#
+# Se le enseñan al cliente tal como están escritos acá, emojis incluidos.
+
+🇻🇪 En bolívares:
+Pago Móvil
+Transferencia bancaria
+Punto de venta
+
+🌎 Internacional:
+Zelle
+PayPal
+Zinli
+Binance (USDT)
+Mercantil Panamá
+Banesco Panamá
+
+
+[TASA]
+# A qué tasa se reciben los pagos. UNA línea, sin números: la tasa del día
+# cambia todos los días y el bot no la sabe, así que dice cuál se usa y el
+# asesor confirma cuánto sale hoy.
+la tasa del BCV (Banco Central de Venezuela)
+
+
+[CASHEA]
+# El financiamiento con Cashea: cuánto paga el cliente de INICIAL según su
+# nivel en Cashea. Una línea por nivel, escrita así: "Nivel 3: 30%".
+#
+# Una línea que NO es de un nivel es el titular de la promoción y sale
+# arriba, tal cual, cuando se le explica Cashea al cliente.
+#
+# De acá salen las cuentas personalizadas: si el cliente dice "soy nivel 3"
+# y está mirando unos zapatos de 90 USD, el bot le calcula 27 USD de inicial
+# y el resto en cuotas. Las cuentas las hace el código, no la IA: es dinero.
+#
+# Si cambia la promoción, se cambia AQUÍ y nada más. Si borras todas las
+# líneas de esta sección, el bot vuelve a pasar Cashea a un asesor.
+#
+# VIGENCIA: del día que empieza al día que termina, ambos incluidos, en hora
+# de Venezuela, con el formato AAAA-MM-DD. Antes y después de esas fechas el
+# bot NO ofrece estos porcentajes: pasa Cashea a un asesor, que es mejor que
+# prometer una promoción vencida. Para una promoción nueva, cambia las fechas
+# y los niveles. Sin línea de vigencia, la tabla vale siempre.
+
+# CUOTAS: en cuántas cuotas se paga lo que queda después de la inicial. Si
+# escribes algo después del número ("Cuotas: 6 sin interés"), sale tal cual
+# junto a "cuotas" en el mensaje al cliente.
+#
+# MÍNIMO: desde qué monto se puede optar por las 6 cuotas ("para optar por
+# las 6 cuotas la compra debe ser de 100$ en adelante"). Por debajo, el bot
+# no reparte en 6 cuotas: lo dice. Si algún día el 0% de inicial también
+# pide mínimo, escribe "Mínimo para el 0% y las 6 cuotas: 100" y el bot lo
+# aplica a los dos.
+#
+# ANTES de la fecha de inicio el bot SÍ contesta: anuncia la promoción
+# ("¡Arranca el 1 de octubre!") con la tabla y las cuentas. DESPUÉS de la
+# fecha final, pasa Cashea a un asesor.
+
+Vigencia: 2026-10-01 al 2026-10-06
+Cuotas: 6 sin interés
+Mínimo para las 6 cuotas: 100
+6 cuotas + 0% de inicial en Cashea 🔥
+Nivel 6: 0%
+Nivel 5: 10%
+Nivel 4: 20%
+Nivel 3: 30%
+Nivel 2: 40%
+Nivel 1: 50%

@@ -1,0 +1,4 @@
+# El ZIP que se le manda al dueño para que se descargue src/ de una vez.
+# Se arma con "zip -qr src-epicell.zip src" cada vez que hace falta, así que
+# no tiene por qué vivir en el repo (sería una copia vieja de src/).
+src-epicell.zip

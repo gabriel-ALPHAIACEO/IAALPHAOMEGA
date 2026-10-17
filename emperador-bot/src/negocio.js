@@ -1,0 +1,850 @@
+// LA GESTIÓN DEL NEGOCIO (fase 2, 7-oct-2026): ventas, gastos,
+// balance y la IA que acompaña al dueño.
+//
+// QUÉ SE PEDÍA. El dueño: "un sistema completo, en la misma app, donde los
+// clientes sientan que llevan su control y que la IA los apoya. Algo estilo
+// Treinta pero con IA". El inventario y la caja ya estaban (inventario.js);
+// aquí está lo demás de un negocio:
+//
+//   · GASTOS: lo que sale (alquiler, sueldos, mercancía…), por categoría.
+//   · EL BALANCE: lo que entró, lo que salió y lo que se ganó, por día,
+//     semana o mes, con lo más vendido y lo que se está acabando.
+//   · LA IA: consejos que salen de los números (sin gastar nada) y un
+//     asistente al que se le pregunta en palabras ("¿cuánto vendí esta
+//     semana?", "gasté 20 en transporte").
+//
+// LA IA PROPONE, LA PERSONA DECIDE (misma regla que el inventario): el
+// asistente nunca registra nada por su cuenta. Si entiende "gasté 20 en
+// transporte", lo deja listo en un botón y una persona lo confirma.
+//
+// ESTE ARCHIVO ES IGUAL EN LAS TRES TIENDAS. Las ventas son las de la caja
+// (inv_ventas en inventario.js); aquí se suman, no se duplican.
+
+import { asegurarInventario, sedes, listarProductos, verProducto } from "./inventario.js";
+import { guiaDelPanel, nombreDePantalla, pantallaValida } from "./asistente.js";
+import { rubroDe } from "./marco.js";
+import { anotarGasto } from "./gasto.js";
+
+const TABLAS_NEGOCIO = [
+  `CREATE TABLE IF NOT EXISTS neg_gastos (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    fecha       INTEGER NOT NULL,
+    categoria   TEXT NOT NULL,
+    descripcion TEXT NOT NULL DEFAULT '',
+    monto       REAL NOT NULL CHECK (monto > 0),
+    metodo      TEXT NOT NULL DEFAULT '',
+    quien       TEXT NOT NULL DEFAULT '',
+    local_id    INTEGER,
+    borrado     INTEGER NOT NULL DEFAULT 0,
+    creado      INTEGER NOT NULL
+  )`,
+  "CREATE INDEX IF NOT EXISTS neg_gastos_fecha ON neg_gastos (fecha)",
+  // La tabla de los abonos de fiados ya no existe en la tienda: se borra de las bases que la tenían.
+  "DROP TABLE IF EXISTS neg_abonos",
+];
+
+export const CATEGORIAS_DE_GASTO = [
+  "Mercancía",
+  "Alquiler",
+  "Sueldos",
+  "Servicios (luz, agua, internet)",
+  "Transporte",
+  "Publicidad",
+  "Comisiones",
+  "Mantenimiento",
+  "Impuestos",
+  "Otros",
+];
+
+export const METODOS_DE_PAGO = ["Divisas (efectivo)", "Pago móvil", "Transferencia", "Punto de venta", "Zelle", "Cashea", "Bolívares (efectivo)", "Otro"];
+
+let listo = false;
+
+export async function asegurarNegocio(db) {
+  await asegurarInventario(db);
+  if (listo) return;
+  for (const sentencia of TABLAS_NEGOCIO) await db.prepare(sentencia).run();
+  listo = true;
+}
+
+export function olvidarQueNegocioEstaListo() {
+  listo = false;
+}
+
+/* ── Las fechas, en hora de Venezuela ────────────────────────────────── */
+
+const DESFASE_MS = -4 * 60 * 60 * 1000;
+const DIA_MS = 24 * 60 * 60 * 1000;
+
+export function diaDe(ms) {
+  return new Date(Number(ms) + DESFASE_MS).toISOString().slice(0, 10);
+}
+
+function inicioDe(dia) {
+  return Date.parse(`${dia}T00:00:00Z`) - DESFASE_MS;
+}
+
+// El período que se mira: ?p=hoy|ayer|7|30|mes|mes-pasado, o ?desde=&hasta=.
+// Devuelve { desde, hasta } en ms (hasta excluido), los días y un nombre.
+export function periodoDe(params, ahora = Date.now()) {
+  const p = String(params?.get?.("p") || "hoy");
+  const hoy = diaDe(ahora);
+  const valido = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || "")) && Number.isFinite(Date.parse(`${d}T00:00:00Z`));
+  const desdeTexto = params?.get?.("desde");
+  const hastaTexto = params?.get?.("hasta");
+  if (valido(desdeTexto) && valido(hastaTexto) && desdeTexto <= hastaTexto) {
+    return armar(desdeTexto, hastaTexto, "a-medida", `del ${desdeTexto} al ${hastaTexto}`);
+  }
+  const menos = (n) => diaDe(inicioDe(hoy) - n * DIA_MS + 12 * 3600 * 1000);
+  if (p === "ayer") return armar(menos(1), menos(1), p, "ayer");
+  if (p === "7") return armar(menos(6), hoy, p, "los últimos 7 días");
+  if (p === "30") return armar(menos(29), hoy, p, "los últimos 30 días");
+  if (p === "mes") return armar(`${hoy.slice(0, 8)}01`, hoy, p, "este mes");
+  if (p === "mes-pasado") {
+    const primero = `${hoy.slice(0, 8)}01`;
+    const ultimoDelAnterior = diaDe(inicioDe(primero) - DIA_MS + 12 * 3600 * 1000);
+    return armar(`${ultimoDelAnterior.slice(0, 8)}01`, ultimoDelAnterior, p, "el mes pasado");
+  }
+  return armar(hoy, hoy, "hoy", "hoy");
+
+  function armar(d, h, clave, nombre) {
+    const desde = inicioDe(d);
+    const hasta = inicioDe(h) + DIA_MS;
+    return { clave, nombre, desdeDia: d, hastaDia: h, desde, hasta, dias: Math.round((hasta - desde) / DIA_MS) };
+  }
+}
+
+function numero(valor) {
+  if (valor === null || valor === undefined || valor === "") return null;
+  if (typeof valor === "number") return Number.isFinite(valor) ? valor : null;
+  let t = String(valor).replace(/[^\d.,-]/g, "");
+  if (!t) return null;
+  if (t.includes(",") && t.includes(".")) t = t.lastIndexOf(",") > t.lastIndexOf(".") ? t.replace(/\./g, "").replace(",", ".") : t.replace(/,/g, "");
+  else if (t.includes(",")) t = /,\d{1,2}$/.test(t) ? t.replace(",", ".") : t.replace(/,/g, "");
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+const redondo = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+/* ── Gastos ──────────────────────────────────────────────────────────── */
+
+export async function registrarGasto(db, { categoria, descripcion = "", monto, metodo = "", quien = "", fecha = null, sedeId = null }) {
+  await asegurarNegocio(db);
+  const m = numero(monto);
+  if (m === null || m <= 0) throw new Error("El monto del gasto tiene que ser mayor que cero.");
+  if (m > 10_000_000) throw new Error("Ese monto no parece real.");
+  const cat = CATEGORIAS_DE_GASTO.includes(categoria) ? categoria : "Otros";
+  let cuando = Date.now();
+  if (fecha && /^\d{4}-\d{2}-\d{2}$/.test(String(fecha))) {
+    const dia = String(fecha);
+    cuando = dia === diaDe(Date.now()) ? Date.now() : inicioDe(dia) + 12 * 3600 * 1000;
+  }
+  await db
+    .prepare("INSERT INTO neg_gastos (fecha, categoria, descripcion, monto, metodo, quien, local_id, creado) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(cuando, cat, String(descripcion).trim().slice(0, 200), redondo(m), String(metodo).slice(0, 40), String(quien).slice(0, 60), Number(sedeId) || null, Date.now())
+    .run();
+  return redondo(m);
+}
+
+// No se borra de verdad: queda marcado, por si fue un error al borrar.
+export async function borrarGasto(db, id) {
+  await asegurarNegocio(db);
+  await db.prepare("UPDATE neg_gastos SET borrado = 1 WHERE id = ?").bind(Number(id) || 0).run();
+}
+
+export async function listarGastos(db, { desde, hasta, limite = 500 } = {}) {
+  await asegurarNegocio(db);
+  const { results } = await db
+    .prepare("SELECT * FROM neg_gastos WHERE borrado = 0 AND fecha >= ? AND fecha < ? ORDER BY fecha DESC, id DESC LIMIT ?")
+    .bind(desde, hasta, Math.min(Number(limite) || 500, 2000))
+    .all();
+  return results || [];
+}
+
+/* ── Ventas ──────────────────────────────────────────────────────────── */
+
+// Una venta que se anotó mucho después de hacerse (la de «ayer» que se cargó
+// hoy). Con menos de 6 horas de diferencia no se marca: es solo la hora.
+export function anotadaDespues(venta) {
+  return Number(venta?.registrada) > 0 && Number(venta.registrada) - Number(venta.creado) > 6 * 60 * 60 * 1000;
+}
+
+export async function listarVentas(db, { desde, hasta, q = "", limite = 300 } = {}) {
+  await asegurarNegocio(db);
+  const texto = String(q || "").trim().slice(0, 40);
+  const filtro = texto ? "AND (ve.cliente LIKE ? OR ve.telefono LIKE ? OR ve.id = ?)" : "";
+  const args = texto ? [`%${texto}%`, `%${texto}%`, Number(texto.replace(/^#/, "")) || -1] : [];
+  const { results } = await db
+    .prepare(
+      `SELECT ve.*, l.nombre AS sede,
+              COALESCE((SELECT SUM(-delta) FROM inv_movimientos m WHERE m.venta_id = ve.id AND m.tipo = 'venta'), 0)
+                + COALESCE((SELECT SUM(cantidad) FROM inv_venta_libre x WHERE x.venta_id = ve.id), 0) AS unidades
+         FROM inv_ventas ve LEFT JOIN inv_locales l ON l.id = ve.local_id
+        WHERE ve.creado >= ? AND ve.creado < ? ${filtro}
+        ORDER BY ve.creado DESC, ve.id DESC LIMIT ?`
+    )
+    .bind(desde, hasta, ...args, Math.min(Number(limite) || 300, 2000))
+    .all();
+  const ventas = results || [];
+  if (!ventas.length) return ventas;
+  // Qué se llevó cada una ("2 × Jordan 4 · Gorra"), en dos consultas por
+  // rango de ids (D1 no deja más de 100 valores en un IN).
+  const min = Math.min(...ventas.map((v) => v.id));
+  const max = Math.max(...ventas.map((v) => v.id));
+  const { results: lineas } = await db
+    .prepare(
+      `SELECT m.venta_id, p.titulo, v.opcion, v.color, m.precio, SUM(-m.delta) AS cantidad FROM inv_movimientos m
+         JOIN inv_variantes v ON v.id = m.variante_id JOIN inv_productos p ON p.id = v.producto_id
+        WHERE m.tipo = 'venta' AND m.venta_id BETWEEN ? AND ? GROUP BY m.venta_id, m.variante_id ORDER BY MIN(m.id)`
+    )
+    .bind(min, max)
+    .all();
+  const { results: libres } = await db.prepare("SELECT venta_id, descripcion AS titulo, cantidad, precio FROM inv_venta_libre WHERE venta_id BETWEEN ? AND ? ORDER BY id").bind(min, max).all();
+  const detalle = new Map();
+  const items = new Map();
+  for (const l of [...(lineas || []), ...(libres || [])]) {
+    if (!detalle.has(l.venta_id)) detalle.set(l.venta_id, []);
+    if (!items.has(l.venta_id)) items.set(l.venta_id, []);
+    detalle.get(l.venta_id).push(`${Number(l.cantidad) > 1 ? `${l.cantidad} × ` : ""}${l.titulo}${l.opcion && l.opcion !== "única" ? ` (${l.opcion})` : ""}`);
+    // Cada producto con su talla/color y su precio (el reporte impreso los detalla).
+    items.get(l.venta_id).push({ cantidad: Number(l.cantidad) || 0, titulo: l.titulo, opcion: l.opcion && l.opcion !== "única" ? l.opcion : "", color: l.color || "", precio: l.precio === null || l.precio === undefined ? null : Number(l.precio) });
+  }
+  return ventas.map((v) => ({ ...v, detalle: (detalle.get(v.id) || []).join(" · "), items: items.get(v.id) || [] }));
+}
+
+export async function verVenta(db, id) {
+  await asegurarNegocio(db);
+  const venta = await db
+    .prepare("SELECT ve.*, l.nombre AS sede FROM inv_ventas ve LEFT JOIN inv_locales l ON l.id = ve.local_id WHERE ve.id = ?")
+    .bind(Number(id) || 0)
+    .first();
+  if (!venta) return null;
+  const { results: lineas } = await db
+    .prepare(
+      `SELECT p.id AS producto_id, p.titulo, v.opcion, v.color, v.codigo_barras, SUM(-m.delta) AS cantidad, m.precio, m.costo
+         FROM inv_movimientos m JOIN inv_variantes v ON v.id = m.variante_id JOIN inv_productos p ON p.id = v.producto_id
+        WHERE m.venta_id = ? AND m.tipo = 'venta'
+        GROUP BY m.variante_id ORDER BY MIN(m.id)`
+    )
+    .bind(venta.id)
+    .all();
+  const { results: libres } = await db.prepare("SELECT descripcion, cantidad, precio FROM inv_venta_libre WHERE venta_id = ? ORDER BY id").bind(venta.id).all();
+  return {
+    ...venta,
+    lineas: lineas || [],
+    libres: libres || [],
+  };
+}
+
+// El IMEI o serial que la caja de una tienda de teléfonos anota en la venta
+// (sale en el recibo, para la garantía).
+export function serialDe(nota) {
+  const m = String(nota || "").match(/IMEI\/serial:\s*([^·]+)/i);
+  return m ? `IMEI/serial: ${m[1].trim()}` : "";
+}
+
+// La cuenta de Cashea que la caja deja en la nota de la venta (sale en el recibo).
+export function casheaDe(nota) {
+  const m = String(nota || "").match(/Cashea (?:nivel \d+|inicial libre):[^\n]*/i);
+  return m ? m[0].trim() : "";
+}
+
+// Talla y color de una línea, tal como salen en los recibos.
+export function detalleDeLinea(l) {
+  return [l.opcion && l.opcion !== "única" ? l.opcion : "", l.color || ""].filter(Boolean).join(" · ");
+}
+
+// El recibo como texto, para mandarlo por WhatsApp.
+export function textoDelRecibo(venta, tienda = "La tienda") {
+  const plata = (n) => (n === null || n === undefined ? "" : `$${redondo(n)}`);
+  const lineas = [
+    ...venta.lineas.map((l) => `• ${l.cantidad} × ${l.titulo}${detalleDeLinea(l) ? ` (${detalleDeLinea(l)})` : ""}${l.precio !== null ? ` — ${plata(l.precio * l.cantidad)}` : ""}`),
+    ...venta.libres.map((l) => `• ${l.cantidad} × ${l.descripcion} — ${plata(l.precio * l.cantidad)}`),
+  ];
+  return [
+    `*${tienda}*`,
+    `Recibo #${venta.id} · ${new Date(venta.creado).toLocaleString("es-VE", { timeZone: "America/Caracas", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`,
+    venta.cliente ? `Cliente: ${venta.cliente}` : "",
+    "",
+    ...lineas,
+    serialDe(venta.nota),
+    casheaDe(venta.nota),
+    "",
+    `*Total: ${venta.total === null ? "por confirmar" : plata(venta.total)}*`,
+    venta.metodo_pago ? `Pago: ${venta.metodo_pago}` : "",
+    venta.anulada ? "VENTA ANULADA" : "",
+    "",
+    "¡Gracias por tu compra!",
+  ]
+    .filter((x, i, a) => x !== "" || (a[i - 1] !== "" && i > 0))
+    .join("\n")
+    .trim();
+}
+
+/* ── El balance ──────────────────────────────────────────────────────── */
+
+export const SIN_CATEGORIA = "Sin categoría";
+export const COBROS_SIN_INVENTARIO = "Cobros sin inventario";
+
+/* ── Cashea: lo cobrado de inicial y lo financiado ───────────────────────
+ * Cada venta con Cashea guarda en sus columnas cashea_* la cuenta que la caja
+ * hizo al cobrar (inicial = porcentaje del total; financiado = el resto, que
+ * paga Cashea en cuotas). De ahí sale el reporte. Las anuladas no cuentan.
+ */
+export async function casheaDelPeriodo(db, { desde, hasta }, { detalle = false } = {}) {
+  await asegurarNegocio(db);
+  const donde = "anulada = 0 AND cashea_nivel <> '' AND creado >= ? AND creado < ?";
+  const t = await db
+    .prepare(`SELECT COUNT(*) AS ventas, COALESCE(SUM(total), 0) AS total, COALESCE(SUM(cashea_inicial), 0) AS inicial, COALESCE(SUM(cashea_financiado), 0) AS financiado FROM inv_ventas WHERE ${donde}`)
+    .bind(desde, hasta)
+    .first();
+  const { results: porMetodo } = await db
+    .prepare(`SELECT CASE WHEN cashea_inicial_por = '' THEN 'Sin decir' ELSE cashea_inicial_por END AS metodo, COUNT(*) AS cantidad, COALESCE(SUM(cashea_inicial), 0) AS monto FROM inv_ventas WHERE ${donde} AND cashea_inicial > 0 GROUP BY 1 ORDER BY monto DESC`)
+    .bind(desde, hasta)
+    .all();
+  const { results: porNivel } = await db
+    .prepare(`SELECT cashea_nivel AS nivel, COUNT(*) AS cantidad, COALESCE(SUM(total), 0) AS total, COALESCE(SUM(cashea_inicial), 0) AS inicial, COALESCE(SUM(cashea_financiado), 0) AS financiado FROM inv_ventas WHERE ${donde} GROUP BY 1 ORDER BY CASE WHEN cashea_nivel = 'libre' THEN 99 ELSE CAST(cashea_nivel AS INTEGER) END`)
+    .bind(desde, hasta)
+    .all();
+  let ventas = [];
+  if (detalle) {
+    const { results } = await db
+      .prepare(`SELECT id, creado, cliente, total, cashea_nivel AS nivel, cashea_pct AS pct, cashea_inicial AS inicial, cashea_financiado AS financiado, cashea_cuotas AS cuotas, cashea_inicial_por AS inicial_por FROM inv_ventas WHERE ${donde} ORDER BY creado DESC, id DESC LIMIT 500`)
+      .bind(desde, hasta)
+      .all();
+    ventas = (results || []).map((v) => ({ ...v, total: redondo(v.total), inicial: redondo(v.inicial), financiado: redondo(v.financiado) }));
+  }
+  return {
+    ventas: Number(t.ventas) || 0,
+    total: redondo(t.total),
+    inicial: redondo(t.inicial),
+    financiado: redondo(t.financiado),
+    porMetodo: (porMetodo || []).map((m) => ({ ...m, monto: redondo(m.monto) })),
+    porNivel: (porNivel || []).map((n) => ({ ...n, total: redondo(n.total), inicial: redondo(n.inicial), financiado: redondo(n.financiado) })),
+    lista: ventas,
+  };
+}
+
+export async function resumen(db, { desde, hasta }) {
+  await asegurarNegocio(db);
+  const ventas = await db
+    .prepare(
+      `SELECT COUNT(*) AS cantidad, COALESCE(SUM(total), 0) AS total, SUM(CASE WHEN total IS NULL THEN 1 ELSE 0 END) AS sin_precio,
+              COALESCE(SUM(total), 0) AS contado
+         FROM inv_ventas WHERE anulada = 0 AND creado >= ? AND creado < ?`
+    )
+    .bind(desde, hasta)
+    .first();
+  // La ganancia de lo vendido: precio − costo de cada producto que tiene
+  // costo cargado. Lo que no lo tiene se dice aparte, para no inventar.
+  const margen = await db
+    .prepare(
+      `SELECT COALESCE(SUM(CASE WHEN COALESCE(m.costo, v.costo, p.costo) IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - COALESCE(m.costo, v.costo, p.costo)) ELSE 0 END), 0) AS ganancia,
+              COALESCE(SUM(CASE WHEN COALESCE(m.costo, v.costo, p.costo) IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido_con_costo,
+              COALESCE(SUM(CASE WHEN m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido,
+              COALESCE(SUM(-m.delta), 0) AS unidades
+         FROM inv_movimientos m JOIN inv_ventas ve ON ve.id = m.venta_id
+         LEFT JOIN inv_variantes v ON v.id = m.variante_id LEFT JOIN inv_productos p ON p.id = v.producto_id
+        WHERE m.tipo = 'venta' AND ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?`
+    )
+    .bind(desde, hasta)
+    .first();
+  const libres = await db
+    .prepare(
+      `SELECT COALESCE(SUM(x.cantidad), 0) AS unidades FROM inv_venta_libre x JOIN inv_ventas ve ON ve.id = x.venta_id
+        WHERE ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?`
+    )
+    .bind(desde, hasta)
+    .first();
+  const { results: gastosPorCategoria } = await db
+    .prepare("SELECT categoria, SUM(monto) AS total, COUNT(*) AS cantidad FROM neg_gastos WHERE borrado = 0 AND fecha >= ? AND fecha < ? GROUP BY categoria ORDER BY total DESC")
+    .bind(desde, hasta)
+    .all();
+  const { results: porMetodo } = await db
+    .prepare(
+      `SELECT CASE WHEN metodo_pago = '' THEN 'Sin decir' ELSE metodo_pago END AS metodo, COUNT(*) AS cantidad, COALESCE(SUM(total), 0) AS total
+         FROM inv_ventas WHERE anulada = 0 AND creado >= ? AND creado < ? GROUP BY 1 ORDER BY total DESC`
+    )
+    .bind(desde, hasta)
+    .all();
+  // VENTAS POR CATEGORÍA (13-oct-2026, pedido del dueño): lo vendido de cada
+  // sección (extras.categoria del producto), sin las anuladas. Lo que no
+  // tiene categoría va junto, y lo cobrado sin inventario (un servicio) aparte.
+  const { results: porCategoriaFilas } = await db
+    .prepare(
+      `SELECT cat AS categoria, SUM(unidades) AS unidades, SUM(monto) AS monto, GROUP_CONCAT(DISTINCT venta) AS ventas
+         FROM (SELECT NULLIF(TRIM(CASE WHEN json_valid(p.extras) THEN json_extract(p.extras, '$.categoria') END), '') AS cat, -m.delta AS unidades, COALESCE(-m.delta * m.precio, 0) AS monto, ve.id AS venta
+                 FROM inv_movimientos m JOIN inv_ventas ve ON ve.id = m.venta_id
+                 JOIN inv_variantes v ON v.id = m.variante_id JOIN inv_productos p ON p.id = v.producto_id
+                WHERE m.tipo = 'venta' AND ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?)
+        GROUP BY cat`
+    )
+    .bind(desde, hasta)
+    .all();
+  const libresMonto = await db
+    .prepare(
+      `SELECT COALESCE(SUM(x.cantidad), 0) AS unidades, COALESCE(SUM(x.cantidad * x.precio), 0) AS monto, COUNT(DISTINCT ve.id) AS ventas
+         FROM inv_venta_libre x JOIN inv_ventas ve ON ve.id = x.venta_id WHERE ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?`
+    )
+    .bind(desde, hasta)
+    .first();
+  // "Relojes" y "relojes" son la misma: se juntan, con el nombre escrito
+  // como en la mayoría de lo vendido.
+  const juntas = new Map();
+  for (const c of porCategoriaFilas || []) {
+    const clave = String(c.categoria || "").toLowerCase();
+    const g = juntas.get(clave) || { nombres: [], unidades: 0, monto: 0, ventas: new Set() };
+    g.nombres.push({ nombre: c.categoria, unidades: Number(c.unidades) || 0 });
+    g.unidades += Number(c.unidades) || 0;
+    g.monto += Number(c.monto) || 0;
+    for (const v of String(c.ventas || "").split(",")) if (v) g.ventas.add(v);
+    juntas.set(clave, g);
+  }
+  const porCategoria = [...juntas.values()]
+    .map((g) => {
+      const nombre = g.nombres.sort((a, b) => b.unidades - a.unidades || (/^[A-ZÁÉÍÓÚÑ]/.test(b.nombre || "") ? 1 : 0) - (/^[A-ZÁÉÍÓÚÑ]/.test(a.nombre || "") ? 1 : 0))[0].nombre;
+      return { categoria: nombre || SIN_CATEGORIA, sinCategoria: !nombre, unidades: g.unidades, monto: redondo(g.monto), ventas: g.ventas.size };
+    })
+    .sort((a, b) => b.monto - a.monto || b.unidades - a.unidades);
+  if (Number(libresMonto?.unidades) > 0) {
+    porCategoria.push({ categoria: COBROS_SIN_INVENTARIO, sinCategoria: true, libre: true, unidades: Number(libresMonto.unidades), monto: redondo(libresMonto.monto), ventas: Number(libresMonto.ventas) || 0 });
+    porCategoria.sort((a, b) => b.monto - a.monto || b.unidades - a.unidades);
+  }
+
+  const { results: masVendidos } = await db
+    .prepare(
+      `SELECT p.id, p.titulo, SUM(-m.delta) AS unidades, COALESCE(SUM(-m.delta * m.precio), 0) AS monto
+         FROM inv_movimientos m JOIN inv_ventas ve ON ve.id = m.venta_id
+         JOIN inv_variantes v ON v.id = m.variante_id JOIN inv_productos p ON p.id = v.producto_id
+        WHERE m.tipo = 'venta' AND ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?
+        GROUP BY p.id ORDER BY unidades DESC, monto DESC LIMIT 10`
+    )
+    .bind(desde, hasta)
+    .all();
+
+  // Por día, para el gráfico.
+  const dias = [];
+  for (let t = desde; t < hasta; t += DIA_MS) dias.push({ dia: diaDe(t + 12 * 3600 * 1000), ventas: 0, gastos: 0, cantidad: 0 });
+  const indice = new Map(dias.map((d, i) => [d.dia, i]));
+  const { results: ventasDia } = await db.prepare("SELECT creado, total FROM inv_ventas WHERE anulada = 0 AND creado >= ? AND creado < ?").bind(desde, hasta).all();
+  for (const v of ventasDia || []) {
+    const i = indice.get(diaDe(v.creado));
+    if (i !== undefined) {
+      dias[i].ventas += Number(v.total) || 0;
+      dias[i].cantidad++;
+    }
+  }
+  const { results: gastosDia } = await db.prepare("SELECT fecha, monto FROM neg_gastos WHERE borrado = 0 AND fecha >= ? AND fecha < ?").bind(desde, hasta).all();
+  for (const g of gastosDia || []) {
+    const i = indice.get(diaDe(g.fecha));
+    if (i !== undefined) dias[i].gastos += Number(g.monto) || 0;
+  }
+
+  const totalGastos = (gastosPorCategoria || []).reduce((a, g) => a + Number(g.total), 0);
+  const cobrado = Number(ventas.contado);
+  return {
+    ventas: {
+      cantidad: Number(ventas.cantidad) || 0,
+      total: redondo(ventas.total),
+      contado: redondo(ventas.contado),
+      sinPrecio: Number(ventas.sin_precio) || 0,
+      unidades: (Number(margen.unidades) || 0) + (Number(libres.unidades) || 0),
+      ticketPromedio: Number(ventas.cantidad) ? redondo(Number(ventas.total) / Number(ventas.cantidad)) : 0,
+    },
+    cobrado: redondo(cobrado),
+    gastos: { total: redondo(totalGastos), porCategoria: (gastosPorCategoria || []).map((g) => ({ ...g, total: redondo(g.total) })) },
+    balance: redondo(cobrado - totalGastos),
+    ganancia: {
+      monto: redondo(margen.ganancia),
+      // Qué parte de lo vendido (en dinero) tiene costo cargado.
+      cobertura: Number(margen.vendido) > 0 ? Math.round((Number(margen.vendido_con_costo) / Number(margen.vendido)) * 100) : 0,
+    },
+    porMetodo: (porMetodo || []).map((m) => ({ ...m, total: redondo(m.total) })),
+    masVendidos: (masVendidos || []).map((m) => ({ ...m, monto: redondo(m.monto) })),
+    porCategoria,
+    cashea: await casheaDelPeriodo(db, { desde, hasta }),
+    dias: dias.map((d) => ({ ...d, ventas: redondo(d.ventas), gastos: redondo(d.gastos) })),
+  };
+}
+
+/* ── GANANCIAS (17-oct-2026, pedido del dueño) ────────────────────────────
+ * Ganancia = precio − costo de cada producto vendido, solo de los que tienen
+ * costo (el de la venta, o si no había, el de esa talla/capacidad o el del producto HOY: un costo
+ * puesto después también cuenta). Lo demás se cuenta aparte, sin inventar.
+ * Sin las anuladas.
+ */
+export async function gananciasDelPeriodo(db, { desde, hasta }) {
+  await asegurarNegocio(db);
+  const { results: porVenta } = await db
+    .prepare(
+      `SELECT ve.id, ve.creado, ve.cliente, ve.total, ve.metodo_pago,
+              COALESCE(SUM(CASE WHEN COALESCE(m.costo, v.costo, p.costo) IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - COALESCE(m.costo, v.costo, p.costo)) ELSE 0 END), 0) AS ganancia,
+              COALESCE(SUM(CASE WHEN m.id IS NOT NULL AND (COALESCE(m.costo, v.costo, p.costo) IS NULL OR m.precio IS NULL) THEN 1 ELSE 0 END), 0) AS sin_costo,
+              COALESCE(SUM(CASE WHEN m.id IS NOT NULL THEN -m.delta ELSE 0 END), 0) AS unidades
+         FROM inv_ventas ve LEFT JOIN inv_movimientos m ON m.venta_id = ve.id AND m.tipo = 'venta'
+         LEFT JOIN inv_variantes v ON v.id = m.variante_id LEFT JOIN inv_productos p ON p.id = v.producto_id
+        WHERE ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?
+        GROUP BY ve.id ORDER BY ve.creado DESC, ve.id DESC LIMIT 500`
+    )
+    .bind(desde, hasta)
+    .all();
+  const { results: porProducto } = await db
+    .prepare(
+      `SELECT p.id, p.titulo, SUM(-m.delta) AS unidades,
+              COALESCE(SUM(CASE WHEN m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido,
+              COALESCE(SUM(CASE WHEN COALESCE(m.costo, v.costo, p.costo) IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - COALESCE(m.costo, v.costo, p.costo)) ELSE 0 END), 0) AS ganancia,
+              SUM(CASE WHEN COALESCE(m.costo, v.costo, p.costo) IS NULL THEN 1 ELSE 0 END) AS sin_costo
+         FROM inv_movimientos m JOIN inv_ventas ve ON ve.id = m.venta_id
+         JOIN inv_variantes v ON v.id = m.variante_id JOIN inv_productos p ON p.id = v.producto_id
+        WHERE m.tipo = 'venta' AND ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?
+        GROUP BY p.id ORDER BY ganancia DESC, unidades DESC LIMIT 50`
+    )
+    .bind(desde, hasta)
+    .all();
+  const t = await db
+    .prepare(
+      `SELECT COALESCE(SUM(CASE WHEN COALESCE(m.costo, v.costo, p.costo) IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - COALESCE(m.costo, v.costo, p.costo)) ELSE 0 END), 0) AS ganancia,
+              COALESCE(SUM(CASE WHEN COALESCE(m.costo, v.costo, p.costo) IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido_con_costo,
+              COALESCE(SUM(CASE WHEN m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido,
+              COALESCE(SUM(CASE WHEN COALESCE(m.costo, v.costo, p.costo) IS NULL OR m.precio IS NULL THEN 1 ELSE 0 END), 0) AS sin_costo
+         FROM inv_movimientos m JOIN inv_ventas ve ON ve.id = m.venta_id
+         LEFT JOIN inv_variantes v ON v.id = m.variante_id LEFT JOIN inv_productos p ON p.id = v.producto_id
+        WHERE m.tipo = 'venta' AND ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?`
+    )
+    .bind(desde, hasta)
+    .first();
+  const ganancia = redondo(t.ganancia);
+  const conCosto = Number(t.vendido_con_costo) || 0;
+  return {
+    ganancia,
+    vendido: redondo(t.vendido),
+    vendidoConCosto: redondo(conCosto),
+    // Sobre lo vendido que tiene costo: de cada $100 con costo, cuánto es ganancia.
+    margen: conCosto > 0 ? Math.round((ganancia / conCosto) * 1000) / 10 : 0,
+    cobertura: Number(t.vendido) > 0 ? Math.round((conCosto / Number(t.vendido)) * 100) : 0,
+    lineasSinCosto: Number(t.sin_costo) || 0,
+    ventas: (porVenta || []).map((v) => ({ ...v, total: v.total === null ? null : redondo(v.total), ganancia: redondo(v.ganancia), sin_costo: Number(v.sin_costo) || 0, unidades: Number(v.unidades) || 0 })),
+    productos: (porProducto || []).map((p) => ({ ...p, vendido: redondo(p.vendido), ganancia: redondo(p.ganancia), unidades: Number(p.unidades) || 0, sin_costo: Number(p.sin_costo) || 0 })),
+  };
+}
+
+// El reporte de un período (por defecto, el del día): lo de siempre más la
+// parte de Cashea con sus ventas una por una.
+export async function reporteDelPeriodo(db, periodo) {
+  const r = await resumen(db, periodo);
+  r.cashea = await casheaDelPeriodo(db, periodo, { detalle: true });
+  return r;
+}
+
+// El reporte como texto, para copiar o mandar por WhatsApp.
+export function textoDelReporte(r, { tienda = "La tienda", nombre = "hoy", fechas = "" } = {}) {
+  const plata = (n) => `$${redondo(n)}`;
+  const c = r.cashea || { ventas: 0, porMetodo: [] };
+  const lineas = [
+    `*${tienda}* — Reporte de ${nombre}${fechas ? ` (${fechas})` : ""}`,
+    "",
+    `Ventas: ${r.ventas.cantidad} · ${plata(r.ventas.total)}`,
+    ...(r.porMetodo || []).map((m) => `  • ${m.metodo}: ${plata(m.total)} (${m.cantidad})`),
+    "",
+    "*Cashea*",
+    c.ventas
+      ? [
+          `Ventas con Cashea: ${c.ventas} · ${plata(c.total)}`,
+          `Inicial cobrada: ${plata(c.inicial)}`,
+          ...c.porMetodo.map((m) => `  • ${m.metodo}: ${plata(m.monto)} (${m.cantidad})`),
+          `Monto financiado: ${plata(c.financiado)}`,
+        ].join("\n")
+      : "Sin ventas con Cashea.",
+    "",
+    `Ganancia: ${plata(r.ganancia.monto)}`,
+    `Gastos: ${plata(r.gastos.total)}`,
+    `Balance (cobrado − gastos): ${plata(r.balance)}`,
+  ];
+  return lineas.filter((x, i, a) => x !== "" || (a[i - 1] !== "" && i > 0)).join("\n");
+}
+
+// Lo que se está acabando: tallas con 2 o menos (en todas las sedes) que
+// se vendieron en los últimos 30 días, primero las que más se venden.
+export async function seEstanAcabando(db, { umbral = 2, limite = 12 } = {}) {
+  await asegurarNegocio(db);
+  const hace30 = Date.now() - 30 * DIA_MS;
+  const { results } = await db
+    .prepare(
+      `SELECT v.id, p.id AS producto_id, p.titulo, v.opcion, v.color,
+              COALESCE((SELECT SUM(cantidad) FROM inv_stock s WHERE s.variante_id = v.id), 0) AS quedan,
+              (SELECT SUM(-delta) FROM inv_movimientos m WHERE m.variante_id = v.id AND m.tipo = 'venta' AND m.creado >= ?) AS vendidas
+         FROM inv_variantes v JOIN inv_productos p ON p.id = v.producto_id AND p.activo = 1
+        WHERE vendidas > 0 AND quedan <= ?
+        ORDER BY vendidas DESC, quedan LIMIT ?`
+    )
+    .bind(hace30, umbral, limite)
+    .all();
+  return results || [];
+}
+
+/* ── La IA que acompaña: consejos de los números ─────────────────────── */
+//
+// No cuestan nada: salen de comparar los números. Cada uno dice qué pasa y
+// lleva a la pantalla donde se arregla. icono y tono son de marco.js
+// (iconos.js): nada de emojis.
+
+export function consejos({ actual, anterior, acabando = [], periodo }) {
+  const lista = [];
+  const plata = (n) => `$${redondo(n)}`;
+  if (actual.ventas.cantidad === 0 && periodo.clave === "hoy") {
+    lista.push({ icono: "caja", tono: "marca", texto: "Todavía no hay ventas hoy. Cuando cobres en la Caja, aquí verás cómo va el día.", enlace: "/panel/caja" });
+  }
+  if (anterior && anterior.ventas.total > 0 && actual.ventas.total > 0) {
+    const cambio = Math.round(((actual.ventas.total - anterior.ventas.total) / anterior.ventas.total) * 100);
+    if (cambio >= 15) lista.push({ icono: "sube", tono: "bien", texto: `Vendiste ${cambio}% más que en el período anterior (${plata(actual.ventas.total)} contra ${plata(anterior.ventas.total)}).` });
+    else if (cambio <= -15) lista.push({ icono: "baja", tono: "mal", texto: `Las ventas bajaron ${-cambio}% frente al período anterior (${plata(actual.ventas.total)} contra ${plata(anterior.ventas.total)}). Revisa qué se vendía antes y si queda stock.`, enlace: "/panel/inventario?f=agotados" });
+  }
+  if (acabando.length) {
+    const nombres = acabando.slice(0, 3).map((a) => `${a.titulo}${a.opcion !== "única" ? ` (${a.opcion})` : ""}: ${a.quedan}`).join(" · ");
+    lista.push({ icono: "inventario", tono: "aviso", texto: `Se está acabando lo que más se vende: ${nombres}. Conviene reponer.`, enlace: "/panel/inventario?f=pocos" });
+  }
+  if (actual.gastos.total > 0 && actual.cobrado > 0 && actual.gastos.total > actual.cobrado) {
+    lista.push({ icono: "alerta", tono: "mal", texto: `Salió más de lo que entró: ${plata(actual.gastos.total)} en gastos contra ${plata(actual.cobrado)} cobrado.`, enlace: "/panel/gastos" });
+  }
+  const mayor = actual.gastos.porCategoria[0];
+  if (mayor && actual.gastos.total > 0 && mayor.total / actual.gastos.total >= 0.5 && actual.gastos.porCategoria.length > 1) {
+    lista.push({ icono: "gastos", tono: "neutro", texto: `${mayor.categoria} se lleva ${Math.round((mayor.total / actual.gastos.total) * 100)}% de los gastos.` });
+  }
+  if (actual.ventas.total > 0 && actual.ganancia.cobertura < 60) {
+    lista.push({ icono: "idea", tono: "ia", texto: "Carga el costo de tus productos (Inventario → el modelo → Costo) y te digo cuánto ganas de verdad en cada venta.", enlace: "/panel/inventario" });
+  }
+  if (actual.ventas.sinPrecio > 0) {
+    lista.push({ icono: "etiqueta", tono: "aviso", texto: `${actual.ventas.sinPrecio} ${actual.ventas.sinPrecio === 1 ? "venta tiene" : "ventas tienen"} productos sin precio: no suman al total. Ponles precio en el inventario.`, enlace: "/panel/inventario" });
+  }
+  const top = actual.masVendidos[0];
+  if (top && top.unidades >= 3) lista.push({ icono: "ganadores", tono: "bien", texto: `Lo más vendido ${periodo.nombre}: ${top.titulo} (${top.unidades} unidades).`, enlace: `/panel/inventario/p/${top.id}` });
+  return lista;
+}
+
+/* ── El asistente: se le pregunta en palabras ────────────────────────── */
+//
+// Usa la IA de texto de la tienda (OpenAI con OPENAI_MODELO, o DeepSeek si
+// PROVEEDOR = "deepseek"). Recibe SOLO los números del negocio, ya
+// calculados: no inventa cifras, las lee. Cuesta lo de una respuesta corta
+// y se anota en el gasto de la IA como "asistente".
+
+const INSTRUCCIONES_ASISTENTE = `Eres el asistente de ALPHA IA dentro del panel de una tienda en Venezuela.
+Le hablas al dueño o a su equipo: claro, cálido, en español neutro y breve (máximo 8 líneas).
+
+Contestas dos tipos de preguntas:
+1. SOBRE EL NEGOCIO ("¿cuánto vendí?", "¿cuántas quedan de X?", "¿quién me debe?"):
+   tienes los NÚMEROS REALES en JSON. Úsalos tal cual: nunca inventes cifras,
+   productos ni clientes. Si algo no está en los datos, dilo ("no tengo ese
+   dato") y di en qué pantalla se ve o se carga.
+2. SOBRE EL PANEL ("¿cómo cobro?", "¿cómo imprimo etiquetas?", "¿qué hago aquí?"):
+   usa la GUÍA DEL PANEL. Explica en pasos cortos y numerados, con los nombres
+   de los botones tal como están. No inventes pantallas, botones ni funciones:
+   si algo no está en la guía, di que el panel todavía no lo hace.
+Sabes en qué pantalla está la persona: si pregunta "¿qué hago aquí?" o algo
+sin decir dónde, contesta sobre ESA pantalla.
+
+Los montos van en dólares con el signo $. Puedes dar ideas concretas para
+vender más o gastar menos, siempre basadas en los datos.
+
+"ir": si la respuesta lleva a una pantalla, pon su dirección de la guía (por
+ejemplo "/panel/inventario/etiquetas") y saldrá un botón para abrirla. Si no,
+null. Nunca la pantalla en la que ya está.
+
+Si te piden REGISTRAR algo (un gasto), NO lo registras tú:
+lo dejas preparado en "accion" para que una persona lo confirme con un botón.
+  · Gasto: {"tipo":"gasto","monto":20,"categoria":"Transporte","descripcion":"taxi"}
+    categoria es una de: ${CATEGORIAS_DE_GASTO.join(", ")}.
+Si no hay nada que registrar, "accion" es null. Cualquier otra cosa (mover
+stock, cobrar, anular, pausar el bot) la hace una persona en su pantalla: di
+cómo y pon "ir".
+
+Responde SOLO con JSON: {"respuesta":"texto para el dueño","ir":null,"accion":null}`;
+
+export function asistenteActivo(env) {
+  const deepseek = String(env?.PROVEEDOR || "").toLowerCase() === "deepseek";
+  return deepseek ? Boolean(env?.DEEPSEEK_API_KEY) : Boolean(env?.OPENAI_API_KEY);
+}
+
+// LOS PRODUCTOS QUE NOMBRA (8-oct-2026): "¿cuántas Samba 40 me quedan?"
+// necesita el stock de ESE modelo, talla por talla y sede por sede, que no
+// cabe en el resumen general. Se buscan las palabras de la pregunta en el
+// inventario y van los que aparezcan (hasta 6).
+const PALABRAS_VACIAS = new Set("que cual cuales cuanto cuantos cuanta cuantas como donde cuando quien tengo tiene tienen hay quedan queda me mi mis los las del para por con una uno unos unas este esta esto ese esa eso hoy ayer semana mes vendi vendido vendidos venta ventas precio precios stock inventario producto productos cuesta cuestan dame dime puedo hago hacer tienda talla tallas modelo modelos".split(" "));
+
+export async function productosQueNombra(db, pregunta) {
+  const palabras = [...new Set(
+    String(pregunta || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((p) => p.length >= 3 && !PALABRAS_VACIAS.has(p))
+  )].slice(0, 4);
+  if (!palabras.length) return [];
+  const puntos = new Map();
+  for (const palabra of palabras) {
+    for (const p of await listarProductos(db, { q: palabra, limite: 12 })) {
+      const ya = puntos.get(p.id) || { p, n: 0 };
+      ya.n++;
+      puntos.set(p.id, ya);
+    }
+  }
+  const mejores = [...puntos.values()].sort((a, b) => b.n - a.n).slice(0, 6);
+  const nombresDeSede = new Map((await sedes(db)).map((s) => [s.id, s.nombre]));
+  const salida = [];
+  for (const { p } of mejores) {
+    const completo = await verProducto(db, p.id);
+    if (!completo) continue;
+    salida.push({
+      titulo: completo.titulo,
+      marca: completo.marca || undefined,
+      precio: completo.precio,
+      precioCashea: completo.precio_cashea ?? undefined,
+      costo: completo.costo ?? undefined,
+      quedanEnTotal: completo.variantes.reduce((a, v) => a + v.total, 0),
+      variantes: completo.variantes.slice(0, 30).map((v) => ({
+        opcion: v.opcion,
+        color: v.color || undefined,
+        quedan: v.total,
+        porSede: Object.fromEntries(Object.entries(v.porSede).map(([id, n]) => [nombresDeSede.get(Number(id)) || id, n])),
+      })),
+    });
+  }
+  return salida;
+}
+
+// LO DEL CHAT, EN NÚMEROS (8-oct-2026): para "¿cuántos me escribieron hoy?"
+// o "¿con quién está pausado el bot?". Cada consulta va por su lado: una
+// tienda vieja a la que le falte una tabla contesta lo demás igual.
+async function resumenDelChat(db, ahora = Date.now()) {
+  const desdeHoy = Date.parse(`${diaDe(ahora)}T00:00:00-04:00`);
+  const hace7 = ahora - 7 * 24 * 60 * 60 * 1000;
+  const uno = async (sql, ...args) => {
+    try {
+      return await db.prepare(sql).bind(...args).first();
+    } catch {
+      return null;
+    }
+  };
+  const todos = async (sql, ...args) => {
+    try {
+      return (await db.prepare(sql).bind(...args).all()).results || [];
+    } catch {
+      return null;
+    }
+  };
+  const hoy = await uno("SELECT COUNT(*) AS respuestas, COUNT(DISTINCT igsid) AS clientes FROM turnos WHERE cuando >= ?", desdeHoy);
+  const semana = await uno("SELECT COUNT(*) AS respuestas, COUNT(DISTINCT igsid) AS clientes FROM turnos WHERE cuando >= ?", hace7);
+  const pausados = await todos("SELECT COALESCE(NULLIF(nombre, ''), id) AS cliente, pausado_hasta FROM contactos WHERE pausado_hasta > ? ORDER BY pausado_hasta DESC LIMIT 10", ahora);
+  const etapas = await todos("SELECT etapa, COUNT(*) AS clientes FROM crm WHERE etapa <> '' GROUP BY etapa");
+  return {
+    hoy: hoy ? { clientesQueEscribieron: hoy.clientes, respuestasDelBot: hoy.respuestas } : undefined,
+    ultimos7Dias: semana ? { clientesQueEscribieron: semana.clientes, respuestasDelBot: semana.respuestas } : undefined,
+    botEnPausaCon: pausados ? pausados.map((p) => ({ cliente: p.cliente, hasta: new Date(Number(p.pausado_hasta)).toISOString() })) : undefined,
+    clientesPorEtapaDelCrm: etapas ? Object.fromEntries(etapas.map((e) => [e.etapa, e.clientes])) : undefined,
+  };
+}
+
+export async function datosParaElAsistente(db, ahora = Date.now()) {
+  const periodos = {};
+  for (const clave of ["hoy", "ayer", "7", "30", "mes", "mes-pasado"]) {
+    const p = periodoDe(new URLSearchParams({ p: clave }), ahora);
+    const r = await resumen(db, p);
+    periodos[p.nombre] = {
+      desde: p.desdeDia,
+      hasta: p.hastaDia,
+      ventas: r.ventas,
+      cobrado: r.cobrado,
+      gastos: r.gastos,
+      balance: r.balance,
+      ganancia: r.ganancia,
+      porMetodo: r.porMetodo,
+      masVendidos: r.masVendidos.slice(0, 5).map((m) => ({ titulo: m.titulo, unidades: m.unidades, monto: m.monto })),
+      ventasPorCategoria: r.porCategoria.map((c) => ({ categoria: c.categoria, unidades: c.unidades, monto: c.monto, ventas: c.ventas })),
+    };
+  }
+  const acabando = (await seEstanAcabando(db)).map((a) => ({ titulo: a.titulo, talla: a.opcion, quedan: a.quedan, vendidasEn30Dias: a.vendidas }));
+  const inventario = await db
+    .prepare(
+      `SELECT (SELECT COUNT(*) FROM inv_productos WHERE activo = 1) AS modelos,
+              (SELECT COALESCE(SUM(s.cantidad), 0) FROM inv_stock s) AS unidades,
+              (SELECT COALESCE(SUM(s.cantidad * COALESCE(v.precio, p.precio)), 0) FROM inv_stock s JOIN inv_variantes v ON v.id = s.variante_id JOIN inv_productos p ON p.id = v.producto_id) AS valor_a_precio_de_venta,
+              (SELECT COALESCE(SUM(s.cantidad * p.costo), 0) FROM inv_stock s JOIN inv_variantes v ON v.id = s.variante_id JOIN inv_productos p ON p.id = v.producto_id WHERE p.costo IS NOT NULL) AS valor_al_costo`
+    )
+    .first();
+  return { hoy: diaDe(ahora), sedes: (await sedes(db)).map((s) => s.nombre), periodos, seEstanAcabando: acabando, inventario, chat: await resumenDelChat(db, ahora) };
+}
+
+const RUBRO_EN_PALABRAS = { calzado: "zapatería (cada modelo con sus tallas)", moda: "tienda de calzado, bolsos, camisas, pantalones y gorras (por tallas)", telefonos: "tienda de teléfonos (por capacidad y color; precio en divisas y precio Cashea)" };
+
+export async function preguntarAlAsistente(env, pregunta, { tienda = "La tienda", historial = [], rubro = "", pantalla = "", tarifaDeCaja = "", conAnuncios = true } = {}) {
+  const texto = String(pregunta || "").trim().slice(0, 500);
+  if (!texto) throw new Error("Escribe qué quieres saber.");
+  if (!asistenteActivo(env)) throw new Error("El asistente necesita la clave de la IA de la tienda (la misma que usa el bot).");
+  await asegurarNegocio(env.DB);
+  const datos = await datosParaElAsistente(env.DB);
+  const nombrados = await productosQueNombra(env.DB, texto).catch(() => []);
+  if (nombrados.length) datos.productosQueNombra = nombrados;
+  const guia = guiaDelPanel(rubroDe(rubro), { conAnuncios, tarifaDeCaja });
+  const dondeEsta = nombreDePantalla(pantalla);
+  const deepseek = String(env?.PROVEEDOR || "").toLowerCase() === "deepseek";
+  const modelo = deepseek ? env.DEEPSEEK_MODELO || "deepseek-chat" : env.OPENAI_MODELO || "gpt-4o-mini";
+  const mensajes = [
+    {
+      role: "system",
+      content: `${INSTRUCCIONES_ASISTENTE}\n\nTIENDA: ${tienda}${RUBRO_EN_PALABRAS[rubro] ? ` · ${RUBRO_EN_PALABRAS[rubro]}` : ""}\nPANTALLA EN LA QUE ESTÁ: ${dondeEsta || "otra del panel"}\n\n${guia}\n\nDATOS DEL NEGOCIO:\n${JSON.stringify(datos)}`,
+    },
+    ...historial.slice(-6).map((h) => ({ role: h.de === "yo" ? "user" : "assistant", content: String(h.texto || "").slice(0, 800) })),
+    { role: "user", content: texto },
+  ];
+  const r = await fetch(deepseek ? "https://api.deepseek.com/chat/completions" : "https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${deepseek ? env.DEEPSEEK_API_KEY : env.OPENAI_API_KEY}` },
+    body: JSON.stringify({ model: modelo, temperature: 0.2, response_format: { type: "json_object" }, messages: mensajes, max_tokens: 700 }),
+    signal: AbortSignal.timeout(20000),
+  }).catch((error) => ({ ok: false, status: 0, error }));
+  if (!r.ok) {
+    console.log(`ASISTENTE: la IA respondió ${r.status || r.error?.message}`);
+    throw new Error(r.status === 429 ? "La IA está sin saldo o muy ocupada. Prueba en un rato." : "La IA no respondió. Prueba otra vez.");
+  }
+  const cuerpo = await r.json();
+  if (cuerpo?.usage) {
+    await anotarGasto(env, {
+      modelo: `${modelo} (asistente)`,
+      entrada: cuerpo.usage.prompt_tokens || 0,
+      cacheadas: cuerpo.usage.prompt_cache_hit_tokens || cuerpo.usage.prompt_tokens_details?.cached_tokens || 0,
+      salida: cuerpo.usage.completion_tokens || 0,
+    }).catch(() => {});
+  }
+  let salida = {};
+  try {
+    salida = JSON.parse(cuerpo?.choices?.[0]?.message?.content || "{}");
+  } catch {
+    salida = { respuesta: String(cuerpo?.choices?.[0]?.message?.content || "") };
+  }
+  // El botón "Abrir …" solo para una pantalla que existe y no es esta.
+  const ir = pantallaValida(salida.ir, { conAnuncios });
+  return {
+    respuesta: String(salida.respuesta || "No entendí la pregunta. ¿Me la dices de otra forma?").slice(0, 2000),
+    ir: ir && ir.nombre !== dondeEsta ? ir : null,
+    accion: accionValida(salida.accion, datos),
+  };
+}
+
+// Lo que propone la IA se revisa antes de enseñarlo como botón: una
+// categoría que existe, un monto razonable, un cliente que de verdad debe.
+function accionValida(accion, datos) {
+  if (!accion || typeof accion !== "object") return null;
+  const monto = numero(accion.monto);
+  if (monto === null || monto <= 0 || monto > 10_000_000) return null;
+  if (accion.tipo === "gasto") {
+    return {
+      tipo: "gasto",
+      monto: redondo(monto),
+      categoria: CATEGORIAS_DE_GASTO.includes(accion.categoria) ? accion.categoria : "Otros",
+      descripcion: String(accion.descripcion || "").slice(0, 200),
+    };
+  }
+  return null;
+}

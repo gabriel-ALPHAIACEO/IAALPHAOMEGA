@@ -1,0 +1,316 @@
+// CASHEA Y LA UBICACIÓN: las cuentas, las fechas y qué cuenta como pregunta.
+//
+// QUÉ SE PROTEGE (30-sep-2026).
+//
+//   · Las cuentas de Cashea son dinero. 30% de 90 USD son 27 USD, y la
+//     inicial más el resto tienen que sumar EXACTAMENTE el precio.
+//   · La promoción tiene fecha (del 1 al 6 de octubre). Antes, se anuncia; después, el
+//     bot no puede ofrecer esos porcentajes.
+//   · La ubicación sale TAL CUAL, con su botón, y solo cuando preguntan por
+//     la tienda — no cuando el cliente da SU dirección para un envío, ni
+//     cuando pide la tienda online.
+//
+// Las pruebas no saben de qué tienda son: leen la tabla de pagos.txt y el
+// texto de ubicacion.txt, y comprueban contra eso.
+
+import fs from "node:fs";
+import path from "node:path";
+import { prepararSrc, ok, titulo, terminar } from "./ayuda.mjs";
+
+const src = await prepararSrc();
+const C = await src.cargar("cashea.js");
+const U = await src.cargar("ubicacion.js");
+
+const EN_FECHA = Date.parse("2026-10-03T12:00:00-04:00");
+
+// ───────────────────────────────────────────────────────────────────────
+titulo('"X cuanto me lo dejan en cashea soy level 6" (caso real, 2-oct)');
+{
+  const t = "X cuanto me lo dejan en cashea soy level 6";
+  ok(C.preguntaPorCashea(t), "es una pregunta de Cashea");
+  ok(C.nivelDelCliente(t) === 6, '"level 6" es el Nivel 6', String(C.nivelDelCliente(t)));
+  for (const [frase, n] of [["lvl 4", 4], ["nv 5", 5], ["niv 3", 3], ["nivel6", 6], ["soy nivel tres", 3]]) {
+    ok(C.nivelDelCliente(frase) === n, `"${frase}" → Nivel ${n}`);
+  }
+  const DIA = Date.parse("2026-10-02T12:00:00-04:00");
+  const tres = [
+    { titulo: "Jordan 40 negro caballero", precio: "120 USD" },
+    { titulo: "Jordan 40 blanco caballero", precio: "120 USD" },
+    { titulo: "Jordan 40 rojo caballero", precio: "120 USD" },
+  ];
+  const tarjeta = C.tarjetaCashea({ nivel: 6, productos: tres, ahora: DIA });
+  ok(/Con tu Nivel 6 en Cashea no pagas inicial/.test(tarjeta) && /Sin inicial \(0%\)/.test(tarjeta), "le contesta con SU nivel (0% de inicial), no con la tabla", tarjeta.split("\n")[0]);
+  ok(!/• Nivel 1 → 50% de inicial/.test(tarjeta), "sin la tabla entera de niveles");
+  ok((tarjeta.match(/Jordan 40/g) || []).length === 1, "los tres colores al mismo precio: UNA cuenta, con el nombre «Jordan 40»", tarjeta.replace(/\n/g, " | "));
+  // LA CUENTA EN DINERO (14-oct-2026, dueño: "que saque las cuentas de Cashea").
+  ok(/🛍️ Jordan 40 — 120 USD/.test(tarjeta) && /Pagas 6 cuotas de 20 USD/.test(tarjeta) && !/asesor/.test(tarjeta),
+     "la cuenta en dinero: 120 USD sin inicial → 6 cuotas de 20 USD, sin mandarlo al asesor", tarjeta.replace(/\n/g, " | "));
+}
+
+titulo("la tabla se lee de pagos.txt");
+
+ok(C.hayCashea(), "Cashea está cargado");
+ok(C.inicialDelNivel(1) === 50 && C.inicialDelNivel(3) === 30 && C.inicialDelNivel(6) === 0,
+   "Nivel 1 → 50%, Nivel 3 → 30%, Nivel 6 → 0%");
+ok(C.inicialDelNivel(7) === null, "un nivel que no existe no se inventa");
+
+// ───────────────────────────────────────────────────────────────────────
+titulo("la vigencia: del 1 al 6 de octubre, hora de Venezuela — y ANTES también contesta");
+
+const hora = (iso) => Date.parse(iso);
+const HOY = hora("2026-09-30T19:00:00-04:00");
+const EN = hora("2026-10-03T12:00:00-04:00");
+ok(C.momentoDeLaPromocion(hora("2026-09-30T23:59:00-04:00")) === "antes", "el 30 de septiembre a las 23:59: todavía no empezó");
+ok(C.momentoDeLaPromocion(hora("2026-10-01T00:00:00-04:00")) === "vigente", "el 1 de octubre a las 00:00: en fecha");
+ok(C.momentoDeLaPromocion(hora("2026-10-06T23:59:00-04:00")) === "vigente", "el 6 de octubre a las 23:59: todavía en fecha");
+ok(C.nombreDeLasCuotas(hora("2026-10-07T00:00:01-04:00")) === "3 cuotas sin interés" && /👀 Y del 15 al 20 de octubre tenemos promo: «Casheálo con menos»/.test(C.tarjetaCashea({ ahora: hora("2026-10-07T00:00:01-04:00") })), "el 7 de octubre: terminó la del 1 al 6, va el esquema normal (3 cuotas sin interés) y se anuncia la del 15 al 20");
+ok(C.momentoDeLaPromocion(hora("2027-01-01T00:00:01-04:00")) === "despues", "el 1 de enero: terminó la campaña");
+ok(C.casheaVigente(HOY), "HOY (antes de empezar) el bot SÍ contesta Cashea (pedido del dueño)");
+ok(C.casheaVigente(hora("2027-01-01T00:00:01-04:00")), "después de la campaña Cashea sigue normal (esquema base), no pasa al asesor");
+{
+  const enero = hora("2027-01-08T12:00:00-04:00");
+  const t = C.tarjetaCashea({ ahora: enero });
+  ok(/trabajamos con Cashea/.test(t) && /• Nivel 1 → 50% de inicial/.test(t) && /• Nivel 6 → 0%/.test(t) && /3 cuotas sin interés/.test(t),
+     "enero: el esquema normal, Nivel 1 50% … Nivel 6 0% y 3 cuotas sin interés", t.slice(0, 160));
+  ok(!/promo|asesor|⏳|🔥/.test(t.replace(/Dímelo[^\n]*/, "")), "enero: no anuncia ninguna promo ni manda al asesor", t.slice(0, 200));
+  ok(!/confirma un asesor/.test(t), "ni «te lo confirma un asesor»");
+}
+
+// ───────────────────────────────────────────────────────────────────────
+titulo("Días del Club Cashea (12-oct-2026): 1 al 6 y 15 al 20 de cada mes, hasta fin de año");
+{
+  const D = (iso) => C.tarjetaCashea({ ahora: hora(iso) });
+  ok(C.nombreDeLasCuotas(hora("2026-10-14T23:59:00-04:00")) === "3 cuotas sin interés" && C.nombreDeLasCuotas(hora("2026-10-15T00:00:00-04:00")) === "hasta 3 cuotas" && /Casheálo con menos/.test(D("2026-10-15T00:00:00-04:00")),
+     "el 15 a las 00:00 (hora de Venezuela) empieza Casheálo con menos");
+  ok(/Casheálo con menos/.test(D("2026-10-20T23:59:00-04:00")) && /👀 Y del 1 al 6 de noviembre tenemos promo/.test(D("2026-10-21T00:00:01-04:00")) && C.nombreDeLasCuotas(hora("2026-10-21T00:00:01-04:00")) === "3 cuotas sin interés",
+     "el 20 a las 23:59 todavía; el 21 se anuncia la del 1 de noviembre");
+  ok(C.nombreDeLasCuotas(hora("2026-10-16T12:00:00-04:00")) === "hasta 3 cuotas" && C.textoDelMinimo(hora("2026-10-16T12:00:00-04:00")) === "",
+     "del 15 al 20: hasta 3 cuotas y sin mínimo");
+  ok(C.nombreDeLasCuotas(hora("2026-11-03T12:00:00-04:00")) === "6 cuotas" && C.textoDelMinimo(hora("2026-11-03T12:00:00-04:00")) === "compras desde 100$",
+     "del 1 al 6 de noviembre: 6 cuotas desde 100$ (se repite cada mes)");
+  ok(C.fechasDeLaPromocion(hora("2026-11-17T12:00:00-04:00")) === "del 15 al 20 de noviembre", "en noviembre también");
+  // DICIEMBRE (13-oct-2026, aviso de Cashea): del 1 al 31, todo el mes.
+  for (const dia of ["01", "10", "17", "25", "31"]) {
+    const t = hora(`2026-12-${dia}T12:00:00-04:00`);
+    ok(C.momentoDeLaPromocion(t) === "vigente" && C.fechasDeLaPromocion(t) === "del 1 al 31 de diciembre" && C.nombreDeLasCuotas(t) === "6 cuotas",
+       `el ${dia} de diciembre: vigente, del 1 al 31, en 6 cuotas`);
+  }
+  ok(/👀 Y del 1 al 31 de diciembre tenemos promo: todo el mes, 6 cuotas/.test(D("2026-11-25T12:00:00-04:00")) && /el resto en 3 cuotas sin interés/.test(D("2026-11-25T12:00:00-04:00")), "el 25 de noviembre: el esquema normal y la próxima promo (todo diciembre)", D("2026-11-25T12:00:00-04:00").replace(/\n/g, " | ").slice(0, 200));
+  ok(C.textoDelMinimo(hora("2026-12-17T12:00:00-04:00")) === "compras desde 100$", "en diciembre el mínimo de 100$ rige todo el mes");
+  for (const n of [1, 2, 3, 4, 5, 6]) {
+    ok(C.inicialDelNivel(n, hora("2026-12-17T12:00:00-04:00")) === [50, 40, 30, 20, 10, 0][n - 1], `17 de diciembre, Nivel ${n} → ${[50, 40, 30, 20, 10, 0][n - 1]}%`);
+  }
+  ok(!/Casheálo con menos/.test(D("2026-12-17T12:00:00-04:00")), "en diciembre ya no sale «Casheálo con menos»");
+  ok(C.momentoDeLaPromocion(hora("2026-12-07T12:00:00-04:00")) === "vigente", "el 7 de diciembre sigue vigente (antes era entre promociones)");
+  ok(C.momentoDeLaPromocion(hora("2027-01-02T12:00:00-04:00")) === "despues", "en enero ya no (la campaña es hasta fin de año)");
+  for (const n of [1, 2, 3, 4, 5, 6]) {
+    ok(C.inicialDelNivel(n, hora("2026-10-16T12:00:00-04:00")) === [50, 40, 30, 20, 10, 0][n - 1], `del 15 al 20, Nivel ${n} → ${[50, 40, 30, 20, 10, 0][n - 1]}%`);
+  }
+  const entre = D("2026-10-12T12:00:00-04:00");
+  // ENTRE PROMOCIONES (14-oct-2026, dueño): el esquema normal de Cashea, nivel
+  // por nivel con sus 3 cuotas sin interés, y la próxima promo.
+  // Como lo diría una vendedora (14-oct-2026, dueño: "más lógico y humano"):
+  // las 3 cuotas UNA vez, en la frase de arriba; los niveles; la próxima promo.
+  ok(entre.startsWith("¡Sí, trabajamos con Cashea! 💜 Pagas una inicial según tu nivel y el resto en 3 cuotas sin interés:\n\n• Nivel 1 → 50% de inicial\n• Nivel 2 → 40% de inicial\n• Nivel 3 → 30% de inicial\n• Nivel 4 → 20% de inicial\n• Nivel 5 → 10% de inicial\n• Nivel 6 → 0% de inicial 🎉"),
+     "el 12: el esquema normal, del Nivel 1 al 6, con las 3 cuotas sin interés dichas una vez", entre.replace(/\n/g, " | ").slice(0, 220));
+  ok((entre.match(/cuotas sin interés/g) || []).length === 1, "«3 cuotas sin interés» una sola vez, no en cada renglón");
+  ok(/👀 Y del 15 al 20 de octubre tenemos promo: «Casheálo con menos», bajada de inicial de 50% a 0% en compras de hasta 3 cuotas 🔥/.test(entre) && /¿Qué nivel tienes en Cashea\?/.test(entre), "y anuncia la próxima (15 al 20) y pregunta el nivel");
+  const entreN3 = C.tarjetaCashea({ nivel: 3, productos: [{ titulo: "Jordan 4 Retro", precio: "120 USD" }], ahora: hora("2026-10-12T12:00:00-04:00") });
+  ok(/🛍️ Jordan 4 Retro — 120 USD\n• Inicial \(30%\): 36 USD\n• Luego 3 cuotas sin interés de 28 USD/.test(entreN3) && /👀 Y del 15 al 20 de octubre tenemos promo/.test(entreN3), "con nivel, entre promociones: 36 de inicial y 3 cuotas sin interés de 28, y la próxima promo", entreN3.replace(/\n/g, " | "));
+  const dentro = D("2026-10-16T12:00:00-04:00");
+  ok(/^¡Sí, trabajamos con Cashea! 💜 Y llegaste en buen momento: del 15 al 20 de octubre tenemos promo, «Casheálo con menos», bajada de inicial de 50% a 0% en compras de hasta 3 cuotas 🔥/.test(dentro) && !/inicial normal/.test(dentro) && !/100\$/.test(dentro),
+     "el 16: en fecha, hasta 3 cuotas, sin el mínimo de las 6", dentro.split("\n")[0]);
+  const noviembre = D("2026-11-02T12:00:00-04:00");
+  ok(/del 1 al 6 de noviembre tenemos promo, 6 cuotas para todos los niveles en compras de 100\$ en adelante 🔥/.test(noviembre),
+     "el 2 de noviembre: los primeros 6 en 6 cuotas, desde 100$", noviembre.split("\n")[0]);
+  ok(!/5\s*%|comisi/i.test(entre + dentro + noviembre), "la comisión del 5% es del comercio: al cliente no se le dice");
+  ok(!C.revisarCashea("Con Nivel 3 pagas el 30% de inicial", hora("2026-10-12T12:00:00-04:00")).corregido,
+     "entre promociones, el porcentaje correcto de la próxima no se toca");
+}
+
+// ───────────────────────────────────────────────────────────────────────
+titulo("las cuentas");
+
+const c1 = C.cuentaCashea("90 USD", 30);
+ok(c1.inicial === "27 USD" && c1.resto === "63 USD", "90 USD al 30% → 27 USD + 63 USD", `${c1.inicial} + ${c1.resto}`);
+
+const c2 = C.cuentaCashea("85.50 USD", 30);
+ok(c2.inicial === "25.65 USD" && c2.resto === "59.85 USD", "85.50 USD al 30% → 25.65 + 59.85", `${c2.inicial} + ${c2.resto}`);
+
+const c3 = C.cuentaCashea("$85,00", 40);
+ok(c3.inicial === "$34" && c3.resto === "$51", "con coma decimal también: $85,00 al 40% → $34 + $51", `${c3.inicial} + ${c3.resto}`);
+
+const c4 = C.cuentaCashea("99.99 USD", 10);
+ok(Math.round((c4.inicialCifra + c4.restoCifra) * 100) === 9999,
+   "la inicial y el resto suman EXACTAMENTE el precio, sin perder un céntimo", `${c4.inicial} + ${c4.resto}`);
+
+ok(C.cuentaCashea("120 USD", 0).inicial === "0 USD", "Nivel 6 con 120 USD: 0 de inicial");
+const cero90 = C.cuentaCashea("90 USD", 0, EN);
+ok(cero90.inicial === "0 USD" && cero90.cuotas === null,
+   "Nivel 6 con 90 USD: 0% de inicial sí, pero sin las 6 cuotas (son desde 100$)");
+ok(C.cuentaCashea("", 30) === null && C.cuentaCashea("consultar", 30) === null,
+   "sin precio no hay cuenta (no se inventa)");
+
+// ───────────────────────────────────────────────────────────────────────
+titulo("las 6 cuotas sin interés, desde 100$");
+
+ok(C.nombreDeLasCuotas(EN) === "6 cuotas", "del 1 al 6: pagos.txt dice 6 cuotas", C.nombreDeLasCuotas(EN));
+ok(C.textoDelMinimo(EN) === "compras desde 100$", "y el mínimo de 100$", C.textoDelMinimo(EN));
+
+const q1 = C.cuentaCashea("120 USD", 30, EN).cuotas;
+ok(q1.cuantas === 6 && q1.cada === "14 USD" && q1.iguales, "120 USD al 30% → 84 en 6 cuotas de 14 USD justas", q1.cada);
+
+const q2 = C.cuentaCashea("135.50 USD", 30, EN).cuotas;
+ok(!q2.iguales && q2.cada === "15.81 USD" && q2.ultima === "15.80 USD",
+   "94.85 en 6 → 5 de 15.81 y la última de 15.80 (no se inventan céntimos)", `${q2.cada} / ${q2.ultima}`);
+ok(Math.round((q2.cadaCifra * 5 + q2.ultimaCifra) * 100) === 9485, "las 6 suman EXACTAMENTE el resto");
+
+const q3 = C.cuentaCashea("120 USD", 0, EN).cuotas;
+ok(q3.cada === "20 USD", "Nivel 6 (0%): los 120 USD en 6 cuotas de 20 USD", q3.cada);
+
+const barato = C.cuentaCashea("90 USD", 30, EN);
+ok(barato.cuotas === null && barato.alcanzaMinimo === false, "90 USD no llega a 100$: NO se reparte en 6 cuotas");
+ok(C.cuentaCashea("100 USD", 30, EN).alcanzaMinimo, "100 USD justos sí");
+
+// ───────────────────────────────────────────────────────────────────────
+titulo("la tarjeta, personalizada");
+
+const jordan = { titulo: "Jordan 4 Retro", precio: "120 USD" };
+const samba = { titulo: "Adidas Samba", precio: "75 USD" };
+
+const hoy = C.tarjetaCashea({ ahora: HOY });
+ok(/^¡Sí, trabajamos con Cashea! 💜 Y ojo 👀 del 1 al 6 de octubre tenemos promo: 6 cuotas para todos los niveles en compras de 100\$ en adelante 🔥 \(arranca el 1 de octubre\)/.test(hoy), "arriba: el sí, y la promo que viene con su fecha", hoy.split("\n")[0]);
+ok(/• Nivel 1 → 50% de inicial\n• Nivel 2 → 40% de inicial\n• Nivel 3 → 30% de inicial\n• Nivel 4 → 20% de inicial\n• Nivel 5 → 10% de inicial\n• Nivel 6 → 0% de inicial 🎉/.test(hoy),
+   "los 6 niveles, del 1 al 6 («• Nivel N → X% de inicial»)");
+ok(!/Para las 6 cuotas, la compra/.test(hoy), "el mínimo ya va en la frase de la promo: no se repite");
+ok(/¿Qué nivel tienes en Cashea\? Dímelo y te digo cuánto te toca de inicial 😉$/.test(hoy), "y le pregunta su nivel");
+ok(!/🔥.*🔥/.test(hoy.split("\n")[0]), "sin fuegos repetidos");
+
+const enFecha = C.tarjetaCashea({ ahora: EN });
+ok(/llegaste en buen momento: del 1 al 6 de octubre/.test(enFecha) && !/arranca/i.test(enFecha),
+   "en fecha ya no dice 'arranca'");
+
+const sinNivelConZapato = C.tarjetaCashea({ productos: [jordan], ahora: EN });
+ok(/¿Qué nivel tienes en Cashea\? Dímelo y te digo cuánto te toca de inicial 😉$/.test(sinNivelConZapato), "sin nivel, mirando un zapato: termina preguntando el nivel");
+
+// SIN MONTOS (dueño, 2-oct-2026): el porcentaje de su nivel y las cuotas,
+// sí; cuánto dinero es la inicial o cada cuota, NO — eso, el asesor.
+const SIN_DINERO = /\d+(?:[.,]\d+)?\s*USD|Inicial:\s*\d|cuotas? de \d/;
+
+const n3 = C.tarjetaCashea({ nivel: 3, productos: [jordan], ahora: EN });
+ok(/^💜 ¡Perfecto! Con tu Nivel 3 en Cashea te queda así:\n\n🛍️ Jordan 4 Retro — 120 USD\n• Inicial \(30%\): 36 USD\n• Luego 6 cuotas de 14 USD/.test(n3), "con Nivel 3 y el Jordan a 120: 36 de inicial y 6 cuotas de 14", n3.replace(/\n/g, " | "));
+ok(!/asesor/.test(n3), "sin «te lo confirma un asesor»: la cuenta ya está");
+ok(/La promo es del 1 al 6 de octubre/.test(n3), "y hasta cuándo es la promo");
+const barata = C.tarjetaCashea({ nivel: 3, productos: [samba], ahora: EN });
+ok(/• Inicial \(30%\): 22.50 USD/.test(barata) && /Las 6 cuotas son en compras desde 100\$, y esta no llega todavía/.test(barata) && !/cuotas de/.test(barata),
+   "75 USD no llega a 100$: su inicial, y que las 6 cuotas piden 100$ (sin inventar cuotas)", barata.replace(/\n/g, " | "));
+const raras = C.cuentaCashea("59.85 USD", 0, EN);
+ok(!raras.alcanzaMinimo, "(59.85 no llega al mínimo de 100$)");
+const exactas = C.tarjetaCashea({ nivel: 6, productos: [{ titulo: "Bolso Michael Kors", precio: "125 USD" }], ahora: hora("2026-10-10T12:00:00-04:00") });
+ok(/Pagas 2 cuotas sin interés de 41.67 USD y la última de 41.66 USD/.test(exactas), "125 entre 3 no da exacto: dos de 41.67 y la última de 41.66 (suman 125)", exactas.replace(/\n/g, " | "));
+
+const n6 = C.tarjetaCashea({ nivel: 6, productos: [jordan], ahora: EN });
+ok(/^🎉 ¡Buenas noticias! Con tu Nivel 6 en Cashea no pagas inicial/.test(n6) && /Pagas 6 cuotas de 20 USD/.test(n6), "Nivel 6: sin inicial, 6 cuotas de 20", n6.replace(/\n/g, " | "));
+
+const nivelSinZapato = C.tarjetaCashea({ nivel: 2, ahora: HOY });
+ok(/Con tu Nivel 2 en Cashea pagas el 40% de inicial/.test(nivelSinZapato) && /Del 1 al 6 de octubre/.test(nivelSinZapato) && !SIN_DINERO.test(nivelSinZapato),
+   "con nivel y sin zapato: su porcentaje y la fecha, sin montos");
+
+const nivelRaro = C.tarjetaCashea({ nivel: 9, productos: [jordan], ahora: EN });
+ok(/No tengo el Nivel 9/.test(nivelRaro) && /Nivel 1 → 50%/.test(nivelRaro),
+   "un nivel que no existe: lo dice y enseña la tabla");
+
+const muchos = C.tarjetaCashea({ nivel: 3, productos: [jordan, samba, jordan, samba, jordan], ahora: EN });
+ok((muchos.match(/🛍️/g) || []).length === 2 && /Jordan 4 Retro — 120 USD/.test(muchos) && /Adidas Samba — 75 USD/.test(muchos), "con varios productos: una cuenta por producto distinto (no repetidas)", muchos.replace(/\n/g, " | "));
+
+titulo("la red: si la IA escribe montos de Cashea a ojo, se quitan y va la cuenta que saca el sistema");
+for (const malo of ["Con tu nivel 3 das 36$ de inicial y el resto en cuotas", "Te quedan 6 cuotas de 20 USD 😊", "Pagas 14$ por cuota con Cashea"]) {
+  const r = C.revisarCashea(malo, EN);
+  ok(r.corregido && r.conCuenta && !SIN_DINERO.test(r.respuesta), `atrapa: "${malo}" (y pide la cuenta del sistema)`, r.respuesta.split("\n")[0]);
+}
+for (const bueno of ["¡Claro que sí! 🙌 Mira cómo te queda con Cashea 👇", "Para optar por las 6 cuotas la compra debe ser de 100$ en adelante", "Estos Jordan cuestan 120$ 👟"]) {
+  ok(!C.revisarCashea(bueno, EN).corregido, `deja pasar: "${bueno}"`);
+}
+ok(muchos.length <= 1000, "y cabe en un mensaje de Instagram (1000 letras)", `${muchos.length}`);
+
+// ───────────────────────────────────────────────────────────────────────
+titulo("¿pregunta por Cashea? ¿dice su nivel?");
+
+for (const t of ["aceptan cashea?", "trabajan con Cashea", "se puede pagar en cuotas?", "cuanto es la inicial",
+                 "soy nivel 3", "tengo nivel cuatro", "kashea", "lo puedo financiar?"]) {
+  ok(C.preguntaPorCashea(t), `"${t}" → sí`);
+}
+for (const t of ["hola", "tienen jordan 4?", "precio", "qué métodos de pago tienen?", "dónde están?"]) {
+  ok(!C.preguntaPorCashea(t), `"${t}" → no`);
+}
+ok(C.nivelDelCliente("soy nivel 3 en cashea") === 3, 'nivel de "soy nivel 3"');
+ok(C.nivelDelCliente("tengo nivel cuatro") === 4, 'nivel de "tengo nivel cuatro"');
+ok(C.nivelDelCliente("aceptan cashea?") === null, "sin nivel, null");
+ok(C.nivelEnElHistorial("Pidió Retro 4. Nivel Cashea: 5. Ya busqué: Retro 4.") === 5,
+   "el nivel se recuerda desde el historial");
+
+// ───────────────────────────────────────────────────────────────────────
+titulo("la red de seguridad de Cashea");
+
+const bien = C.revisarCashea("¡Claro que sí! Con tu Nivel 3 pagas el 30% de inicial 🙌", EN_FECHA);
+ok(!bien.corregido, "un porcentaje correcto no se toca");
+
+const mal = C.revisarCashea("Con Nivel 3 pagas solo el 20% de inicial", EN_FECHA);
+ok(mal.corregido && /Nivel 1 → 50%/.test(mal.respuesta), "Nivel 3 con 20% (es 30%): se cambia por la tabla");
+
+const inventada = C.revisarCashea("Con Cashea das solo 15% de inicial", EN_FECHA);
+ok(inventada.corregido, "una inicial de 15% que no está en la tabla: se corrige");
+
+// Pasada la campaña sigue el esquema normal: el 30% del Nivel 3 es correcto, el 20% no.
+const enero = Date.parse("2027-01-08T10:00:00-04:00");
+ok(!C.revisarCashea("Con Nivel 3 pagas el 30% de inicial", enero).corregido, "en enero, el 30% del Nivel 3 (esquema normal) no se toca");
+const enero20 = C.revisarCashea("Con Nivel 3 pagas el 20% de inicial", enero);
+ok(enero20.corregido && /Nivel 1 → 50%/.test(enero20.respuesta) && enero20.respuesta !== C.CASHEA_FUERA_DE_FECHA, "en enero, un 20% que no es del Nivel 3 se corrige con la tabla normal, no con el asesor");
+
+ok(!C.revisarCashea("Tenemos 20% de descuento en Nike", EN_FECHA).corregido,
+   "un descuento que no es de Cashea no se toca");
+
+// ───────────────────────────────────────────────────────────────────────
+titulo("la ubicación: tal cual, con su botón, desde wrangler.toml");
+
+// El Emperador todavía no tiene su dirección en wrangler.toml: se prueba con
+// una de mentira. Lo que importa es que salga TAL CUAL y con su botón.
+const ENV = { DIRECCION: "Estamos en la calle de prueba, local 1, frente a la plaza", MAPS_URL: "https://maps.app.goo.gl/PRUEBA", FOTO_LOCAL: "" };
+
+const lugar = U.mensajeDeUbicacion(ENV);
+ok(lugar.texto === ENV.DIRECCION && lugar.texto.length > 20, "el texto sale EXACTAMENTE como está en DIRECCION");
+ok(lugar.boton === "MAPS/GOOGLE", "el botón dice MAPS/GOOGLE");
+ok(/^https:\/\/maps\.app\.goo\.gl\//.test(lugar.enlace), "y abre el enlace de Maps", lugar.enlace);
+
+// Así estaba un wrangler.toml de verdad (Invictus, 30-sep): el enlace en
+// DIRECCION y en FOTO_LOCAL, y MAPS_URL con "PENDIENTE".
+const cruzado = U.mensajeDeUbicacion({
+  DIRECCION: "https://maps.app.goo.gl/PRUEBA",
+  MAPS_URL: "PENDIENTE: el enlace de Google Maps",
+  FOTO_LOCAL: "https://maps.app.goo.gl/PRUEBA",
+});
+ok(cruzado.enlace === "https://maps.app.goo.gl/PRUEBA" && cruzado.texto === "",
+   "un enlace pegado en DIRECCION se usa de botón, nunca se le manda al cliente como dirección");
+ok(cruzado.foto === "", "un enlace de Maps en FOTO_LOCAL se descarta: no es una imagen (no sale un cuadro roto)");
+
+const drive = U.fotoUtilizable("https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/view?usp=sharing");
+ok(drive.foto === "https://drive.google.com/uc?export=view&id=1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+   "un 'Compartir' de Google Drive se arregla solo");
+ok(U.fotoUtilizable("https://ejemplo.net/local.jpg").foto === "https://ejemplo.net/local.jpg", "una imagen normal vale tal cual");
+ok(!U.hayUbicacion({}), "sin DIRECCION no hay ubicación que mandar (no se inventa)");
+
+for (const t of ["dónde están ubicados?", "Donde queda la tienda", "tienen tienda física?", "ubicación",
+                 "me pasas la dirección por favor", "cómo llego?", "google maps", "hola buenas, donde estan?"]) {
+  ok(U.preguntaPorUbicacion(t), `"${t}" → sí`);
+}
+for (const t of ["tienen tienda online?", "te paso mi dirección", "hacen envíos a mi dirección?",
+                 "mándame el link de la tienda", "tienen jordan 4?", "precio"]) {
+  ok(!U.preguntaPorUbicacion(t), `"${t}" → no`);
+}
+
+ok(U.soloPreguntaUbicacion("hola, dónde están ubicados?"), "\"hola, dónde están ubicados?\" es SOLO la ubicación: ni se llama al modelo");
+ok(!U.soloPreguntaUbicacion("dónde están y tienen jordan 4?"),
+   "\"dónde están y tienen jordan 4?\" pide algo más: el resto va al modelo");
+
+src.limpiar();
+terminar();

@@ -1,0 +1,20 @@
+{
+  "url": "https://rodrigo-bot.TU-CUENTA.workers.dev",
+  "clave": "",
+  "origen": "Solventas",
+  "equipo": "PC de la caja",
+  "sede": "",
+  "cadaMinutos": 15,
+  "fuente": {
+    "tipo": "comando",
+    "comando": "C:\\agente-puente\\sistemas\\solventas\\sacar-stock-solventas.bat",
+    "codificacion": "utf8",
+    "timeoutSegundos": 180
+  },
+  "columnas": {
+    "costo": ""
+  },
+  "fotos": {
+    "activar": false
+  }
+}

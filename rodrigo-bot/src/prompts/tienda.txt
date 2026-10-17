@@ -1,0 +1,41 @@
+# LO QUE RODRIGO SABE DE SÍ MISMA: horario, envíos, delivery y empleo.
+#
+# De aquí sale lo que el bot contesta cuando le preguntan "¿a qué hora
+# abren?", "¿hacen envíos?", "¿tienen delivery?" o "¿están contratando?".
+# La IA lo redacta a la medida del cliente, pero NO puede inventar nada que
+# no esté escrito aquí: si inventa algo, el sistema lo descarta y manda este
+# texto tal cual (ver src/datos.js).
+#
+# UNA SECCIÓN VACÍA ES UN TEMA QUE EL BOT NO SABE: esa pregunta la contesta
+# un asesor ("Eso te lo confirma un asesor en un momento 😊"). Mejor vacío
+# que inventado. HOY ESTÁN TODAS VACÍAS: el dueño todavía no ha dado los datos.
+#
+# CÓMO SE LLENA. Escribe debajo de cada [SECCIÓN] el mensaje tal como lo
+# mandarías tú, con sus emojis y sus saltos de línea. Las líneas que
+# empiezan con # son notas y no se le mandan a nadie. Por ejemplo:
+#
+#   [HORARIOS]
+#   🕘 Nuestro horario:
+#
+#   🔹 Lunes a sábado — 9:00am a 6:00pm
+#   🔹 Domingos — cerrado
+#
+#   ¡Te esperamos! 😊
+#
+# LO QUE EL SISTEMA LEE DE ESOS TEXTOS PARA QUE LA IA NO INVENTE:
+#   · si [ENVIOS] o [DELIVERY] dicen que NO, la IA no puede decir que sí;
+#   · las horas que aparecen en [HORARIOS] son las únicas que puede decir,
+#     y un día que no se nombre no tiene horario;
+#   · si [TRABAJO] dice "completo", no puede decir que están contratando.
+
+[HORARIOS]
+
+
+[ENVIOS]
+
+
+[DELIVERY]
+
+
+[TRABAJO]
+

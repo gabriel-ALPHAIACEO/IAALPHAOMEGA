@@ -1,0 +1,18 @@
+{
+  "url": "https://TU-WORKER.workers.dev",
+  "clave": "",
+  "origen": "Nombre del sistema (Profit, Saint, el que sea)",
+  "equipo": "PC de la caja",
+  "sede": "",
+  "cadaMinutos": 15,
+  "fuente": {
+    "tipo": "archivo",
+    "ruta": "C:\\exportes\\stock.csv",
+    "codificacion": "latin1",
+    "maximoMinutos": 180
+  },
+  "ventas": {
+    "activar": false,
+    "carpeta": "C:\\ventas-de-la-tienda"
+  }
+}

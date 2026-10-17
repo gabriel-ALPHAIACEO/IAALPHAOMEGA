@@ -1,0 +1,127 @@
+============================================================================
+ SOLVENTAS - LO QUE HAY QUE HACER AHORA (16-oct-2026)
+============================================================================
+Resumen de lo que se encontro: la base de Solventas (RRVS2013CA, servidor
+USER\SQLEXPRESS, en el Windows 8.1) tiene AUTO_CLOSE y AUTO_SHRINK activados
+y casi todas las tablas sin indice. Por eso tarda en abrir o falla al
+conectar. La reparacion no borra ni cambia ningun dato y hace un respaldo
+antes. Ya se probo sobre una copia de tu base real, sin errores.
+
+Como usar este archivo: cada linea que empieza con ">" es un COMANDO; copiala
+SIN el ">" y pegala en la ventana negra (CMD) con clic derecho, luego Enter.
+El CMD se abre como ADMINISTRADOR (Inicio, escribe cmd, clic derecho,
+"Ejecutar como administrador"). NO pegues contrasenas en el chat.
+
+----------------------------------------------------------------------------
+PASO 1 - Ya tienes el respaldo de hoy (no hace falta repetirlo)
+----------------------------------------------------------------------------
+Guarda bien el archivo RRVS2013CA-hoy.bak (esta en C:\respaldo-solventas del
+Windows 8.1 y en el Escritorio del Windows 11). Es tu copia de seguridad.
+Copiala tambien a un pendrive.
+
+----------------------------------------------------------------------------
+PASO 2 - Pasar 3 archivos al Windows 8.1
+----------------------------------------------------------------------------
+Estos 3 archivos estan en la carpeta que bajaste (sistemas\solventas):
+    reparar-base.bat
+    reparar-base.sql
+    ejecutar-sql.ps1
+Copialos a C:\SSCA del Windows 8.1 (los tres juntos, en la misma carpeta).
+Se pueden pasar con un pendrive, o por el disco de Windows 11 que en el 8.1
+se ve con otra letra. Ejemplo (cambia D por la letra de ese disco y la ruta
+por donde esten los archivos en Windows 11):
+> mkdir C:\SSCA
+> copy D:\SSCA\reparar-base.bat C:\SSCA\
+> copy D:\SSCA\reparar-base.sql C:\SSCA\
+> copy D:\SSCA\ejecutar-sql.ps1 C:\SSCA\
+
+----------------------------------------------------------------------------
+PASO 3 - Cerrar Solventas en TODAS las computadoras
+----------------------------------------------------------------------------
+Nadie debe tener Solventas abierto mientras se repara. Hazlo en un momento
+tranquilo (por ejemplo al cerrar la tienda). Tarda unos minutos.
+
+----------------------------------------------------------------------------
+PASO 4 - Ejecutar la reparacion
+----------------------------------------------------------------------------
+Haz clic derecho en C:\SSCA\reparar-base.bat, "Ejecutar como administrador".
+Escribe SI y Enter. Debe terminar diciendo:
+    "LISTO. Ya puedes abrir Solventas."
+Si dice "HUBO UN ERROR", copiame lo que salio (queda guardado tambien en
+C:\SSCA\reparar-base-resultado.txt). Si el error fue en el respaldo, no se
+cambio nada.
+
+SI ESE .BAT NO FUNCIONA en el Windows 8.1, usa este comando (el que ya
+sabemos que funciona en esa PC):
+> cd /d C:\SSCA
+> sqlcmd -S .\SQLEXPRESS -E -d master -b -i reparar-base.sql -v BASE="RRVS2013CA" RESPALDO="C:\SSCA\respaldos"
+(antes crea la carpeta si no existe:  mkdir C:\SSCA\respaldos )
+
+----------------------------------------------------------------------------
+PASO 5 - Comprobar que quedo bien
+----------------------------------------------------------------------------
+Las opciones deben salir en 0 y CHECKSUM:
+> sqlcmd -S .\SQLEXPRESS -E -Q "SELECT name, is_auto_close_on, is_auto_shrink_on, page_verify_option_desc FROM sys.databases WHERE name='RRVS2013CA'"
+Los indices nuevos deben ser 25:
+> sqlcmd -S .\SQLEXPRESS -E -d RRVS2013CA -Q "SELECT COUNT(*) AS indices_nuevos FROM sys.indexes WHERE name LIKE 'IX[_]%'"
+
+Luego abre Solventas y prueba: que abra rapido, que busque un producto por
+codigo, que haga una venta de prueba.
+
+----------------------------------------------------------------------------
+PASO 6 - Probar en las OTRAS computadoras (cajas)
+----------------------------------------------------------------------------
+Si hay otras PC que se conectan a esta base y "no conectan", en cada una:
+  - mira el archivo C:\SSCA\modoc.ini: la primera linea debe ser el nombre de
+    la PC del servidor + \SQLEXPRESS (hoy dice USER\SQLEXPRESS: la PC
+    servidora debe llamarse USER). Haz una copia del archivo antes de tocarlo.
+  - en la PC servidora (Windows 8.1): SQL Server Configuration Manager,
+    activar el protocolo TCP/IP de SQLEXPRESS, reiniciar el servicio y activar
+    el servicio "SQL Server Browser". Abrir en el firewall: UDP 1434 y el
+    puerto TCP de la instancia.
+Dime que error sale exactamente (o una captura) si sigue sin conectar.
+
+----------------------------------------------------------------------------
+PASO 7 (OPCIONAL) - Diagnostico completo despues de reparar
+----------------------------------------------------------------------------
+Copia tambien diagnostico.bat, diagnostico.sql y ejecutar-sql.ps1 a C:\SSCA
+del Windows 8.1 y ejecuta diagnostico.bat como administrador. Mandame
+C:\SSCA\diagnostico-solventas.txt (no lleva claves).
+
+----------------------------------------------------------------------------
+SEGURIDAD (hazlo cuando puedas)
+----------------------------------------------------------------------------
+  - Cambia en Solventas las contrasenas que pegaste en el chat.
+  - El usuario TIENDA tiene una clave muy corta (menos de 6 caracteres):
+    ponle una mas larga.
+  - Haz un respaldo cada semana y guardalo FUERA de la tienda (pendrive o
+    nube). Para hacerlo en cualquier momento:
+> sqlcmd -S .\SQLEXPRESS -E -Q "BACKUP DATABASE [RRVS2013CA] TO DISK='C:\respaldo-solventas\RRVS2013CA-NUEVO.bak' WITH INIT, CHECKSUM"
+    (cambia NUEVO por la fecha, por ejemplo 2026-10-23)
+
+----------------------------------------------------------------------------
+LO QUE ME TIENES QUE RESPONDER
+----------------------------------------------------------------------------
+  1. Despues de reparar, Solventas abre rapido en el Windows 8.1?
+  2. Hay otras computadoras que se conectan a esta base? Cuales fallan y que
+     error sale?
+  3. La tienda va a seguir usando Solventas para vender, o prefieres pasar el
+     inventario y la caja a ALPHA IA?
+  4. El precio de venta en la caja es PVP1Prod (los 75 y 80 dolares que
+     tienen los 4 productos)? Confirmamelo.
+  5. Las fotos de los productos: Solventas no las guarda (el campo foto esta
+     vacio). Hay una carpeta con las fotos de los zapatos?
+
+----------------------------------------------------------------------------
+LO QUE VIENE DESPUES (no lo hagas todavia)
+----------------------------------------------------------------------------
+Conectar el stock de Solventas con el bot de Rodrigo. Tengo ya la consulta
+lista (sacar-stock-solventas.bat). Faltan dos cosas:
+  - El bot de Rodrigo todavia no esta desplegado (no tiene direccion).
+  - El programa que envia el stock (agente puente) necesita Windows 10 o
+    superior; en Windows 8.1 no corre. Hay que hacer un envio en PowerShell
+    para el 8.1, o mudar Solventas a otra PC. Lo decidimos cuando respondas la
+    pregunta 3.
+
+NO HAGAS: no reinstales SQL Server, no borres archivos de C:\SSCA, no cambies
+nada de la base por tu cuenta.
