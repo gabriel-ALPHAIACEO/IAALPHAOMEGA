@@ -204,5 +204,26 @@ titulo("las ganancias");
   ok(Math.abs(g.ganancia - despues.ganancia - 60) < 0.01, "una venta anulada deja de sumar ganancia", `${g.ganancia} → ${despues.ganancia}`);
 }
 
+titulo("un costo puesto después también cuenta");
+{
+  const celu = await inv.guardarProducto(DB, { origen: "manual", titulo: "Poco X8", precio: 480 });
+  const cv = await inv.guardarVariante(DB, celu, { opcion: "256GB" });
+  await inv.ajustarStock(DB, { varianteId: cv, sedeId: sede.id, cantidad: 3, quien: "Carga", tipo: "carga" });
+  const venta3 = await cobrar({ metodo: "Zelle", items: [{ variante: cv, cantidad: 1 }] });
+  const periodo = neg.periodoDe(new URLSearchParams("p=hoy"));
+  const antes = await neg.gananciasDelPeriodo(DB, periodo);
+  ok(venta3.sinCosto === 1 && antes.ventas.find((x) => x.id === venta3.ventaId).sin_costo === 1, "vendido sin costo: sale «sin costo»");
+  await inv.editarProducto(DB, celu, { costo: 300 });
+  const despues = await neg.gananciasDelPeriodo(DB, periodo);
+  const fila = despues.ventas.find((x) => x.id === venta3.ventaId);
+  ok(fila.ganancia === 180 && fila.sin_costo === 0 && Math.abs(despues.ganancia - antes.ganancia - 180) < 0.01, "al ponerle el costo al producto, esa venta de antes suma $180", JSON.stringify(fila));
+  const resumido = await neg.resumen(DB, periodo);
+  ok(Math.abs(resumido.ganancia.monto - despues.ganancia) < 0.01, "Inicio y Reportes dicen la misma ganancia que la página de Ganancias", `${resumido.ganancia.monto} vs ${despues.ganancia}`);
+  const sinCostoNinguno = despues.productos.filter((x) => x.sin_costo).map((x) => x.titulo);
+  ok(!sinCostoNinguno.includes("Poco X8"), "y el producto ya no sale como «sin costo»", sinCostoNinguno.join());
+  const pagina = await (await pedir("/panel/ganancias")).text();
+  ok(/Ganancia total/.test(pagina) && /poner el costo/.test(pagina) && /href="\/panel\/inventario\/p\/\d+"/.test(pagina), "la página dice la ganancia total y enlaza a cada producto sin costo");
+}
+
 src.limpiar();
 terminar();

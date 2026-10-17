@@ -276,7 +276,11 @@ async function paginaDeGanancias(env, url) {
   consulta.delete("ok");
   consulta.delete("error");
   const aviso = g.lineasSinCosto
-    ? `<div class="aviso-grande aviso">${insignia("alerta", "aviso")}<div><b>Hay ventas sin costo cargado</b><p>${numero(g.lineasSinCosto)} ${g.lineasSinCosto === 1 ? "producto vendido no tiene" : "productos vendidos no tienen"} costo, así que su ganancia no se cuenta (solo se cuenta el ${g.cobertura} % de lo vendido). Ponle el costo en Inventario › Editar.</p></div></div>`
+    ? `<section class="panel-tarjeta" style="margin:18px 0;display:flex;gap:14px;align-items:flex-start">${insignia("alerta", "aviso")}<div><b>Hay ventas sin costo</b><p class="suave" style="margin:4px 0 0;line-height:1.5">${numero(g.lineasSinCosto)} ${g.lineasSinCosto === 1 ? "producto vendido no tiene" : "productos vendidos no tienen"} costo, así que su ganancia no se cuenta (solo se cuenta el ${g.cobertura} % de lo vendido). Ponle el costo (Inventario › Editar) y se suma solo, también a las ventas de antes.</p>${
+        g.productos.some((p) => p.sin_costo)
+          ? `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">${g.productos.filter((p) => p.sin_costo).map((p) => `<a class="boton suave" href="/panel/inventario/p/${p.id}">${esc(p.titulo)} · poner el costo</a>`).join("")}</div>`
+          : ""
+      }</div></section>`
     : "";
   const porDia = new Map();
   for (const v of g.ventas) {
@@ -301,7 +305,7 @@ async function paginaDeGanancias(env, url) {
     acciones: `<a class="boton suave" href="/panel/ganancias.csv?${esc(consulta.toString())}">${icono("bajar")}Excel</a>`,
   })}
 <div class="herramientas">${selectorDePeriodo("/panel/ganancias", periodo)}</div>
-<div class="mosaico">${dato("Ganancia", cifra(g.ganancia), "sube", "bien", `${numero(g.ventas.length)} ${g.ventas.length === 1 ? "venta" : "ventas"}`)}${dato("Vendido", cifra(g.vendido), "ventas", "marca")}${dato("Margen", `${esc(String(g.margen).replace(".", ","))} %`, "porcentaje", "marca", "ganancia sobre lo vendido con costo")}</div>
+<div class="mosaico">${dato("Ganancia total", cifra(g.ganancia), "sube", "bien", `${numero(g.ventas.length)} ${g.ventas.length === 1 ? "venta" : "ventas"}${g.lineasSinCosto ? ` · falta el costo de ${numero(g.lineasSinCosto)} ${g.lineasSinCosto === 1 ? "producto" : "productos"}` : " · todo con costo"}`)}${dato("Vendido", cifra(g.vendido), "ventas", "marca")}${dato("Margen", `${esc(String(g.margen).replace(".", ","))} %`, "porcentaje", "marca", "ganancia sobre lo vendido con costo")}</div>
 ${aviso}${productos}${lista}`;
 }
 

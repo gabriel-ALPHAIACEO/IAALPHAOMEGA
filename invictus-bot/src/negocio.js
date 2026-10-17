@@ -421,11 +421,12 @@ export async function resumen(db, { desde, hasta }) {
   // costo cargado. Lo que no lo tiene se dice aparte, para no inventar.
   const margen = await db
     .prepare(
-      `SELECT COALESCE(SUM(CASE WHEN m.costo IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - m.costo) ELSE 0 END), 0) AS ganancia,
-              COALESCE(SUM(CASE WHEN m.costo IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido_con_costo,
+      `SELECT COALESCE(SUM(CASE WHEN COALESCE(m.costo, p.costo) IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - COALESCE(m.costo, p.costo)) ELSE 0 END), 0) AS ganancia,
+              COALESCE(SUM(CASE WHEN COALESCE(m.costo, p.costo) IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido_con_costo,
               COALESCE(SUM(CASE WHEN m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido,
               COALESCE(SUM(-m.delta), 0) AS unidades
          FROM inv_movimientos m JOIN inv_ventas ve ON ve.id = m.venta_id
+         LEFT JOIN inv_variantes v ON v.id = m.variante_id LEFT JOIN inv_productos p ON p.id = v.producto_id
         WHERE m.tipo = 'venta' AND ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?`
     )
     .bind(desde, hasta)
@@ -556,17 +557,20 @@ export async function resumen(db, { desde, hasta }) {
 
 /* ── GANANCIAS (17-oct-2026, pedido del dueño) ────────────────────────────
  * Ganancia = precio − costo de cada producto vendido, solo de los que tienen
- * costo cargado (lo demás se cuenta aparte, sin inventar). Sin las anuladas.
+ * costo (el de la venta, o si no había, el que tiene el producto HOY: un costo
+ * puesto después también cuenta). Lo demás se cuenta aparte, sin inventar.
+ * Sin las anuladas.
  */
 export async function gananciasDelPeriodo(db, { desde, hasta }) {
   await asegurarNegocio(db);
   const { results: porVenta } = await db
     .prepare(
       `SELECT ve.id, ve.creado, ve.cliente, ve.total, ve.metodo_pago, ve.fiado,
-              COALESCE(SUM(CASE WHEN m.costo IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - m.costo) ELSE 0 END), 0) AS ganancia,
-              COALESCE(SUM(CASE WHEN m.id IS NOT NULL AND (m.costo IS NULL OR m.precio IS NULL) THEN 1 ELSE 0 END), 0) AS sin_costo,
+              COALESCE(SUM(CASE WHEN COALESCE(m.costo, p.costo) IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - COALESCE(m.costo, p.costo)) ELSE 0 END), 0) AS ganancia,
+              COALESCE(SUM(CASE WHEN m.id IS NOT NULL AND (COALESCE(m.costo, p.costo) IS NULL OR m.precio IS NULL) THEN 1 ELSE 0 END), 0) AS sin_costo,
               COALESCE(SUM(CASE WHEN m.id IS NOT NULL THEN -m.delta ELSE 0 END), 0) AS unidades
          FROM inv_ventas ve LEFT JOIN inv_movimientos m ON m.venta_id = ve.id AND m.tipo = 'venta'
+         LEFT JOIN inv_variantes v ON v.id = m.variante_id LEFT JOIN inv_productos p ON p.id = v.producto_id
         WHERE ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?
         GROUP BY ve.id ORDER BY ve.creado DESC, ve.id DESC LIMIT 500`
     )
@@ -576,8 +580,8 @@ export async function gananciasDelPeriodo(db, { desde, hasta }) {
     .prepare(
       `SELECT p.id, p.titulo, SUM(-m.delta) AS unidades,
               COALESCE(SUM(CASE WHEN m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido,
-              COALESCE(SUM(CASE WHEN m.costo IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - m.costo) ELSE 0 END), 0) AS ganancia,
-              SUM(CASE WHEN m.costo IS NULL THEN 1 ELSE 0 END) AS sin_costo
+              COALESCE(SUM(CASE WHEN COALESCE(m.costo, p.costo) IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - COALESCE(m.costo, p.costo)) ELSE 0 END), 0) AS ganancia,
+              SUM(CASE WHEN COALESCE(m.costo, p.costo) IS NULL THEN 1 ELSE 0 END) AS sin_costo
          FROM inv_movimientos m JOIN inv_ventas ve ON ve.id = m.venta_id
          JOIN inv_variantes v ON v.id = m.variante_id JOIN inv_productos p ON p.id = v.producto_id
         WHERE m.tipo = 'venta' AND ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?
@@ -587,11 +591,12 @@ export async function gananciasDelPeriodo(db, { desde, hasta }) {
     .all();
   const t = await db
     .prepare(
-      `SELECT COALESCE(SUM(CASE WHEN m.costo IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - m.costo) ELSE 0 END), 0) AS ganancia,
-              COALESCE(SUM(CASE WHEN m.costo IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido_con_costo,
+      `SELECT COALESCE(SUM(CASE WHEN COALESCE(m.costo, p.costo) IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * (m.precio - COALESCE(m.costo, p.costo)) ELSE 0 END), 0) AS ganancia,
+              COALESCE(SUM(CASE WHEN COALESCE(m.costo, p.costo) IS NOT NULL AND m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido_con_costo,
               COALESCE(SUM(CASE WHEN m.precio IS NOT NULL THEN -m.delta * m.precio ELSE 0 END), 0) AS vendido,
-              COALESCE(SUM(CASE WHEN m.costo IS NULL OR m.precio IS NULL THEN 1 ELSE 0 END), 0) AS sin_costo
+              COALESCE(SUM(CASE WHEN COALESCE(m.costo, p.costo) IS NULL OR m.precio IS NULL THEN 1 ELSE 0 END), 0) AS sin_costo
          FROM inv_movimientos m JOIN inv_ventas ve ON ve.id = m.venta_id
+         LEFT JOIN inv_variantes v ON v.id = m.variante_id LEFT JOIN inv_productos p ON p.id = v.producto_id
         WHERE m.tipo = 'venta' AND ve.anulada = 0 AND ve.creado >= ? AND ve.creado < ?`
     )
     .bind(desde, hasta)
